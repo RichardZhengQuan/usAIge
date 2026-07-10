@@ -2,10 +2,10 @@
 import PackageDescription
 
 let package = Package(
-    name: "UsageHUD",
+    name: "usAIge",
     platforms: [.macOS(.v15)],
     products: [
-        .executable(name: "UsageHUD", targets: ["UsageHUD"]),
+        .executable(name: "usAIge", targets: ["UsageHUD"]),
     ],
     targets: [
         .executableTarget(name: "UsageHUD", exclude: ["Resources"]),

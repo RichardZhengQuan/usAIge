@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct UsageHUDApp: App {
+struct UsAIgeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {

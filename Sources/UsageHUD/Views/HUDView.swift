@@ -65,7 +65,7 @@ struct HUDView: View {
                 Image(systemName: "gearshape")
             }
             .buttonStyle(.borderless)
-            .help("Usage HUD Settings")
+            .help("usAIge Settings")
         }
         .padding(.bottom, 10)
     }
@@ -84,7 +84,7 @@ struct HUDView: View {
             messageView(
                 symbol: "person.crop.circle.badge.exclamationmark",
                 title: "Sign in through Codex",
-                detail: "Usage HUD uses your existing Codex account.",
+                detail: "usAIge uses your existing Codex account.",
                 actionTitle: "Open Codex",
                 action: openCodex
             )

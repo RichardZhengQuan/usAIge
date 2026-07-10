@@ -58,7 +58,7 @@ struct HUDSettingsView: View {
             }
 
             Section {
-                Button("Quit Usage HUD") {
+                Button("Quit usAIge") {
                     NSApplication.shared.terminate(nil)
                 }
             }

@@ -78,8 +78,8 @@ actor CodexUsageProvider: CodexUsageProviding {
         try await rpc.start()
         _ = try await rpc.request(method: "initialize", params: .object([
             "clientInfo": .object([
-                "name": .string("usage_hud"),
-                "title": .string("Usage HUD"),
+                "name": .string("usaige"),
+                "title": .string("usAIge"),
                 "version": .string("0.1.0"),
             ]),
         ]))
