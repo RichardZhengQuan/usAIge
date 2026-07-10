@@ -106,6 +106,13 @@ final class UsageStore {
         Self.countdown(secondsRemaining: resetAt.timeIntervalSince(now()))
     }
 
+    var visibleSnapshots: [QuotaSnapshot] {
+        switch state {
+        case let .current(values), let .stale(values, _): values
+        default: []
+        }
+    }
+
     nonisolated static func countdown(secondsRemaining: TimeInterval) -> String {
         guard secondsRemaining > 0 else { return "Resetting…" }
         let total = Int(secondsRemaining.rounded(.down))
