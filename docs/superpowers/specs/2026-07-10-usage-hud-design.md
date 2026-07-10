@@ -147,3 +147,11 @@ Persists visible bucket IDs, their order, panel scale, opacity, per-display posi
 - Configured full-screen and privacy triggers hide the panel and restore it afterward.
 - Stale or unavailable data is clearly distinguished from current data.
 - No browser scraping, quota estimation, or direct credential storage is used.
+
+## Alpha Distribution
+
+The public alpha is distributed as a compressed macOS disk image named `usAIge-0.1.0-alpha.dmg`. Opening the image presents `usAIge.app` and an `Applications` shortcut so users can install it with the standard drag-to-Applications interaction.
+
+The release pipeline must build the release executable from source, assemble the `.app`, create the disk image, mount it read-only, verify the bundled executable and Applications shortcut, validate the property list and ad-hoc signature, and generate a SHA-256 checksum. The disk image and checksum are published together on a prerelease GitHub Release.
+
+This alpha remains ad-hoc signed because the available keychain contains no Developer ID Application identity. The release notes and README must explain that users need to Control-click the installed app, choose Open, and confirm the first launch. Warning-free public installation is deferred until a Developer ID certificate and Apple notarization credentials are available.

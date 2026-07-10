@@ -70,6 +70,8 @@ private actor ScriptedRPC: RPCRequesting {
     func notifications() async -> AsyncStream<JSONRPCNotification> {
         AsyncStream { $0.finish() }
     }
+
+    func stop() async {}
 }
 
 private enum TestRPCError: Error {

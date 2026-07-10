@@ -102,6 +102,11 @@ final class UsageStore {
         retryTask = nil
     }
 
+    func shutdown() async {
+        stop()
+        await provider.stop()
+    }
+
     func countdown(to resetAt: Date) -> String {
         Self.countdown(secondsRemaining: resetAt.timeIntervalSince(now()))
     }
