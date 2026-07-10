@@ -2,6 +2,17 @@ import Foundation
 @testable import UsageHUD
 
 enum Fixtures {
+    static let codexSnapshot = QuotaSnapshot(
+        id: "codex",
+        displayName: "Codex 5-hour",
+        usedPercent: 25,
+        remainingPercent: 75,
+        resetAt: Date(timeIntervalSince1970: 1_800_003_600),
+        windowDurationMinutes: 300,
+        planType: "plus",
+        updatedAt: Date(timeIntervalSince1970: 1_800_000_000)
+    )
+
     static let multiBucketRateLimits: JSONValue = .object([
         "rateLimits": .object([
             "limitId": .string("codex"),
