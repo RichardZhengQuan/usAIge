@@ -1,3 +1,4 @@
+import CoreGraphics
 import Testing
 @testable import UsageHUD
 
@@ -17,4 +18,15 @@ func mapsRemainingPercentageToSeverity(input: (Double, QuotaSeverity)) {
     #expect(HUDMetrics.height(rowCount: 2, includesStatusBanner: false) == 226)
     #expect(HUDMetrics.height(rowCount: 8, includesStatusBanner: false) == 420)
     #expect(HUDMetrics.messageHeight == 260)
+}
+
+@Test func scalesThePanelBoundsWithTheHUDContent() {
+    #expect(
+        HUDMetrics.scaledSize(baseHeight: 226, scale: 1.5)
+            == CGSize(width: 438, height: 339)
+    )
+    #expect(
+        HUDMetrics.scaledSize(baseHeight: 226, scale: 0.75)
+            == CGSize(width: 219, height: 169.5)
+    )
 }

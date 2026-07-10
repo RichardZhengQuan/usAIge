@@ -29,7 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             settings: settings,
             openCodex: Self.openCodex,
             openSettings: { [weak self] in self?.showSettings() },
-            resizePanel: { [weak self] height in self?.resizePanel(to: height) }
+            resizePanel: { [weak self] size in self?.resizePanel(to: size) }
         )
         let panel = HUDPanel(contentView: NSHostingView(rootView: content))
         panel.delegate = self
@@ -106,13 +106,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.setFrame(frame, display: true)
     }
 
-    private func resizePanel(to height: CGFloat) {
-        guard let panel, abs(panel.frame.height - height) > 0.5 else { return }
-        panel.setFrame(
-            CGRect(x: panel.frame.minX, y: panel.frame.minY, width: 292, height: height),
-            display: true,
-            animate: false
+    private func resizePanel(to size: CGSize) {
+        guard let panel,
+              abs(panel.frame.width - size.width) > 0.5
+                || abs(panel.frame.height - size.height) > 0.5 else { return }
+
+        let anchoredOrigin = CGPoint(
+            x: panel.frame.maxX - size.width,
+            y: panel.frame.minY
         )
+        let frame: CGRect
+        if let screen = panel.screen ?? NSScreen.main {
+            frame = PanelPositioner.frame(
+                panelSize: size,
+                visibleFrame: screen.visibleFrame,
+                savedOrigin: anchoredOrigin
+            )
+        } else {
+            frame = CGRect(origin: anchoredOrigin, size: size)
+        }
+        panel.setFrame(frame, display: true, animate: false)
     }
 
     static func displayKey(for screen: NSScreen) -> String {

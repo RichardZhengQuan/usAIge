@@ -5,7 +5,7 @@ struct HUDView: View {
     @Bindable var settings: HUDSettings
     let openCodex: () -> Void
     let openSettings: () -> Void
-    let resizePanel: (CGFloat) -> Void
+    let resizePanel: (CGSize) -> Void
 
     private var snapshots: [QuotaSnapshot] {
         switch store.state {
@@ -25,6 +25,10 @@ struct HUDView: View {
         }
     }
 
+    private var scaledSize: CGSize {
+        HUDMetrics.scaledSize(baseHeight: desiredHeight, scale: settings.scale)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -40,11 +44,12 @@ struct HUDView: View {
         }
         .opacity(settings.opacity)
         .scaleEffect(settings.scale)
+        .frame(width: scaledSize.width, height: scaledSize.height)
         .task(id: snapshots.map(\.id)) {
             settings.registerBuckets(snapshots.map(\.id))
         }
-        .onAppear { resizePanel(desiredHeight) }
-        .onChange(of: desiredHeight) { _, height in resizePanel(height) }
+        .onAppear { resizePanel(scaledSize) }
+        .onChange(of: scaledSize) { _, size in resizePanel(size) }
     }
 
     private var header: some View {
@@ -158,10 +163,15 @@ struct HUDView: View {
 }
 
 enum HUDMetrics {
+    static let width: CGFloat = 292
     static let messageHeight: CGFloat = 260
 
     static func height(rowCount: Int, includesStatusBanner: Bool) -> CGFloat {
         let bannerHeight: CGFloat = includesStatusBanner ? 24 : 0
         return min(420, max(154, 82 + CGFloat(rowCount) * 72 + bannerHeight))
+    }
+
+    static func scaledSize(baseHeight: CGFloat, scale: Double) -> CGSize {
+        CGSize(width: width * scale, height: baseHeight * scale)
     }
 }
