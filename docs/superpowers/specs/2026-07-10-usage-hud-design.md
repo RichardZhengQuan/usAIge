@@ -1,8 +1,8 @@
-# Usage HUD Design
+# usAIge Design
 
 ## Summary
 
-Usage HUD is a native macOS companion for the unified OpenAI/Codex account. It displays the usage buckets exposed by the local Codex app-server in a small, configurable panel that floats above ordinary application windows. The panel is fully detailed, avoids the crowded menu bar, and hides automatically during configured full-screen and privacy-sensitive activities.
+usAIge is a native macOS companion for the unified OpenAI/Codex account. It displays the usage buckets exposed by the local Codex app-server in a small, configurable panel that floats above ordinary application windows. The panel is fully detailed, avoids the crowded menu bar, and hides automatically during configured full-screen and privacy-sensitive activities.
 
 ## Goals
 
@@ -99,7 +99,7 @@ Persists visible bucket IDs, their order, panel scale, opacity, per-display posi
 
 ## Privacy and Security
 
-- Usage HUD communicates only with the local Codex app-server for account usage.
+- usAIge communicates only with the local Codex app-server for account usage.
 - It does not read browser cookies, scrape web pages, inspect screen pixels, or persist OpenAI tokens.
 - Logs exclude email addresses, account identifiers, raw server payloads containing account data, and credentials.
 - The screen-sharing auto-hide policy defaults to privacy-preserving behavior.
@@ -147,4 +147,3 @@ Persists visible bucket IDs, their order, panel scale, opacity, per-display posi
 - Configured full-screen and privacy triggers hide the panel and restore it afterward.
 - Stale or unavailable data is clearly distinguished from current data.
 - No browser scraping, quota estimation, or direct credential storage is used.
-
