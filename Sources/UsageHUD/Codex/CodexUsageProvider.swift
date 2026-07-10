@@ -5,6 +5,7 @@ protocol RPCRequesting: Sendable {
     func request(method: String, params: JSONValue) async throws -> JSONValue
     func notify(method: String, params: JSONValue) async throws
     func notifications() async -> AsyncStream<JSONRPCNotification>
+    func stop() async
 }
 
 extension JSONRPCConnection: RPCRequesting {}
@@ -22,6 +23,7 @@ enum AccountUsageResult: Equatable, Sendable {
 protocol CodexUsageProviding: Sendable {
     func refresh() async throws -> AccountUsageResult
     func updates() async -> AsyncStream<[QuotaSnapshot]>
+    func stop() async
 }
 
 actor CodexUsageProvider: CodexUsageProviding {
@@ -71,6 +73,12 @@ actor CodexUsageProvider: CodexUsageProviding {
             }
             continuation.onTermination = { _ in task.cancel() }
         }
+    }
+
+    func stop() async {
+        await rpc.stop()
+        initialized = false
+        snapshotsByID = [:]
     }
 
     private func initializeIfNeeded() async throws {

@@ -31,6 +31,25 @@ open 'dist/usAIge.app'
 
 The script creates an ad-hoc signed application at `dist/usAIge.app`. Ad-hoc signing is suitable for local development but is not a substitute for Developer ID signing and notarization for public distribution.
 
+## Install the public alpha
+
+Download `usAIge-0.1.0-alpha.dmg` and its checksum from the latest GitHub prerelease. Open the disk image, then drag `usAIge.app` onto the Applications shortcut.
+
+This alpha is ad-hoc signed and is not notarized because the project does not yet have a Developer ID Application certificate. On first launch:
+
+1. Open the Applications folder.
+2. Control-click `usAIge` and choose **Open**.
+3. Click **Open** in the confirmation dialog.
+
+macOS remembers that choice for later launches. A future Developer ID-signed and notarized release will remove this one-time step.
+
+To build and verify the installer locally:
+
+```bash
+scripts/package-dmg.sh
+shasum -a 256 -c dist/usAIge-0.1.0-alpha.dmg.sha256
+```
+
 ## Usage data
 
 usAIge starts `codex app-server` locally and uses its documented JSON-RPC methods:
@@ -89,6 +108,7 @@ The signed-in account did not return any supported rate-limit buckets. usAIge do
 swift package clean
 swift test
 scripts/package-app.sh
+scripts/package-dmg.sh
 codesign --verify --deep --strict 'dist/usAIge.app'
 ```
 

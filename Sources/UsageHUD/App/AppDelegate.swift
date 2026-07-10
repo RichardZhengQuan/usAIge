@@ -45,9 +45,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         visibilityController.start()
     }
 
-    func applicationWillTerminate(_ notification: Notification) {
-        store.stop()
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         visibilityController.stop()
+        Task {
+            await store.shutdown()
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 
     func windowDidMove(_ notification: Notification) {
@@ -128,6 +132,8 @@ private actor MissingCodexProvider: CodexUsageProviding {
     func updates() async -> AsyncStream<[QuotaSnapshot]> {
         AsyncStream { $0.finish() }
     }
+
+    func stop() async {}
 }
 
 private enum MissingCodexError: Error {

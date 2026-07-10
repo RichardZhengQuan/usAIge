@@ -48,8 +48,19 @@ import Testing
     #expect(UsageStore.countdown(secondsRemaining: -1) == "Resetting…")
 }
 
+@MainActor
+@Test func shutdownStopsTheUsageProvider() async {
+    let provider = StubUsageProvider(results: [])
+    let store = UsageStore(provider: provider)
+
+    await store.shutdown()
+
+    #expect(await provider.stopped)
+}
+
 private actor StubUsageProvider: CodexUsageProviding {
     private var results: [Result<AccountUsageResult, Error>]
+    private(set) var stopped = false
 
     init(results: [Result<AccountUsageResult, Error>]) {
         self.results = results
@@ -62,6 +73,10 @@ private actor StubUsageProvider: CodexUsageProviding {
 
     func updates() async -> AsyncStream<[QuotaSnapshot]> {
         AsyncStream { $0.finish() }
+    }
+
+    func stop() async {
+        stopped = true
     }
 }
 
