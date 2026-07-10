@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let store: UsageStore
     let visibilityController: VisibilityController
     private var panel: HUDPanel?
+    private(set) var settingsWindow: NSWindow?
 
     override init() {
         settings = HUDSettings()
@@ -27,6 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             store: store,
             settings: settings,
             openCodex: Self.openCodex,
+            openSettings: { [weak self] in self?.showSettings() },
             resizePanel: { [weak self] height in self?.resizePanel(to: height) }
         )
         let panel = HUDPanel(contentView: NSHostingView(rootView: content))
@@ -64,6 +66,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let key = Self.displayKey(for: screen)
         settings.resetPosition(for: key)
         positionPanel(panel, on: screen)
+    }
+
+    func showSettings() {
+        let window: NSWindow
+        if let settingsWindow {
+            window = settingsWindow
+        } else {
+            let content = HUDSettingsRootView(settings: settings, store: store)
+            window = NSWindow(
+                contentRect: CGRect(x: 0, y: 0, width: 440, height: 520),
+                styleMask: [.titled, .closable, .miniaturizable],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = "usAIge Settings"
+            window.contentView = NSHostingView(rootView: content)
+            window.isReleasedWhenClosed = false
+            window.level = .floating
+            window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+            window.setFrameAutosaveName("usAIgeSettingsWindow")
+            window.center()
+            settingsWindow = window
+        }
+
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
     }
 
     private func positionPanel(_ panel: NSPanel, on screen: NSScreen? = NSScreen.main) {
