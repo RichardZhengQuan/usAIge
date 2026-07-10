@@ -5,6 +5,7 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let settings: HUDSettings
     let store: UsageStore
+    let visibilityController: VisibilityController
     private var panel: HUDPanel?
 
     override init() {
@@ -16,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         } else {
             store = UsageStore(provider: MissingCodexProvider())
         }
+        visibilityController = VisibilityController(settings: settings)
         super.init()
     }
 
@@ -30,13 +32,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let panel = HUDPanel(contentView: NSHostingView(rootView: content))
         panel.delegate = self
         self.panel = panel
+        visibilityController.onDecisionChange = { [weak self] decision in
+            guard let panel = self?.panel else { return }
+            switch decision {
+            case .visible: panel.orderFrontRegardless()
+            case .hidden: panel.orderOut(nil)
+            }
+        }
         positionPanel(panel)
         panel.orderFrontRegardless()
         store.start()
+        visibilityController.start()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         store.stop()
+        visibilityController.stop()
     }
 
     func windowDidMove(_ notification: Notification) {
