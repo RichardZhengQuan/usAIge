@@ -8,7 +8,7 @@ let package = Package(
         .executable(name: "UsageHUD", targets: ["UsageHUD"]),
     ],
     targets: [
-        .executableTarget(name: "UsageHUD"),
+        .executableTarget(name: "UsageHUD", exclude: ["Resources"]),
         .testTarget(name: "UsageHUDTests", dependencies: ["UsageHUD"]),
     ]
 )

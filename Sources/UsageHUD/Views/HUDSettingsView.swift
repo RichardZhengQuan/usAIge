@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct HUDSettingsView: View {
@@ -54,6 +55,12 @@ struct HUDSettingsView: View {
                 Toggle("Games", isOn: triggerBinding(\HideTriggers.games))
                 Toggle("Presentations", isOn: triggerBinding(\HideTriggers.presentations))
                 Toggle("Screen sharing", isOn: triggerBinding(\HideTriggers.screenSharing))
+            }
+
+            Section {
+                Button("Quit Usage HUD") {
+                    NSApplication.shared.terminate(nil)
+                }
             }
         }
         .formStyle(.grouped)
