@@ -1,6 +1,15 @@
 import AppKit
 import SwiftUI
 
+struct HUDSettingsRootView: View {
+    @Bindable var settings: HUDSettings
+    @Bindable var store: UsageStore
+
+    var body: some View {
+        HUDSettingsView(settings: settings, snapshots: store.visibleSnapshots)
+    }
+}
+
 struct HUDSettingsView: View {
     @Bindable var settings: HUDSettings
     let snapshots: [QuotaSnapshot]

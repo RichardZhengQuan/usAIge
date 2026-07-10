@@ -4,6 +4,7 @@ struct HUDView: View {
     @Bindable var store: UsageStore
     @Bindable var settings: HUDSettings
     let openCodex: () -> Void
+    let openSettings: () -> Void
     let resizePanel: (CGFloat) -> Void
 
     private var snapshots: [QuotaSnapshot] {
@@ -61,11 +62,12 @@ struct HUDView: View {
             .buttonStyle(.borderless)
             .help("Refresh usage")
 
-            SettingsLink {
+            Button(action: openSettings) {
                 Image(systemName: "gearshape")
             }
             .buttonStyle(.borderless)
             .help("usAIge Settings")
+            .accessibilityLabel("Open usAIge Settings")
         }
         .padding(.bottom, 10)
     }
