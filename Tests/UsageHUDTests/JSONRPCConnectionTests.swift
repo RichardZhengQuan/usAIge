@@ -50,6 +50,19 @@ import Testing
     await connection.stop()
 }
 
+@Test func writesNotificationWithoutRequestID() async throws {
+    let transport = TestLineTransport()
+    let connection = JSONRPCConnection(transport: transport)
+    try await connection.start()
+
+    try await connection.notify(method: "initialized", params: .object([:]))
+
+    let written = try await transport.nextWrittenValue()
+    #expect(written["method"] == .string("initialized"))
+    #expect(written["id"] == nil)
+    await connection.stop()
+}
+
 private actor TestLineTransport: LineTransport {
     private var continuation: AsyncStream<String>.Continuation?
     private var written: [String] = []

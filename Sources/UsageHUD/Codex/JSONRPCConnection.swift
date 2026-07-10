@@ -73,6 +73,19 @@ actor JSONRPCConnection {
         }
     }
 
+    func notify(method: String, params: JSONValue = .object([:])) async throws {
+        guard started else { throw JSONRPCError.disconnected }
+        let frame: JSONValue = .object([
+            "method": .string(method),
+            "params": params,
+        ])
+        let data = try JSONEncoder().encode(frame)
+        guard let line = String(data: data, encoding: .utf8) else {
+            throw JSONRPCError.invalidResponse
+        }
+        try await transport.write(line)
+    }
+
     func notifications() -> AsyncStream<JSONRPCNotification> {
         let id = UUID()
         return AsyncStream { continuation in
