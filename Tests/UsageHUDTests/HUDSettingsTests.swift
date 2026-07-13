@@ -33,6 +33,45 @@ import Testing
 }
 
 @MainActor
+@Test func persistsOrderedVisibleTools() {
+    let defaults = isolatedDefaults()
+    var settings: HUDSettings? = HUDSettings(defaults: defaults)
+    settings?.hiddenToolIDs = [.gemini]
+    settings?.toolOrder = [.cursor, .chatGPT, .claude, .gemini]
+    settings = nil
+
+    let restored = HUDSettings(defaults: defaults)
+
+    #expect(restored.visibleTools.map(\.id) == [.cursor, .chatGPT, .claude])
+}
+
+@MainActor
+@Test func migratesVersionOneSettingsWithNewToolDefaults() throws {
+    let defaults = isolatedDefaults()
+    let legacy: [String: Any] = [
+        "version": 1,
+        "bucketOrder": ["codex"],
+        "hiddenBucketIDs": [],
+        "scale": 1.1,
+        "opacity": 0.9,
+        "positions": [:],
+        "hideTriggers": [
+            "fullScreenApps": true,
+            "fullScreenVideo": true,
+            "games": true,
+            "presentations": true,
+            "screenSharing": true,
+        ],
+    ]
+    defaults.set(try JSONSerialization.data(withJSONObject: legacy), forKey: "usageHUD.settings.v1")
+
+    let restored = HUDSettings(defaults: defaults)
+
+    #expect(restored.bucketOrder == ["codex"])
+    #expect(restored.visibleTools.map(\.id) == AIToolID.allCases)
+}
+
+@MainActor
 private func isolatedDefaults() -> UserDefaults {
     let suite = "UsageHUDTests.\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suite)!

@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let settings: HUDSettings
     let store: UsageStore
     let visibilityController: VisibilityController
+    let launchAtLogin: LaunchAtLoginController
     private var panel: HUDPanel?
     private(set) var settingsWindow: NSWindow?
 
@@ -19,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             store = UsageStore(provider: MissingCodexProvider())
         }
         visibilityController = VisibilityController(settings: settings)
+        launchAtLogin = LaunchAtLoginController()
         super.init()
     }
 
@@ -27,7 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let content = HUDView(
             store: store,
             settings: settings,
-            openCodex: Self.openCodex,
+            openTool: AIToolLauncher.open,
             openSettings: { [weak self] in self?.showSettings() },
             resizePanel: { [weak self] size in self?.resizePanel(to: size) }
         )
@@ -81,9 +83,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if let settingsWindow {
             window = settingsWindow
         } else {
-            let content = HUDSettingsRootView(settings: settings, store: store)
+            launchAtLogin.refresh()
+            let content = HUDSettingsRootView(
+                settings: settings,
+                store: store,
+                launchAtLogin: launchAtLogin
+            )
             window = NSWindow(
-                contentRect: CGRect(x: 0, y: 0, width: 440, height: 520),
+                contentRect: CGRect(x: 0, y: 0, width: 520, height: 680),
                 styleMask: [.titled, .closable, .miniaturizable],
                 backing: .buffered,
                 defer: false
@@ -145,11 +152,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return screen.localizedName
     }
 
-    private static func openCodex() {
-        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.openai.chat") {
-            NSWorkspace.shared.openApplication(at: url, configuration: .init())
-        }
-    }
 }
 
 private enum CodexExecutableResolver {

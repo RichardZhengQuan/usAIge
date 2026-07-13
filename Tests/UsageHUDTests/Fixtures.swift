@@ -10,7 +10,13 @@ enum Fixtures {
         resetAt: Date(timeIntervalSince1970: 1_800_003_600),
         windowDurationMinutes: 300,
         planType: "plus",
-        updatedAt: Date(timeIntervalSince1970: 1_800_000_000)
+        updatedAt: Date(timeIntervalSince1970: 1_800_000_000),
+        secondaryWindow: QuotaWindowSnapshot(
+            usedPercent: 33,
+            remainingPercent: 67,
+            resetAt: Date(timeIntervalSince1970: 1_800_086_400),
+            windowDurationMinutes: 10_080
+        )
     )
 
     static let multiBucketRateLimits: JSONValue = .object([
@@ -32,6 +38,11 @@ enum Fixtures {
                     "windowDurationMins": .number(300),
                     "resetsAt": .number(1_800_003_600),
                 ]),
+                "secondary": .object([
+                    "usedPercent": .number(33),
+                    "windowDurationMins": .number(10_080),
+                    "resetsAt": .number(1_800_086_400),
+                ]),
             ]),
             "codex_other": .object([
                 "limitId": .string("codex_other"),
@@ -40,6 +51,11 @@ enum Fixtures {
                     "usedPercent": .number(42),
                     "windowDurationMins": .number(10_080),
                     "resetsAt": .number(1_800_086_400),
+                ]),
+                "secondary": .object([
+                    "usedPercent": .number(20),
+                    "windowDurationMins": .number(10_080),
+                    "resetsAt": .number(1_800_172_800),
                 ]),
             ]),
         ]),
@@ -52,6 +68,11 @@ enum Fixtures {
                 "usedPercent": .number(10),
                 "windowDurationMins": .number(300),
                 "resetsAt": .number(1_800_003_600),
+            ]),
+            "secondary": .object([
+                "usedPercent": .number(40),
+                "windowDurationMins": .number(10_080),
+                "resetsAt": .number(1_800_086_400),
             ]),
         ]),
     ])

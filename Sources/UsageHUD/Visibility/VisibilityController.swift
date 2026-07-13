@@ -16,7 +16,6 @@ enum VisibilityReason: Equatable, Sendable {
     case game
     case fullScreenVideo
     case fullScreenApp
-    case temporaryHide
 }
 
 enum VisibilityDecision: Equatable, Sendable {
@@ -40,7 +39,6 @@ final class VisibilityController {
     private let settings: HUDSettings
     private var timer: Timer?
     private var currentDecision: VisibilityDecision = .visible
-    private var temporarilyHiddenUntil: Date?
     var onDecisionChange: ((VisibilityDecision) -> Void)?
 
     init(settings: HUDSettings) {
@@ -61,19 +59,7 @@ final class VisibilityController {
         timer = nil
     }
 
-    func hideTemporarily(for duration: TimeInterval = 300) {
-        temporarilyHiddenUntil = Date().addingTimeInterval(duration)
-        publish(.hidden(.temporaryHide))
-    }
-
     private func evaluate() {
-        if let until = temporarilyHiddenUntil {
-            if until > Date() {
-                publish(.hidden(.temporaryHide))
-                return
-            }
-            temporarilyHiddenUntil = nil
-        }
         publish(VisibilityPolicy.evaluate(Self.captureSignals(), triggers: settings.hideTriggers))
     }
 

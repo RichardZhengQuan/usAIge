@@ -6,9 +6,11 @@
     <string>en</string>
     <key>CFBundleDisplayName</key>
     <string>usAIge</string>
-    <key>CFBundleExecutable</key>
-    <string>usAIge</string>
-    <key>CFBundleIdentifier</key>
+	<key>CFBundleExecutable</key>
+	<string>usAIge</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon.icns</string>
+	<key>CFBundleIdentifier</key>
     <string>com.richardzhengquan.usaige</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
@@ -16,10 +18,10 @@
     <string>usAIge</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
-    <key>CFBundleShortVersionString</key>
-    <string>0.1.4</string>
-    <key>CFBundleVersion</key>
-    <string>5</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.6</string>
+	<key>CFBundleVersion</key>
+	<string>7</string>
     <key>LSMinimumSystemVersion</key>
     <string>15.0</string>
     <key>NSHighResolutionCapable</key>

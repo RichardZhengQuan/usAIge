@@ -1,8 +1,10 @@
 # usAIge
 
-usAIge is a native macOS floating panel for the usage limits exposed by the local Codex app-server. It shows every available quota as a circular meter with percentage remaining and time until reset.
+usAIge is a native macOS floating AI usage rail. Every active Codex bucket is shown with concentric real-data meters: the inner ring tracks its 5-hour window and the outer ring tracks its 7-day window.
 
-The panel stays above ordinary windows, starts at the bottom-right, remembers its position per display, and avoids both the Dock and menu bar. Users can choose visible quotas, reorder them, and adjust panel size, opacity, and automatic-hide triggers.
+The panel stays above ordinary windows, starts at the bottom-right, and remembers its position per display. Hover over any row to reveal its usage name, remaining percentage, reset countdown, and plan details. Clicking a tool logo opens its installed app or web experience.
+
+While idle, the panel surface is fully transparent and every visible control is shown at half its configured opacity. Hovering anywhere over the rail restores the surface and full configured opacity.
 
 ## Requirements
 
@@ -20,7 +22,7 @@ swift test
 swift run usAIge
 ```
 
-The development executable runs as an accessory application. Stop it from the launching terminal with Control-C.
+The development executable runs as a regular macOS app. Stop it from the launching terminal with Control-C.
 
 ## Package the application
 
@@ -31,9 +33,11 @@ open 'dist/usAIge.app'
 
 The script creates an ad-hoc signed application at `dist/usAIge.app`. Ad-hoc signing is suitable for local development but is not a substitute for Developer ID signing and notarization for public distribution.
 
+The packaged application includes the custom usAIge icon in Finder, the Dock, Spotlight, and other macOS surfaces.
+
 ## Install the public alpha
 
-Download `usAIge-0.1.0-alpha.dmg` and its checksum from the latest GitHub prerelease. Open the disk image, then drag `usAIge.app` onto the Applications shortcut.
+Download `usAIge-0.1.6-alpha.dmg` and its checksum from the latest GitHub prerelease. Open the disk image, then drag `usAIge.app` onto the Applications shortcut.
 
 This alpha is ad-hoc signed and is not notarized because the project does not yet have a Developer ID Application certificate. On first launch:
 
@@ -47,7 +51,7 @@ To build and verify the installer locally:
 
 ```bash
 scripts/package-dmg.sh
-shasum -a 256 -c dist/usAIge-0.1.0-alpha.dmg.sha256
+shasum -a 256 -c dist/usAIge-0.1.6-alpha.dmg.sha256
 ```
 
 ## Usage data
@@ -59,17 +63,21 @@ usAIge starts `codex app-server` locally and uses its documented JSON-RPC method
 - `account/rateLimits/read` for all available rate-limit buckets.
 - `account/rateLimits/updated` for live changes.
 
-The app prefers `rateLimitsByLimitId` and falls back to the legacy single `rateLimits` bucket. It never estimates a missing limit.
+The app prefers `rateLimitsByLimitId` and falls back to the legacy single `rateLimits` bucket. It reads both the primary and secondary windows for each bucket and never estimates a missing limit.
 
 ## Settings
 
 Use the gear button on the panel to open native macOS Settings. Available preferences include:
 
+- Active AI tool visibility.
 - Quota visibility and vertical ordering.
 - Panel opacity and scale.
+- Optional automatic launch when you log in to your Mac.
 - Full-screen app, full-screen video, game, presentation, and screen-sharing hide triggers.
 
 Drag the panel by its background. Its safe position is stored separately for each display. If a display disappears, the panel is clamped onto an available screen the next time it is positioned.
+
+The interface is provider-aware, but OpenAI/Codex remains the only usage provider today because the app reads its local app-server rather than scraping provider websites or copying credentials. Tools without a legitimate usage source are not shown with invented values.
 
 ## Privacy
 
