@@ -88,7 +88,7 @@ actor CodexUsageProvider: CodexUsageProviding {
             "clientInfo": .object([
                 "name": .string("usaige"),
                 "title": .string("usAIge"),
-                "version": .string("0.1.0"),
+                "version": .string("0.1.5"),
             ]),
         ]))
         try await rpc.notify(method: "initialized", params: .object([:]))
@@ -133,6 +133,14 @@ actor CodexUsageProvider: CodexUsageProviding {
         let duration = primary["windowDurationMins"]?.intValue
         let resetsAt: Double?
         if case let .number(value)? = primary["resetsAt"] { resetsAt = value } else { resetsAt = nil }
+        let secondary = object["secondary"]?.objectValue
+        let secondaryUsedPercent: Double?
+        if case let .number(value)? = secondary?["usedPercent"] { secondaryUsedPercent = value }
+        else { secondaryUsedPercent = nil }
+        let secondaryDuration = secondary?["windowDurationMins"]?.intValue
+        let secondaryResetsAt: Double?
+        if case let .number(value)? = secondary?["resetsAt"] { secondaryResetsAt = value }
+        else { secondaryResetsAt = nil }
         let planType = object["planType"]?.stringValue
         return QuotaSnapshot.make(
             from: RateLimitBucket(
@@ -141,7 +149,10 @@ actor CodexUsageProvider: CodexUsageProviding {
                 usedPercent: usedPercent,
                 windowDurationMinutes: duration,
                 resetsAt: resetsAt,
-                planType: planType
+                planType: planType,
+                secondaryUsedPercent: secondaryUsedPercent,
+                secondaryWindowDurationMinutes: secondaryDuration,
+                secondaryResetsAt: secondaryResetsAt
             ),
             updatedAt: updatedAt
         )

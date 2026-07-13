@@ -3,9 +3,10 @@ import SwiftUI
 struct HUDView: View {
     @Bindable var store: UsageStore
     @Bindable var settings: HUDSettings
-    let openCodex: () -> Void
+    let openTool: (AIToolDescriptor) -> Void
     let openSettings: () -> Void
     let resizePanel: (CGSize) -> Void
+    @State private var isPanelHovered = false
 
     private var snapshots: [QuotaSnapshot] {
         switch store.state {
@@ -14,164 +15,173 @@ struct HUDView: View {
         }
     }
 
-    private var desiredHeight: CGFloat {
+    private var desiredSize: CGSize {
         switch store.state {
-        case .current:
-            HUDMetrics.height(rowCount: snapshots.count, includesStatusBanner: false)
-        case .stale:
-            HUDMetrics.height(rowCount: snapshots.count, includesStatusBanner: true)
+        case .current, .stale:
+            CGSize(width: HUDMetrics.railWidth, height: HUDMetrics.railHeight(rowCount: snapshots.count))
         default:
-            HUDMetrics.messageHeight
+            HUDMetrics.messageSize
         }
     }
 
     private var scaledSize: CGSize {
-        HUDMetrics.scaledSize(baseHeight: desiredHeight, scale: settings.scale)
+        HUDMetrics.scaledSize(desiredSize, scale: settings.scale)
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider().opacity(0.45)
-            content
-        }
-        .padding(12)
-        .frame(width: 292, height: desiredHeight, alignment: .top)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(.white.opacity(0.16), lineWidth: 0.5)
-        }
-        .opacity(settings.opacity)
-        .scaleEffect(settings.scale)
-        .frame(width: scaledSize.width, height: scaledSize.height)
-        .task(id: snapshots.map(\.id)) {
-            settings.registerBuckets(snapshots.map(\.id))
-        }
-        .onAppear { resizePanel(scaledSize) }
-        .onChange(of: scaledSize) { _, size in resizePanel(size) }
+        content
+            .padding(.vertical, 10)
+            .padding(.horizontal, 4)
+            .frame(width: desiredSize.width, height: desiredSize.height)
+            .background {
+                panelShape
+                    .fill(.regularMaterial)
+                    .opacity(isPanelHovered ? 1 : 0)
+            }
+            .overlay {
+                panelShape
+                    .stroke(.separator.opacity(isPanelHovered ? 0.42 : 0), lineWidth: 0.5)
+            }
+            .shadow(color: .black.opacity(isPanelHovered ? 0.16 : 0), radius: 18, y: 8)
+            .contentShape(panelShape)
+            .onHover { isPanelHovered = $0 }
+            .animation(.easeOut(duration: 0.18), value: isPanelHovered)
+            .opacity(HUDMetrics.contentOpacity(configured: settings.opacity, isHovered: isPanelHovered))
+            .scaleEffect(settings.scale)
+            .frame(width: scaledSize.width, height: scaledSize.height)
+            .task(id: snapshots.map(\.id)) {
+                settings.registerBuckets(snapshots.map(\.id))
+            }
+            .onAppear { resizePanel(scaledSize) }
+            .onChange(of: scaledSize) { _, size in resizePanel(size) }
     }
 
-    private var header: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "gauge.with.dots.needle.50percent")
-                .foregroundStyle(.tint)
-            Text("Usage")
-                .font(.headline)
-            Spacer()
-            Button {
-                Task { await store.refresh() }
-            } label: {
-                Image(systemName: "arrow.clockwise")
-            }
-            .buttonStyle(.borderless)
-            .help("Refresh usage")
-
-            Button(action: openSettings) {
-                Image(systemName: "gearshape")
-            }
-            .buttonStyle(.borderless)
-            .help("usAIge Settings")
-            .accessibilityLabel("Open usAIge Settings")
-        }
-        .padding(.bottom, 10)
+    private var panelShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: 18, style: .continuous)
     }
 
     @ViewBuilder
     private var content: some View {
         switch store.state {
         case .connecting:
-            VStack(spacing: 14) {
-                ProgressView()
-                Text("Connecting to Codex…")
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            statusView(title: "Connecting…", symbol: "arrow.triangle.2.circlepath")
         case .signedOut:
-            messageView(
-                symbol: "person.crop.circle.badge.exclamationmark",
-                title: "Sign in through Codex",
-                detail: "usAIge uses your existing Codex account.",
-                actionTitle: "Open Codex",
-                action: openCodex
-            )
+            messageView(title: "Sign in through ChatGPT", symbol: "person.crop.circle.badge.exclamationmark", actionTitle: "Open ChatGPT") {
+                openTool(.descriptor(for: .chatGPT))
+            }
         case let .unavailable(message):
-            messageView(
-                symbol: "bolt.horizontal.circle",
-                title: message,
-                detail: "Start Codex, then retry the connection.",
-                actionTitle: "Open Codex",
-                action: openCodex
-            )
+            messageView(title: message, symbol: "bolt.horizontal.circle", actionTitle: "Open ChatGPT") {
+                openTool(.descriptor(for: .chatGPT))
+            }
         case .empty:
-            messageView(
-                symbol: "circle.dotted",
-                title: "No usage limits available",
-                detail: "Codex did not expose any quota buckets for this account.",
-                actionTitle: "Retry",
-                action: { Task { await store.refresh() } }
-            )
+            messageView(title: "No usage limits", symbol: "circle.dotted", actionTitle: "Retry") {
+                Task { await store.refresh() }
+            }
         case .current:
-            quotaList(isStale: false, staleSince: nil)
-        case let .stale(_, since):
-            quotaList(isStale: true, staleSince: since)
+            quotaRail(isStale: false)
+        case .stale:
+            quotaRail(isStale: true)
         }
     }
 
-    private func quotaList(isStale: Bool, staleSince: Date?) -> some View {
-        VStack(spacing: 8) {
-            if let staleSince {
-                Label("Last updated \(staleSince.formatted(.relative(presentation: .named)))", systemImage: "wifi.slash")
-                    .font(.caption2)
+    private func quotaRail(isStale: Bool) -> some View {
+        VStack(spacing: 7) {
+            if snapshots.isEmpty {
+                Text("All usage hidden")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
-            }
-            ScrollView {
-                LazyVStack(spacing: 10) {
-                    ForEach(snapshots) { snapshot in
-                        QuotaRowView(snapshot: snapshot)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: HUDMetrics.itemSpacing) {
+                        ForEach(snapshots) { snapshot in
+                            QuotaRowView(snapshot: snapshot, openTool: openTool)
+                        }
                     }
+                    .padding(.vertical, 4)
                 }
-                .padding(.vertical, 6)
+                .scrollIndicators(.never)
+                .opacity(isStale ? 0.62 : 1)
             }
-            .scrollIndicators(.never)
+
+            Divider().opacity(isPanelHovered ? 0.45 : 0)
+            footer(isStale: isStale)
         }
-        .opacity(isStale ? 0.6 : 1)
+    }
+
+    private func footer(isStale: Bool) -> some View {
+        HStack(spacing: 6) {
+            iconButton("Refresh usage", symbol: "arrow.clockwise") {
+                Task { await store.refresh() }
+            }
+            if isStale {
+                Image(systemName: "wifi.slash")
+                    .foregroundStyle(.secondary)
+                    .help("Usage may be out of date")
+                    .accessibilityLabel("Usage may be out of date")
+            } else {
+                Circle()
+                    .fill(.green)
+                    .frame(width: 7, height: 7)
+                    .accessibilityLabel("Usage is current")
+            }
+            iconButton("Open settings", symbol: "gearshape", action: openSettings)
+        }
+        .padding(.horizontal, 3)
+        .frame(height: 24)
+    }
+
+    private func iconButton(_ label: String, symbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .frame(width: 18, height: 18)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(label)
+        .accessibilityLabel(label)
+    }
+
+    private func statusView(title: String, symbol: String) -> some View {
+        VStack(spacing: 12) {
+            ProgressView().controlSize(.small)
+            Label(title, systemImage: symbol).font(.headline)
+            footer(isStale: false)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func messageView(
-        symbol: String,
         title: String,
-        detail: String,
+        symbol: String,
         actionTitle: String,
         action: @escaping () -> Void
     ) -> some View {
-        VStack(spacing: 12) {
-            Image(systemName: symbol)
-                .font(.system(size: 28))
-                .foregroundStyle(.secondary)
+        VStack(spacing: 10) {
+            Image(systemName: symbol).font(.system(size: 24)).foregroundStyle(.secondary)
             Text(title).font(.headline).multilineTextAlignment(.center)
-            Text(detail)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            Button(actionTitle, action: action)
-                .buttonStyle(.borderedProminent)
+            Button(actionTitle, action: action).buttonStyle(.borderedProminent)
+            footer(isStale: false)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(20)
     }
 }
 
 enum HUDMetrics {
-    static let width: CGFloat = 292
-    static let messageHeight: CGFloat = 260
+    static let railWidth: CGFloat = 84
+    static let messageSize = CGSize(width: 220, height: 176)
+    static let itemSpacing: CGFloat = 10
 
-    static func height(rowCount: Int, includesStatusBanner: Bool) -> CGFloat {
-        let bannerHeight: CGFloat = includesStatusBanner ? 24 : 0
-        return min(420, max(154, 82 + CGFloat(rowCount) * 72 + bannerHeight))
+    static func railHeight(rowCount: Int) -> CGFloat {
+        let additionalGapHeight = CGFloat(max(0, rowCount - 1)) * (itemSpacing - 2)
+        return min(450, max(120, 63 + CGFloat(rowCount) * 78 + additionalGapHeight))
     }
 
-    static func scaledSize(baseHeight: CGFloat, scale: Double) -> CGSize {
-        CGSize(width: width * scale, height: baseHeight * scale)
+    static func scaledSize(_ size: CGSize, scale: Double) -> CGSize {
+        CGSize(width: size.width * scale, height: size.height * scale)
+    }
+
+    static func contentOpacity(configured: Double, isHovered: Bool) -> Double {
+        configured * (isHovered ? 1 : 0.5)
     }
 }

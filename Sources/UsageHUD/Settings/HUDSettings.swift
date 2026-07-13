@@ -34,13 +34,35 @@ struct HUDPosition: Codable, Equatable, Sendable {
 @Observable
 final class HUDSettings {
     private struct Payload: Codable, Equatable {
-        var version = 1
+        var version = 2
         var bucketOrder: [String] = []
         var hiddenBucketIDs: Set<String> = []
+        var toolOrder: [AIToolID] = AIToolID.allCases
+        var hiddenToolIDs: Set<AIToolID> = []
         var scale = 1.0
         var opacity = 0.92
         var positions: [String: HUDPosition] = [:]
         var hideTriggers = HideTriggers.allEnabled
+
+        enum CodingKeys: String, CodingKey {
+            case version, bucketOrder, hiddenBucketIDs, toolOrder, hiddenToolIDs
+            case scale, opacity, positions, hideTriggers
+        }
+
+        init() {}
+
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            version = try values.decodeIfPresent(Int.self, forKey: .version) ?? 1
+            bucketOrder = try values.decodeIfPresent([String].self, forKey: .bucketOrder) ?? []
+            hiddenBucketIDs = try values.decodeIfPresent(Set<String>.self, forKey: .hiddenBucketIDs) ?? []
+            toolOrder = try values.decodeIfPresent([AIToolID].self, forKey: .toolOrder) ?? AIToolID.allCases
+            hiddenToolIDs = try values.decodeIfPresent(Set<AIToolID>.self, forKey: .hiddenToolIDs) ?? []
+            scale = try values.decodeIfPresent(Double.self, forKey: .scale) ?? 1
+            opacity = try values.decodeIfPresent(Double.self, forKey: .opacity) ?? 0.92
+            positions = try values.decodeIfPresent([String: HUDPosition].self, forKey: .positions) ?? [:]
+            hideTriggers = try values.decodeIfPresent(HideTriggers.self, forKey: .hideTriggers) ?? .allEnabled
+        }
     }
 
     private static let storageKey = "usageHUD.settings.v1"
@@ -51,8 +73,9 @@ final class HUDSettings {
         self.defaults = defaults
         if let data = defaults.data(forKey: Self.storageKey),
            let decoded = try? JSONDecoder().decode(Payload.self, from: data),
-           decoded.version == 1 {
+           (1...2).contains(decoded.version) {
             payload = decoded
+            payload.version = 2
         } else {
             payload = Payload()
         }
@@ -68,6 +91,16 @@ final class HUDSettings {
     var hiddenBucketIDs: Set<String> {
         get { payload.hiddenBucketIDs }
         set { payload.hiddenBucketIDs = newValue; persist() }
+    }
+
+    var toolOrder: [AIToolID] {
+        get { payload.toolOrder }
+        set { payload.toolOrder = newValue; persist() }
+    }
+
+    var hiddenToolIDs: Set<AIToolID> {
+        get { payload.hiddenToolIDs }
+        set { payload.hiddenToolIDs = newValue; persist() }
     }
 
     var scale: Double {
@@ -88,7 +121,7 @@ final class HUDSettings {
     func ordered(_ snapshots: [QuotaSnapshot]) -> [QuotaSnapshot] {
         let order = Dictionary(uniqueKeysWithValues: bucketOrder.enumerated().map { ($1, $0) })
         return snapshots
-            .filter { !hiddenBucketIDs.contains($0.id) }
+            .filter { !hiddenBucketIDs.contains($0.id) && !hiddenToolIDs.contains($0.toolID) }
             .sorted { lhs, rhs in
                 switch (order[lhs.id], order[rhs.id]) {
                 case let (left?, right?): left < right
@@ -97,6 +130,12 @@ final class HUDSettings {
                 case (nil, nil): lhs.id < rhs.id
                 }
             }
+    }
+
+    var visibleTools: [AIToolDescriptor] {
+        toolOrder
+            .filter { !hiddenToolIDs.contains($0) }
+            .map(AIToolDescriptor.descriptor(for:))
     }
 
     func setPosition(_ point: CGPoint, for displayKey: String) {
@@ -120,6 +159,15 @@ final class HUDSettings {
         guard destination != index else { return }
         order.swapAt(index, destination)
         bucketOrder = order
+    }
+
+    func moveTool(_ id: AIToolID, by offset: Int) {
+        var order = toolOrder
+        guard let index = order.firstIndex(of: id) else { return }
+        let destination = min(max(0, index + offset), order.count - 1)
+        guard destination != index else { return }
+        order.swapAt(index, destination)
+        toolOrder = order
     }
 
     func registerBuckets(_ ids: [String]) {

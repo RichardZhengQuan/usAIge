@@ -17,6 +17,14 @@ import Testing
     )
 
     #expect(plist["LSUIElement"] == nil)
+    #expect(plist["CFBundleIconFile"] as? String == "AppIcon.icns")
+    #expect(
+        FileManager.default.fileExists(
+            atPath: projectRoot
+                .appendingPathComponent("Sources/UsageHUD/Resources/AppIcon.icns")
+                .path
+        )
+    )
 }
 
 @MainActor

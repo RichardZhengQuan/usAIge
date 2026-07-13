@@ -17,6 +17,8 @@ import Testing
 
     #expect(result.snapshots.map(\.id) == ["codex", "codex_other"])
     #expect(result.snapshots[0].remainingPercent == 75)
+    #expect(result.snapshots[0].secondaryWindow?.remainingPercent == 67)
+    #expect(result.snapshots[0].secondaryWindow?.typeTag == "7D")
     #expect(await rpc.requestedMethods == ["initialize", "account/read", "account/rateLimits/read"])
     #expect(await rpc.notifiedMethods == ["initialized"])
 }
@@ -33,6 +35,7 @@ import Testing
 
     #expect(result.snapshots.map(\.id) == ["codex"])
     #expect(result.snapshots[0].remainingPercent == 90)
+    #expect(result.snapshots[0].secondaryWindow?.remainingPercent == 60)
 }
 
 @Test func returnsSignedOutWithoutRequestingLimits() async throws {

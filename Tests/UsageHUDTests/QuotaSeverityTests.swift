@@ -15,18 +15,24 @@ func mapsRemainingPercentageToSeverity(input: (Double, QuotaSeverity)) {
 }
 
 @Test func sizesHUDToVisibleRowsWithoutLeavingBlankSpace() {
-    #expect(HUDMetrics.height(rowCount: 2, includesStatusBanner: false) == 226)
-    #expect(HUDMetrics.height(rowCount: 8, includesStatusBanner: false) == 420)
-    #expect(HUDMetrics.messageHeight == 260)
+    #expect(HUDMetrics.railHeight(rowCount: 2) == 227)
+    #expect(HUDMetrics.railHeight(rowCount: 8) == 450)
+    #expect(HUDMetrics.messageSize == CGSize(width: 220, height: 176))
+    #expect(HUDMetrics.railWidth == 84)
 }
 
 @Test func scalesThePanelBoundsWithTheHUDContent() {
     #expect(
-        HUDMetrics.scaledSize(baseHeight: 226, scale: 1.5)
-            == CGSize(width: 438, height: 339)
+        HUDMetrics.scaledSize(CGSize(width: 84, height: 227), scale: 1.5)
+            == CGSize(width: 126, height: 340.5)
     )
     #expect(
-        HUDMetrics.scaledSize(baseHeight: 226, scale: 0.75)
-            == CGSize(width: 219, height: 169.5)
+        HUDMetrics.scaledSize(CGSize(width: 84, height: 120), scale: 0.75)
+            == CGSize(width: 63, height: 90)
     )
+}
+
+@Test func dimsAllContentToHalfOpacityUntilHovered() {
+    #expect(HUDMetrics.contentOpacity(configured: 0.92, isHovered: false) == 0.46)
+    #expect(HUDMetrics.contentOpacity(configured: 0.92, isHovered: true) == 0.92)
 }

@@ -23,6 +23,7 @@ cleanup() {
 trap cleanup EXIT
 
 ditto "$root/dist/usAIge.app" "$stage/usAIge.app"
+xattr -cr "$stage/usAIge.app"
 ln -s /Applications "$stage/Applications"
 rm -f "$dmg" "$checksum"
 
@@ -42,7 +43,10 @@ codesign --verify --deep --strict "$mount/usAIge.app"
 hdiutil detach "$mount" -quiet
 mounted=false
 
-shasum -a 256 "dist/$name.dmg" > "dist/$name.dmg.sha256"
+(
+    cd dist
+    shasum -a 256 "$name.dmg" > "$name.dmg.sha256"
+)
 
 echo "$dmg"
 echo "$checksum"

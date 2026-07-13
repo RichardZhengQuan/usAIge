@@ -144,7 +144,10 @@ final class UsageStore {
 
     private func scheduleReset(for snapshots: [QuotaSnapshot]) {
         resetTask?.cancel()
-        guard let resetAt = snapshots.compactMap(\.resetAt).filter({ $0 > now() }).min() else {
+        let resetDates = snapshots.flatMap { snapshot in
+            [snapshot.resetAt, snapshot.secondaryWindow?.resetAt].compactMap { $0 }
+        }
+        guard let resetAt = resetDates.filter({ $0 > now() }).min() else {
             resetTask = nil
             return
         }
