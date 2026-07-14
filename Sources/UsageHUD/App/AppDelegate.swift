@@ -75,6 +75,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if updateController.isReplacementPrepared {
+            visibilityController.stop()
+            updateController.stop()
+            return .terminateNow
+        }
+
         guard !isTerminationPending else { return .terminateLater }
         isTerminationPending = true
         visibilityController.stop()
