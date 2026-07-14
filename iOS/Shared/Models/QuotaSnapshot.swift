@@ -1,0 +1,108 @@
+import Foundation
+
+public struct QuotaWindowSnapshot: Codable, Equatable, Hashable, Sendable {
+    public let remainingPercent: Double
+    public let resetAt: Date?
+    public let windowDurationMinutes: Int?
+
+    public init(
+        remainingPercent: Double,
+        resetAt: Date?,
+        windowDurationMinutes: Int?
+    ) {
+        self.remainingPercent = Self.clamp(remainingPercent)
+        self.resetAt = resetAt
+        self.windowDurationMinutes = windowDurationMinutes.flatMap { $0 > 0 ? $0 : nil }
+    }
+
+    public var usedPercent: Double {
+        100 - remainingPercent
+    }
+
+    public var typeTag: String {
+        guard let minutes = windowDurationMinutes else { return "LIMIT" }
+        if minutes.isMultiple(of: 1_440) {
+            return "\(minutes / 1_440)D"
+        }
+        if minutes.isMultiple(of: 60) {
+            return "\(minutes / 60)H"
+        }
+        return "\(minutes)M"
+    }
+
+    private static func clamp(_ value: Double) -> Double {
+        min(100, max(0, value))
+    }
+}
+
+public struct QuotaSnapshot: Codable, Equatable, Hashable, Identifiable, Sendable {
+    /// Stable compound identifier made from the tool UUID and remote limit ID.
+    public let id: String
+    public let limitID: String
+    public let toolID: UUID
+    public let toolName: String
+    public let displayName: String
+    public let remainingPercent: Double
+    public let resetAt: Date?
+    public let updatedAt: Date
+    public let planType: String?
+    public let windowDurationMinutes: Int?
+    public let secondaryWindow: QuotaWindowSnapshot?
+
+    public init(
+        id: String,
+        limitID: String,
+        toolID: UUID,
+        toolName: String,
+        displayName: String,
+        remainingPercent: Double,
+        resetAt: Date?,
+        updatedAt: Date,
+        planType: String? = nil,
+        windowDurationMinutes: Int? = nil,
+        secondaryWindow: QuotaWindowSnapshot? = nil
+    ) {
+        self.id = id
+        self.limitID = limitID
+        self.toolID = toolID
+        self.toolName = toolName
+        self.displayName = displayName
+        self.remainingPercent = min(100, max(0, remainingPercent))
+        self.resetAt = resetAt
+        self.updatedAt = updatedAt
+        self.planType = planType
+        self.windowDurationMinutes = windowDurationMinutes.flatMap { $0 > 0 ? $0 : nil }
+        self.secondaryWindow = secondaryWindow
+    }
+
+    public var usedPercent: Double {
+        100 - remainingPercent
+    }
+
+    public var primaryWindow: QuotaWindowSnapshot {
+        QuotaWindowSnapshot(
+            remainingPercent: remainingPercent,
+            resetAt: resetAt,
+            windowDurationMinutes: windowDurationMinutes
+        )
+    }
+
+    public var typeTag: String {
+        primaryWindow.typeTag
+    }
+
+    public var combinedTypeTag: String {
+        guard let secondaryWindow else { return typeTag }
+        return "\(typeTag) + \(secondaryWindow.typeTag)"
+    }
+
+    /// The caller owns the freshness policy; no refresh interval is hidden here.
+    public func isStale(at date: Date = Date(), maximumAge: TimeInterval) -> Bool {
+        guard maximumAge > 0 else { return true }
+        return date.timeIntervalSince(updatedAt) > maximumAge
+    }
+
+    public static func stableID(toolID: UUID, limitID: String) -> String {
+        "\(toolID.uuidString.lowercased()):\(limitID)"
+    }
+}
