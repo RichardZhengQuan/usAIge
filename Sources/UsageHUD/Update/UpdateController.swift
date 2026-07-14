@@ -73,6 +73,7 @@ final class UpdateController {
     )!
 
     private(set) var status: UpdateStatus = .idle
+    private(set) var isReplacementPrepared = false
 
     private let manifestURL: URL
     private let currentVersion: String
@@ -203,6 +204,7 @@ final class UpdateController {
                 manifest: manifest,
                 currentApplicationURL: applicationURL
             )
+            isReplacementPrepared = true
             NSApplication.shared.terminate(nil)
         } catch {
             status = .failed(UpdateError.userFacingMessage(for: error))
