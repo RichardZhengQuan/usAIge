@@ -44,6 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         let content = HUDView(
             store: store,
             settings: settings,
+            updateController: updateController,
             openTool: AIToolLauncher.open,
             openSettings: { [weak self] in self?.showSettings() },
             resizePanel: { [weak self] size in self?.resizePanel(to: size) }

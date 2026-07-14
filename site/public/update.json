@@ -1,7 +1,7 @@
 {
-  "version": "0.1.7",
-  "build": 9,
+  "version": "0.1.8",
+  "build": 10,
   "minimumSystemVersion": "15.0",
-  "downloadURL": "https://usaige-macos.richardqz.chatgpt.site/usAIge-0.1.7-alpha.dmg",
-  "sha256": "53b439c39bfd15be0107e4bc73c78fde9af3e4104eee523c8944cc08e76c839f"
+  "downloadURL": "https://usaige-macos.richardqz.chatgpt.site/usAIge-0.1.8-alpha.dmg",
+  "sha256": "31239763073ae39f8b839d51380c0525dcaa3424c316cec864dfdd32653d5c02"
 }

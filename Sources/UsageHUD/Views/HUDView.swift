@@ -3,6 +3,7 @@ import SwiftUI
 struct HUDView: View {
     @Bindable var store: UsageStore
     @Bindable var settings: HUDSettings
+    @Bindable var updateController: UpdateController
     let openTool: (AIToolDescriptor) -> Void
     let openSettings: () -> Void
     let resizePanel: (CGSize) -> Void
@@ -125,21 +126,41 @@ struct HUDView: View {
                     .frame(width: 7, height: 7)
                     .accessibilityLabel("Usage is current")
             }
-            iconButton("Open settings", symbol: "gearshape", action: openSettings)
+            iconButton(
+                "Open settings",
+                symbol: "gearshape",
+                showsBadge: updateController.canInstallUpdate,
+                action: openSettings
+            )
         }
         .padding(.horizontal, 3)
         .frame(height: 24)
     }
 
-    private func iconButton(_ label: String, symbol: String, action: @escaping () -> Void) -> some View {
+    private func iconButton(
+        _ label: String,
+        symbol: String,
+        showsBadge: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .frame(width: 18, height: 18)
-                .contentShape(Rectangle())
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: symbol)
+                    .frame(width: 18, height: 18)
+                    .contentShape(Rectangle())
+                if showsBadge {
+                    Circle()
+                        .fill(.red)
+                        .frame(width: 6, height: 6)
+                        .offset(x: -2, y: 1)
+                        .accessibilityHidden(true)
+                }
+            }
         }
         .buttonStyle(.plain)
         .help(label)
         .accessibilityLabel(label)
+        .accessibilityValue(showsBadge ? "New version available" : "")
     }
 
     private func statusView(title: String, symbol: String) -> some View {

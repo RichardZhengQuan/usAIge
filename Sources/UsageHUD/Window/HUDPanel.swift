@@ -13,7 +13,7 @@ final class HUDPanel: NSPanel {
         isFloatingPanel = true
         isOpaque = false
         backgroundColor = .clear
-        hasShadow = true
+        hasShadow = false
         hidesOnDeactivate = false
         isMovableByWindowBackground = true
         animationBehavior = .utilityWindow
