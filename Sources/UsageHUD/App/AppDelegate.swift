@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     let visibilityController: VisibilityController
     let launchAtLogin: LaunchAtLoginController
     let updateController: UpdateController
+    let usageLimitNotifications: UsageLimitNotificationController
     private var panel: HUDPanel?
     private(set) var settingsWindow: NSWindow?
     private var isTerminationPending = false
@@ -27,6 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         visibilityController = VisibilityController(settings: settings)
         launchAtLogin = LaunchAtLoginController()
         updateController = UpdateController()
+        usageLimitNotifications = UsageLimitNotificationController()
         super.init()
     }
 
@@ -34,13 +36,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         NSApp.setActivationPolicy(.regular)
         let notificationCenter = UNUserNotificationCenter.current()
         notificationCenter.delegate = self
-        notificationCenter.setNotificationCategories([
-            UNNotificationCategory(
-                identifier: UpdateController.notificationCategory,
-                actions: [],
-                intentIdentifiers: []
-            ),
-        ])
+        notificationCenter.setNotificationCategories(AppNotificationCategories.all)
+        store.onSnapshotsChanged = { [settings, usageLimitNotifications] snapshots in
+            usageLimitNotifications.observe(settings.ordered(snapshots))
+        }
         let content = HUDView(
             store: store,
             settings: settings,
@@ -78,6 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         if updateController.isReplacementPrepared {
             visibilityController.stop()
             updateController.stop()
+            usageLimitNotifications.stop()
             return .terminateNow
         }
 
@@ -85,6 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         isTerminationPending = true
         visibilityController.stop()
         updateController.stop()
+        usageLimitNotifications.stop()
         Task { [weak self] in
             guard let self else { return }
             await self.store.shutdown()
@@ -146,6 +147,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         window.makeKeyAndOrderFront(nil)
     }
 
+    func showLimits() {
+        guard let panel else {
+            showSettings()
+            return
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        guard visibilityController.permitsPanelDisplay else { return }
+        panel.orderFrontRegardless()
+    }
+
     private func positionPanel(_ panel: NSPanel, on screen: NSScreen? = NSScreen.main) {
         guard let screen else { return }
         let key = Self.displayKey(for: screen)
@@ -200,9 +211,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
+        let destination = AppNotificationRouter.destination(
+            categoryIdentifier: response.notification.request.content.categoryIdentifier,
+            actionIdentifier: response.actionIdentifier
+        )
         completionHandler()
+        guard let destination else { return }
         Task { @MainActor [weak self] in
-            self?.showSettings()
+            switch destination {
+            case .settings:
+                self?.showSettings()
+            case .limits:
+                self?.showLimits()
+            }
         }
     }
 

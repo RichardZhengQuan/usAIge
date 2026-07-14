@@ -66,8 +66,8 @@ enum UpdateStatus: Equatable {
 @MainActor
 @Observable
 final class UpdateController {
-    static let notificationCategory = "USAGE_HUD_UPDATE"
-    static let notificationIdentifierPrefix = "usaige-update-"
+    nonisolated static let notificationCategory = "USAGE_HUD_UPDATE"
+    nonisolated static let notificationIdentifierPrefix = "usaige-update-"
     nonisolated static let defaultManifestURL = URL(
         string: "https://usaige-macos.richardqz.chatgpt.site/update.json"
     )!

@@ -41,6 +41,22 @@ import Testing
     #expect(store.state == .empty)
 }
 
+@MainActor
+@Test func publishesSnapshotChangesToTheLimitNotificationObserver() async {
+    let provider = StubUsageProvider(results: [
+        .success(.authenticated([Fixtures.codexSnapshot])),
+        .success(.signedOut),
+    ])
+    let store = UsageStore(provider: provider)
+    var observedSnapshots: [[QuotaSnapshot]] = []
+    store.onSnapshotsChanged = { observedSnapshots.append($0) }
+
+    await store.refresh()
+    await store.refresh()
+
+    #expect(observedSnapshots == [[Fixtures.codexSnapshot], []])
+}
+
 @Test func formatsCountdownAtRequiredPrecision() {
     #expect(UsageStore.countdown(secondsRemaining: 7_260) == "2h 1m")
     #expect(UsageStore.countdown(secondsRemaining: 3_599) == "59m")

@@ -2,6 +2,8 @@
 
 usAIge is a native macOS floating AI usage rail. Every active Codex bucket is shown with concentric real-data meters: the inner ring tracks its 5-hour window and the outer ring tracks its 7-day window.
 
+macOS can notify you whenever a primary or secondary usage window crosses a new 5% used boundary. Selecting the notification brings the live limits rail forward.
+
 The panel stays above ordinary windows, starts at the bottom-right, and remembers its position per display. Hover over any row to reveal its usage name, remaining percentage, localized reset date, and plan details. Clicking a tool logo opens its installed app or web experience.
 
 While idle, the panel surface is fully transparent and every visible control is shown at half its configured opacity. Hovering anywhere over the rail restores the surface and full configured opacity.
@@ -74,6 +76,7 @@ Use the gear button on the panel to open native macOS Settings. Available prefer
 - Panel opacity and scale.
 - Optional automatic launch when you log in to your Mac.
 - Automatic update checks, local new-version notifications, and one-click in-app updates.
+- Local usage-limit notifications at each new 5% used boundary.
 - Full-screen app, full-screen video, game, presentation, and screen-sharing hide triggers.
 
 Drag the panel by its background. Its safe position is stored separately for each display. If a display disappears, the panel is clamped onto an available screen the next time it is positioned.
@@ -83,6 +86,12 @@ The interface is provider-aware, but OpenAI/Codex remains the only usage provide
 ## Updates
 
 The packaged app checks the public usAIge website at launch and every six hours. When a newer build is published, macOS shows a local notification and Settings marks the update button with a red dot. Clicking the notification opens Settings; clicking **Update** downloads the DMG, verifies its SHA-256 checksum, validates the app bundle and code signature, replaces the installed copy, and relaunches usAIge. A manual **Check for Updates** action reports **You’re up to date!** after a successful check when no newer build exists.
+
+## Usage-limit notifications
+
+After the first successful usage read, usAIge asks for macOS notification permission. The first value for each limit establishes a quiet baseline; it does not generate catch-up alerts. Later live updates notify at newly crossed 5% used boundaries for primary and secondary windows independently. If one update skips several boundaries, usAIge sends one notification for the newest boundary instead of a burst.
+
+When a quota resets, the new window starts its own notification cycle. Selecting a usage notification or its **View Limits** action reveals the floating limits rail. Denying notification permission does not affect live values in the rail.
 
 ## Privacy
 
@@ -125,4 +134,4 @@ scripts/package-dmg.sh
 codesign --verify --deep --strict 'dist/usAIge.app'
 ```
 
-The automated suite covers quota normalization, JSON-RPC framing, account/rate-limit parsing, state recovery, countdowns, settings persistence, panel geometry, severity thresholds, and visibility-policy precedence.
+The automated suite covers quota normalization, JSON-RPC framing, account/rate-limit parsing, state recovery, countdowns, notification thresholds and routing, settings persistence, panel geometry, severity thresholds, and visibility-policy precedence.

@@ -1,0 +1,269 @@
+import Foundation
+import Testing
+import UserNotifications
+@testable import UsageHUD
+
+@Test func usageLimitTrackerBootstrapsWithoutAlertingThenReportsFivePercentSteps() {
+    var tracker = UsageLimitThresholdTracker()
+
+    #expect(tracker.events(for: [snapshot(usedPercent: 4.9)]).isEmpty)
+    #expect(tracker.events(for: [snapshot(usedPercent: 5.1)]).map(\.thresholdPercent) == [5])
+    #expect(tracker.events(for: [snapshot(usedPercent: 9.9)]).isEmpty)
+    #expect(tracker.events(for: [snapshot(usedPercent: 10)]).map(\.thresholdPercent) == [10])
+}
+
+@Test func usageLimitTrackerCoalescesAJumpToTheNewestCrossedBoundary() throws {
+    var tracker = UsageLimitThresholdTracker()
+
+    #expect(tracker.events(for: [snapshot(usedPercent: 11)]).isEmpty)
+    let event = try #require(tracker.events(for: [snapshot(usedPercent: 23)]).only)
+
+    #expect(event.thresholdPercent == 20)
+    #expect(event.usedPercent == 23)
+    #expect(event.remainingPercent == 77)
+}
+
+@Test func usageLimitTrackerObservesPrimaryAndSecondaryWindowsIndependently() {
+    var tracker = UsageLimitThresholdTracker()
+
+    #expect(
+        tracker.events(
+            for: [snapshot(usedPercent: 1, secondaryUsedPercent: 4)]
+        ).isEmpty
+    )
+    let events = tracker.events(
+        for: [snapshot(usedPercent: 6, secondaryUsedPercent: 11)]
+    )
+
+    #expect(events.map(\.windowKind) == [.primary, .secondary])
+    #expect(events.map(\.thresholdPercent) == [5, 10])
+}
+
+@Test func usageLimitTrackerStartsAQuietBaselineAfterAReset() {
+    var tracker = UsageLimitThresholdTracker()
+    let firstReset = Date(timeIntervalSince1970: 1_800_003_600)
+    let nextReset = Date(timeIntervalSince1970: 1_800_021_600)
+
+    #expect(
+        tracker.events(for: [snapshot(usedPercent: 49, resetAt: firstReset)]).isEmpty
+    )
+    #expect(
+        tracker.events(for: [snapshot(usedPercent: 51, resetAt: firstReset)])
+            .map(\.thresholdPercent) == [50]
+    )
+    #expect(
+        tracker.events(for: [snapshot(usedPercent: 2, resetAt: nextReset)]).isEmpty
+    )
+    #expect(
+        tracker.events(for: [snapshot(usedPercent: 6, resetAt: nextReset)])
+            .map(\.thresholdPercent) == [5]
+    )
+}
+
+@Test func usageLimitTrackerDoesNotRepeatAfterADownwardCorrection() {
+    var tracker = UsageLimitThresholdTracker()
+    let resetAt = Date(timeIntervalSince1970: 1_800_003_600)
+
+    #expect(tracker.events(for: [snapshot(usedPercent: 24, resetAt: resetAt)]).isEmpty)
+    #expect(
+        tracker.events(for: [snapshot(usedPercent: 26, resetAt: resetAt)])
+            .map(\.thresholdPercent) == [25]
+    )
+    #expect(tracker.events(for: [snapshot(usedPercent: 24, resetAt: resetAt)]).isEmpty)
+    #expect(tracker.events(for: [snapshot(usedPercent: 26, resetAt: resetAt)]).isEmpty)
+}
+
+@Test func usageLimitTrackerDoesNotMistakeABoundaryCorrectionForAReset() {
+    var tracker = UsageLimitThresholdTracker()
+    let resetAt = Date(timeIntervalSince1970: 1_800_003_600)
+
+    #expect(tracker.events(for: [snapshot(usedPercent: 4.9, resetAt: resetAt)]).isEmpty)
+    #expect(
+        tracker.events(for: [snapshot(usedPercent: 5.1, resetAt: resetAt)])
+            .map(\.thresholdPercent) == [5]
+    )
+    #expect(tracker.events(for: [snapshot(usedPercent: 4, resetAt: resetAt)]).isEmpty)
+    #expect(tracker.events(for: [snapshot(usedPercent: 5.1, resetAt: resetAt)]).isEmpty)
+}
+
+@Test func usageLimitTrackerReportsTheLatestBoundarySeenAfterAConfirmedReset() {
+    var tracker = UsageLimitThresholdTracker()
+    let firstReset = Date(timeIntervalSince1970: 1_800_003_600)
+    let nextReset = Date(timeIntervalSince1970: 1_800_021_600)
+
+    #expect(tracker.events(for: [snapshot(usedPercent: 95, resetAt: firstReset)]).isEmpty)
+    #expect(
+        tracker.events(for: [snapshot(usedPercent: 7, resetAt: nextReset)])
+            .map(\.thresholdPercent) == [5]
+    )
+}
+
+@Test func usageLimitTrackerHandlesUsageAndResetDateArrivingInSeparateUpdates() {
+    var tracker = UsageLimitThresholdTracker()
+    let firstReset = Date(timeIntervalSince1970: 1_800_003_600)
+    let nextReset = Date(timeIntervalSince1970: 1_800_021_600)
+
+    #expect(tracker.events(for: [snapshot(usedPercent: 49, resetAt: firstReset)]).isEmpty)
+    #expect(
+        tracker.events(for: [snapshot(usedPercent: 51, resetAt: firstReset)])
+            .map(\.thresholdPercent) == [50]
+    )
+    #expect(tracker.events(for: [snapshot(usedPercent: 2, resetAt: firstReset)]).isEmpty)
+    #expect(tracker.events(for: [snapshot(usedPercent: 2, resetAt: nextReset)]).isEmpty)
+    #expect(
+        tracker.events(for: [snapshot(usedPercent: 6, resetAt: nextReset)])
+            .map(\.thresholdPercent) == [5]
+    )
+}
+
+@Test func usageLimitTrackerRearmsAfterARolloverWithoutAResetDate() {
+    var tracker = UsageLimitThresholdTracker()
+
+    #expect(tracker.events(for: [snapshot(usedPercent: 49, resetAt: nil)]).isEmpty)
+    #expect(
+        tracker.events(for: [snapshot(usedPercent: 51, resetAt: nil)])
+            .map(\.thresholdPercent) == [50]
+    )
+    #expect(tracker.events(for: [snapshot(usedPercent: 2, resetAt: nil)]).isEmpty)
+    #expect(
+        tracker.events(for: [snapshot(usedPercent: 6, resetAt: nil)])
+            .map(\.thresholdPercent) == [5]
+    )
+}
+
+@Test func usageLimitTrackerIgnoresSmallResetDateCorrections() {
+    var tracker = UsageLimitThresholdTracker()
+    let resetAt = Date(timeIntervalSince1970: 1_800_003_600)
+    let correctedReset = resetAt.addingTimeInterval(5 * 60)
+
+    #expect(tracker.events(for: [snapshot(usedPercent: 24, resetAt: resetAt)]).isEmpty)
+    #expect(
+        tracker.events(for: [snapshot(usedPercent: 26, resetAt: resetAt)])
+            .map(\.thresholdPercent) == [25]
+    )
+    #expect(tracker.events(for: [snapshot(usedPercent: 24, resetAt: resetAt)]).isEmpty)
+    #expect(
+        tracker.events(for: [snapshot(usedPercent: 24, resetAt: correctedReset)]).isEmpty
+    )
+    #expect(
+        tracker.events(for: [snapshot(usedPercent: 26, resetAt: correctedReset)]).isEmpty
+    )
+}
+
+@Test func usageLimitTrackerReportsOneHundredPercentOnlyOnce() {
+    var tracker = UsageLimitThresholdTracker()
+
+    #expect(tracker.events(for: [snapshot(usedPercent: 94)]).isEmpty)
+    #expect(
+        tracker.events(for: [snapshot(usedPercent: 100)])
+            .map(\.thresholdPercent) == [100]
+    )
+    #expect(tracker.events(for: [snapshot(usedPercent: 100)]).isEmpty)
+}
+
+@Test func usageLimitTrackerTreatsAReappearingLimitAsANewBaseline() {
+    var tracker = UsageLimitThresholdTracker()
+
+    #expect(tracker.events(for: [snapshot(usedPercent: 24)]).isEmpty)
+    #expect(tracker.events(for: []).isEmpty)
+    #expect(tracker.events(for: [snapshot(usedPercent: 26)]).isEmpty)
+}
+
+@Test func usageLimitNotificationRequestDescribesTheCurrentLimit() throws {
+    var tracker = UsageLimitThresholdTracker()
+    #expect(tracker.events(for: [snapshot(usedPercent: 20)]).isEmpty)
+    let event = try #require(tracker.events(for: [snapshot(usedPercent: 26)]).only)
+
+    let request = UsageLimitNotificationRequest.make(for: event)
+
+    #expect(request.identifier.contains("chatGPT-codex-primary-25"))
+    #expect(request.content.categoryIdentifier == UsageLimitNotifications.categoryIdentifier)
+    #expect(request.content.title == "ChatGPT Codex 5-hour: 74% remaining")
+    #expect(request.content.body.contains("5H usage reached 25%"))
+    #expect(request.content.sound != nil)
+    #expect(request.content.userInfo["bucketID"] as? String == "codex")
+    #expect(request.content.userInfo["thresholdPercent"] as? Int == 25)
+}
+
+@Test func usageLimitNotificationCategoryProvidesAForegroundViewAction() throws {
+    let category = UsageLimitNotifications.category
+    let action = try #require(category.actions.only)
+
+    #expect(category.identifier == UsageLimitNotifications.categoryIdentifier)
+    #expect(action.identifier == UsageLimitNotifications.openLimitsActionIdentifier)
+    #expect(action.title == "View Limits")
+    #expect(action.options.contains(.foreground))
+}
+
+@Test func appRegistersUpdateAndUsageLimitNotificationCategoriesTogether() {
+    #expect(
+        Set(AppNotificationCategories.all.map(\.identifier)) == [
+            UpdateController.notificationCategory,
+            UsageLimitNotifications.categoryIdentifier,
+        ]
+    )
+}
+
+@Test func appNotificationRouterOpensTheRightNativeSurface() {
+    #expect(
+        AppNotificationRouter.destination(
+            categoryIdentifier: UsageLimitNotifications.categoryIdentifier,
+            actionIdentifier: UsageLimitNotifications.openLimitsActionIdentifier
+        ) == .limits
+    )
+    #expect(
+        AppNotificationRouter.destination(
+            categoryIdentifier: UsageLimitNotifications.categoryIdentifier,
+            actionIdentifier: UNNotificationDefaultActionIdentifier
+        ) == .limits
+    )
+    #expect(
+        AppNotificationRouter.destination(
+            categoryIdentifier: UpdateController.notificationCategory,
+            actionIdentifier: UNNotificationDefaultActionIdentifier
+        ) == .settings
+    )
+    #expect(
+        AppNotificationRouter.destination(
+            categoryIdentifier: UsageLimitNotifications.categoryIdentifier,
+            actionIdentifier: UNNotificationDismissActionIdentifier
+        ) == nil
+    )
+    #expect(
+        AppNotificationRouter.destination(
+            categoryIdentifier: "UNKNOWN",
+            actionIdentifier: UNNotificationDefaultActionIdentifier
+        ) == nil
+    )
+}
+
+private func snapshot(
+    usedPercent: Double,
+    secondaryUsedPercent: Double? = nil,
+    resetAt: Date? = Date(timeIntervalSince1970: 1_800_003_600)
+) -> QuotaSnapshot {
+    QuotaSnapshot(
+        id: "codex",
+        displayName: "Codex 5-hour",
+        usedPercent: usedPercent,
+        remainingPercent: 100 - usedPercent,
+        resetAt: resetAt,
+        windowDurationMinutes: 300,
+        planType: "plus",
+        updatedAt: Date(timeIntervalSince1970: 1_800_000_000),
+        secondaryWindow: secondaryUsedPercent.map {
+            QuotaWindowSnapshot(
+                usedPercent: $0,
+                remainingPercent: 100 - $0,
+                resetAt: resetAt,
+                windowDurationMinutes: 10_080
+            )
+        }
+    )
+}
+
+private extension Array {
+    var only: Element? {
+        count == 1 ? self[0] : nil
+    }
+}
