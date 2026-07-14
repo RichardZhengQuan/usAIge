@@ -6,6 +6,7 @@ import Observation
 @Observable
 final class UsageStore {
     private(set) var state: UsageState = .connecting
+    var onSnapshotsChanged: (([QuotaSnapshot]) -> Void)?
 
     private let provider: any CodexUsageProviding
     private let now: @Sendable () -> Date
@@ -66,6 +67,7 @@ final class UsageStore {
             switch result {
             case .signedOut:
                 state = .signedOut
+                onSnapshotsChanged?([])
                 scheduleReset(for: [])
             case let .authenticated(snapshots):
                 apply(snapshots)
@@ -132,6 +134,7 @@ final class UsageStore {
 
     private func apply(_ snapshots: [QuotaSnapshot]) {
         state = snapshots.isEmpty ? .empty : .current(snapshots)
+        onSnapshotsChanged?(snapshots)
         scheduleReset(for: snapshots)
     }
 

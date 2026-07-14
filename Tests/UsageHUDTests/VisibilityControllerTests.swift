@@ -42,3 +42,9 @@ import Testing
     triggers.fullScreenApps = false
     #expect(VisibilityPolicy.evaluate(signals, triggers: triggers) == .visible)
 }
+
+@Test func onlyAVisibleDecisionPermitsThePanelToBeRevealed() {
+    #expect(VisibilityDecision.visible.permitsPanelDisplay)
+    #expect(!VisibilityDecision.hidden(.screenSharing).permitsPanelDisplay)
+    #expect(!VisibilityDecision.hidden(.presentation).permitsPanelDisplay)
+}

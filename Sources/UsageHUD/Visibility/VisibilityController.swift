@@ -21,6 +21,10 @@ enum VisibilityReason: Equatable, Sendable {
 enum VisibilityDecision: Equatable, Sendable {
     case visible
     case hidden(VisibilityReason)
+
+    var permitsPanelDisplay: Bool {
+        if case .visible = self { true } else { false }
+    }
 }
 
 enum VisibilityPolicy {
@@ -40,6 +44,7 @@ final class VisibilityController {
     private var timer: Timer?
     private var currentDecision: VisibilityDecision = .visible
     var onDecisionChange: ((VisibilityDecision) -> Void)?
+    var permitsPanelDisplay: Bool { currentDecision.permitsPanelDisplay }
 
     init(settings: HUDSettings) {
         self.settings = settings
