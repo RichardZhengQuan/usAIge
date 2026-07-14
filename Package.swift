@@ -10,12 +10,7 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "UsageHUD",
-            exclude: [
-                "Resources",
-                "Views/HUDView 2.swift",
-                "Views/HUDView 3.swift",
-                "Views/QuotaRowView 2.swift",
-            ]
+            exclude: ["Resources"]
         ),
         .testTarget(name: "UsageHUDTests", dependencies: ["UsageHUD"]),
     ]

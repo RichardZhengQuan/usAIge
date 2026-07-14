@@ -2,7 +2,7 @@
 
 usAIge is a native macOS floating AI usage rail. Every active Codex bucket is shown with concentric real-data meters: the inner ring tracks its 5-hour window and the outer ring tracks its 7-day window.
 
-The panel stays above ordinary windows, starts at the bottom-right, and remembers its position per display. Hover over any row to reveal its usage name, remaining percentage, reset countdown, and plan details. Clicking a tool logo opens its installed app or web experience.
+The panel stays above ordinary windows, starts at the bottom-right, and remembers its position per display. Hover over any row to reveal its usage name, remaining percentage, localized reset date, and plan details. Clicking a tool logo opens its installed app or web experience.
 
 While idle, the panel surface is fully transparent and every visible control is shown at half its configured opacity. Hovering anywhere over the rail restores the surface and full configured opacity.
 
@@ -37,7 +37,7 @@ The packaged application includes the custom usAIge icon in Finder, the Dock, Sp
 
 ## Install the public alpha
 
-Download `usAIge-0.1.6-alpha.dmg` and its checksum from the latest GitHub prerelease. Open the disk image, then drag `usAIge.app` onto the Applications shortcut.
+Download `usAIge-0.1.7-alpha.dmg` and its checksum from the website. Open the disk image, then drag `usAIge.app` onto the Applications shortcut.
 
 This alpha is ad-hoc signed and is not notarized because the project does not yet have a Developer ID Application certificate. On first launch:
 
@@ -51,7 +51,7 @@ To build and verify the installer locally:
 
 ```bash
 scripts/package-dmg.sh
-shasum -a 256 -c dist/usAIge-0.1.6-alpha.dmg.sha256
+(cd dist && shasum -a 256 -c usAIge-0.1.7-alpha.dmg.sha256)
 ```
 
 ## Usage data
@@ -73,11 +73,16 @@ Use the gear button on the panel to open native macOS Settings. Available prefer
 - Quota visibility and vertical ordering.
 - Panel opacity and scale.
 - Optional automatic launch when you log in to your Mac.
+- Automatic update checks, local new-version notifications, and one-click in-app updates.
 - Full-screen app, full-screen video, game, presentation, and screen-sharing hide triggers.
 
 Drag the panel by its background. Its safe position is stored separately for each display. If a display disappears, the panel is clamped onto an available screen the next time it is positioned.
 
 The interface is provider-aware, but OpenAI/Codex remains the only usage provider today because the app reads its local app-server rather than scraping provider websites or copying credentials. Tools without a legitimate usage source are not shown with invented values.
+
+## Updates
+
+The packaged app checks the public usAIge website at launch and every six hours. When a newer build is published, macOS shows a local notification and Settings marks the update button with a red dot. Clicking the notification opens Settings; clicking **Update** downloads the DMG, verifies its SHA-256 checksum, validates the app bundle and code signature, replaces the installed copy, and relaunches usAIge. A manual **Check for Updates** action reports **You’re up to date!** after a successful check when no newer build exists.
 
 ## Privacy
 
