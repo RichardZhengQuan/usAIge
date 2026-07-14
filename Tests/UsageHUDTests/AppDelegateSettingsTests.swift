@@ -36,7 +36,7 @@ import Testing
     #expect(delegate.settingsWindow?.isVisible == true)
     #expect(delegate.settingsWindow?.title == "usAIge Settings")
     #expect(delegate.settingsWindow?.styleMask.contains(.titled) == true)
-    #expect(delegate.settingsWindow?.level == .floating)
+    #expect(delegate.settingsWindow?.level == .normal)
     #expect(delegate.settingsWindow?.hidesOnDeactivate == false)
     #expect(delegate.settingsWindow?.collectionBehavior.contains(.moveToActiveSpace) == true)
     #expect(delegate.settingsWindow?.collectionBehavior.contains(.canJoinAllSpaces) == false)

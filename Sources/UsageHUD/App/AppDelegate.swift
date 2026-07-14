@@ -136,8 +136,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
             window.title = "usAIge Settings"
             window.contentView = NSHostingView(rootView: content)
             window.isReleasedWhenClosed = false
-            window.level = .floating
-            window.hidesOnDeactivate = false
             window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
             window.setFrameAutosaveName("usAIgeSettingsWindow")
             window.center()
@@ -146,7 +144,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
 
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
-        window.orderFrontRegardless()
     }
 
     private func positionPanel(_ panel: NSPanel, on screen: NSScreen? = NSScreen.main) {

@@ -36,3 +36,8 @@ func mapsRemainingPercentageToSeverity(input: (Double, QuotaSeverity)) {
     #expect(HUDMetrics.contentOpacity(configured: 0.92, isHovered: false) == 0.46)
     #expect(HUDMetrics.contentOpacity(configured: 0.92, isHovered: true) == 0.92)
 }
+
+@Test func hidesFooterControlsUntilHovered() {
+    #expect(HUDMetrics.controlOpacity(isHovered: false) == 0)
+    #expect(HUDMetrics.controlOpacity(isHovered: true) == 1)
+}

@@ -135,6 +135,8 @@ struct HUDView: View {
         }
         .padding(.horizontal, 3)
         .frame(height: 24)
+        .opacity(HUDMetrics.controlOpacity(isHovered: isPanelHovered))
+        .allowsHitTesting(isPanelHovered)
     }
 
     private func iconButton(
@@ -204,5 +206,9 @@ enum HUDMetrics {
 
     static func contentOpacity(configured: Double, isHovered: Bool) -> Double {
         configured * (isHovered ? 1 : 0.5)
+    }
+
+    static func controlOpacity(isHovered: Bool) -> Double {
+        isHovered ? 1 : 0
     }
 }
