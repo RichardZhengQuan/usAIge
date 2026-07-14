@@ -1,5 +1,55 @@
 # usAIge
 
+usAIge now has two native clients: the existing macOS floating usage rail and a
+new iOS 26 app with a WidgetKit extension. The iOS version connects to
+user-owned remote HTTPS endpoints, displays current AI quota limits and reset
+times, and shares successful snapshots with Home Screen widgets.
+
+## iOS app and widget
+
+Open `usAIge-iOS.xcodeproj` in Xcode 26. The project contains:
+
+- A native tab-based iPhone and iPad app with Usage and Tools sections.
+- Add and Edit Connection flows that test the endpoint before saving it,
+  including bearer-token rotation or removal.
+- Keychain storage for optional bearer tokens.
+- An App Group JSON cache containing quota values only, never tokens.
+- Small, medium, and large widgets backed by the shared cache.
+- Immediate foreground and pull-to-refresh updates plus best-effort iOS
+  background refresh scheduling.
+
+The endpoint contract and a complete response example are documented in
+[`docs/remote-usage-api.md`](docs/remote-usage-api.md). iOS controls the exact
+time granted to background tasks and widget timelines, so the app shows saved
+data and its update age instead of promising minute-exact background delivery.
+
+Build the iOS app for Simulator with:
+
+```bash
+xcodebuild \
+  -project usAIge-iOS.xcodeproj \
+  -scheme usAIge-iOS \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=latest' \
+  build
+```
+
+For device builds, select the same Apple development team for the app and
+widget targets, then register `group.com.richardq.usaige` as an App Group for
+both bundle identifiers. Simulator builds can be compiled without signing.
+
+### iOS privacy
+
+- Tool names, HTTPS endpoint paths, enabled state, and refresh intervals are
+  stored in the app's sandboxed Application Support directory.
+- Optional bearer tokens are stored separately in the iOS Keychain and can be
+  rotated or removed from Edit Connection.
+- The App Group cache shared with the widget contains normalized quota values,
+  reset times, and refresh metadata, but never bearer tokens.
+- The app sends requests only to endpoints the user adds. It does not read
+  browser cookies, prompts, or account content.
+
+## macOS app
+
 usAIge is a native macOS floating AI usage rail. Every active Codex bucket is shown with concentric real-data meters: the inner ring tracks its 5-hour window and the outer ring tracks its 7-day window.
 
 macOS can notify you whenever a primary or secondary usage window crosses a new 5% used boundary. Selecting the notification brings the live limits rail forward.
@@ -8,7 +58,7 @@ The panel stays above ordinary windows, starts at the bottom-right, and remember
 
 While idle, the panel surface is fully transparent and every visible control is shown at half its configured opacity. Hovering anywhere over the rail restores the surface and full configured opacity.
 
-## Requirements
+## macOS requirements
 
 - macOS 15 or later.
 - Swift 6.2 and Xcode 26 for source builds.
@@ -17,7 +67,7 @@ While idle, the panel surface is fully transparent and every visible control is 
 
 usAIge uses the bundled Codex executable from the ChatGPT/Codex application when available. It does not implement a second account login.
 
-## Build and run
+## Build and run macOS
 
 ```bash
 swift test
@@ -93,7 +143,7 @@ After the first successful usage read, usAIge asks for macOS notification permis
 
 When a quota resets, the new window starts its own notification cycle. Selecting a usage notification or its **View Limits** action reveals the floating limits rail. Denying notification permission does not affect live values in the rail.
 
-## Privacy
+## macOS privacy
 
 - No browser cookies or web pages are read.
 - No OpenAI credentials are copied or stored by usAIge.
