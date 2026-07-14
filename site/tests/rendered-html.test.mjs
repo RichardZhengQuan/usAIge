@@ -55,7 +55,7 @@ test("publishes a valid automatic update manifest", async () => {
     },
     {
       version: "0.1.7",
-      build: 8,
+    build: 9,
       minimumSystemVersion: "15.0",
       sha256: digest,
     },
