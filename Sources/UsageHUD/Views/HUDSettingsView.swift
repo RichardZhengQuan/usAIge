@@ -5,12 +5,14 @@ struct HUDSettingsRootView: View {
     @Bindable var settings: HUDSettings
     @Bindable var store: UsageStore
     @Bindable var launchAtLogin: LaunchAtLoginController
+    @Bindable var updateController: UpdateController
 
     var body: some View {
         HUDSettingsView(
             settings: settings,
             snapshots: store.visibleSnapshots,
-            launchAtLogin: launchAtLogin
+            launchAtLogin: launchAtLogin,
+            updateController: updateController
         )
     }
 }
@@ -19,6 +21,7 @@ struct HUDSettingsView: View {
     @Bindable var settings: HUDSettings
     let snapshots: [QuotaSnapshot]
     @Bindable var launchAtLogin: LaunchAtLoginController
+    @Bindable var updateController: UpdateController
 
     private var activeToolIDs: [AIToolID] {
         settings.toolOrder.filter { id in snapshots.contains(where: { $0.toolID == id }) }
@@ -58,6 +61,41 @@ struct HUDSettingsView: View {
                             .buttonStyle(.link)
                         }
                     }
+                }
+            }
+
+            Section("Software Update") {
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Automatic updates")
+                        Text(updateController.statusText)
+                            .font(.caption)
+                            .foregroundStyle(isUpdateError ? Color.red : Color.secondary)
+                    }
+                    Spacer()
+                    if isUpdateBusy {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                    ZStack(alignment: .topTrailing) {
+                        Button(updateController.primaryButtonTitle) {
+                            Task { await updateController.performPrimaryAction() }
+                        }
+                        .disabled(!updateController.canPerformPrimaryAction)
+
+                        if updateController.canInstallUpdate {
+                            Circle()
+                                .fill(.red)
+                                .frame(width: 8, height: 8)
+                                .offset(x: 4, y: -3)
+                                .accessibilityHidden(true)
+                        }
+                    }
+                    .accessibilityValue(
+                        updateController.canInstallUpdate
+                            ? "New version available"
+                            : updateController.statusText
+                    )
                 }
             }
 
@@ -170,5 +208,16 @@ struct HUDSettingsView: View {
                 settings.hideTriggers = triggers
             }
         )
+    }
+
+    private var isUpdateBusy: Bool {
+        switch updateController.status {
+        case .checking, .downloading, .preparing: true
+        default: false
+        }
+    }
+
+    private var isUpdateError: Bool {
+        if case .failed = updateController.status { true } else { false }
     }
 }

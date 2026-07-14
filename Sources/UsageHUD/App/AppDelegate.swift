@@ -1,12 +1,15 @@
 import AppKit
 import SwiftUI
+import UserNotifications
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
+    UNUserNotificationCenterDelegate {
     let settings: HUDSettings
     let store: UsageStore
     let visibilityController: VisibilityController
     let launchAtLogin: LaunchAtLoginController
+    let updateController: UpdateController
     private var panel: HUDPanel?
     private(set) var settingsWindow: NSWindow?
 
@@ -21,11 +24,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         visibilityController = VisibilityController(settings: settings)
         launchAtLogin = LaunchAtLoginController()
+        updateController = UpdateController()
         super.init()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        let notificationCenter = UNUserNotificationCenter.current()
+        notificationCenter.delegate = self
+        notificationCenter.setNotificationCategories([
+            UNNotificationCategory(
+                identifier: UpdateController.notificationCategory,
+                actions: [],
+                intentIdentifiers: []
+            ),
+        ])
         let content = HUDView(
             store: store,
             settings: settings,
@@ -47,6 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.orderFrontRegardless()
         store.start()
         visibilityController.start()
+        updateController.start()
     }
 
     func applicationShouldHandleReopen(
@@ -59,6 +73,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         visibilityController.stop()
+        updateController.stop()
         Task {
             await store.shutdown()
             sender.reply(toApplicationShouldTerminate: true)
@@ -87,7 +102,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let content = HUDSettingsRootView(
                 settings: settings,
                 store: store,
-                launchAtLogin: launchAtLogin
+                launchAtLogin: launchAtLogin,
+                updateController: updateController
             )
             window = NSWindow(
                 contentRect: CGRect(x: 0, y: 0, width: 520, height: 680),
@@ -150,6 +166,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return number.stringValue
         }
         return screen.localizedName
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound])
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        completionHandler()
+        Task { @MainActor [weak self] in
+            self?.showSettings()
+        }
     }
 
 }

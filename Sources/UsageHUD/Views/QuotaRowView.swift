@@ -31,7 +31,6 @@ enum QuotaSeverity: Equatable, Sendable {
 struct QuotaRowView: View {
     let snapshot: QuotaSnapshot
     let openTool: (AIToolDescriptor) -> Void
-    @State private var now = Date()
     @State private var isHovered = false
 
     private var tool: AIToolDescriptor {
@@ -49,11 +48,6 @@ struct QuotaRowView: View {
     private var secondaryColor: Color {
         guard let secondaryWindow = snapshot.secondaryWindow else { return .purple }
         return QuotaSeverity(remainingPercent: secondaryWindow.remainingPercent).color(normal: .purple)
-    }
-
-    private func resetText(for resetAt: Date?) -> String {
-        guard let resetAt else { return "Unavailable" }
-        return UsageStore.countdown(secondsRemaining: resetAt.timeIntervalSince(now))
     }
 
     var body: some View {
@@ -75,7 +69,6 @@ struct QuotaRowView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilitySummary)
-        .task(id: snapshot.updatedAt) { await updateCountdown() }
     }
 
     private var usageRing: some View {
@@ -168,8 +161,8 @@ struct QuotaRowView: View {
             }
             ProgressView(value: window.remainingPercent, total: 100)
                 .tint(color)
-            LabeledContent("Resets in") {
-                Text(resetText(for: window.resetAt)).monospacedDigit()
+            LabeledContent("Resets") {
+                Text(ResetDateText.format(window.resetAt))
             }
         }
     }
@@ -182,16 +175,20 @@ struct QuotaRowView: View {
         return text
     }
 
-    private func updateCountdown() async {
-        let resetDates = [snapshot.resetAt, snapshot.secondaryWindow?.resetAt].compactMap { $0 }
-        guard !resetDates.isEmpty else { return }
-        while !Task.isCancelled {
-            now = Date()
-            guard let nextReset = resetDates.filter({ $0 > now }).min() else { return }
-            let remaining = nextReset.timeIntervalSince(now)
-            guard remaining > 0 else { return }
-            let delay: TimeInterval = remaining > 3_600 ? 60 : (remaining > 60 ? min(60, max(1, remaining - 60)) : 1)
-            try? await Task.sleep(for: .seconds(delay))
-        }
+}
+
+enum ResetDateText {
+    static func format(
+        _ date: Date?,
+        locale: Locale = .autoupdatingCurrent,
+        timeZone: TimeZone = .autoupdatingCurrent
+    ) -> String {
+        guard let date else { return "Unavailable" }
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.timeZone = timeZone
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
     }
 }
