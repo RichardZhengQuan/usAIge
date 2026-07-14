@@ -12,6 +12,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     let updateController: UpdateController
     private var panel: HUDPanel?
     private(set) var settingsWindow: NSWindow?
+    private var isTerminationPending = false
+    private var hasRepliedToTermination = false
 
     override init() {
         settings = HUDSettings()
@@ -72,13 +74,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !isTerminationPending else { return .terminateLater }
+        isTerminationPending = true
         visibilityController.stop()
         updateController.stop()
-        Task {
-            await store.shutdown()
-            sender.reply(toApplicationShouldTerminate: true)
+        Task { [weak self] in
+            guard let self else { return }
+            await self.store.shutdown()
+            self.finishTermination(sender)
+        }
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            self?.finishTermination(sender)
         }
         return .terminateLater
+    }
+
+    private func finishTermination(_ sender: NSApplication) {
+        guard !hasRepliedToTermination else { return }
+        hasRepliedToTermination = true
+        sender.reply(toApplicationShouldTerminate: true)
     }
 
     func windowDidMove(_ notification: Notification) {
