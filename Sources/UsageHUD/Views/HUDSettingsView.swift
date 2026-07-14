@@ -68,6 +68,9 @@ struct HUDSettingsView: View {
                 HStack(alignment: .center, spacing: 12) {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Automatic updates")
+                        Text("Current version \(updateController.currentVersionText)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                         Text(updateController.statusText)
                             .font(.caption)
                             .foregroundStyle(isUpdateError ? Color.red : Color.secondary)
@@ -105,57 +108,9 @@ struct HUDSettingsView: View {
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(activeToolIDs, id: \.self) { id in
-                        let tool = AIToolDescriptor.descriptor(for: id)
-                        HStack(spacing: 10) {
-                            AIToolIcon(tool: tool, size: 26)
-                            Toggle(
-                                tool.name,
-                                isOn: Binding(
-                                    get: { !settings.hiddenToolIDs.contains(id) },
-                                    set: { visible in
-                                        if visible { settings.hiddenToolIDs.remove(id) }
-                                        else { settings.hiddenToolIDs.insert(id) }
-                                    }
-                                )
-                            )
-                            Spacer()
-                            Text("\(snapshots.count(where: { $0.toolID == id })) types")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
-
-            Section("Usage types") {
-                if snapshots.isEmpty {
-                    Text("Quota controls appear after Codex reports usage data.")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(settings.bucketOrder, id: \.self) { id in
-                        if let snapshot = snapshots.first(where: { $0.id == id }) {
-                            HStack(spacing: 9) {
-                                Text(snapshot.combinedTypeTag)
-                                    .font(.system(.caption2, design: .rounded, weight: .bold))
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 72)
-                                Toggle(
-                                    snapshot.displayName,
-                                    isOn: Binding(
-                                        get: { !settings.hiddenBucketIDs.contains(id) },
-                                        set: { visible in
-                                            if visible { settings.hiddenBucketIDs.remove(id) }
-                                            else { settings.hiddenBucketIDs.insert(id) }
-                                        }
-                                    )
-                                )
-                                Spacer()
-                                orderButtons(
-                                    moveUp: { settings.moveBucket(id, by: -1) },
-                                    moveDown: { settings.moveBucket(id, by: 1) },
-                                    label: snapshot.displayName
-                                )
-                            }
+                        toolRow(for: id)
+                        ForEach(orderedSnapshots(for: id)) { snapshot in
+                            usageTypeRow(snapshot)
                         }
                     }
                 }
@@ -177,6 +132,58 @@ struct HUDSettingsView: View {
         }
         .formStyle(.grouped)
         .padding()
+    }
+
+    private func orderedSnapshots(for toolID: AIToolID) -> [QuotaSnapshot] {
+        settings.bucketOrder.compactMap { id in
+            snapshots.first(where: { $0.id == id && $0.toolID == toolID })
+        }
+    }
+
+    private func toolRow(for id: AIToolID) -> some View {
+        let tool = AIToolDescriptor.descriptor(for: id)
+        return HStack(spacing: 10) {
+            AIToolIcon(tool: tool, size: 26)
+            Toggle(
+                tool.name,
+                isOn: Binding(
+                    get: { !settings.hiddenToolIDs.contains(id) },
+                    set: { visible in
+                        if visible { settings.hiddenToolIDs.remove(id) }
+                        else { settings.hiddenToolIDs.insert(id) }
+                    }
+                )
+            )
+            Spacer()
+            Text("\(orderedSnapshots(for: id).count) types")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func usageTypeRow(_ snapshot: QuotaSnapshot) -> some View {
+        HStack(spacing: 9) {
+            Text(snapshot.combinedTypeTag)
+                .font(.system(.caption2, design: .rounded, weight: .bold))
+                .foregroundStyle(.secondary)
+                .frame(width: 72)
+            Toggle(
+                snapshot.displayName,
+                isOn: Binding(
+                    get: { !settings.hiddenBucketIDs.contains(snapshot.id) },
+                    set: { visible in
+                        if visible { settings.hiddenBucketIDs.remove(snapshot.id) }
+                        else { settings.hiddenBucketIDs.insert(snapshot.id) }
+                    }
+                )
+            )
+            Spacer()
+            orderButtons(
+                moveUp: { settings.moveBucket(snapshot.id, by: -1) },
+                moveDown: { settings.moveBucket(snapshot.id, by: 1) },
+                label: snapshot.displayName
+            )
+        }
     }
 
     private func orderButtons(

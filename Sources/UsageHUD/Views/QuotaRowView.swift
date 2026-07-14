@@ -159,8 +159,10 @@ struct QuotaRowView: View {
                 Text("\(Int(window.remainingPercent.rounded()))% remaining")
                     .monospacedDigit()
             }
-            ProgressView(value: window.remainingPercent, total: 100)
-                .tint(color)
+            QuotaProgressBar(
+                remainingPercent: window.remainingPercent,
+                color: color
+            )
             LabeledContent("Resets") {
                 Text(ResetDateText.format(window.resetAt))
             }
@@ -175,6 +177,31 @@ struct QuotaRowView: View {
         return text
     }
 
+}
+
+private struct QuotaProgressBar: View {
+    let remainingPercent: Double
+    let color: Color
+
+    private var fraction: Double {
+        min(max(remainingPercent / 100, 0), 1)
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(.secondary.opacity(0.18))
+                Capsule()
+                    .fill(color)
+                    .frame(width: proxy.size.width * fraction)
+            }
+        }
+        .frame(height: 5)
+        .accessibilityElement()
+        .accessibilityLabel("Quota remaining")
+        .accessibilityValue("\(Int(remainingPercent.rounded())) percent")
+    }
 }
 
 enum ResetDateText {

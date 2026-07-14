@@ -1,4 +1,4 @@
-const downloadUrl = "/usAIge-0.1.7-alpha.dmg";
+const downloadUrl = "/usAIge-0.1.8-alpha.dmg";
 
 const features = [
   {
@@ -59,7 +59,7 @@ export default function Home() {
           <div className="hero__actions">
             <a className="button button--primary" href={downloadUrl} download>
               <span className="button__icon" aria-hidden="true">↓</span>
-              <span><strong>Download for macOS</strong><small>v0.1.7 alpha · macOS 15+</small></span>
+              <span><strong>Download for macOS</strong><small>v0.1.8 alpha · macOS 15+</small></span>
             </a>
             <a className="text-link" href="#install">How to install <span aria-hidden="true">→</span></a>
           </div>
@@ -146,9 +146,9 @@ export default function Home() {
         <div className="install__cta">
           <a className="button button--primary" href={downloadUrl} download>
             <span className="button__icon" aria-hidden="true">↓</span>
-            <span><strong>Download usAIge</strong><small>v0.1.7 alpha · macOS 15 or later</small></span>
+            <span><strong>Download usAIge</strong><small>v0.1.8 alpha · macOS 15 or later</small></span>
           </a>
-          <a className="checksum" href="/usAIge-0.1.7-alpha.dmg.sha256" download>SHA-256 checksum</a>
+          <a className="checksum" href="/usAIge-0.1.8-alpha.dmg.sha256" download>SHA-256 checksum</a>
         </div>
       </section>
 

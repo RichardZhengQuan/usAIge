@@ -75,6 +75,7 @@ final class UpdateController {
     private(set) var status: UpdateStatus = .idle
 
     private let manifestURL: URL
+    private let currentVersion: String
     private let currentBuild: Int
     private let applicationURL: URL
     private let session: URLSession
@@ -88,6 +89,10 @@ final class UpdateController {
     }
 
     var canInstallUpdate: Bool { availableUpdate != nil }
+
+    var currentVersionText: String {
+        currentBuild > 0 ? "\(currentVersion) (\(currentBuild))" : currentVersion
+    }
 
     var statusText: String {
         switch status {
@@ -123,6 +128,8 @@ final class UpdateController {
         let configuredURL = (bundle.object(forInfoDictionaryKey: "UpdateManifestURL") as? String)
             .flatMap(URL.init(string:))
         manifestURL = configuredURL ?? Self.defaultManifestURL
+        currentVersion = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+            ?? "Unknown"
         currentBuild = Int(bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "") ?? 0
         applicationURL = bundle.bundleURL
         self.session = session
