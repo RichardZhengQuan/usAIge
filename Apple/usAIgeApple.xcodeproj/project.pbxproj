@@ -41,6 +41,7 @@
 		A66C9E762A2D2065CB5D3CDF /* WatchUsageModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 152208FB008DFB7878AAE0B8 /* WatchUsageModel.swift */; };
 		A77F37D4BB4C1F0A28750AF8 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B40D91178C457E64933BA17 /* AppModel.swift */; };
 		A81A9E3EDE5E115343D04FEA /* WatchUsageSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 272534A177E9E323D5B934EA /* WatchUsageSnapshot.swift */; };
+		A5C0D3E4F60718293A4B5C6D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6FC7614EF737DCD73A9DA265 /* Assets.xcassets */; };
 		A9C9B0CECD7974F67332DF7E /* UsAIgeIOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 748D7F8E8764CF75E137E7AD /* UsAIgeIOSApp.swift */; };
 		B09FFAD914ADD82AA2F84AB0 /* RefreshScheduleMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A320A032CF1CA5A368FC44E /* RefreshScheduleMetadata.swift */; };
 		B2840949CC73DE6E18967A6A /* QuotaTimelineProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E84F94942FEBC2B09F6F3D4 /* QuotaTimelineProvider.swift */; };
@@ -359,6 +360,7 @@
 			buildConfigurationList = 41CD87CB9B9A2F0254831423 /* Build configuration list for PBXNativeTarget "usAIgeWatch" */;
 			buildPhases = (
 				FFB6189BFE6350109849E122 /* Sources */,
+				B6D1E2F30415263748596A7B /* Resources */,
 				0FC785D2EAC2B2336E018AA9 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
@@ -432,6 +434,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				4EF9FC59146C8FF72A7C9744 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B6D1E2F30415263748596A7B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A5C0D3E4F60718293A4B5C6D /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
