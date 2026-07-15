@@ -74,6 +74,23 @@ import Testing
     #expect(await provider.stopped)
 }
 
+@MainActor
+@Test func automaticallyRefreshesUsageOnAFastFallbackInterval() async throws {
+    let provider = CountingUsageProvider()
+    let store = UsageStore(
+        provider: provider,
+        automaticRefreshInterval: .milliseconds(10)
+    )
+
+    store.start()
+    for _ in 0..<50 where await provider.refreshCount < 2 {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    store.stop()
+
+    #expect(await provider.refreshCount >= 2)
+}
+
 private actor StubUsageProvider: CodexUsageProviding {
     private var results: [Result<AccountUsageResult, Error>]
     private(set) var stopped = false
@@ -94,6 +111,21 @@ private actor StubUsageProvider: CodexUsageProviding {
     func stop() async {
         stopped = true
     }
+}
+
+private actor CountingUsageProvider: CodexUsageProviding {
+    private(set) var refreshCount = 0
+
+    func refresh() async throws -> AccountUsageResult {
+        refreshCount += 1
+        return .authenticated([Fixtures.codexSnapshot])
+    }
+
+    func updates() async -> AsyncStream<[QuotaSnapshot]> {
+        AsyncStream { _ in }
+    }
+
+    func stop() async {}
 }
 
 private enum StoreTestError: Error {

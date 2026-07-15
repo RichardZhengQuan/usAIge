@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct HUDView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Bindable var store: UsageStore
     @Bindable var settings: HUDSettings
     @Bindable var updateController: UpdateController
@@ -8,6 +9,7 @@ struct HUDView: View {
     let openSettings: () -> Void
     let resizePanel: (CGSize) -> Void
     @State private var isPanelHovered = false
+    @State private var refreshRotation = 0.0
 
     private var snapshots: [QuotaSnapshot] {
         switch store.state {
@@ -112,9 +114,7 @@ struct HUDView: View {
 
     private func footer(isStale: Bool) -> some View {
         HStack(spacing: 6) {
-            iconButton("Refresh usage", symbol: "arrow.clockwise") {
-                Task { await store.refresh() }
-            }
+            refreshButton
             if isStale {
                 Image(systemName: "wifi.slash")
                     .foregroundStyle(.secondary)
@@ -137,6 +137,25 @@ struct HUDView: View {
         .frame(height: 24)
         .opacity(HUDMetrics.controlOpacity(isHovered: isPanelHovered))
         .allowsHitTesting(isPanelHovered)
+    }
+
+    private var refreshButton: some View {
+        Button {
+            if !reduceMotion {
+                withAnimation(.easeInOut(duration: 0.45)) {
+                    refreshRotation += 360
+                }
+            }
+            Task { await store.refresh() }
+        } label: {
+            Image(systemName: "arrow.clockwise")
+                .rotationEffect(.degrees(refreshRotation))
+                .frame(width: 18, height: 18)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Refresh usage")
+        .accessibilityLabel("Refresh usage")
     }
 
     private func iconButton(
