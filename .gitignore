@@ -3,3 +3,6 @@
 build/
 dist/
 .DS_Store
+/Apple/build/
+xcuserdata/
+*.xcuserstate
