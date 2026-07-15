@@ -122,6 +122,17 @@ struct QuotaRowView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
+                Spacer(minLength: 8)
+                if let planType = snapshot.planType, !planType.isEmpty {
+                    Text("Plan \(planType.capitalized)")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(.quaternary, in: Capsule())
+                        .accessibilityLabel("Plan")
+                        .accessibilityValue(planType.capitalized)
+                }
             }
 
             windowDetail(
@@ -137,9 +148,6 @@ struct QuotaRowView: View {
                     window: secondaryWindow,
                     color: secondaryColor
                 )
-            }
-            if let planType = snapshot.planType, !planType.isEmpty {
-                LabeledContent("Plan") { Text(planType.capitalized) }
             }
         }
         .font(.caption)

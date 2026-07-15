@@ -47,7 +47,11 @@ struct HUDView: View {
             }
             .shadow(color: .black.opacity(isPanelHovered ? 0.16 : 0), radius: 18, y: 8)
             .contentShape(panelShape)
-            .onHover { isPanelHovered = $0 }
+            .onHover { isHovered in
+                isPanelHovered = isHovered
+                guard isHovered else { return }
+                Task { await store.refreshIfNeeded(maximumAge: 5) }
+            }
             .animation(.easeOut(duration: 0.18), value: isPanelHovered)
             .opacity(HUDMetrics.contentOpacity(configured: settings.opacity, isHovered: isPanelHovered))
             .scaleEffect(settings.scale)

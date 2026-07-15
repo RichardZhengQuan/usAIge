@@ -57,6 +57,25 @@ import Testing
     #expect(observedSnapshots == [[Fixtures.codexSnapshot], []])
 }
 
+@MainActor
+@Test func freshnessCheckAvoidsRedundantRefreshes() async {
+    let clock = TestClock(Date(timeIntervalSince1970: 1_800_000_000))
+    let provider = StubUsageProvider(results: [
+        .success(.authenticated([Fixtures.codexSnapshot])),
+        .success(.authenticated([Fixtures.codexSnapshot])),
+    ])
+    let store = UsageStore(provider: provider, now: { clock.now })
+
+    await store.refresh()
+    clock.now.addTimeInterval(4)
+    await store.refreshIfNeeded(maximumAge: 5)
+    #expect(await provider.refreshCount == 1)
+
+    clock.now.addTimeInterval(2)
+    await store.refreshIfNeeded(maximumAge: 5)
+    #expect(await provider.refreshCount == 2)
+}
+
 @Test func formatsCountdownAtRequiredPrecision() {
     #expect(UsageStore.countdown(secondsRemaining: 7_260) == "2h 1m")
     #expect(UsageStore.countdown(secondsRemaining: 3_599) == "59m")
@@ -94,12 +113,14 @@ import Testing
 private actor StubUsageProvider: CodexUsageProviding {
     private var results: [Result<AccountUsageResult, Error>]
     private(set) var stopped = false
+    private(set) var refreshCount = 0
 
     init(results: [Result<AccountUsageResult, Error>]) {
         self.results = results
     }
 
     func refresh() async throws -> AccountUsageResult {
+        refreshCount += 1
         guard !results.isEmpty else { throw StoreTestError.noResult }
         return try results.removeFirst().get()
     }
@@ -126,6 +147,14 @@ private actor CountingUsageProvider: CodexUsageProviding {
     }
 
     func stop() async {}
+}
+
+private final class TestClock: @unchecked Sendable {
+    var now: Date
+
+    init(_ now: Date) {
+        self.now = now
+    }
 }
 
 private enum StoreTestError: Error {
