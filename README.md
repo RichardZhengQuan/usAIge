@@ -127,7 +127,7 @@ Use the gear button on the panel to open native macOS Settings. Available prefer
 - Optional automatic launch when you log in to your Mac.
 - Automatic update checks, local new-version notifications, and one-click in-app updates.
 - Local usage-limit notifications at each new 5% used boundary.
-- Full-screen app, full-screen video, game, presentation, and screen-sharing hide triggers.
+- Always-visible behavior while usAIge is running, including after sleep and wake.
 
 Drag the panel by its background. Its safe position is stored separately for each display. If a display disappears, the panel is clamped onto an available screen the next time it is positioned.
 
@@ -151,9 +151,9 @@ When a quota resets, the new window starts its own notification cycle. Selecting
 - Preferences contain only visual settings, bucket identifiers, and display positions.
 - Unsupported or malformed quota buckets are omitted rather than guessed.
 
-## Visibility limitations
+## Visibility
 
-macOS does not provide a universal public signal revealing every screen-capture session started by another application. usAIge therefore uses public frontmost-application and window metadata, known presentation/media/conferencing application identifiers, and a general full-screen fallback. Screen sharing that occurs in a background or unrecognized application may not be detected. Each trigger can be disabled in Settings.
+The floating panel remains visible while usAIge is running, including across Spaces, full-screen apps, and sleep/wake. Use **Quit usAIge** in Settings to remove it.
 
 ## Troubleshooting
 
@@ -184,4 +184,4 @@ scripts/package-dmg.sh
 codesign --verify --deep --strict 'dist/usAIge.app'
 ```
 
-The automated suite covers quota normalization, JSON-RPC framing, account/rate-limit parsing, state recovery, countdowns, notification thresholds and routing, settings persistence, panel geometry, severity thresholds, and visibility-policy precedence.
+The automated suite covers quota normalization, JSON-RPC framing, account/rate-limit parsing, state recovery, countdowns, notification thresholds and routing, settings persistence, panel geometry, and severity thresholds.

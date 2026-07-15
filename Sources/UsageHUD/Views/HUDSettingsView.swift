@@ -116,14 +116,6 @@ struct HUDSettingsView: View {
                 }
             }
 
-            Section("Automatically hide during") {
-                Toggle("Full-screen apps", isOn: triggerBinding(\HideTriggers.fullScreenApps))
-                Toggle("Full-screen video", isOn: triggerBinding(\HideTriggers.fullScreenVideo))
-                Toggle("Games", isOn: triggerBinding(\HideTriggers.games))
-                Toggle("Presentations", isOn: triggerBinding(\HideTriggers.presentations))
-                Toggle("Screen sharing", isOn: triggerBinding(\HideTriggers.screenSharing))
-            }
-
             Section {
                 Button("Quit usAIge") {
                     NSApplication.shared.terminate(nil)
@@ -204,17 +196,6 @@ struct HUDSettingsView: View {
 
     private func binding(for keyPath: ReferenceWritableKeyPath<HUDSettings, Double>) -> Binding<Double> {
         Binding(get: { settings[keyPath: keyPath] }, set: { settings[keyPath: keyPath] = $0 })
-    }
-
-    private func triggerBinding(_ keyPath: WritableKeyPath<HideTriggers, Bool>) -> Binding<Bool> {
-        Binding(
-            get: { settings.hideTriggers[keyPath: keyPath] },
-            set: { value in
-                var triggers = settings.hideTriggers
-                triggers[keyPath: keyPath] = value
-                settings.hideTriggers = triggers
-            }
-        )
     }
 
     private var isUpdateBusy: Bool {

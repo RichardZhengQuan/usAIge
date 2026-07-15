@@ -7,7 +7,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     UNUserNotificationCenterDelegate {
     let settings: HUDSettings
     let store: UsageStore
-    let visibilityController: VisibilityController
     let launchAtLogin: LaunchAtLoginController
     let updateController: UpdateController
     let usageLimitNotifications: UsageLimitNotificationController
@@ -25,7 +24,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         } else {
             store = UsageStore(provider: MissingCodexProvider())
         }
-        visibilityController = VisibilityController(settings: settings)
         launchAtLogin = LaunchAtLoginController()
         updateController = UpdateController()
         usageLimitNotifications = UsageLimitNotificationController()
@@ -51,17 +49,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         let panel = HUDPanel(contentView: NSHostingView(rootView: content))
         panel.delegate = self
         self.panel = panel
-        visibilityController.onDecisionChange = { [weak self] decision in
-            guard let panel = self?.panel else { return }
-            switch decision {
-            case .visible: panel.orderFrontRegardless()
-            case .hidden: panel.orderOut(nil)
-            }
-        }
         positionPanel(panel)
         panel.orderFrontRegardless()
         store.start()
-        visibilityController.start()
         updateController.start()
     }
 
@@ -75,7 +65,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if updateController.isReplacementPrepared {
-            visibilityController.stop()
             updateController.stop()
             usageLimitNotifications.stop()
             return .terminateNow
@@ -83,7 +72,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
 
         guard !isTerminationPending else { return .terminateLater }
         isTerminationPending = true
-        visibilityController.stop()
         updateController.stop()
         usageLimitNotifications.stop()
         Task { [weak self] in
@@ -153,7 +141,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
             return
         }
         NSApp.activate(ignoringOtherApps: true)
-        guard visibilityController.permitsPanelDisplay else { return }
         panel.orderFrontRegardless()
     }
 

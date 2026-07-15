@@ -2,22 +2,6 @@ import CoreGraphics
 import Foundation
 import Observation
 
-struct HideTriggers: Codable, Equatable, Sendable {
-    var fullScreenApps: Bool
-    var fullScreenVideo: Bool
-    var games: Bool
-    var presentations: Bool
-    var screenSharing: Bool
-
-    static let allEnabled = Self(
-        fullScreenApps: true,
-        fullScreenVideo: true,
-        games: true,
-        presentations: true,
-        screenSharing: true
-    )
-}
-
 struct HUDPosition: Codable, Equatable, Sendable {
     var x: Double
     var y: Double
@@ -42,11 +26,10 @@ final class HUDSettings {
         var scale = 1.0
         var opacity = 0.92
         var positions: [String: HUDPosition] = [:]
-        var hideTriggers = HideTriggers.allEnabled
 
         enum CodingKeys: String, CodingKey {
             case version, bucketOrder, hiddenBucketIDs, toolOrder, hiddenToolIDs
-            case scale, opacity, positions, hideTriggers
+            case scale, opacity, positions
         }
 
         init() {}
@@ -61,7 +44,6 @@ final class HUDSettings {
             scale = try values.decodeIfPresent(Double.self, forKey: .scale) ?? 1
             opacity = try values.decodeIfPresent(Double.self, forKey: .opacity) ?? 0.92
             positions = try values.decodeIfPresent([String: HUDPosition].self, forKey: .positions) ?? [:]
-            hideTriggers = try values.decodeIfPresent(HideTriggers.self, forKey: .hideTriggers) ?? .allEnabled
         }
     }
 
@@ -111,11 +93,6 @@ final class HUDSettings {
     var opacity: Double {
         get { payload.opacity }
         set { payload.opacity = Self.clamp(newValue, to: 0.4...1.0); persist() }
-    }
-
-    var hideTriggers: HideTriggers {
-        get { payload.hideTriggers }
-        set { payload.hideTriggers = newValue; persist() }
     }
 
     func ordered(_ snapshots: [QuotaSnapshot]) -> [QuotaSnapshot] {
