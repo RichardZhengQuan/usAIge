@@ -65,7 +65,7 @@ families, sync behavior, and device signing are documented in
 
 ## macOS app
 
-usAIge is a native macOS floating AI usage rail. Every active Codex bucket is shown with concentric real-data meters: the inner ring tracks its 5-hour window and the outer ring tracks its 7-day window.
+usAIge is a native macOS floating AI usage rail. It shows real usage limits from the local Codex app-server and from remote AI tools you explicitly configure. When a limit has two windows, the inner ring shows its primary window and the outer ring shows its secondary window.
 
 macOS can notify you whenever a primary or secondary usage window crosses a new 5% used boundary. Selecting the notification brings the live limits rail forward.
 
@@ -77,8 +77,8 @@ While idle, the panel surface is fully transparent and every visible control is 
 
 - macOS 15 or later.
 - Swift 6.2 and Xcode 26 for source builds.
-- The ChatGPT or Codex macOS app, or a `codex` executable on `PATH`.
-- An existing Codex-managed ChatGPT sign-in.
+- For local Codex limits: the ChatGPT or Codex macOS app, or a `codex` executable on `PATH`, with an existing Codex-managed ChatGPT sign-in.
+- For remote limits: an HTTPS JSON endpoint that implements the contract below. Plain HTTP is accepted only for loopback development endpoints.
 
 usAIge uses the bundled Codex executable from the ChatGPT/Codex application when available. It does not implement a second account login.
 
@@ -104,7 +104,7 @@ The packaged application includes the custom usAIge icon in Finder, the Dock, Sp
 
 ## Install the public alpha
 
-Download `usAIge-0.1.10-alpha.dmg` and its checksum from the website. Open the disk image, then drag `usAIge.app` onto the Applications shortcut.
+Download `usAIge-0.1.11-alpha.dmg` and its checksum from the website. Open the disk image, then drag `usAIge.app` onto the Applications shortcut.
 
 This alpha is ad-hoc signed and is not notarized because the project does not yet have a Developer ID Application certificate. On first launch:
 
@@ -118,10 +118,12 @@ To build and verify the installer locally:
 
 ```bash
 scripts/package-dmg.sh
-(cd dist && shasum -a 256 -c usAIge-0.1.10-alpha.dmg.sha256)
+(cd dist && shasum -a 256 -c usAIge-0.1.11-alpha.dmg.sha256)
 ```
 
 ## Usage data
+
+### Local Codex
 
 usAIge starts `codex app-server` locally and uses its documented JSON-RPC methods:
 
@@ -132,12 +134,81 @@ usAIge starts `codex app-server` locally and uses its documented JSON-RPC method
 
 The app prefers `rateLimitsByLimitId` and falls back to the legacy single `rateLimits` bucket. It reads both the primary and secondary windows for each bucket and never estimates a missing limit.
 
+### Remote AI tools (0.1.11)
+
+Connect a remote source from **Settings**:
+
+1. In **Connected AI tools**, click **Connect a Tool**.
+2. Paste the `usaige://connect?...` link supplied by a compatible service or your team administrator.
+3. Click **Connect**. The link fills in the service name, Usage URL, website, and optional access token for you.
+
+If you do not have a connection link, use **Get help → Copy Setup Prompt** in the connection sheet. Paste that request into Codex or Claude Code. It will check the provider's documented options, prepare a compatible adapter and link when possible, or explain clearly when the account cannot expose usage. The prompt is self-contained and explicitly forbids browser scraping, copied session credentials, secrets in chat, and undocumented private APIs.
+
+A public HTTPS Usage URL can also be pasted directly. Use the panel refresh button for an immediate request; enabled remote tools otherwise refresh every 60 seconds.
+
+### Where does the connection link come from?
+
+It does not come from an ordinary AI-app login. A compatible service or a team-owned adapter must issue it. Consumer Claude, Gemini, and Cursor accounts do not currently expose their subscription limits through a simple endpoint that usAIge can call. [OpenAI](https://developers.openai.com/api/reference/resources/admin/subresources/organization/subresources/usage) and [Anthropic](https://platform.claude.com/docs/en/api/admin/usage_report/retrieve_messages) usage APIs are organization/admin APIs for API consumption, [Cursor's usage API](https://docs.cursor.com/en/account/teams/admin-api) is for team administrators, and [Gemini](https://ai.google.dev/gemini-api/docs/rate-limits) directs users to AI Studio to view active limits. usAIge does not scrape browser sessions to work around those restrictions.
+
+For a team adapter, URL-encode the values into this format and deliver the result through a secure channel:
+
+```text
+usaige://connect?name=Team%20Claude&endpoint=https%3A%2F%2Flimits.example.com%2Fusage&website=https%3A%2F%2Fclaude.ai&token=secret
+```
+
+The optional token is moved into macOS Keychain when the link is accepted; the connection link itself is not saved in preferences. Anyone holding a token-bearing link can access whatever that token permits, so treat it like a password.
+
+Developers operating a compatible endpoint can instead expand **Advanced setup** and enter the details manually.
+
+The configured endpoint must use HTTPS. For local development only, HTTP is accepted when the host is `localhost`, `127.0.0.1`, or `::1`. usAIge sends a `GET` request with `Accept: application/json`. If a token is configured, the request also includes `Authorization: Bearer <token>`.
+
+The endpoint must return a JSON object with a `limits` array. This is the canonical response contract:
+
+```json
+{
+  "limits": [
+    {
+      "id": "requests",
+      "name": "Requests",
+      "planType": "Pro",
+      "primary": {
+        "usedPercent": 42,
+        "windowDurationMinutes": 300,
+        "resetsAt": 1893456000
+      },
+      "secondary": {
+        "remainingPercent": 67,
+        "windowDurationMinutes": 10080,
+        "resetsAt": 1893974400
+      }
+    }
+  ]
+}
+```
+
+Contract details:
+
+- `id` is a required, non-empty string that remains stable for the limit. `name` and `planType` are optional strings.
+- `primary` is required for a displayed limit. `secondary` is optional; include it when the provider has another quota window.
+- Each window must provide either `usedPercent` or `remainingPercent` as a JSON number. If both are present, `usedPercent` takes precedence. Values are normalized to the `0...100` range.
+- `windowDurationMinutes` is an optional integer. Common values include `300` for five hours and `10080` for seven days.
+- `resetsAt` is an optional JSON number containing an absolute Unix timestamp in seconds, not milliseconds or a relative countdown. For example, `1893456000` is `2030-01-01T00:00:00Z`.
+- Unknown fields are ignored. A limit without a usable primary percentage is omitted rather than estimated.
+
+#### Remote limits and safety
+
+- A response must have a successful `2xx` HTTP status, valid JSON, no more than 100 limits, and a body no larger than 1 MB. The body is streamed and cancelled as soon as it crosses that limit.
+- Each request has a 15-second timeout. A failure in one configured remote tool does not prevent other available sources from reporting their limits.
+- Remote tools are read-only: usAIge makes `GET` requests and never sends account usage back to the provider.
+- Configure only endpoints you trust. The endpoint operator can observe the request, bearer token, IP address, and standard HTTP metadata.
+
 ## Settings
 
 Use the gear button on the panel to open native macOS Settings. Available preferences include:
 
 - Active AI tool visibility.
 - Quota visibility and vertical ordering.
+- Connecting remote AI tools with a one-step connection link, plus advanced manual setup.
 - Panel opacity and scale.
 - Optional automatic launch when you log in to your Mac.
 - Automatic update checks, local new-version notifications, and one-click in-app updates.
@@ -146,7 +217,7 @@ Use the gear button on the panel to open native macOS Settings. Available prefer
 
 Drag the panel by its background. Its safe position is stored separately for each display. If a display disappears, the panel is clamped onto an available screen the next time it is positioned.
 
-The interface is provider-aware, but OpenAI/Codex remains the only usage provider today because the app reads its local app-server rather than scraping provider websites or copying credentials. Tools without a legitimate usage source are not shown with invented values.
+The built-in OpenAI/Codex source reads its local app-server. Additional tools appear only when you configure a remote endpoint that returns valid usage data; usAIge does not scrape provider websites or invent missing values.
 
 ## Updates
 
@@ -162,8 +233,9 @@ When a quota resets, the new window starts its own notification cycle. Selecting
 
 - No browser cookies or web pages are read.
 - No OpenAI credentials are copied or stored by usAIge.
+- An optional remote bearer token is stored in the macOS Keychain, never in usAIge preferences, and is sent only in requests to that tool's configured endpoint.
 - No screen pixels are captured or inspected.
-- Preferences contain only visual settings, bucket identifiers, and display positions.
+- Preferences contain visual settings, bucket identifiers, display positions, and remote tool metadata such as names and URLs; they do not contain bearer tokens.
 - Unsupported or malformed quota buckets are omitted rather than guessed.
 
 ## Visibility
@@ -199,4 +271,4 @@ scripts/package-dmg.sh
 codesign --verify --deep --strict 'dist/usAIge.app'
 ```
 
-The automated suite covers quota normalization, JSON-RPC framing, account/rate-limit parsing, state recovery, countdowns, notification thresholds and routing, settings persistence, panel geometry, and severity thresholds.
+The automated suite covers quota normalization, JSON-RPC framing, account/rate-limit parsing, remote connection links, state recovery, countdowns, notification thresholds and routing, settings persistence, panel geometry, and severity thresholds.

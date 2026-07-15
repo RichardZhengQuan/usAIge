@@ -55,6 +55,9 @@ struct QuotaWindowSnapshot: Codable, Equatable, Sendable {
 struct QuotaSnapshot: Identifiable, Codable, Equatable, Sendable {
     let id: String
     var toolID: AIToolID = .chatGPT
+    var toolName: String? = nil
+    var toolWebURL: URL? = nil
+    var toolSystemImage: String? = nil
     let displayName: String
     let usedPercent: Double
     let remainingPercent: Double

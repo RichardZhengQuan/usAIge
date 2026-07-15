@@ -68,7 +68,33 @@ import Testing
     let restored = HUDSettings(defaults: defaults)
 
     #expect(restored.bucketOrder == ["codex"])
-    #expect(restored.visibleTools.map(\.id) == AIToolID.allCases)
+    #expect(restored.visibleTools.map(\.id) == AIToolID.builtInIDs)
+}
+
+@MainActor
+@Test func persistsRemoteToolsAndKeepsTheirIdentifiersUnique() throws {
+    let defaults = isolatedDefaults()
+    let endpoint = try #require(URL(string: "https://example.com/limits"))
+    let remoteID = AIToolID(rawValue: "5f73a498-85b0-49c5-97b1-288a081e532e")
+    var settings: HUDSettings? = HUDSettings(defaults: defaults)
+    try settings?.upsertRemoteTool(RemoteAITool(id: remoteID, name: "Remote", endpoint: endpoint))
+    try settings?.upsertRemoteTool(RemoteAITool(id: remoteID, name: "Renamed", endpoint: endpoint))
+    settings = nil
+
+    let restored = HUDSettings(defaults: defaults)
+
+    #expect(restored.remoteTools.count == 1)
+    #expect(restored.remoteTools.first?.name == "Renamed")
+    #expect(restored.toolOrder.filter { $0 == remoteID }.count == 1)
+}
+
+@MainActor
+@Test func registerBucketsStablyDeduplicatesRemoteRows() {
+    let settings = HUDSettings(defaults: isolatedDefaults())
+
+    settings.registerBuckets(["remote:daily", "remote:daily", "remote:weekly"])
+
+    #expect(settings.bucketOrder == ["remote:daily", "remote:weekly"])
 }
 
 @MainActor

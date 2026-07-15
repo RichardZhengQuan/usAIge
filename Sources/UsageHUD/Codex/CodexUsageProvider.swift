@@ -26,6 +26,10 @@ protocol CodexUsageProviding: Sendable {
     func stop() async
 }
 
+protocol AutomaticUsageProviding: CodexUsageProviding {
+    func refreshAutomatically() async throws -> AccountUsageResult
+}
+
 actor CodexUsageProvider: CodexUsageProviding {
     private let rpc: any RPCRequesting
     private let now: @Sendable () -> Date
@@ -88,7 +92,7 @@ actor CodexUsageProvider: CodexUsageProviding {
             "clientInfo": .object([
                 "name": .string("usaige"),
                 "title": .string("usAIge"),
-                "version": .string("0.1.10"),
+                "version": .string("0.1.11"),
             ]),
         ]))
         try await rpc.notify(method: "initialized", params: .object([:]))

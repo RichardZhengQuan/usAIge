@@ -59,7 +59,7 @@ struct QuotaRowView: View {
     @State private var criticalPulse = false
 
     private var tool: AIToolDescriptor {
-        .descriptor(for: snapshot.toolID)
+        .descriptor(for: snapshot)
     }
 
     private var primarySeverity: QuotaSeverity {

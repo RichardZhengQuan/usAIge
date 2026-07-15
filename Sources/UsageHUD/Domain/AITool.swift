@@ -1,13 +1,27 @@
 import AppKit
 import SwiftUI
 
-enum AIToolID: String, CaseIterable, Codable, Identifiable, Sendable {
-    case chatGPT
-    case claude
-    case gemini
-    case cursor
+struct AIToolID: RawRepresentable, Hashable, Codable, Identifiable, Sendable {
+    let rawValue: String
+
+    init(rawValue: String) { self.rawValue = rawValue }
 
     var id: String { rawValue }
+
+    static let chatGPT = Self(rawValue: "chatGPT")
+    static let claude = Self(rawValue: "claude")
+    static let gemini = Self(rawValue: "gemini")
+    static let cursor = Self(rawValue: "cursor")
+    static let builtInIDs: [Self] = [.chatGPT, .claude, .gemini, .cursor]
+
+    init(from decoder: Decoder) throws {
+        rawValue = try decoder.singleValueContainer().decode(String.self)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 
 struct AIToolDescriptor: Identifiable, Equatable, Sendable {
@@ -49,7 +63,24 @@ struct AIToolDescriptor: Identifiable, Equatable, Sendable {
     ]
 
     static func descriptor(for id: AIToolID) -> Self {
-        all.first(where: { $0.id == id })!
+        all.first(where: { $0.id == id }) ?? Self(
+            id: id,
+            name: id.rawValue,
+            systemImage: "cpu",
+            bundleIdentifiers: [],
+            webURL: nil
+        )
+    }
+
+    static func descriptor(for snapshot: QuotaSnapshot) -> Self {
+        let builtIn = descriptor(for: snapshot.toolID)
+        return Self(
+            id: snapshot.toolID,
+            name: snapshot.toolName ?? builtIn.name,
+            systemImage: snapshot.toolSystemImage ?? builtIn.systemImage,
+            bundleIdentifiers: builtIn.bundleIdentifiers,
+            webURL: snapshot.toolWebURL ?? builtIn.webURL
+        )
     }
 }
 
