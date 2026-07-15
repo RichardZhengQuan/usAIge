@@ -31,6 +31,15 @@ struct HUDView: View {
         HUDMetrics.scaledSize(desiredSize, scale: settings.scale)
     }
 
+    private var hasCriticalQuota: Bool {
+        snapshots.contains {
+            QuotaSeverity(remainingPercent: $0.remainingPercent).showsScaryGlow
+                || QuotaSeverity(
+                    remainingPercent: $0.secondaryWindow?.remainingPercent ?? 100
+                ).showsScaryGlow
+        }
+    }
+
     var body: some View {
         content
             .padding(.vertical, 10)
@@ -42,8 +51,17 @@ struct HUDView: View {
                     .opacity(isPanelHovered ? 1 : 0)
             }
             .overlay {
-                panelShape
-                    .stroke(.separator.opacity(isPanelHovered ? 0.42 : 0), lineWidth: 0.5)
+                ZStack {
+                    panelShape
+                        .stroke(.separator.opacity(isPanelHovered ? 0.42 : 0), lineWidth: 0.5)
+                    if hasCriticalQuota {
+                        panelShape
+                            .stroke(Color.red.opacity(0.86), lineWidth: 1.5)
+                            .shadow(color: .red, radius: 8)
+                            .shadow(color: .red.opacity(0.8), radius: 18)
+                            .accessibilityHidden(true)
+                    }
+                }
             }
             .shadow(color: .black.opacity(isPanelHovered ? 0.16 : 0), radius: 18, y: 8)
             .contentShape(panelShape)
@@ -53,7 +71,13 @@ struct HUDView: View {
                 Task { await store.refreshIfNeeded(maximumAge: 5) }
             }
             .animation(.easeOut(duration: 0.18), value: isPanelHovered)
-            .opacity(HUDMetrics.contentOpacity(configured: settings.opacity, isHovered: isPanelHovered))
+            .opacity(
+                HUDMetrics.contentOpacity(
+                    configured: settings.opacity,
+                    isHovered: isPanelHovered,
+                    isCritical: hasCriticalQuota
+                )
+            )
             .scaleEffect(settings.scale)
             .frame(width: scaledSize.width, height: scaledSize.height)
             .task(id: snapshots.map(\.id)) {
@@ -227,8 +251,13 @@ enum HUDMetrics {
         CGSize(width: size.width * scale, height: size.height * scale)
     }
 
-    static func contentOpacity(configured: Double, isHovered: Bool) -> Double {
-        configured * (isHovered ? 1 : 0.5)
+    static func contentOpacity(
+        configured: Double,
+        isHovered: Bool,
+        isCritical: Bool = false
+    ) -> Double {
+        if isCritical { return max(configured, 0.92) }
+        return configured * (isHovered ? 1 : 0.5)
     }
 
     static func controlOpacity(isHovered: Bool) -> Double {

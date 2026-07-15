@@ -33,7 +33,7 @@ Each visible quota row contains:
 
 The HUD remains fully detailed rather than collapsing on hover. Users can reorder or hide rows and adjust panel size and opacity. Settings are accessible from a small settings control on the HUD and from the standard application Settings command, without adding a menu-bar extra.
 
-The default ring colors are neutral/accent above 20% remaining, amber at or below 20%, and red at or below 10%. Color is never the only indicator; the numeric percentage remains visible.
+The default ring colors use five remaining-quota bands: blue above 60%, green above 40% through 60%, orange above 20% through 40%, red above 10% through 20%, and deep red with a prominent pulsing full-ring aura and ambient red wash throughout the complete 0–10% range. At exactly 0%, the remaining arc switches to a complete deep-red ring while the displayed and accessible value stays 0%, making exhaustion unmistakable instead of visually disappearing. The critical progress bar receives a glowing outline, the panel gains a persistent red aura, and critical mode enforces at least 92% opacity whether hovered or not. The pulse becomes a strong static aura when Reduce Motion is enabled. Color is never the only indicator; the numeric percentage remains visible.
 
 ## Window and Visibility Behavior
 
