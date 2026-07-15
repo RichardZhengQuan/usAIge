@@ -10,7 +10,9 @@ final class UsageStore {
 
     private let provider: any CodexUsageProviding
     private let now: @Sendable () -> Date
+    private let automaticRefreshInterval: Duration
     private var updateTask: Task<Void, Never>?
+    private var automaticRefreshTask: Task<Void, Never>?
     private var wakeTask: Task<Void, Never>?
     private var clockTask: Task<Void, Never>?
     private var resetTask: Task<Void, Never>?
@@ -19,10 +21,12 @@ final class UsageStore {
 
     init(
         provider: any CodexUsageProviding,
-        now: @escaping @Sendable () -> Date = Date.init
+        now: @escaping @Sendable () -> Date = Date.init,
+        automaticRefreshInterval: Duration = .seconds(5)
     ) {
         self.provider = provider
         self.now = now
+        self.automaticRefreshInterval = automaticRefreshInterval
     }
 
     func start() {
@@ -34,6 +38,19 @@ final class UsageStore {
             for await snapshots in updates {
                 guard !Task.isCancelled else { return }
                 self.apply(snapshots)
+            }
+        }
+
+        automaticRefreshTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: self.automaticRefreshInterval)
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else { return }
+                await self.refresh()
             }
         }
 
@@ -93,11 +110,13 @@ final class UsageStore {
 
     func stop() {
         updateTask?.cancel()
+        automaticRefreshTask?.cancel()
         wakeTask?.cancel()
         clockTask?.cancel()
         resetTask?.cancel()
         retryTask?.cancel()
         updateTask = nil
+        automaticRefreshTask = nil
         wakeTask = nil
         clockTask = nil
         resetTask = nil
