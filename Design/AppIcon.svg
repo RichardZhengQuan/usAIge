@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="#080a09"/>
+  <g
+    font-family="Arial, Helvetica, sans-serif"
+    font-size="300"
+    font-weight="700"
+    letter-spacing="-18"
+  >
+    <text x="90" y="610" fill="#f1f5ef">us</text>
+    <text x="385" y="610" fill="#c9ff56">AI</text>
+    <text x="647" y="610" fill="#f1f5ef">ge</text>
+  </g>
+</svg>
