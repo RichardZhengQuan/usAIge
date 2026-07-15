@@ -9,7 +9,7 @@ let fileManager = FileManager.default
 let repositoryRoot = URL(fileURLWithPath: #filePath)
     .deletingLastPathComponent()
     .deletingLastPathComponent()
-let sourceURL = repositoryRoot.appendingPathComponent("Design/AppIcon.svg")
+let sourceURL = repositoryRoot.appendingPathComponent("Design/AppIcon.png")
 
 guard let sourceImage = NSImage(contentsOf: sourceURL) else {
     fatalError("Could not load \(sourceURL.path)")
@@ -60,7 +60,7 @@ func renderPNG(size: Int) throws -> Data {
     return output as Data
 }
 
-let masterPNG = try renderPNG(size: 1024)
+let masterPNG = try Data(contentsOf: sourceURL)
 let masterDestinations = [
     "Sources/UsageHUD/Resources/AppIcon.png",
     "iOS/App/Assets.xcassets/AppIcon.appiconset/AppIcon.png",
@@ -110,4 +110,4 @@ guard iconutil.terminationStatus == 0 else {
     throw NSError(domain: "AppIconGenerator", code: Int(iconutil.terminationStatus))
 }
 
-print("Generated macOS, iOS, and website icons from Design/AppIcon.svg")
+print("Generated macOS, iOS, and website icons from Design/AppIcon.png")
