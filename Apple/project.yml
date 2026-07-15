@@ -1,0 +1,117 @@
+name: usAIgeApple
+
+options:
+  bundleIdPrefix: com.richardq.usaige
+  createIntermediateGroups: true
+  deploymentTarget:
+    iOS: "26.0"
+    watchOS: "10.0"
+  groupSortPosition: top
+
+settings:
+  base:
+    CURRENT_PROJECT_VERSION: 1
+    MARKETING_VERSION: 0.2.0
+    SWIFT_VERSION: 6.0
+  configs:
+    Debug:
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+    Release:
+      SWIFT_COMPILATION_MODE: wholemodule
+
+targets:
+  usAIge-iOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: ../iOS/App
+      - path: ../iOS/Shared
+    settings:
+      base:
+        CODE_SIGN_ENTITLEMENTS: $(SRCROOT)/../iOS/Configuration/usAIge-iOS.entitlements
+        INFOPLIST_FILE: $(SRCROOT)/../iOS/Configuration/usAIge-iOS-Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.richardq.usaige
+        PRODUCT_NAME: usAIge
+        TARGETED_DEVICE_FAMILY: "1,2"
+    dependencies:
+      - target: UsageWidget
+      - target: usAIgeWatch
+
+  UsageWidget:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: ../iOS/Widget
+      - path: ../iOS/Shared
+    settings:
+      base:
+        APPLICATION_EXTENSION_API_ONLY: true
+        CODE_SIGN_ENTITLEMENTS: $(SRCROOT)/../iOS/Configuration/UsageWidget.entitlements
+        INFOPLIST_FILE: $(SRCROOT)/../iOS/Configuration/UsageWidget-Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.richardq.usaige.UsageWidget
+        PRODUCT_NAME: UsageWidget
+        SKIP_INSTALL: true
+        TARGETED_DEVICE_FAMILY: "1,2"
+
+  usAIgeWatch:
+    type: application
+    platform: watchOS
+    deploymentTarget: "10.0"
+    sources:
+      - path: WatchApp
+      - path: Shared
+      - path: ../iOS/Shared/Watch
+    settings:
+      base:
+        CODE_SIGN_ENTITLEMENTS: $(SRCROOT)/Config/Watch.entitlements
+        INFOPLIST_FILE: $(SRCROOT)/Config/Watch-Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.richardq.usaige.watchkitapp
+        PRODUCT_NAME: usAIge Watch
+        SKIP_INSTALL: true
+        TARGETED_DEVICE_FAMILY: 4
+    dependencies:
+      - target: usAIgeWatchWidget
+
+  usAIgeWatchWidget:
+    type: app-extension
+    platform: watchOS
+    deploymentTarget: "10.0"
+    sources:
+      - path: WatchWidget
+      - path: Shared
+      - path: ../iOS/Shared/Watch
+    settings:
+      base:
+        APPLICATION_EXTENSION_API_ONLY: true
+        CODE_SIGN_ENTITLEMENTS: $(SRCROOT)/Config/WatchWidget.entitlements
+        INFOPLIST_FILE: $(SRCROOT)/Config/WatchWidget-Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.richardq.usaige.watchkitapp.widget
+        PRODUCT_NAME: usAIge Watch Widget
+        SKIP_INSTALL: true
+        TARGETED_DEVICE_FAMILY: 4
+
+schemes:
+  usAIge-iOS:
+    build:
+      targets:
+        usAIge-iOS: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+  usAIgeWatch:
+    build:
+      targets:
+        usAIgeWatch: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+  usAIgeWatchWidget:
+    build:
+      targets:
+        usAIgeWatchWidget: all
+    run:
+      config: Debug

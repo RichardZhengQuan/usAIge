@@ -23,6 +23,7 @@ final class AppModel {
     private let quotaCache: SharedQuotaCache
     private let tokenVault: KeychainTokenVault
     private let usageClient: RemoteUsageClient
+    private let watchCoordinator: WatchSyncCoordinator
     private var startupTask: Task<Void, Never>?
     private var pendingTokenDeletionIDs: Set<UUID> = []
     private var connectionRevisionByToolID: [UUID: UInt] = [:]
@@ -35,12 +36,22 @@ final class AppModel {
         toolStore: ToolConfigurationStore = ToolConfigurationStore(),
         quotaCache: SharedQuotaCache = SharedQuotaCache(),
         tokenVault: KeychainTokenVault = KeychainTokenVault(),
-        usageClient: RemoteUsageClient = RemoteUsageClient()
+        usageClient: RemoteUsageClient = RemoteUsageClient(),
+        watchCoordinator: WatchSyncCoordinator = WatchSyncCoordinator()
     ) {
         self.toolStore = toolStore
         self.quotaCache = quotaCache
         self.tokenVault = tokenVault
         self.usageClient = usageClient
+        self.watchCoordinator = watchCoordinator
+        watchCoordinator.refreshHandler = { [weak self] in
+            guard let self else {
+                return WatchUsageSnapshotEnvelope(generatedAt: Date(), tools: [])
+            }
+            await self.refreshAll()
+            return self.watchSnapshotEnvelope()
+        }
+        watchCoordinator.activate()
     }
 
     var enabledTools: [RemoteToolConfiguration] {
@@ -150,6 +161,7 @@ final class AppModel {
                     )
                 }
             }
+            watchCoordinator.publish(watchSnapshotEnvelope(generatedAt: cache.savedAt))
         } catch {
             systemErrorMessage = "Saved limits could not be loaded: \(error.localizedDescription)"
         }
@@ -710,6 +722,43 @@ final class AppModel {
         )
         cacheSavedAt = savedAt
         WidgetCenter.shared.reloadTimelines(ofKind: "com.richardq.usaige.limits")
+        watchCoordinator.publish(watchSnapshotEnvelope(generatedAt: savedAt))
+    }
+
+    private func watchSnapshotEnvelope(generatedAt: Date = Date()) -> WatchUsageSnapshotEnvelope {
+        let grouped = Dictionary(grouping: snapshots) { $0.toolID }
+        let tools = enabledTools.compactMap { tool -> WatchToolQuotaSnapshot? in
+            let toolSnapshots = grouped[tool.id] ?? []
+            let limits = toolSnapshots.map { snapshot in
+                WatchQuotaSnapshot(
+                    id: snapshot.limitID,
+                    displayName: snapshot.displayName,
+                    primary: WatchQuotaWindowSnapshot(
+                        remainingPercent: snapshot.remainingPercent,
+                        resetAt: snapshot.resetAt,
+                        windowDurationSeconds: snapshot.windowDurationMinutes.map { $0 * 60 }
+                    ),
+                    secondary: snapshot.secondaryWindow.map { window in
+                        WatchQuotaWindowSnapshot(
+                            remainingPercent: window.remainingPercent,
+                            resetAt: window.resetAt,
+                            windowDurationSeconds: window.windowDurationMinutes.map { $0 * 60 }
+                        )
+                    },
+                    planType: snapshot.planType
+                )
+            }
+            guard !limits.isEmpty else { return nil }
+            return WatchToolQuotaSnapshot(
+                id: tool.id.uuidString.lowercased(),
+                displayName: tool.name,
+                sourceUpdatedAt: toolSnapshots.map(\.updatedAt).min() ?? generatedAt,
+                receivedAt: generatedAt,
+                limits: limits,
+                symbolName: tool.symbolName
+            )
+        }
+        return WatchUsageSnapshotEnvelope(generatedAt: generatedAt, tools: tools)
     }
 
     private func recordPersistenceError(_ message: String) {

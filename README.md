@@ -1,9 +1,10 @@
 # usAIge
 
-usAIge now has two native clients: the existing macOS floating usage rail and a
-new iOS 26 app with a WidgetKit extension. The iOS version connects to
+usAIge has native clients for macOS, iPhone, iPad, and Apple Watch. The iOS 26
+app connects to
 user-owned remote HTTPS endpoints, displays current AI quota limits and reset
-times, and shares successful snapshots with Home Screen widgets.
+times, and shares successful snapshots with Home Screen widgets and a paired
+Apple Watch.
 
 ## iOS app and widget
 
@@ -17,6 +18,8 @@ Open `usAIge-iOS.xcodeproj` in Xcode 26. The project contains:
 - Small, medium, and large widgets backed by the shared cache.
 - Immediate foreground and pull-to-refresh updates plus best-effort iOS
   background refresh scheduling.
+- Credential-free WatchConnectivity sync to the Watch app and watch-face
+  complications.
 
 The endpoint contract and a complete response example are documented in
 [`docs/remote-usage-api.md`](docs/remote-usage-api.md). iOS controls the exact
@@ -47,6 +50,18 @@ both bundle identifiers. Simulator builds can be compiled without signing.
   reset times, and refresh metadata, but never bearer tokens.
 - The app sends requests only to endpoints the user adds. It does not read
   browser cookies, prompts, or account content.
+
+## Apple Watch app and complications
+
+The Apple Watch version shows every synced remote AI limit and provides
+circular, rectangular, inline, and native quarter-curve corner complications.
+Users configure endpoints and optional credentials in the existing iOS app;
+only normalized quota snapshots are transferred to the Watch.
+
+Open the combined project at `Apple/usAIgeApple.xcodeproj` to build the iOS app,
+iOS widget, Watch app, and Watch widget together. Setup, supported watch-face
+families, sync behavior, and device signing are documented in
+[`Apple/README.md`](Apple/README.md).
 
 ## macOS app
 

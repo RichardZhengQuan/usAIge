@@ -1,0 +1,42 @@
+{
+  "generatedAt": "2026-07-14T15:08:00Z",
+  "schemaVersion": 1,
+  "tools": [
+    {
+      "displayName": "Claude Team",
+      "id": "preview-claude",
+      "limits": [
+        {
+          "displayName": "5 hour",
+          "id": "five-hour",
+          "planType": "team",
+          "primary": {
+            "remainingPercent": 58,
+            "resetAt": "2026-07-14T16:08:00Z",
+            "usedPercent": 42,
+            "windowDurationSeconds": 18000
+          },
+          "secondary": {
+            "remainingPercent": 29,
+            "resetAt": "2026-07-19T00:00:00Z",
+            "usedPercent": 71,
+            "windowDurationSeconds": 604800
+          }
+        },
+        {
+          "displayName": "Code review",
+          "id": "code-review",
+          "primary": {
+            "remainingPercent": 76,
+            "resetAt": "2026-07-15T00:00:00Z",
+            "usedPercent": 24,
+            "windowDurationSeconds": 86400
+          }
+        }
+      ],
+      "receivedAt": "2026-07-14T15:08:00Z",
+      "symbolName": "brain.head.profile",
+      "sourceUpdatedAt": "2026-07-14T15:07:55Z"
+    }
+  ]
+}
