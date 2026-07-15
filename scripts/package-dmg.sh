@@ -14,9 +14,16 @@ stage="$(mktemp -d "${TMPDIR:-/tmp}/usaige-dmg.XXXXXX")"
 mount="$(mktemp -d "${TMPDIR:-/tmp}/usaige-mount.XXXXXX")"
 mounted=false
 
+detach_mount() {
+    if ! hdiutil detach "$mount" -quiet; then
+        hdiutil detach "$mount" -force -quiet
+    fi
+    mounted=false
+}
+
 cleanup() {
     if $mounted; then
-        hdiutil detach "$mount" -quiet || true
+        detach_mount || true
     fi
     rm -rf "$stage" "$mount"
 }
@@ -40,8 +47,7 @@ test -x "$mount/usAIge.app/Contents/MacOS/usAIge"
 test -L "$mount/Applications"
 plutil -lint "$mount/usAIge.app/Contents/Info.plist"
 codesign --verify --deep --strict "$mount/usAIge.app"
-hdiutil detach "$mount" -quiet
-mounted=false
+detach_mount
 
 (
     cd dist

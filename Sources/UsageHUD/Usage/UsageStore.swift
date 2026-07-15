@@ -20,6 +20,7 @@ final class UsageStore {
     private var retryIndex = 0
     private var isRefreshing = false
     private var lastSuccessfulRefresh: Date?
+    private var refreshQueued = false
 
     init(
         provider: any CodexUsageProviding,
@@ -52,7 +53,7 @@ final class UsageStore {
                     return
                 }
                 guard !Task.isCancelled else { return }
-                await self.refresh()
+                await self.refreshAutomatically()
             }
         }
 
@@ -75,14 +76,41 @@ final class UsageStore {
                 await self.handleClockChange()
             }
         }
+
     }
 
     func refresh() async {
-        guard !isRefreshing else { return }
+        await refresh(automatic: false)
+    }
+
+    private func refreshAutomatically() async {
+        await refresh(automatic: true)
+    }
+
+    private func refresh(automatic: Bool) async {
+        guard !isRefreshing else {
+            if !automatic { refreshQueued = true }
+            return
+        }
         isRefreshing = true
         defer { isRefreshing = false }
+        var nextRefreshIsAutomatic = automatic
+        repeat {
+            refreshQueued = false
+            await performRefresh(automatic: nextRefreshIsAutomatic)
+            nextRefreshIsAutomatic = false
+        } while refreshQueued && !Task.isCancelled
+    }
+
+    private func performRefresh(automatic: Bool) async {
         do {
-            let result = try await provider.refresh()
+            let result: AccountUsageResult
+            if automatic,
+               let automaticProvider = provider as? any AutomaticUsageProviding {
+                result = try await automaticProvider.refreshAutomatically()
+            } else {
+                result = try await provider.refresh()
+            }
             lastSuccessfulRefresh = now()
             retryIndex = 0
             retryTask?.cancel()

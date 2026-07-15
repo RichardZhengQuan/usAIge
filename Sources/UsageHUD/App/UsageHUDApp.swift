@@ -10,7 +10,8 @@ struct UsAIgeApp: App {
                 settings: appDelegate.settings,
                 snapshots: appDelegate.store.visibleSnapshots,
                 launchAtLogin: appDelegate.launchAtLogin,
-                updateController: appDelegate.updateController
+                updateController: appDelegate.updateController,
+                refreshUsage: { await appDelegate.store.refresh() }
             )
             .frame(width: 520, height: 680)
         }

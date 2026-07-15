@@ -1,10 +1,10 @@
-const downloadUrl = "/usAIge-0.1.10-alpha.dmg";
+const downloadUrl = "/usAIge-0.1.11-alpha.dmg";
 
 const features = [
   {
     number: "01",
-    title: "Every window, at a glance",
-    copy: "See your live 5-hour and 7-day Codex limits together. No mental math, no stale estimates.",
+    title: "Every tool, at a glance",
+    copy: "See live Codex limits beside compatible team services you connect with one link.",
   },
   {
     number: "02",
@@ -13,8 +13,8 @@ const features = [
   },
   {
     number: "03",
-    title: "Local by design",
-    copy: "usAIge connects to Codex on your Mac. It never reads browser cookies, captures your screen, or stores credentials.",
+    title: "Private by design",
+    copy: "Local Codex stays local. Optional remote tokens live in Keychain and go only to endpoints you configure.",
   },
   {
     number: "04",
@@ -54,12 +54,12 @@ export default function Home() {
           <p className="eyebrow"><span /> Native macOS utility · Public alpha</p>
           <h1>Know your<br />AI <em>limits.</em></h1>
           <p className="hero__lede">
-            usAIge is a quiet floating rail for your real Codex usage—always visible, instantly readable, and built to stay out of your way.
+            usAIge is a quiet floating rail for your real AI usage—local Codex and remote tools, always visible and instantly readable.
           </p>
           <div className="hero__actions">
             <a className="button button--primary" href={downloadUrl} download>
               <span className="button__icon" aria-hidden="true">↓</span>
-              <span><strong>Download for macOS</strong><small>v0.1.10 alpha · macOS 15+</small></span>
+              <span><strong>Download for macOS</strong><small>v0.1.11 alpha · macOS 15+</small></span>
             </a>
             <a className="text-link" href="#install">How to install <span aria-hidden="true">→</span></a>
           </div>
@@ -86,7 +86,7 @@ export default function Home() {
             </div>
             <div className="usage-rail__foot"><span>Updated now</span><span aria-hidden="true">⌁</span></div>
           </div>
-          <p className="visual-note"><span>Real data</span> from your local Codex app-server</p>
+          <p className="visual-note"><span>Real data</span> from local Codex and endpoints you add</p>
         </div>
       </section>
 
@@ -95,7 +95,7 @@ export default function Home() {
           <span>5-hour window</span><i />
           <span>7-day window</span><i />
           <span>Starts at login</span><i />
-          <span>No credential copying</span>
+          <span>Remote tools</span>
         </div>
       </section>
 
@@ -121,13 +121,14 @@ export default function Home() {
         <div className="privacy__mark" aria-hidden="true"><span>✓</span></div>
         <div>
           <p className="eyebrow"><span /> Privacy without fine print</p>
-          <h2>Your usage stays<br />on <em>your Mac.</em></h2>
+          <h2>You choose<br /><em>every source.</em></h2>
         </div>
         <div className="privacy__copy">
-          <p>usAIge reads documented account and rate-limit data from your existing local Codex session. It does not scrape websites, copy credentials, inspect screen pixels, or invent missing values.</p>
+          <p>usAIge reads documented rate-limit data from local Codex and only the remote endpoints you explicitly add. It does not scrape websites, inspect screen pixels, or invent missing values.</p>
           <ul>
             <li><span>✓</span> No browser cookies read</li>
             <li><span>✓</span> No separate account login</li>
+            <li><span>✓</span> Remote tokens stay in Keychain</li>
             <li><span>✓</span> No analytics or tracking</li>
           </ul>
         </div>
@@ -146,9 +147,9 @@ export default function Home() {
         <div className="install__cta">
           <a className="button button--primary" href={downloadUrl} download>
             <span className="button__icon" aria-hidden="true">↓</span>
-            <span><strong>Download usAIge</strong><small>v0.1.10 alpha · macOS 15 or later</small></span>
+            <span><strong>Download usAIge</strong><small>v0.1.11 alpha · macOS 15 or later</small></span>
           </a>
-          <a className="checksum" href="/usAIge-0.1.10-alpha.dmg.sha256" download>SHA-256 checksum</a>
+          <a className="checksum" href="/usAIge-0.1.11-alpha.dmg.sha256" download>SHA-256 checksum</a>
         </div>
       </section>
 

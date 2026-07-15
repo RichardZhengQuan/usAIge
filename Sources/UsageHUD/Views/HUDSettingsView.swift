@@ -12,7 +12,8 @@ struct HUDSettingsRootView: View {
             settings: settings,
             snapshots: store.visibleSnapshots,
             launchAtLogin: launchAtLogin,
-            updateController: updateController
+            updateController: updateController,
+            refreshUsage: { await store.refresh() }
         )
     }
 }
@@ -22,6 +23,10 @@ struct HUDSettingsView: View {
     let snapshots: [QuotaSnapshot]
     @Bindable var launchAtLogin: LaunchAtLoginController
     @Bindable var updateController: UpdateController
+    let refreshUsage: () async -> Void
+    @State private var remoteToolEditor: RemoteToolEditorItem?
+    @State private var remoteToolToDelete: RemoteAITool?
+    @State private var remoteToolError: String?
 
     private var activeToolIDs: [AIToolID] {
         settings.toolOrder.filter { id in snapshots.contains(where: { $0.toolID == id }) }
@@ -116,6 +121,26 @@ struct HUDSettingsView: View {
                 }
             }
 
+            Section("Connected AI tools") {
+                if settings.remoteTools.isEmpty {
+                    Text("Codex connects automatically. Other tools require an official usage API or a compatible adapter.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(settings.remoteTools) { tool in
+                        remoteToolRow(tool)
+                    }
+                }
+                if let remoteToolError {
+                    Text(remoteToolError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+                Button {
+                    remoteToolEditor = RemoteToolEditorItem(tool: nil)
+                } label: {
+                    Label("Connect a Tool", systemImage: "link.badge.plus")
+                }
+            }
             Section {
                 Button("Quit usAIge") {
                     NSApplication.shared.terminate(nil)
@@ -124,6 +149,32 @@ struct HUDSettingsView: View {
         }
         .formStyle(.grouped)
         .padding()
+        .sheet(item: $remoteToolEditor) { item in
+            RemoteToolEditorView(tool: item.tool) { tool, token, removeToken in
+                let credentials = KeychainCredentialStore()
+                if removeToken {
+                    try credentials.setToken(nil, for: tool.id)
+                } else if !token.isEmpty {
+                    try credentials.setToken(token, for: tool.id)
+                }
+                try settings.upsertRemoteTool(tool)
+                Task { await refreshUsage() }
+            }
+        }
+        .confirmationDialog(
+            "Remove remote tool?",
+            isPresented: Binding(
+                get: { remoteToolToDelete != nil },
+                set: { if !$0 { remoteToolToDelete = nil } }
+            ),
+            presenting: remoteToolToDelete
+        ) { tool in
+            Button("Remove \(tool.name)", role: .destructive) {
+                removeRemoteTool(tool)
+            }
+        } message: { tool in
+            Text("This removes \(tool.name)'s endpoint and saved bearer token from this Mac.")
+        }
     }
 
     private func orderedSnapshots(for toolID: AIToolID) -> [QuotaSnapshot] {
@@ -133,7 +184,8 @@ struct HUDSettingsView: View {
     }
 
     private func toolRow(for id: AIToolID) -> some View {
-        let tool = AIToolDescriptor.descriptor(for: id)
+        let tool = snapshots.first(where: { $0.toolID == id })
+            .map(AIToolDescriptor.descriptor(for:)) ?? AIToolDescriptor.descriptor(for: id)
         return HStack(spacing: 10) {
             AIToolIcon(tool: tool, size: 26)
             Toggle(
@@ -150,6 +202,54 @@ struct HUDSettingsView: View {
             Text("\(orderedSnapshots(for: id).count) types")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    private func remoteToolRow(_ tool: RemoteAITool) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: tool.systemImage)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Toggle(
+                    tool.name,
+                    isOn: Binding(
+                        get: { tool.isEnabled },
+                        set: { enabled in
+                            settings.setRemoteToolEnabled(tool.id, enabled: enabled)
+                            Task { await refreshUsage() }
+                        }
+                    )
+                )
+                Text(tool.endpoint.absoluteString)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Button("Edit") {
+                remoteToolEditor = RemoteToolEditorItem(tool: tool)
+            }
+            .buttonStyle(.link)
+            Button(role: .destructive) {
+                remoteToolToDelete = tool
+            } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .help("Remove \(tool.name)")
+            .accessibilityLabel("Remove \(tool.name)")
+        }
+    }
+
+    private func removeRemoteTool(_ tool: RemoteAITool) {
+        do {
+            try KeychainCredentialStore().setToken(nil, for: tool.id)
+            settings.removeRemoteTool(tool.id)
+            remoteToolError = nil
+            remoteToolToDelete = nil
+            Task { await refreshUsage() }
+        } catch {
+            remoteToolError = error.localizedDescription
         }
     }
 
@@ -207,5 +307,227 @@ struct HUDSettingsView: View {
 
     private var isUpdateError: Bool {
         if case .failed = updateController.status { true } else { false }
+    }
+}
+
+private struct RemoteToolEditorItem: Identifiable {
+    let id = UUID()
+    let tool: RemoteAITool?
+}
+
+private struct RemoteToolEditorView: View {
+    @Environment(\.dismiss) private var dismiss
+    private let existingTool: RemoteAITool?
+    private let onSave: (RemoteAITool, String, Bool) throws -> Void
+    @State private var name: String
+    @State private var endpoint: String
+    @State private var webURL: String
+    @State private var connectionLink = ""
+    @State private var token = ""
+    @State private var removeToken = false
+    @State private var showsAdvanced: Bool
+    @State private var errorMessage: String?
+    @State private var setupPromptCopyID: UUID?
+
+    init(
+        tool: RemoteAITool?,
+        onSave: @escaping (RemoteAITool, String, Bool) throws -> Void
+    ) {
+        existingTool = tool
+        self.onSave = onSave
+        _name = State(initialValue: tool?.name ?? "")
+        _endpoint = State(initialValue: tool?.endpoint.absoluteString ?? "")
+        _webURL = State(initialValue: tool?.webURL?.absoluteString ?? "")
+        _showsAdvanced = State(initialValue: tool != nil)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text(existingTool == nil ? "Connect an AI Tool" : "Edit AI Tool Connection")
+                .font(.title2.weight(.semibold))
+            Form {
+                if existingTool == nil {
+                    Section("Recommended") {
+                        HStack {
+                            TextField(
+                                "Connection link",
+                                text: $connectionLink,
+                                prompt: Text("usaige://connect?… or https://…")
+                            )
+                            Button("Paste") { pasteConnectionLink() }
+                        }
+                        Text("A connection link packages the server address and access key for you. Get it from a compatible service or your team administrator.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Label(
+                            "Codex connects automatically. Other services require an official usage API or a compatible adapter.",
+                            systemImage: "info.circle"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        Link(
+                            "Why can't some accounts connect?",
+                            destination: URL(string: "https://github.com/RichardZhengQuan/usAIge#remote-ai-tools-011")!
+                        )
+                    }
+
+                    Section("Get help") {
+                        Label("Use Codex or Claude Code", systemImage: "terminal")
+                        Text("Not sure where to get these details? Ask Codex or Claude Code to check the service's official options and prepare them for you. They cannot unlock data your account does not expose; personal Claude subscriptions currently have no official API for reading remaining limits.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Button {
+                            copySetupPrompt()
+                        } label: {
+                            Label("Copy Setup Prompt", systemImage: "doc.on.doc")
+                        }
+                        .accessibilityHint("Copies instructions for setting up a safe usAIge connection.")
+                        if setupPromptCopyID != nil {
+                            Label(
+                                "Prompt Copied — paste it into Codex or Claude Code.",
+                                systemImage: "checkmark.circle.fill"
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Section {
+                        DisclosureGroup("Advanced setup", isExpanded: $showsAdvanced) {
+                            connectionFields
+                                .padding(.top, 8)
+                        }
+                    } footer: {
+                        Text("Use Advanced setup only when you operate a usAIge-compatible JSON endpoint.")
+                    }
+                } else {
+                    Section("Connection details") {
+                        connectionFields
+                    }
+                }
+            }
+            .formStyle(.grouped)
+
+            if let errorMessage {
+                Text(errorMessage).font(.caption).foregroundStyle(.red)
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button(existingTool == nil ? "Connect" : "Save") { save() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!canSave)
+            }
+        }
+        .padding(24)
+        .frame(width: 520)
+    }
+
+    @ViewBuilder
+    private var connectionFields: some View {
+        TextField("Display name", text: $name)
+        TextField("Usage URL", text: $endpoint, prompt: Text("https://example.com/api/limits"))
+        TextField("Website (optional)", text: $webURL)
+        SecureField(
+            existingTool == nil ? "Access token (optional)" : "New access token (leave blank to keep)",
+            text: $token
+        )
+        if existingTool != nil {
+            Toggle("Remove saved access token", isOn: $removeToken)
+        }
+        Text("The access token is stored in Keychain and sent only to this Usage URL.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+    }
+
+    private var canSave: Bool {
+        if existingTool == nil,
+           !connectionLink.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return true
+        }
+        return showsAdvanced
+            && !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !endpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func pasteConnectionLink() {
+        guard let value = NSPasteboard.general.string(forType: .string) else {
+            errorMessage = "The clipboard does not contain a connection link."
+            return
+        }
+        connectionLink = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        errorMessage = nil
+    }
+
+    private func copySetupPrompt() {
+        guard RemoteToolSetupPrompt.copy() else {
+            setupPromptCopyID = nil
+            errorMessage = "The setup prompt could not be copied. Please try again."
+            return
+        }
+        let copyID = UUID()
+        setupPromptCopyID = copyID
+        errorMessage = nil
+        AccessibilityNotification.Announcement("Setup prompt copied").post()
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            guard setupPromptCopyID == copyID else { return }
+            setupPromptCopyID = nil
+        }
+    }
+
+    private func save() {
+        var resolvedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        var resolvedEndpoint = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+        var resolvedWebURL = webURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        var resolvedToken = token
+
+        if existingTool == nil,
+           !connectionLink.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            do {
+                let connection = try RemoteToolConnectionLink.parse(connectionLink)
+                resolvedName = connection.name
+                resolvedEndpoint = connection.endpoint.absoluteString
+                resolvedWebURL = connection.webURL?.absoluteString ?? ""
+                resolvedToken = connection.token ?? token
+            } catch {
+                errorMessage = error.localizedDescription
+                return
+            }
+        }
+
+        guard !resolvedName.isEmpty,
+              let endpointURL = URL(string: resolvedEndpoint),
+              isAllowedEndpoint(endpointURL) else {
+            errorMessage = "Use a display name and an HTTPS Usage URL (HTTP is allowed only for localhost)."
+            return
+        }
+        let parsedWebURL = resolvedWebURL.isEmpty ? nil : URL(string: resolvedWebURL)
+        if !resolvedWebURL.isEmpty,
+           !["http", "https"].contains(parsedWebURL?.scheme?.lowercased() ?? "") {
+            errorMessage = "The tool URL must use HTTP or HTTPS."
+            return
+        }
+        let tool = RemoteAITool(
+            id: existingTool?.id ?? AIToolID(rawValue: UUID().uuidString.lowercased()),
+            name: resolvedName,
+            endpoint: endpointURL,
+            webURL: parsedWebURL,
+            systemImage: existingTool?.systemImage ?? "cpu",
+            isEnabled: existingTool?.isEnabled ?? true
+        )
+        do {
+            try onSave(tool, resolvedToken, removeToken)
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func isAllowedEndpoint(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(), let host = url.host else { return false }
+        return scheme == "https" || (scheme == "http" && ["localhost", "127.0.0.1", "::1"].contains(host))
     }
 }

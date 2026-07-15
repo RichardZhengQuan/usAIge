@@ -16,14 +16,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     private var hasRepliedToTermination = false
 
     override init() {
-        settings = HUDSettings()
+        let configuredSettings = HUDSettings()
+        settings = configuredSettings
+        let localProvider: any CodexUsageProviding
         if let executable = CodexExecutableResolver.resolve() {
             let transport = ProcessLineTransport(executableURL: executable)
             let connection = JSONRPCConnection(transport: transport)
-            store = UsageStore(provider: CodexUsageProvider(rpc: connection))
+            localProvider = CodexUsageProvider(rpc: connection)
         } else {
-            store = UsageStore(provider: MissingCodexProvider())
+            localProvider = MissingCodexProvider()
         }
+        let remoteProvider = RemoteUsageProvider(
+            configuration: { configuredSettings.remoteTools },
+            credentials: KeychainCredentialStore()
+        )
+        store = UsageStore(provider: CompositeUsageProvider(
+            local: localProvider,
+            remote: remoteProvider
+        ))
         launchAtLogin = LaunchAtLoginController()
         updateController = UpdateController()
         usageLimitNotifications = UsageLimitNotificationController()
