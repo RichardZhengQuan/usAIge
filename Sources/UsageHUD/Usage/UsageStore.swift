@@ -18,6 +18,8 @@ final class UsageStore {
     private var resetTask: Task<Void, Never>?
     private var retryTask: Task<Void, Never>?
     private var retryIndex = 0
+    private var isRefreshing = false
+    private var lastSuccessfulRefresh: Date?
 
     init(
         provider: any CodexUsageProviding,
@@ -76,8 +78,12 @@ final class UsageStore {
     }
 
     func refresh() async {
+        guard !isRefreshing else { return }
+        isRefreshing = true
+        defer { isRefreshing = false }
         do {
             let result = try await provider.refresh()
+            lastSuccessfulRefresh = now()
             retryIndex = 0
             retryTask?.cancel()
             retryTask = nil
@@ -97,6 +103,14 @@ final class UsageStore {
                 state = .stale(previous, since: now())
             }
             scheduleRetry()
+        }
+    }
+
+    func refreshIfNeeded(maximumAge: TimeInterval) async {
+        guard let lastSuccessfulRefresh,
+              now().timeIntervalSince(lastSuccessfulRefresh) < maximumAge else {
+            await refresh()
+            return
         }
     }
 
