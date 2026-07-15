@@ -26,3 +26,12 @@ import Testing
     #expect(frame.minY >= visible.minY + 16)
     #expect(frame.maxY <= visible.maxY - 16)
 }
+
+@Test func translatesWindowOriginWithPointerDrag() {
+    let origin = PanelPositioner.draggedOrigin(
+        startingAt: CGPoint(x: 100, y: 200),
+        translation: CGSize(width: 24, height: 36)
+    )
+
+    #expect(origin == CGPoint(x: 124, y: 236))
+}

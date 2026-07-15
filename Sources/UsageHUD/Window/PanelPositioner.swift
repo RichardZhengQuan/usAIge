@@ -3,6 +3,13 @@ import CoreGraphics
 enum PanelPositioner {
     static let inset: CGFloat = 16
 
+    static func draggedOrigin(startingAt origin: CGPoint, translation: CGSize) -> CGPoint {
+        CGPoint(
+            x: origin.x + translation.width,
+            y: origin.y + translation.height
+        )
+    }
+
     static func frame(
         panelSize: CGSize,
         visibleFrame: CGRect,
