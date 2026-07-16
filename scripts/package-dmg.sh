@@ -31,7 +31,21 @@ trap cleanup EXIT
 
 ditto "$root/dist/usAIge.app" "$stage/usAIge.app"
 xattr -cr "$stage/usAIge.app"
-ln -s /Applications "$stage/Applications"
+# Use a native Finder alias instead of a bare symbolic link. Finder can render
+# the symlink as an empty placeholder inside a dark-mode disk image, while the
+# alias carries the target's Applications-folder icon metadata with it.
+osascript \
+    -e "tell application \"Finder\" to make new alias file at POSIX file \"$stage\" to POSIX file \"/Applications\" with properties {name:\"Applications\"}" \
+    >/dev/null
+swift -e '
+    import AppKit
+
+    let shortcut = CommandLine.arguments[1]
+    let applicationsIcon = NSWorkspace.shared.icon(forFile: "/Applications")
+    guard NSWorkspace.shared.setIcon(applicationsIcon, forFile: shortcut, options: []) else {
+        exit(1)
+    }
+' "$stage/Applications"
 rm -f "$dmg" "$checksum"
 
 hdiutil create \
@@ -44,7 +58,14 @@ hdiutil create \
 hdiutil attach -readonly -nobrowse -mountpoint "$mount" "$dmg" -quiet
 mounted=true
 test -x "$mount/usAIge.app/Contents/MacOS/usAIge"
-test -L "$mount/Applications"
+test -f "$mount/Applications"
+[[ "$(file -b "$mount/Applications")" == "MacOS Alias file" ]]
+xattr -p com.apple.FinderInfo "$mount/Applications" >/dev/null
+xattr -p com.apple.ResourceFork "$mount/Applications" >/dev/null
+resolved_applications="$(osascript \
+    -e "tell application \"Finder\" to set targetAlias to (original item of alias file POSIX file \"$mount/Applications\") as alias" \
+    -e 'POSIX path of targetAlias')"
+[[ "$resolved_applications" == "/Applications/" ]]
 plutil -lint "$mount/usAIge.app/Contents/Info.plist"
 codesign --verify --deep --strict "$mount/usAIge.app"
 detach_mount
