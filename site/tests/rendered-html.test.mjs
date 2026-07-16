@@ -31,6 +31,10 @@ test("server-renders the current usAIge release", async () => {
   assert.match(html, /50–250%/i);
   assert.match(html, /product-hud-status\.png/i);
   assert.match(html, /product-settings\.png/i);
+  assert.match(html, /https:\/\/vibeloft\.ai\/telemetry\/v1\.js/i);
+  assert.match(html, /data-vl-product-id="0d5781ba-0024-4ef4-b25d-2853ee434456"/i);
+  assert.match(html, /data-vl-auth-key="vl_web\.[^"]+"/i);
+  assert.doesNotMatch(html, /REPLACE_WITH_NEW_WEB_AUTH_KEY/i);
   assert.doesNotMatch(html, /codex-preview|starter loading skeleton/i);
 });
 

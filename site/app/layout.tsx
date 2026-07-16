@@ -17,5 +17,17 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en"><body className={`${geistSans.variable} ${geistMono.variable}`}>{children}</body></html>;
+  return (
+    <html lang="en">
+      <head>
+        <script
+          defer
+          src="https://vibeloft.ai/telemetry/v1.js"
+          data-vl-product-id="0d5781ba-0024-4ef4-b25d-2853ee434456"
+          data-vl-auth-key="vl_web.ABms9507nd0NZCD_gPk4F__qMTs7kE__rxC1LJI94i4"
+        />
+      </head>
+      <body className={`${geistSans.variable} ${geistMono.variable}`}>{children}</body>
+    </html>
+  );
 }
