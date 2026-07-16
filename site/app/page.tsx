@@ -144,7 +144,7 @@ export default function Home() {
             <li><span>✓</span> No browser cookies read</li>
             <li><span>✓</span> No separate account login</li>
             <li><span>✓</span> Remote tokens stay in Keychain</li>
-            <li><span>✓</span> No analytics or tracking</li>
+            <li><span>✓</span> No app activity tracking</li>
           </ul>
         </div>
       </section>

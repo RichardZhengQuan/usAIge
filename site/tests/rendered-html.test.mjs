@@ -34,6 +34,15 @@ test("server-renders the current usAIge release", async () => {
   assert.doesNotMatch(html, /codex-preview|starter loading skeleton/i);
 });
 
+test("loads the domain-locked VibeLoft telemetry client", async () => {
+  const source = await readFile(new URL("../app/vibeloft-telemetry.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /https:\/\/vibeloft\.ai\/telemetry\/v1\.js/i);
+  assert.match(source, /0d5781ba-0024-4ef4-b25d-2853ee434456/i);
+  assert.match(source, /vl_web\.[A-Za-z0-9_-]{43}/i);
+  assert.doesNotMatch(source, /REPLACE_WITH_NEW_WEB_AUTH_KEY/i);
+});
+
 test("publishes a checksum matching the current disk image", async () => {
   const dmg = await readFile(new URL("../public/usAIge-0.1.14-alpha.dmg", import.meta.url));
   const checksum = await readFile(
