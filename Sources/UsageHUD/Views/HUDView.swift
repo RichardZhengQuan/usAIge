@@ -4,6 +4,7 @@ import SwiftUI
 struct HUDView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var store: UsageStore
+    @ObservedObject var agentStore: CodexAgentStore
     @ObservedObject var settings: HUDSettings
     @ObservedObject var updateController: UpdateController
     let openTool: (AIToolDescriptor) -> Void
@@ -116,6 +117,10 @@ struct HUDView: View {
     }
 
     private func quotaRail(isStale: Bool) -> some View {
+        quotaColumn(isStale: isStale)
+    }
+
+    private func quotaColumn(isStale: Bool) -> some View {
         VStack(spacing: 7) {
             if snapshots.isEmpty {
                 Text("All usage hidden")
@@ -126,7 +131,15 @@ struct HUDView: View {
                 ScrollView {
                     LazyVStack(spacing: HUDMetrics.itemSpacing) {
                         ForEach(snapshots) { snapshot in
-                            QuotaRowView(snapshot: snapshot, openTool: openTool)
+                            QuotaRowView(
+                                snapshot: snapshot,
+                                agentPhase: snapshot.toolID == .chatGPT ? agentStore.phase : .idle,
+                                agentTaskID: snapshot.toolID == .chatGPT
+                                    ? agentStore.targetTask?.id
+                                    : nil,
+                                openTool: openTool,
+                                openAgentTask: AIToolLauncher.openCodexTask(id:)
+                            )
                         }
                     }
                     .padding(.vertical, 4)
@@ -274,8 +287,9 @@ enum HUDMetrics {
         isHovered: Bool,
         isCritical: Bool = false
     ) -> Double {
+        if isHovered { return 1 }
         if isCritical { return max(configured, 0.92) }
-        return configured * (isHovered ? 1 : 0.5)
+        return configured
     }
 
     static func controlOpacity(isHovered: Bool) -> Double {

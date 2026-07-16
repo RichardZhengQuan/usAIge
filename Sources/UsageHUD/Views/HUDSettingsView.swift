@@ -70,11 +70,11 @@ struct HUDSettingsView: View {
         Form {
             Section("Floating panel") {
                 LabeledContent("Opacity") {
-                    Slider(value: binding(for: \HUDSettings.opacity), in: 0.4...1.0)
+                    Slider(value: binding(for: \HUDSettings.opacity), in: HUDSettings.opacityRange)
                         .frame(width: 180)
                 }
                 LabeledContent("Scale") {
-                    Slider(value: binding(for: \HUDSettings.scale), in: 0.75...1.5)
+                    Slider(value: binding(for: \HUDSettings.scale), in: HUDSettings.scaleRange)
                         .frame(width: 180)
                 }
             }

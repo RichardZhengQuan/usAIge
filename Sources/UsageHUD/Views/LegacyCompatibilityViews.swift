@@ -110,7 +110,7 @@ struct LegacyHUDSettingsRootView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 Text("Floating panel").font(.headline)
-                HStack { Text("Opacity"); Slider(value: opacityBinding, in: 0.4...1.0) }
+                HStack { Text("Opacity"); Slider(value: opacityBinding, in: HUDSettings.opacityRange) }
                 HStack { Text("Scale"); Slider(value: scaleBinding, in: 0.75...1.5) }
 
                 Divider()

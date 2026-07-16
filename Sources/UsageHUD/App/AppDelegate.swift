@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     UNUserNotificationCenterDelegate {
     let settings: HUDSettings
     let store: UsageStore
+    let agentStore: CodexAgentStore
     let launchAtLogin: LaunchAtLoginController
     let updateController: UpdateController
     let usageLimitNotifications: UsageLimitNotificationController
@@ -19,12 +20,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         let configuredSettings = HUDSettings()
         settings = configuredSettings
         let localProvider: any CodexUsageProviding
+        let agentProvider: any CodexAgentProviding
         if let executable = CodexExecutableResolver.resolve() {
             let transport = ProcessLineTransport(executableURL: executable)
             let connection = JSONRPCConnection(transport: transport)
             localProvider = CodexUsageProvider(rpc: connection)
+            let agentTransport = ProcessLineTransport(executableURL: executable)
+            let agentConnection = JSONRPCConnection(transport: agentTransport)
+            agentProvider = CodexAgentProvider(rpc: agentConnection)
         } else {
             localProvider = MissingCodexProvider()
+            agentProvider = MissingCodexAgentProvider()
         }
         let remoteProvider = RemoteUsageProvider(
             configuration: { configuredSettings.remoteTools },
@@ -34,6 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
             local: localProvider,
             remote: remoteProvider
         ))
+        agentStore = CodexAgentStore(provider: agentProvider)
         launchAtLogin = LaunchAtLoginController()
         updateController = UpdateController()
         usageLimitNotifications = UsageLimitNotificationController()
@@ -52,6 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         if #available(macOS 14.0, *) {
             content = AnyView(HUDView(
                 store: store,
+                agentStore: agentStore,
                 settings: settings,
                 updateController: updateController,
                 openTool: AIToolLauncher.open,
@@ -73,6 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         positionPanel(panel)
         panel.orderFrontRegardless()
         store.start()
+        agentStore.start()
         updateController.start()
     }
 
@@ -97,7 +106,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         usageLimitNotifications.stop()
         Task { [weak self] in
             guard let self else { return }
-            await self.store.shutdown()
+            async let usageShutdown: Void = self.store.shutdown()
+            async let agentShutdown: Void = self.agentStore.shutdown()
+            _ = await (usageShutdown, agentShutdown)
             self.finishTermination(sender)
         }
         Task { [weak self] in

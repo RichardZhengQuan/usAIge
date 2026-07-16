@@ -27,8 +27,8 @@ import Testing
 
     let restored = HUDSettings(defaults: defaults)
 
-    #expect(restored.scale == 1.5)
-    #expect(restored.opacity == 0.4)
+    #expect(restored.scale == 2.5)
+    #expect(restored.opacity == 0.1)
     #expect(restored.position(for: "display-1") == CGPoint(x: 42, y: 84))
 }
 
