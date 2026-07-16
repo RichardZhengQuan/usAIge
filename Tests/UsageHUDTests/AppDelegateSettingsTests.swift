@@ -28,25 +28,22 @@ import Testing
 }
 
 @MainActor
-@Test func showSettingsCreatesAVisibleNativeWindow() {
+@Test func showSettingsRequestsTheSwiftUISettingsScene() {
     let delegate = AppDelegate()
+    var openCount = 0
+    delegate.settingsSceneOpener = { openCount += 1 }
 
     delegate.showSettings()
 
-    #expect(delegate.settingsWindow?.isVisible == true)
-    #expect(delegate.settingsWindow?.title == "usAIge Settings")
-    #expect(delegate.settingsWindow?.styleMask.contains(.titled) == true)
-    #expect(delegate.settingsWindow?.level == .normal)
-    #expect(delegate.settingsWindow?.hidesOnDeactivate == false)
-    #expect(delegate.settingsWindow?.collectionBehavior.contains(.moveToActiveSpace) == true)
-    #expect(delegate.settingsWindow?.collectionBehavior.contains(.canJoinAllSpaces) == false)
-    delegate.settingsWindow?.close()
+    #expect(openCount == 1)
 }
 
 @MainActor
-@Test func reopeningFromDockShowsSettings() {
+@Test func reopeningFromDockRequestsTheSwiftUISettingsScene() {
     let delegate = AppDelegate()
     let appDelegate: NSApplicationDelegate = delegate
+    var openCount = 0
+    delegate.settingsSceneOpener = { openCount += 1 }
 
     let handled = appDelegate.applicationShouldHandleReopen?(
         NSApplication.shared,
@@ -54,6 +51,5 @@ import Testing
     )
 
     #expect(handled == true)
-    #expect(delegate.settingsWindow?.isVisible == true)
-    delegate.settingsWindow?.close()
+    #expect(openCount == 1)
 }
