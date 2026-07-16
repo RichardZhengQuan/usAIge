@@ -11,7 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     let updateController: UpdateController
     let usageLimitNotifications: UsageLimitNotificationController
     private var panel: HUDPanel?
-    private(set) var settingsWindow: NSWindow?
+    var settingsSceneOpener: @MainActor () -> Void = SettingsScenePresenter.open
     private var isTerminationPending = false
     private var hasRepliedToTermination = false
 
@@ -55,7 +55,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
                 settings: settings,
                 updateController: updateController,
                 openTool: AIToolLauncher.open,
-                openSettings: { [weak self] in self?.showSettings() },
                 resizePanel: { [weak self] size in self?.resizePanel(to: size) }
             ))
         } else {
@@ -127,44 +126,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     }
 
     func showSettings() {
-        let window: NSWindow
-        if let settingsWindow {
-            window = settingsWindow
-        } else {
-            launchAtLogin.refresh()
-            let content: AnyView
-            if #available(macOS 14.0, *) {
-                content = AnyView(HUDSettingsRootView(
-                    settings: settings,
-                    store: store,
-                    launchAtLogin: launchAtLogin,
-                    updateController: updateController
-                ))
-            } else {
-                content = AnyView(LegacyHUDSettingsRootView(
-                    settings: settings,
-                    store: store,
-                    launchAtLogin: launchAtLogin,
-                    updateController: updateController
-                ))
-            }
-            window = NSWindow(
-                contentRect: CGRect(x: 0, y: 0, width: 520, height: 680),
-                styleMask: [.titled, .closable, .miniaturizable],
-                backing: .buffered,
-                defer: false
-            )
-            window.title = "usAIge Settings"
-            window.contentView = NSHostingView(rootView: content)
-            window.isReleasedWhenClosed = false
-            window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
-            window.setFrameAutosaveName("usAIgeSettingsWindow")
-            window.center()
-            settingsWindow = window
-        }
-
-        NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
+        launchAtLogin.refresh()
+        settingsSceneOpener()
     }
 
     func showLimits() {
@@ -246,6 +209,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         }
     }
 
+}
+
+@MainActor
+enum SettingsScenePresenter {
+    static func open() {
+        NSApp.activate(ignoringOtherApps: true)
+        if let item = settingsMenuItem(in: NSApp.mainMenu),
+           let action = item.action {
+            NSApp.sendAction(action, to: item.target, from: item)
+        } else {
+            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        }
+    }
+
+    static func settingsMenuItem(in mainMenu: NSMenu?) -> NSMenuItem? {
+        mainMenu?.items
+            .compactMap(\.submenu)
+            .flatMap(\.items)
+            .first {
+                $0.keyEquivalent == ","
+                    && $0.keyEquivalentModifierMask.contains(.command)
+            }
+    }
 }
 
 private enum CodexExecutableResolver {

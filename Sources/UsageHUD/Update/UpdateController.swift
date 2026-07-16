@@ -111,7 +111,7 @@ final class UpdateController: ObservableObject {
         case let .failed(message):
             message
         case .unavailableInDevelopment:
-            "Automatic updates require the packaged app"
+            "Software updates require the packaged app"
         }
     }
 
@@ -433,7 +433,7 @@ enum UpdateError: LocalizedError {
         case .checksumMismatch:
             "The downloaded update failed its security check."
         case .notPackagedApplication:
-            "Automatic updates require the packaged app."
+            "Software updates require the packaged app."
         case .applicationNotWritable:
             "usAIge can’t replace the installed app. Move it to a writable Applications folder."
         case .mountFailed:

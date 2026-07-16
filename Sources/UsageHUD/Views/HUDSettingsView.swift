@@ -26,15 +26,47 @@ struct HUDSettingsView: View {
     @ObservedObject var launchAtLogin: LaunchAtLoginController
     @ObservedObject var updateController: UpdateController
     let refreshUsage: () async -> Void
-    @State private var remoteToolEditor: RemoteToolEditorItem?
     @State private var remoteToolToDelete: RemoteAITool?
     @State private var remoteToolError: String?
+    @State private var route: [SettingsDestination] = []
 
     private var activeToolIDs: [AIToolID] {
         settings.toolOrder.filter { id in snapshots.contains(where: { $0.toolID == id }) }
     }
 
+    private var activeLocalToolIDs: [AIToolID] {
+        activeToolIDs.filter { AIToolID.builtInIDs.contains($0) }
+    }
+
+    private var activeRemoteToolIDs: [AIToolID] {
+        activeToolIDs.filter { !AIToolID.builtInIDs.contains($0) }
+    }
+
     var body: some View {
+        Group {
+            if let destination = route.last {
+                destinationPage(destination)
+            } else {
+                settingsPage
+            }
+        }
+        .confirmationDialog(
+            "Remove remote tool?",
+            isPresented: Binding(
+                get: { remoteToolToDelete != nil },
+                set: { if !$0 { remoteToolToDelete = nil } }
+            ),
+            presenting: remoteToolToDelete
+        ) { tool in
+            Button("Remove \(tool.name)", role: .destructive) {
+                removeRemoteTool(tool)
+            }
+        } message: { tool in
+            Text("This removes \(tool.name)'s endpoint and saved bearer token from this Mac.")
+        }
+    }
+
+    private var settingsPage: some View {
         Form {
             Section("Floating panel") {
                 LabeledContent("Opacity") {
@@ -71,10 +103,14 @@ struct HUDSettingsView: View {
                 }
             }
 
-            Section("Software Update") {
+            Section("Listening AI Tools") {
+                pageLink("AI Tools", destination: .aiTools)
+            }
+
+            Section("More") {
                 HStack(alignment: .center, spacing: 12) {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Automatic updates")
+                        Text("Software updates")
                         Text("Current version \(updateController.currentVersionText)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -107,76 +143,182 @@ struct HUDSettingsView: View {
                             : updateController.statusText
                     )
                 }
-            }
 
-            Section("Active AI tools") {
-                if activeToolIDs.isEmpty {
-                    Text("Tools appear here after a supported usage source reports data.")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(activeToolIDs, id: \.self) { id in
-                        toolRow(for: id)
-                        ForEach(orderedSnapshots(for: id)) { snapshot in
-                            usageTypeRow(snapshot)
-                        }
+                HStack {
+                    Spacer()
+                    Button("Quit usAIge") {
+                        NSApplication.shared.terminate(nil)
                     }
-                }
-            }
-
-            Section("Connected AI tools") {
-                if settings.remoteTools.isEmpty {
-                    Text("Codex connects automatically. Other tools require an official usage API or a compatible adapter.")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(settings.remoteTools) { tool in
-                        remoteToolRow(tool)
-                    }
-                }
-                if let remoteToolError {
-                    Text(remoteToolError)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                }
-                Button {
-                    remoteToolEditor = RemoteToolEditorItem(tool: nil)
-                } label: {
-                    Label("Connect a Tool", systemImage: "link.badge.plus")
-                }
-            }
-            Section {
-                Button("Quit usAIge") {
-                    NSApplication.shared.terminate(nil)
                 }
             }
         }
         .formStyle(.grouped)
         .padding()
-        .sheet(item: $remoteToolEditor) { item in
-            RemoteToolEditorView(tool: item.tool) { tool, token, removeToken in
-                let credentials = KeychainCredentialStore()
-                if removeToken {
-                    try credentials.setToken(nil, for: tool.id)
-                } else if !token.isEmpty {
-                    try credentials.setToken(token, for: tool.id)
+    }
+
+    private var aiToolsPage: some View {
+        pageContainer(title: "AI Tools") {
+            Form {
+                Section {
+                    pageLink("Local AI Tools", destination: .localAITools)
+                    pageLink("Remote AI Tools", destination: .remoteAITools)
                 }
-                try settings.upsertRemoteTool(tool)
-                Task { await refreshUsage() }
+            }
+            .formStyle(.grouped)
+            .padding(.horizontal)
+        }
+    }
+
+    private var localAIToolsPage: some View {
+        pageContainer(title: "Local AI Tools") {
+            Form {
+                Section {
+                    if activeLocalToolIDs.isEmpty {
+                        Text("No local tools detected.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(activeLocalToolIDs, id: \.self) { id in
+                            toolRow(for: id)
+                            ForEach(orderedSnapshots(for: id)) { snapshot in
+                                usageTypeRow(snapshot)
+                            }
+                        }
+                    }
+                }
+            }
+            .formStyle(.grouped)
+            .padding(.horizontal)
+        }
+    }
+
+    private var remoteAIToolsPage: some View {
+        pageContainer(title: "Remote AI Tools") {
+            Form {
+                Section("Connections") {
+                    if settings.remoteTools.isEmpty {
+                        Text("No remote tools connected.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(settings.remoteTools) { tool in
+                            remoteToolRow(tool)
+                        }
+                    }
+                    if let remoteToolError {
+                        Text(remoteToolError)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                    pageLink("Set Up Remote AI Tool", destination: .remoteToolSetup(nil))
+                        .accessibilityLabel("Set Up Remote AI Tool")
+                }
+
+                if !activeRemoteToolIDs.isEmpty {
+                    Section("Displayed Remote Limits") {
+                        ForEach(activeRemoteToolIDs, id: \.self) { id in
+                            toolRow(for: id)
+                            ForEach(orderedSnapshots(for: id)) { snapshot in
+                                usageTypeRow(snapshot)
+                            }
+                        }
+                    }
+                }
+            }
+            .formStyle(.grouped)
+            .padding(.horizontal)
+        }
+    }
+
+    @ViewBuilder
+    private func destinationPage(_ destination: SettingsDestination) -> some View {
+        switch destination {
+        case .aiTools:
+            aiToolsPage
+        case .localAITools:
+            localAIToolsPage
+        case .remoteAITools:
+            remoteAIToolsPage
+        case let .remoteToolSetup(toolID):
+            let tool = remoteTool(for: toolID)
+            pageContainer(title: tool == nil ? "Set Up Remote AI Tool" : "Edit Remote AI Tool") {
+                RemoteToolEditorPage(
+                    tool: tool,
+                    onSave: { tool, token, removeToken in
+                        try saveRemoteTool(tool, token: token, removeToken: removeToken)
+                    },
+                    onDismiss: goBack
+                )
             }
         }
-        .confirmationDialog(
-            "Remove remote tool?",
-            isPresented: Binding(
-                get: { remoteToolToDelete != nil },
-                set: { if !$0 { remoteToolToDelete = nil } }
-            ),
-            presenting: remoteToolToDelete
-        ) { tool in
-            Button("Remove \(tool.name)", role: .destructive) {
-                removeRemoteTool(tool)
+    }
+
+    private func pageContainer<Content: View>(
+        title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Button(action: goBack) {
+                    Image(systemName: "chevron.left")
+                        .frame(width: 20, height: 20)
+                }
+                .buttonStyle(.borderless)
+                .help("Back")
+                .accessibilityLabel("Back")
+                Text(title)
+                    .font(.title3.weight(.semibold))
+                Spacer()
             }
-        } message: { tool in
-            Text("This removes \(tool.name)'s endpoint and saved bearer token from this Mac.")
+            .padding(.horizontal, 24)
+            .padding(.top, 18)
+            .padding(.bottom, 4)
+
+            content()
         }
+    }
+
+    private func pageLink(
+        _ title: String,
+        destination: SettingsDestination
+    ) -> some View {
+        Button {
+            route.append(destination)
+        } label: {
+            HStack {
+                Text(title)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Opens \(title)")
+    }
+
+    private func goBack() {
+        guard !route.isEmpty else { return }
+        route.removeLast()
+    }
+
+    private func remoteTool(for id: AIToolID?) -> RemoteAITool? {
+        guard let id else { return nil }
+        return settings.remoteTools.first { $0.id == id }
+    }
+
+    private func saveRemoteTool(
+        _ tool: RemoteAITool,
+        token: String,
+        removeToken: Bool
+    ) throws {
+        let credentials = KeychainCredentialStore()
+        if removeToken {
+            try credentials.setToken(nil, for: tool.id)
+        } else if !token.isEmpty {
+            try credentials.setToken(token, for: tool.id)
+        }
+        try settings.upsertRemoteTool(tool)
+        Task { await refreshUsage() }
     }
 
     private func orderedSnapshots(for toolID: AIToolID) -> [QuotaSnapshot] {
@@ -229,7 +371,7 @@ struct HUDSettingsView: View {
             }
             Spacer()
             Button("Edit") {
-                remoteToolEditor = RemoteToolEditorItem(tool: tool)
+                route.append(.remoteToolSetup(tool.id))
             }
             .buttonStyle(.link)
             Button(role: .destructive) {
@@ -312,16 +454,18 @@ struct HUDSettingsView: View {
     }
 }
 
-private struct RemoteToolEditorItem: Identifiable {
-    let id = UUID()
-    let tool: RemoteAITool?
+private enum SettingsDestination: Hashable {
+    case aiTools
+    case localAITools
+    case remoteAITools
+    case remoteToolSetup(AIToolID?)
 }
 
 @available(macOS 14.0, *)
-private struct RemoteToolEditorView: View {
-    @Environment(\.dismiss) private var dismiss
+private struct RemoteToolEditorPage: View {
     private let existingTool: RemoteAITool?
     private let onSave: (RemoteAITool, String, Bool) throws -> Void
+    private let onDismiss: () -> Void
     @State private var name: String
     @State private var endpoint: String
     @State private var webURL: String
@@ -334,10 +478,12 @@ private struct RemoteToolEditorView: View {
 
     init(
         tool: RemoteAITool?,
-        onSave: @escaping (RemoteAITool, String, Bool) throws -> Void
+        onSave: @escaping (RemoteAITool, String, Bool) throws -> Void,
+        onDismiss: @escaping () -> Void
     ) {
         existingTool = tool
         self.onSave = onSave
+        self.onDismiss = onDismiss
         _name = State(initialValue: tool?.name ?? "")
         _endpoint = State(initialValue: tool?.endpoint.absoluteString ?? "")
         _webURL = State(initialValue: tool?.webURL?.absoluteString ?? "")
@@ -346,8 +492,6 @@ private struct RemoteToolEditorView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text(existingTool == nil ? "Connect an AI Tool" : "Edit AI Tool Connection")
-                .font(.title2.weight(.semibold))
             Form {
                 if existingTool == nil {
                     Section("Recommended") {
@@ -417,7 +561,7 @@ private struct RemoteToolEditorView: View {
 
             HStack {
                 Spacer()
-                Button("Cancel") { dismiss() }
+                Button("Cancel") { onDismiss() }
                     .keyboardShortcut(.cancelAction)
                 Button(existingTool == nil ? "Connect" : "Save") { save() }
                     .keyboardShortcut(.defaultAction)
@@ -425,7 +569,6 @@ private struct RemoteToolEditorView: View {
             }
         }
         .padding(24)
-        .frame(width: 520)
     }
 
     @ViewBuilder
@@ -523,7 +666,7 @@ private struct RemoteToolEditorView: View {
         )
         do {
             try onSave(tool, resolvedToken, removeToken)
-            dismiss()
+            onDismiss()
         } catch {
             errorMessage = error.localizedDescription
         }

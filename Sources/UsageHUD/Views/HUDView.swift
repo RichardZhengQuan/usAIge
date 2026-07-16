@@ -7,7 +7,6 @@ struct HUDView: View {
     @ObservedObject var settings: HUDSettings
     @ObservedObject var updateController: UpdateController
     let openTool: (AIToolDescriptor) -> Void
-    let openSettings: () -> Void
     let resizePanel: (CGSize) -> Void
     @State private var isPanelHovered = false
     @State private var refreshRotation = 0.0
@@ -155,12 +154,7 @@ struct HUDView: View {
                     .frame(width: 7, height: 7)
                     .accessibilityLabel("Usage is current")
             }
-            iconButton(
-                "Open settings",
-                symbol: "gearshape",
-                showsBadge: updateController.canInstallUpdate,
-                action: openSettings
-            )
+            settingsLink
         }
         .padding(.horizontal, 3)
         .frame(height: 24)
@@ -185,6 +179,29 @@ struct HUDView: View {
         .buttonStyle(.plain)
         .help("Refresh usage")
         .accessibilityLabel("Refresh usage")
+    }
+
+    private var settingsLink: some View {
+        SettingsLink {
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: "gearshape")
+                    .frame(width: 18, height: 18)
+                    .contentShape(Rectangle())
+                if updateController.canInstallUpdate {
+                    Circle()
+                        .fill(.red)
+                        .frame(width: 6, height: 6)
+                        .offset(x: -2, y: 1)
+                        .accessibilityHidden(true)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .help("Open settings")
+        .accessibilityLabel("Open settings")
+        .accessibilityValue(
+            updateController.canInstallUpdate ? "New version available" : ""
+        )
     }
 
     private func iconButton(
