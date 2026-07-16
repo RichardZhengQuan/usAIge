@@ -85,11 +85,6 @@ export default function Home() {
               <div><strong>{status.label}</strong><small>{status.detail}</small></div>
             </article>
           ))}
-          <article className="status-card status-card--idle">
-            <span className="status-card__order">05</span>
-            <span className="status-card__light" aria-hidden="true" />
-            <div><strong>Idle</strong><small>No light</small></div>
-          </article>
         </div>
 
         <div className="click-back">
