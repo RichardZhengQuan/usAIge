@@ -48,14 +48,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         store.onSnapshotsChanged = { [settings, usageLimitNotifications] snapshots in
             usageLimitNotifications.observe(settings.ordered(snapshots))
         }
-        let content = HUDView(
-            store: store,
-            settings: settings,
-            updateController: updateController,
-            openTool: AIToolLauncher.open,
-            openSettings: { [weak self] in self?.showSettings() },
-            resizePanel: { [weak self] size in self?.resizePanel(to: size) }
-        )
+        let content: AnyView
+        if #available(macOS 14.0, *) {
+            content = AnyView(HUDView(
+                store: store,
+                settings: settings,
+                updateController: updateController,
+                openTool: AIToolLauncher.open,
+                openSettings: { [weak self] in self?.showSettings() },
+                resizePanel: { [weak self] size in self?.resizePanel(to: size) }
+            ))
+        } else {
+            content = AnyView(LegacyHUDView(
+                store: store,
+                settings: settings,
+                updateController: updateController,
+                openTool: AIToolLauncher.open,
+                openSettings: { [weak self] in self?.showSettings() },
+                resizePanel: { [weak self] size in self?.resizePanel(to: size) }
+            ))
+        }
         let panel = HUDPanel(contentView: NSHostingView(rootView: content))
         panel.delegate = self
         self.panel = panel
@@ -90,7 +102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
             self.finishTermination(sender)
         }
         Task { [weak self] in
-            try? await Task.sleep(for: .seconds(2))
+            try? await Task.sleep(nanoseconds: 2 * 1_000_000_000)
             self?.finishTermination(sender)
         }
         return .terminateLater
@@ -120,12 +132,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
             window = settingsWindow
         } else {
             launchAtLogin.refresh()
-            let content = HUDSettingsRootView(
-                settings: settings,
-                store: store,
-                launchAtLogin: launchAtLogin,
-                updateController: updateController
-            )
+            let content: AnyView
+            if #available(macOS 14.0, *) {
+                content = AnyView(HUDSettingsRootView(
+                    settings: settings,
+                    store: store,
+                    launchAtLogin: launchAtLogin,
+                    updateController: updateController
+                ))
+            } else {
+                content = AnyView(LegacyHUDSettingsRootView(
+                    settings: settings,
+                    store: store,
+                    launchAtLogin: launchAtLogin,
+                    updateController: updateController
+                ))
+            }
             window = NSWindow(
                 contentRect: CGRect(x: 0, y: 0, width: 520, height: 680),
                 styleMask: [.titled, .closable, .miniaturizable],

@@ -1,6 +1,6 @@
 import CoreGraphics
+import Combine
 import Foundation
-import Observation
 
 struct HUDPosition: Codable, Equatable, Sendable {
     var x: Double
@@ -15,8 +15,7 @@ struct HUDPosition: Codable, Equatable, Sendable {
 }
 
 @MainActor
-@Observable
-final class HUDSettings {
+final class HUDSettings: ObservableObject {
     private struct Payload: Codable, Equatable {
         var version = 3
         var bucketOrder: [String] = []
@@ -198,6 +197,7 @@ final class HUDSettings {
     }
 
     private func persist() {
+        objectWillChange.send()
         if let data = try? JSONEncoder().encode(payload) {
             defaults.set(data, forKey: Self.storageKey)
         }

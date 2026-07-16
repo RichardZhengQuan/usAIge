@@ -1,11 +1,12 @@
 import AppKit
 import SwiftUI
 
+@available(macOS 14.0, *)
 struct HUDSettingsRootView: View {
-    @Bindable var settings: HUDSettings
-    @Bindable var store: UsageStore
-    @Bindable var launchAtLogin: LaunchAtLoginController
-    @Bindable var updateController: UpdateController
+    @ObservedObject var settings: HUDSettings
+    @ObservedObject var store: UsageStore
+    @ObservedObject var launchAtLogin: LaunchAtLoginController
+    @ObservedObject var updateController: UpdateController
 
     var body: some View {
         HUDSettingsView(
@@ -18,11 +19,12 @@ struct HUDSettingsRootView: View {
     }
 }
 
+@available(macOS 14.0, *)
 struct HUDSettingsView: View {
-    @Bindable var settings: HUDSettings
+    @ObservedObject var settings: HUDSettings
     let snapshots: [QuotaSnapshot]
-    @Bindable var launchAtLogin: LaunchAtLoginController
-    @Bindable var updateController: UpdateController
+    @ObservedObject var launchAtLogin: LaunchAtLoginController
+    @ObservedObject var updateController: UpdateController
     let refreshUsage: () async -> Void
     @State private var remoteToolEditor: RemoteToolEditorItem?
     @State private var remoteToolToDelete: RemoteAITool?
@@ -315,6 +317,7 @@ private struct RemoteToolEditorItem: Identifiable {
     let tool: RemoteAITool?
 }
 
+@available(macOS 14.0, *)
 private struct RemoteToolEditorView: View {
     @Environment(\.dismiss) private var dismiss
     private let existingTool: RemoteAITool?

@@ -47,7 +47,6 @@ actor CompositeUsageProvider: AutomaticUsageProviding {
             succeeded = true
             self.localResult = result
         case let .failure(error):
-            self.localResult = nil
             firstError = error
         }
         switch outcomes.1 {
@@ -55,7 +54,9 @@ actor CompositeUsageProvider: AutomaticUsageProviding {
             succeeded = true
             self.remoteResult = result
         case let .failure(error):
-            self.remoteResult = nil
+            if case RemoteUsageError.noSources = error {
+                self.remoteResult = nil
+            }
             firstError = firstError ?? error
         }
 
@@ -69,7 +70,6 @@ actor CompositeUsageProvider: AutomaticUsageProviding {
         case let .success(result):
             localResult = result
         case let .failure(error):
-            localResult = nil
             if let result = combinedResult() { return result }
             throw error
         }

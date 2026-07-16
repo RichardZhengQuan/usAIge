@@ -63,5 +63,7 @@ import Testing
 
     #expect(manifest.version == plist["CFBundleShortVersionString"] as? String)
     #expect(manifest.build == Int(plist["CFBundleVersion"] as? String ?? ""))
+    #expect(manifest.minimumSystemVersion == "11.0")
+    #expect(manifest.minimumSystemVersion == plist["LSMinimumSystemVersion"] as? String)
     #expect(plist["UpdateManifestURL"] as? String == UpdateController.defaultManifestURL.absoluteString)
 }

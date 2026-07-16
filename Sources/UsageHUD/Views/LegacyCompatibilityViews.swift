@@ -1,0 +1,175 @@
+import AppKit
+import SwiftUI
+
+/// A SwiftUI implementation restricted to APIs present on the first M1 Macs.
+struct LegacyHUDView: View {
+    @ObservedObject var store: UsageStore
+    @ObservedObject var settings: HUDSettings
+    @ObservedObject var updateController: UpdateController
+    let openTool: (AIToolDescriptor) -> Void
+    let openSettings: () -> Void
+    let resizePanel: (CGSize) -> Void
+
+    private var snapshots: [QuotaSnapshot] { settings.ordered(store.visibleSnapshots) }
+    private var desiredSize: CGSize {
+        snapshots.isEmpty
+            ? HUDMetrics.messageSize
+            : CGSize(width: HUDMetrics.railWidth, height: HUDMetrics.railHeight(rowCount: snapshots.count))
+    }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            if snapshots.isEmpty {
+                legacyStatus
+            } else {
+                ScrollView {
+                    VStack(spacing: 8) {
+                        ForEach(snapshots) { snapshot in
+                            LegacyQuotaRow(snapshot: snapshot, openTool: openTool)
+                        }
+                    }
+                }
+                Divider()
+                HStack {
+                    Button("Refresh") { Task { await store.refresh() } }
+                    Spacer()
+                    Button("Settings") { openSettings() }
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+        }
+        .padding(10)
+        .frame(width: desiredSize.width, height: desiredSize.height)
+        .background(Color(NSColor.windowBackgroundColor).opacity(0.94))
+        .cornerRadius(18)
+        .opacity(settings.opacity)
+        .scaleEffect(settings.scale)
+        .onAppear {
+            settings.registerBuckets(snapshots.map(\.id))
+            resizePanel(HUDMetrics.scaledSize(desiredSize, scale: settings.scale))
+        }
+    }
+
+    @ViewBuilder
+    private var legacyStatus: some View {
+        switch store.state {
+        case .connecting:
+            ProgressView("Connecting…")
+        case .signedOut:
+            Button("Open ChatGPT to sign in") { openTool(.descriptor(for: .chatGPT)) }
+        case let .unavailable(message):
+            VStack { Text(message); Button("Open ChatGPT") { openTool(.descriptor(for: .chatGPT)) } }
+        case .empty:
+            VStack { Text("No usage limits"); Button("Retry") { Task { await store.refresh() } } }
+        default:
+            EmptyView()
+        }
+    }
+}
+
+private struct LegacyQuotaRow: View {
+    let snapshot: QuotaSnapshot
+    let openTool: (AIToolDescriptor) -> Void
+
+    private var remaining: Double { min(100, max(0, snapshot.remainingPercent)) }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button(action: { openTool(.descriptor(for: snapshot.toolID)) }) {
+                AIToolIcon(tool: .descriptor(for: snapshot.toolID), size: 24)
+            }
+            .buttonStyle(PlainButtonStyle())
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(snapshot.displayName).lineLimit(1)
+                    Spacer()
+                    Text("\(Int(remaining.rounded()))%")
+                }
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        Rectangle().fill(Color.gray.opacity(0.25))
+                        Rectangle()
+                            .fill(remaining <= 10 ? Color.red : Color.accentColor)
+                            .frame(width: geometry.size.width * remaining / 100)
+                    }
+                }
+                .frame(height: 5)
+            }
+        }
+        .padding(.horizontal, 4)
+    }
+}
+
+struct LegacyHUDSettingsRootView: View {
+    @ObservedObject var settings: HUDSettings
+    @ObservedObject var store: UsageStore
+    @ObservedObject var launchAtLogin: LaunchAtLoginController
+    @ObservedObject var updateController: UpdateController
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                Text("Floating panel").font(.headline)
+                HStack { Text("Opacity"); Slider(value: opacityBinding, in: 0.4...1.0) }
+                HStack { Text("Scale"); Slider(value: scaleBinding, in: 0.75...1.5) }
+
+                Divider()
+                Text("Startup").font(.headline)
+                Toggle("Open usAIge at login", isOn: launchAtLoginBinding)
+                    .disabled(!launchAtLogin.isSupported)
+                if !launchAtLogin.isSupported {
+                    Text("Open at login is available on macOS 13 or later.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                Divider()
+                Text("Software Update").font(.headline)
+                Text("Current version \(updateController.currentVersionText)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Text(updateController.statusText).font(.caption)
+                Button(updateController.primaryButtonTitle) {
+                    Task { await updateController.performPrimaryAction() }
+                }
+                .disabled(!updateController.canPerformPrimaryAction)
+
+                Divider()
+                Text("Visible limits").font(.headline)
+                if store.visibleSnapshots.isEmpty {
+                    Text("No usage limits available.").foregroundColor(.secondary)
+                } else {
+                    ForEach(store.visibleSnapshots) { snapshot in
+                        Toggle(snapshot.displayName, isOn: visibilityBinding(for: snapshot.id))
+                    }
+                }
+                Button("Refresh usage") { Task { await store.refresh() } }
+                Spacer()
+                Button("Quit usAIge") { NSApplication.shared.terminate(nil) }
+            }
+            .padding(24)
+        }
+    }
+
+    private var opacityBinding: Binding<Double> {
+        Binding(get: { settings.opacity }, set: { settings.opacity = $0 })
+    }
+
+    private var scaleBinding: Binding<Double> {
+        Binding(get: { settings.scale }, set: { settings.scale = $0 })
+    }
+
+    private var launchAtLoginBinding: Binding<Bool> {
+        Binding(get: { launchAtLogin.isEnabled }, set: { launchAtLogin.setEnabled($0) })
+    }
+
+    private func visibilityBinding(for id: String) -> Binding<Bool> {
+        Binding(
+            get: { !settings.hiddenBucketIDs.contains(id) },
+            set: { visible in
+                if visible { settings.hiddenBucketIDs.remove(id) }
+                else { settings.hiddenBucketIDs.insert(id) }
+            }
+        )
+    }
+}

@@ -75,7 +75,7 @@ While idle, the panel surface is fully transparent and every visible control is 
 
 ## macOS requirements
 
-- macOS 15 or later.
+- macOS 11 or later on an Apple-silicon Mac.
 - Swift 6.2 and Xcode 26 for source builds.
 - For local Codex limits: the ChatGPT or Codex macOS app, or a `codex` executable on `PATH`, with an existing Codex-managed ChatGPT sign-in.
 - For remote limits: an HTTPS JSON endpoint that implements the contract below. Plain HTTP is accepted only for loopback development endpoints.
@@ -104,7 +104,7 @@ The packaged application includes the custom usAIge icon in Finder, the Dock, Sp
 
 ## Install the public alpha
 
-Download `usAIge-0.1.12-alpha.dmg` and its checksum from the website. Open the disk image, then drag `usAIge.app` onto the Applications shortcut.
+Download `usAIge-0.1.13-alpha.dmg` and its checksum from the website. Open the disk image, then drag `usAIge.app` onto the Applications shortcut.
 
 This alpha is ad-hoc signed and is not notarized because the project does not yet have a Developer ID Application certificate. On first launch:
 
@@ -118,7 +118,7 @@ To build and verify the installer locally:
 
 ```bash
 scripts/package-dmg.sh
-(cd dist && shasum -a 256 -c usAIge-0.1.12-alpha.dmg.sha256)
+(cd dist && shasum -a 256 -c usAIge-0.1.13-alpha.dmg.sha256)
 ```
 
 ## Usage data

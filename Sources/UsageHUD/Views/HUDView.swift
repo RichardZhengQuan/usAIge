@@ -1,10 +1,11 @@
 import SwiftUI
 
+@available(macOS 14.0, *)
 struct HUDView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Bindable var store: UsageStore
-    @Bindable var settings: HUDSettings
-    @Bindable var updateController: UpdateController
+    @ObservedObject var store: UsageStore
+    @ObservedObject var settings: HUDSettings
+    @ObservedObject var updateController: UpdateController
     let openTool: (AIToolDescriptor) -> Void
     let openSettings: () -> Void
     let resizePanel: (CGSize) -> Void
