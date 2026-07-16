@@ -1,3 +1,5 @@
+import AppKit
+import Combine
 import SwiftUI
 
 enum QuotaSeverity: Equatable, Sendable {
@@ -54,7 +56,10 @@ enum QuotaRingPresentation {
 @available(macOS 14.0, *)
 struct QuotaRowView: View {
     let snapshot: QuotaSnapshot
+    let agentPhase: CodexAgentPhase
+    let agentTaskID: String?
     let openTool: (AIToolDescriptor) -> Void
+    let openAgentTask: (String) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovered = false
     @State private var criticalPulse = false
@@ -147,14 +152,32 @@ struct QuotaRowView: View {
                 lineWidth: 4,
                 severity: primarySeverity
             )
-            Button { openTool(tool) } label: {
+            Button {
+                if agentPhase.showsLight, let agentTaskID {
+                    openAgentTask(agentTaskID)
+                } else {
+                    openTool(tool)
+                }
+            } label: {
                 AIToolIcon(tool: tool, size: 23)
+                    .frame(width: 60, height: 60)
+                    .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .help("Open \(tool.name)")
-            .accessibilityLabel("Open \(tool.name)")
+            .help(agentTaskID == nil ? "Open \(tool.name)" : "Open Codex task · \(agentPhase.label)")
+            .accessibilityLabel(agentTaskID == nil ? "Open \(tool.name)" : "Open Codex task")
         }
         .frame(width: 60, height: 60)
+        .background {
+            if agentPhase.showsLight {
+                AgentStatusRingLight(
+                    phase: agentPhase,
+                    diameter: snapshot.secondaryWindow == nil ? 46 : 58,
+                    isHovered: isHovered
+                )
+            }
+        }
+        .help(agentPhase.showsLight ? "Codex agents · \(agentPhase.label)" : "")
     }
 
     @ViewBuilder
@@ -293,9 +316,72 @@ struct QuotaRowView: View {
         if let secondaryWindow = snapshot.secondaryWindow {
             text += ", \(secondaryWindow.typeTag) \(Int(secondaryWindow.remainingPercent.rounded())) percent remaining"
         }
+        if agentPhase.showsLight {
+            text += ", Codex agents \(agentPhase.label)"
+        }
         return text
     }
 
+}
+
+@available(macOS 14.0, *)
+private struct AgentStatusRingLight: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let phase: CodexAgentPhase
+    let diameter: CGFloat
+    let isHovered: Bool
+    @State private var isBreathing = false
+
+    private var color: Color {
+        switch phase {
+        case .idle: .clear
+        case .thinking: Color(red: 0.34, green: 0.56, blue: 1)
+        case .complete: Color(red: 0.36, green: 0.82, blue: 0.52)
+        case .needsInput: Color(red: 1, green: 0.72, blue: 0.24)
+        case .error: Color(red: 1, green: 0.32, blue: 0.55)
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(color.opacity(isHovered ? 0.52 : 0.42), lineWidth: 3)
+                .frame(width: diameter, height: diameter)
+                .blur(radius: 1.5)
+
+            Circle()
+                .stroke(color.opacity(isHovered ? 0.28 : 0.20), lineWidth: 8)
+                .frame(width: diameter - 2, height: diameter - 2)
+                .blur(radius: 4.5)
+        }
+        .scaleEffect(isBreathing ? 1.10 : 0.90)
+        .opacity(isBreathing ? 0.90 : 0.50)
+        .frame(width: 84, height: 84)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .onAppear(perform: restartBreathing)
+        .onChange(of: phase) { _, _ in restartBreathing() }
+        .onChange(of: reduceMotion) { _, _ in restartBreathing() }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
+            restartBreathing()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            restartBreathing()
+        }
+    }
+
+    private func restartBreathing() {
+        withAnimation(.none) { isBreathing = false }
+        guard phase.showsLight, !reduceMotion else { return }
+
+        Task { @MainActor in
+            await Task.yield()
+            guard phase.showsLight, !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 1.65).repeatForever(autoreverses: true)) {
+                isBreathing = true
+            }
+        }
+    }
 }
 
 @available(macOS 14.0, *)

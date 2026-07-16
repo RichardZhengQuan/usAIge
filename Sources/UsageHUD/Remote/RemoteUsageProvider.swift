@@ -166,7 +166,7 @@ actor RemoteUsageProvider: CodexUsageProviding {
         request.httpMethod = "GET"
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("usAIge/0.1.13", forHTTPHeaderField: "User-Agent")
+        request.setValue("usAIge/0.1.14", forHTTPHeaderField: "User-Agent")
         if let token = try credentials.token(for: tool.id), !token.isEmpty {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }

@@ -6,12 +6,12 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "usAIge — Your AI usage, always in sight",
-  description: "A native macOS floating rail for live Codex 5-hour and 7-day usage limits.",
+  title: "usAIge — AI usage and agent status, always in sight",
+  description: "A native macOS floating rail for live AI usage, breathing Codex task status, and one-click return to work.",
   icons: { icon: "/app-icon.png", apple: "/app-icon.png" },
   openGraph: {
-    title: "usAIge — Know your AI limits",
-    description: "A quiet, private floating usage rail for Codex on macOS.",
+    title: "usAIge — Your AI work, still breathing",
+    description: "Live AI usage and aggregate Codex task status in one quiet native macOS rail.",
     type: "website",
   },
 };

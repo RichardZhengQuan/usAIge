@@ -103,6 +103,18 @@ enum AIToolLauncher {
             NSWorkspace.shared.open(webURL)
         }
     }
+
+    static func codexTaskURL(id: String) -> URL? {
+        guard !id.isEmpty,
+              let encodedID = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+        else { return nil }
+        return URL(string: "codex://threads/\(encodedID)")
+    }
+
+    static func openCodexTask(id: String) {
+        guard let url = codexTaskURL(id: id) else { return }
+        NSWorkspace.shared.open(url)
+    }
 }
 
 struct AIToolIcon: View {

@@ -16,6 +16,9 @@ struct HUDPosition: Codable, Equatable, Sendable {
 
 @MainActor
 final class HUDSettings: ObservableObject {
+    static let scaleRange: ClosedRange<Double> = 0.5...2.5
+    static let opacityRange: ClosedRange<Double> = 0.1...1.0
+
     private struct Payload: Codable, Equatable {
         var version = 3
         var bucketOrder: [String] = []
@@ -63,8 +66,8 @@ final class HUDSettings: ObservableObject {
         } else {
             payload = Payload()
         }
-        payload.scale = Self.clamp(payload.scale, to: 0.75...1.5)
-        payload.opacity = Self.clamp(payload.opacity, to: 0.4...1.0)
+        payload.scale = Self.clamp(payload.scale, to: Self.scaleRange)
+        payload.opacity = Self.clamp(payload.opacity, to: Self.opacityRange)
         var seenRemoteIDs: Set<AIToolID> = []
         payload.remoteTools = payload.remoteTools.filter {
             Self.isValidRemoteID($0.id) && seenRemoteIDs.insert($0.id).inserted
@@ -95,12 +98,12 @@ final class HUDSettings: ObservableObject {
 
     var scale: Double {
         get { payload.scale }
-        set { payload.scale = Self.clamp(newValue, to: 0.75...1.5); persist() }
+        set { payload.scale = Self.clamp(newValue, to: Self.scaleRange); persist() }
     }
 
     var opacity: Double {
         get { payload.opacity }
-        set { payload.opacity = Self.clamp(newValue, to: 0.4...1.0); persist() }
+        set { payload.opacity = Self.clamp(newValue, to: Self.opacityRange); persist() }
     }
 
     var remoteTools: [RemoteAITool] {

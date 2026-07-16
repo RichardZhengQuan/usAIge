@@ -50,18 +50,20 @@ func mapsRemainingPercentageToVisibleRingFraction(input: (Double, Double)) {
 
 @Test func scalesThePanelBoundsWithTheHUDContent() {
     #expect(
-        HUDMetrics.scaledSize(CGSize(width: 84, height: 227), scale: 1.5)
-            == CGSize(width: 126, height: 340.5)
+        HUDMetrics.scaledSize(CGSize(width: 84, height: 227), scale: 2.5)
+            == CGSize(width: 210, height: 567.5)
     )
     #expect(
-        HUDMetrics.scaledSize(CGSize(width: 84, height: 120), scale: 0.75)
-            == CGSize(width: 63, height: 90)
+        HUDMetrics.scaledSize(CGSize(width: 84, height: 120), scale: 0.5)
+            == CGSize(width: 42, height: 60)
     )
 }
 
-@Test func dimsAllContentToHalfOpacityUntilHovered() {
-    #expect(HUDMetrics.contentOpacity(configured: 0.92, isHovered: false) == 0.46)
-    #expect(HUDMetrics.contentOpacity(configured: 0.92, isHovered: true) == 0.92)
+@Test func appliesConfiguredOpacityOnlyUntilHovered() {
+    #expect(HUDMetrics.contentOpacity(configured: 0.92, isHovered: false) == 0.92)
+    #expect(HUDMetrics.contentOpacity(configured: 0.92, isHovered: true) == 1)
+    #expect(HUDMetrics.contentOpacity(configured: 0.1, isHovered: false) == 0.1)
+    #expect(HUDMetrics.contentOpacity(configured: 0.1, isHovered: true) == 1)
 }
 
 @Test func keepsCriticalQuotaAlertVisibleWithoutHover() {
@@ -72,6 +74,10 @@ func mapsRemainingPercentageToVisibleRingFraction(input: (Double, Double)) {
     #expect(
         HUDMetrics.contentOpacity(configured: 0.4, isHovered: false, isCritical: true)
             == 0.92
+    )
+    #expect(
+        HUDMetrics.contentOpacity(configured: 0.4, isHovered: true, isCritical: true)
+            == 1
     )
 }
 
