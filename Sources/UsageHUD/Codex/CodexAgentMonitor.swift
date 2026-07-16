@@ -21,6 +21,13 @@ enum CodexAgentPhase: String, Equatable, Sendable {
     var showsLight: Bool {
         self != .idle
     }
+
+    var requiresAcknowledgement: Bool {
+        switch self {
+        case .complete, .needsInput, .error: true
+        case .idle, .thinking: false
+        }
+    }
 }
 
 struct CodexAgentTask: Identifiable, Equatable, Sendable {
@@ -34,6 +41,11 @@ struct CodexAgentTask: Identifiable, Equatable, Sendable {
 struct CodexAgentAggregate: Equatable, Sendable {
     let phase: CodexAgentPhase
     let task: CodexAgentTask?
+}
+
+struct CodexAgentAcknowledgement: Equatable, Sendable {
+    let phase: CodexAgentPhase
+    let updatedAt: Date
 }
 
 protocol CodexAgentProviding: Sendable {
@@ -216,6 +228,8 @@ final class CodexAgentStore: ObservableObject {
 
     private let provider: any CodexAgentProviding
     private var monitorTask: Task<Void, Never>?
+    private var tasks: [CodexAgentTask] = []
+    private var acknowledgements: [String: CodexAgentAcknowledgement] = [:]
 
     init(provider: any CodexAgentProviding) {
         self.provider = provider
@@ -227,9 +241,7 @@ final class CodexAgentStore: ObservableObject {
             while !Task.isCancelled {
                 guard let self else { return }
                 do {
-                    let aggregate = Self.aggregateStatus(try await provider.refresh())
-                    phase = aggregate.phase
-                    targetTask = aggregate.task
+                    updateTasks(try await provider.refresh())
                     lastError = nil
                 } catch {
                     lastError = error.localizedDescription
@@ -243,6 +255,18 @@ final class CodexAgentStore: ObservableObject {
         monitorTask?.cancel()
         monitorTask = nil
         await provider.stop()
+    }
+
+    func acknowledge(taskID: String) {
+        guard let task = tasks.first(where: { $0.id == taskID }),
+              task.phase.requiresAcknowledgement
+        else { return }
+
+        acknowledgements[taskID] = CodexAgentAcknowledgement(
+            phase: task.phase,
+            updatedAt: task.updatedAt
+        )
+        publishAggregate()
     }
 
     nonisolated static func aggregate(_ tasks: [CodexAgentTask]) -> CodexAgentPhase {
@@ -260,6 +284,35 @@ final class CodexAgentStore: ObservableObject {
             }
             .first
         return CodexAgentAggregate(phase: winner?.phase ?? .idle, task: winner)
+    }
+
+    nonisolated static func unacknowledgedTasks(
+        _ tasks: [CodexAgentTask],
+        acknowledgements: [String: CodexAgentAcknowledgement]
+    ) -> [CodexAgentTask] {
+        tasks.filter { task in
+            guard let acknowledgement = acknowledgements[task.id] else { return true }
+            return task.phase != acknowledgement.phase || task.updatedAt > acknowledgement.updatedAt
+        }
+    }
+
+    private func updateTasks(_ refreshedTasks: [CodexAgentTask]) {
+        tasks = refreshedTasks
+        let tasksByID = Dictionary(uniqueKeysWithValues: refreshedTasks.map { ($0.id, $0) })
+        acknowledgements = acknowledgements.filter { taskID, acknowledgement in
+            guard let task = tasksByID[taskID] else { return false }
+            return task.phase == acknowledgement.phase && task.updatedAt <= acknowledgement.updatedAt
+        }
+        publishAggregate()
+    }
+
+    private func publishAggregate() {
+        let aggregate = Self.aggregateStatus(Self.unacknowledgedTasks(
+            tasks,
+            acknowledgements: acknowledgements
+        ))
+        phase = aggregate.phase
+        targetTask = aggregate.task
     }
 
     private nonisolated static func priority(of phase: CodexAgentPhase) -> Int {

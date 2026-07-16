@@ -138,7 +138,10 @@ struct HUDView: View {
                                     ? agentStore.targetTask?.id
                                     : nil,
                                 openTool: openTool,
-                                openAgentTask: AIToolLauncher.openCodexTask(id:)
+                                openAgentTask: { taskID in
+                                    agentStore.acknowledge(taskID: taskID)
+                                    AIToolLauncher.openCodexTask(id: taskID)
+                                }
                             )
                         }
                     }

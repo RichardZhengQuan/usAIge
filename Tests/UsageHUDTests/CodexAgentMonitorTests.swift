@@ -95,6 +95,48 @@ private let referenceDate = Date(timeIntervalSince1970: 2_000_000)
     #expect(CodexAgentStore.aggregate(tasks) == .needsInput)
 }
 
+@Test func acknowledgingAttentionStatesAdvancesThroughTheAggregate() throws {
+    let error = task(.error, id: "error", updatedAt: referenceDate)
+    let completion = task(.complete, id: "completion", updatedAt: referenceDate)
+    let needsInput = task(.needsInput, id: "input", updatedAt: referenceDate)
+    let thinking = task(.thinking, id: "thinking", updatedAt: referenceDate)
+    let tasks = [thinking, needsInput, completion, error]
+    var acknowledgements: [String: CodexAgentAcknowledgement] = [:]
+
+    func currentTarget() throws -> CodexAgentTask {
+        try #require(CodexAgentStore.aggregateStatus(CodexAgentStore.unacknowledgedTasks(
+            tasks,
+            acknowledgements: acknowledgements
+        )).task)
+    }
+
+    #expect(try currentTarget().id == "error")
+    acknowledgements[error.id] = acknowledgement(for: error)
+    #expect(try currentTarget().id == "completion")
+    acknowledgements[completion.id] = acknowledgement(for: completion)
+    #expect(try currentTarget().id == "input")
+    acknowledgements[needsInput.id] = acknowledgement(for: needsInput)
+    #expect(try currentTarget().id == "thinking")
+}
+
+@Test func acknowledgedTaskReturnsWhenItsStateChanges() {
+    let completed = task(.complete, id: "task", updatedAt: referenceDate)
+    let acknowledgement = [completed.id: acknowledgement(for: completed)]
+
+    #expect(CodexAgentStore.unacknowledgedTasks(
+        [completed],
+        acknowledgements: acknowledgement
+    ).isEmpty)
+    #expect(CodexAgentStore.unacknowledgedTasks(
+        [task(.thinking, id: completed.id, updatedAt: referenceDate)],
+        acknowledgements: acknowledgement
+    ).count == 1)
+    #expect(CodexAgentStore.unacknowledgedTasks(
+        [task(.complete, id: completed.id, updatedAt: referenceDate.addingTimeInterval(1))],
+        acknowledgements: acknowledgement
+    ).count == 1)
+}
+
 private func agentPhase(_ type: String, extra: String = "") -> CodexAgentPhase {
     CodexAgentSessionDecoder.phase(
         from: eventData(type, extra: extra),
@@ -119,4 +161,8 @@ private func task(
         phase: phase,
         updatedAt: updatedAt
     )
+}
+
+private func acknowledgement(for task: CodexAgentTask) -> CodexAgentAcknowledgement {
+    CodexAgentAcknowledgement(phase: task.phase, updatedAt: task.updatedAt)
 }
