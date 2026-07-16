@@ -53,6 +53,103 @@ enum QuotaRingPresentation {
     }
 }
 
+enum AgentBreathingMotion {
+    static let minimumScale: CGFloat = 0.96
+    static let midpointScale: CGFloat = 1.00
+    static let maximumScale: CGFloat = 1.08
+    static let keyframeDuration: TimeInterval = 0.825
+    static let minimumOpacity = 0.90
+    static let midpointOpacity = 0.96
+    static let maximumOpacity = 1.00
+
+    static func opacity(for scale: CGFloat) -> Double {
+        if scale <= midpointScale {
+            let progress = Double((scale - minimumScale) / (midpointScale - minimumScale))
+            return minimumOpacity + progress * (midpointOpacity - minimumOpacity)
+        }
+        let progress = Double((scale - midpointScale) / (maximumScale - midpointScale))
+        return midpointOpacity + progress * (maximumOpacity - midpointOpacity)
+    }
+}
+
+@MainActor
+private final class PopoverCenterClickMonitor: ObservableObject {
+    var screenFrame = CGRect.zero
+
+    private var eventMonitor: Any?
+    private var isDetailPresented = false
+    private var action: (() -> Void)?
+
+    func configure(isDetailPresented: Bool, action: @escaping () -> Void) {
+        self.isDetailPresented = isDetailPresented
+        self.action = action
+    }
+
+    func start() {
+        guard eventMonitor == nil else { return }
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+            guard let self,
+                  self.isDetailPresented,
+                  self.containsCenterCircle(NSEvent.mouseLocation)
+            else { return event }
+
+            self.action?()
+            return nil
+        }
+    }
+
+    func stop() {
+        guard let eventMonitor else { return }
+        NSEvent.removeMonitor(eventMonitor)
+        self.eventMonitor = nil
+    }
+
+    private func containsCenterCircle(_ point: CGPoint) -> Bool {
+        guard screenFrame.contains(point) else { return false }
+        let center = CGPoint(x: screenFrame.midX, y: screenFrame.midY)
+        let radius = min(screenFrame.width, screenFrame.height) / 2
+        return hypot(point.x - center.x, point.y - center.y) <= radius
+    }
+}
+
+@MainActor
+private struct ScreenFrameReader: NSViewRepresentable {
+    let onChange: (CGRect) -> Void
+
+    func makeNSView(context: Context) -> FrameReportingView {
+        let view = FrameReportingView()
+        view.onChange = onChange
+        return view
+    }
+
+    func updateNSView(_ nsView: FrameReportingView, context: Context) {
+        nsView.onChange = onChange
+        nsView.reportFrame()
+    }
+
+    final class FrameReportingView: NSView {
+        var onChange: ((CGRect) -> Void)?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            reportFrame()
+        }
+
+        override func layout() {
+            super.layout()
+            reportFrame()
+        }
+
+        func reportFrame() {
+            guard let window else { return }
+            let frame = window.convertToScreen(convert(bounds, to: nil))
+            DispatchQueue.main.async { [weak self] in
+                self?.onChange?(frame)
+            }
+        }
+    }
+}
+
 @available(macOS 14.0, *)
 struct QuotaRowView: View {
     let snapshot: QuotaSnapshot
@@ -61,6 +158,7 @@ struct QuotaRowView: View {
     let openTool: (AIToolDescriptor) -> Void
     let openAgentTask: (String) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @StateObject private var centerClickMonitor = PopoverCenterClickMonitor()
     @State private var isHovered = false
     @State private var criticalPulse = false
 
@@ -125,7 +223,15 @@ struct QuotaRowView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilitySummary)
-        .onAppear(perform: updateCriticalPulse)
+        .onAppear {
+            updateCriticalPulse()
+            centerClickMonitor.start()
+            updateCenterClickMonitor()
+        }
+        .onDisappear { centerClickMonitor.stop() }
+        .onChange(of: isHovered) { _, _ in updateCenterClickMonitor() }
+        .onChange(of: agentPhase) { _, _ in updateCenterClickMonitor() }
+        .onChange(of: agentTaskID) { _, _ in updateCenterClickMonitor() }
         .onChange(of: hasCriticalSeverity) { _, _ in updateCriticalPulse() }
     }
 
@@ -152,18 +258,17 @@ struct QuotaRowView: View {
                 lineWidth: 4,
                 severity: primarySeverity
             )
-            Button {
-                if agentPhase.showsLight, let agentTaskID {
-                    openAgentTask(agentTaskID)
-                } else {
-                    openTool(tool)
-                }
-            } label: {
+            Button(action: performPrimaryAction) {
                 AIToolIcon(tool: tool, size: 23)
                     .frame(width: 60, height: 60)
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
+            .background {
+                ScreenFrameReader { frame in
+                    centerClickMonitor.screenFrame = frame
+                }
+            }
             .help(agentTaskID == nil ? "Open \(tool.name)" : "Open Codex task · \(agentPhase.label)")
             .accessibilityLabel(agentTaskID == nil ? "Open \(tool.name)" : "Open Codex task")
         }
@@ -178,6 +283,21 @@ struct QuotaRowView: View {
             }
         }
         .help(agentPhase.showsLight ? "Codex agents · \(agentPhase.label)" : "")
+    }
+
+    private func performPrimaryAction() {
+        if agentPhase.showsLight, let agentTaskID {
+            openAgentTask(agentTaskID)
+        } else {
+            openTool(tool)
+        }
+    }
+
+    private func updateCenterClickMonitor() {
+        centerClickMonitor.configure(isDetailPresented: isHovered) {
+            isHovered = false
+            performPrimaryAction()
+        }
     }
 
     @ViewBuilder
@@ -330,58 +450,63 @@ private struct AgentStatusRingLight: View {
     let phase: CodexAgentPhase
     let diameter: CGFloat
     let isHovered: Bool
-    @State private var isBreathing = false
 
     private var color: Color {
         switch phase {
         case .idle: .clear
-        case .thinking: Color(red: 0.34, green: 0.56, blue: 1)
-        case .complete: Color(red: 0.36, green: 0.82, blue: 0.52)
-        case .needsInput: Color(red: 1, green: 0.72, blue: 0.24)
-        case .error: Color(red: 1, green: 0.32, blue: 0.55)
+        case .thinking: Color(red: 0.18, green: 0.52, blue: 1.00)
+        case .complete: Color(red: 0.18, green: 0.88, blue: 0.45)
+        case .needsInput: Color(red: 1.00, green: 0.68, blue: 0.12)
+        case .error: Color(red: 1.00, green: 0.20, blue: 0.47)
         }
     }
 
     var body: some View {
         ZStack {
             Circle()
-                .stroke(color.opacity(isHovered ? 0.52 : 0.42), lineWidth: 3)
+                .stroke(color.opacity(isHovered ? 0.86 : 0.72), lineWidth: 3)
                 .frame(width: diameter, height: diameter)
                 .blur(radius: 1.5)
 
             Circle()
-                .stroke(color.opacity(isHovered ? 0.28 : 0.20), lineWidth: 8)
+                .stroke(color.opacity(isHovered ? 0.54 : 0.42), lineWidth: 8)
                 .frame(width: diameter - 2, height: diameter - 2)
                 .blur(radius: 4.5)
         }
-        .scaleEffect(isBreathing ? 1.10 : 0.90)
-        .opacity(isBreathing ? 0.90 : 0.50)
+        .keyframeAnimator(
+            initialValue: AgentBreathingMotion.midpointScale,
+            repeating: phase.showsLight && !reduceMotion
+        ) { content, scale in
+            content
+                .scaleEffect(scale)
+                .opacity(AgentBreathingMotion.opacity(for: scale))
+        } keyframes: { _ in
+            LinearKeyframe(
+                AgentBreathingMotion.minimumScale,
+                duration: AgentBreathingMotion.keyframeDuration,
+                timingCurve: .easeInOut
+            )
+            LinearKeyframe(
+                AgentBreathingMotion.midpointScale,
+                duration: AgentBreathingMotion.keyframeDuration,
+                timingCurve: .easeInOut
+            )
+            LinearKeyframe(
+                AgentBreathingMotion.maximumScale,
+                duration: AgentBreathingMotion.keyframeDuration,
+                timingCurve: .easeInOut
+            )
+            LinearKeyframe(
+                AgentBreathingMotion.midpointScale,
+                duration: AgentBreathingMotion.keyframeDuration,
+                timingCurve: .easeInOut
+            )
+        }
         .frame(width: 84, height: 84)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
-        .onAppear(perform: restartBreathing)
-        .onChange(of: phase) { _, _ in restartBreathing() }
-        .onChange(of: reduceMotion) { _, _ in restartBreathing() }
-        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
-            restartBreathing()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            restartBreathing()
-        }
     }
 
-    private func restartBreathing() {
-        withAnimation(.none) { isBreathing = false }
-        guard phase.showsLight, !reduceMotion else { return }
-
-        Task { @MainActor in
-            await Task.yield()
-            guard phase.showsLight, !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 1.65).repeatForever(autoreverses: true)) {
-                isBreathing = true
-            }
-        }
-    }
 }
 
 @available(macOS 14.0, *)
