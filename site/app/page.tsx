@@ -85,11 +85,6 @@ export default function Home() {
               <div><strong>{status.label}</strong><small>{status.detail}</small></div>
             </article>
           ))}
-          <article className="status-card status-card--idle">
-            <span className="status-card__order">05</span>
-            <span className="status-card__light" aria-hidden="true" />
-            <div><strong>Idle</strong><small>No light</small></div>
-          </article>
         </div>
 
         <div className="click-back">
@@ -127,7 +122,9 @@ export default function Home() {
           <figcaption><strong>Native macOS Settings</strong><span>Choose tools, usage windows, scale, opacity, startup, and updates.</span></figcaption>
         </figure>
         <figure className="product-shot product-shot--hud">
-          <img src="/product-hud-status.png" alt="Current usAIge floating Codex HUD with blue status glory" />
+          <div className="product-shot__media product-shot__media--hud">
+            <img src="/product-hud-status.png" alt="Current usAIge floating Codex HUD with blue status glory" />
+          </div>
           <figcaption><strong>The live floating rail</strong><span>Usage ring, agent state, and click-back target in one place.</span></figcaption>
         </figure>
       </section>

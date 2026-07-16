@@ -113,7 +113,33 @@ enum AIToolLauncher {
 
     static func openCodexTask(id: String) {
         guard let url = codexTaskURL(id: id) else { return }
-        NSWorkspace.shared.open(url)
+        guard let applicationURL = NSWorkspace.shared.urlForApplication(toOpen: url) else {
+            NSWorkspace.shared.open(url)
+            return
+        }
+
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        NSWorkspace.shared.open(
+            [url],
+            withApplicationAt: applicationURL,
+            configuration: configuration
+        ) { runningApplication, _ in
+            guard let runningApplication else { return }
+            Task { @MainActor in
+                if #available(macOS 14.0, *) {
+                    NSApplication.shared.activate()
+                    await Task.yield()
+                    NSApplication.shared.yieldActivation(to: runningApplication)
+                    runningApplication.activate(
+                        from: .current,
+                        options: [.activateAllWindows]
+                    )
+                } else {
+                    runningApplication.activate(options: [.activateAllWindows])
+                }
+            }
+        }
     }
 }
 
