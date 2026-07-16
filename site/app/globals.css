@@ -32,8 +32,8 @@ a:focus-visible { outline:3px solid var(--cyan); outline-offset:5px; border-radi
 .text-link { font-size:13px; color:#c8cfca; }
 .text-link span { color:var(--cyan); margin-left:7px; }
 .hero__visual { min-height:610px; display:grid; place-items:center; }
-.product-stage { position:relative; width:min(560px,100%); aspect-ratio:1; overflow:hidden; border:1px solid rgba(255,255,255,.12); border-radius:32px; background:radial-gradient(circle at 76% 40%,rgba(87,144,255,.15),transparent 29%),#111412; box-shadow:0 38px 100px rgba(0,0,0,.48); }
-.product-stage>img { width:100%; height:100%; object-fit:cover; image-rendering:auto; }
+.product-stage { position:relative; width:min(560px,100%); aspect-ratio:1; overflow:hidden; border:1px solid rgba(255,255,255,.12); border-radius:32px; background:radial-gradient(circle at 50% 40%,rgba(87,144,255,.15),transparent 29%),#151817; box-shadow:0 38px 100px rgba(0,0,0,.48); }
+.product-stage>img { width:100%; height:100%; object-fit:cover; image-rendering:auto; transform:translateX(-31%); }
 .product-stage__label { position:absolute; z-index:2; top:24px; left:24px; color:#8d9891; font:9px var(--font-geist-mono),monospace; text-transform:uppercase; letter-spacing:.13em; }
 .product-stage__label span { display:inline-block; width:7px; height:7px; margin-right:8px; border-radius:50%; background:#5790ff; box-shadow:0 0 14px #5790ff; }
 .product-stage__note { position:absolute; z-index:2; right:24px; bottom:23px; left:24px; padding:16px 18px; border:1px solid rgba(255,255,255,.1); border-radius:14px; background:rgba(8,10,9,.76); backdrop-filter:blur(18px); }
