@@ -1,29 +1,61 @@
-import Observation
+import AppKit
+import Combine
 import ServiceManagement
 
+enum LaunchAtLoginStatus {
+    case notRegistered
+    case enabled
+    case requiresApproval
+}
+
 protocol LaunchAtLoginServicing: AnyObject {
-    var status: SMAppService.Status { get }
+    var status: LaunchAtLoginStatus { get }
     func register() throws
     func unregister() throws
 }
 
-extension SMAppService: LaunchAtLoginServicing {}
+@available(macOS 13.0, *)
+private final class ModernLaunchAtLoginService: LaunchAtLoginServicing {
+    private let service = SMAppService.mainApp
+
+    var status: LaunchAtLoginStatus {
+        switch service.status {
+        case .enabled: .enabled
+        case .requiresApproval: .requiresApproval
+        default: .notRegistered
+        }
+    }
+
+    func register() throws { try service.register() }
+    func unregister() throws { try service.unregister() }
+}
 
 @MainActor
-@Observable
-final class LaunchAtLoginController {
-    private let service: any LaunchAtLoginServicing
+final class LaunchAtLoginController: ObservableObject {
+    private let service: (any LaunchAtLoginServicing)?
 
-    private(set) var isEnabled = false
-    private(set) var requiresApproval = false
-    private(set) var errorMessage: String?
+    @Published private(set) var isEnabled = false
+    @Published private(set) var requiresApproval = false
+    @Published private(set) var errorMessage: String?
 
-    init(service: any LaunchAtLoginServicing = SMAppService.mainApp) {
-        self.service = service
+    var isSupported: Bool { service != nil }
+
+    init(service: (any LaunchAtLoginServicing)? = nil) {
+        if let service {
+            self.service = service
+        } else if #available(macOS 13.0, *) {
+            self.service = ModernLaunchAtLoginService()
+        } else {
+            self.service = nil
+        }
         refresh()
     }
 
     func setEnabled(_ enabled: Bool) {
+        guard let service else {
+            errorMessage = "Open at login requires macOS 13 or later."
+            return
+        }
         errorMessage = nil
         do {
             if enabled {
@@ -42,12 +74,19 @@ final class LaunchAtLoginController {
     }
 
     func refresh() {
+        guard let service else {
+            isEnabled = false
+            requiresApproval = false
+            return
+        }
         let status = service.status
         isEnabled = status == .enabled
         requiresApproval = status == .requiresApproval
     }
 
     func openSystemSettings() {
-        SMAppService.openSystemSettingsLoginItems()
+        if #available(macOS 13.0, *) {
+            SMAppService.openSystemSettingsLoginItems()
+        }
     }
 }

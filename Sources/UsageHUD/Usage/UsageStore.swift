@@ -1,22 +1,26 @@
 import AppKit
+import Combine
 import Foundation
-import Observation
+import Network
 
 @MainActor
-@Observable
-final class UsageStore {
-    private(set) var state: UsageState = .connecting
+final class UsageStore: ObservableObject {
+    @Published private(set) var state: UsageState = .connecting
     var onSnapshotsChanged: (([QuotaSnapshot]) -> Void)?
 
     private let provider: any CodexUsageProviding
     private let now: @Sendable () -> Date
-    private let automaticRefreshInterval: Duration
+    private let automaticRefreshInterval: TimeInterval
+    private let workspaceNotificationCenter: NotificationCenter
+    private let monitorsNetworkChanges: Bool
     private var updateTask: Task<Void, Never>?
     private var automaticRefreshTask: Task<Void, Never>?
-    private var wakeTask: Task<Void, Never>?
-    private var clockTask: Task<Void, Never>?
+    private var wakeObserver: NSObjectProtocol?
+    private var clockObserver: NSObjectProtocol?
     private var resetTask: Task<Void, Never>?
     private var retryTask: Task<Void, Never>?
+    private var networkMonitor: NWPathMonitor?
+    private var wasNetworkAvailable: Bool?
     private var retryIndex = 0
     private var isRefreshing = false
     private var lastSuccessfulRefresh: Date?
@@ -25,11 +29,15 @@ final class UsageStore {
     init(
         provider: any CodexUsageProviding,
         now: @escaping @Sendable () -> Date = Date.init,
-        automaticRefreshInterval: Duration = .seconds(5)
+        automaticRefreshInterval: TimeInterval = 5,
+        workspaceNotificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter,
+        monitorsNetworkChanges: Bool = true
     ) {
         self.provider = provider
         self.now = now
         self.automaticRefreshInterval = automaticRefreshInterval
+        self.workspaceNotificationCenter = workspaceNotificationCenter
+        self.monitorsNetworkChanges = monitorsNetworkChanges
     }
 
     func start() {
@@ -48,7 +56,7 @@ final class UsageStore {
             guard let self else { return }
             while !Task.isCancelled {
                 do {
-                    try await Task.sleep(for: self.automaticRefreshInterval)
+                    try await Self.sleep(seconds: self.automaticRefreshInterval)
                 } catch {
                     return
                 }
@@ -57,24 +65,24 @@ final class UsageStore {
             }
         }
 
-        wakeTask = Task { [weak self] in
-            let notifications = NotificationCenter.default.notifications(
-                named: NSWorkspace.didWakeNotification
-            )
-            for await _ in notifications {
-                guard let self, !Task.isCancelled else { return }
-                await self.handleWake()
-            }
+        wakeObserver = workspaceNotificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in await self?.handleWake() }
         }
 
-        clockTask = Task { [weak self] in
-            let notifications = NotificationCenter.default.notifications(
-                named: .NSSystemClockDidChange
-            )
-            for await _ in notifications {
-                guard let self, !Task.isCancelled else { return }
-                await self.handleClockChange()
-            }
+        clockObserver = NotificationCenter.default.addObserver(
+            forName: .NSSystemClockDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in await self?.handleClockChange() }
+        }
+
+        if monitorsNetworkChanges {
+            startNetworkMonitoring()
         }
 
     }
@@ -150,19 +158,30 @@ final class UsageStore {
         await refresh()
     }
 
+    func handleNetworkAvailabilityChange(isAvailable: Bool) async {
+        let shouldRefresh = wasNetworkAvailable == false && isAvailable
+        wasNetworkAvailable = isAvailable
+        if shouldRefresh {
+            await refresh()
+        }
+    }
+
     func stop() {
         updateTask?.cancel()
         automaticRefreshTask?.cancel()
-        wakeTask?.cancel()
-        clockTask?.cancel()
+        if let wakeObserver { workspaceNotificationCenter.removeObserver(wakeObserver) }
+        if let clockObserver { NotificationCenter.default.removeObserver(clockObserver) }
         resetTask?.cancel()
         retryTask?.cancel()
+        networkMonitor?.cancel()
         updateTask = nil
         automaticRefreshTask = nil
-        wakeTask = nil
-        clockTask = nil
+        wakeObserver = nil
+        clockObserver = nil
         resetTask = nil
         retryTask = nil
+        networkMonitor = nil
+        wasNetworkAvailable = nil
     }
 
     func shutdown() async {
@@ -217,7 +236,7 @@ final class UsageStore {
         }
         let delay = resetAt.timeIntervalSince(now())
         resetTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(delay))
+            try? await Self.sleep(seconds: delay)
             guard let self, !Task.isCancelled else { return }
             await self.refresh()
         }
@@ -229,10 +248,26 @@ final class UsageStore {
         let delay = delays[min(retryIndex, delays.count - 1)]
         retryIndex = min(retryIndex + 1, delays.count - 1)
         retryTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(delay))
+            try? await Self.sleep(seconds: delay)
             guard let self, !Task.isCancelled else { return }
             self.retryTask = nil
             await self.refresh()
         }
+    }
+
+    private func startNetworkMonitoring() {
+        let monitor = NWPathMonitor()
+        networkMonitor = monitor
+        monitor.pathUpdateHandler = { [weak self] path in
+            Task { @MainActor [weak self] in
+                await self?.handleNetworkAvailabilityChange(isAvailable: path.status == .satisfied)
+            }
+        }
+        monitor.start(queue: DispatchQueue(label: "com.usaige.network-monitor"))
+    }
+
+    nonisolated private static func sleep(seconds: TimeInterval) async throws {
+        let nanoseconds = UInt64(max(0, seconds) * 1_000_000_000)
+        try await Task.sleep(nanoseconds: nanoseconds)
     }
 }

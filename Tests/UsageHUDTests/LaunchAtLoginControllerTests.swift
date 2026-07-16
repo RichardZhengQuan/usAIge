@@ -1,4 +1,3 @@
-import ServiceManagement
 import Testing
 @testable import UsageHUD
 
@@ -38,12 +37,12 @@ import Testing
 }
 
 private final class LaunchAtLoginServiceStub: LaunchAtLoginServicing {
-    var status: SMAppService.Status
-    var statusAfterRegister: SMAppService.Status = .enabled
+    var status: LaunchAtLoginStatus
+    var statusAfterRegister: LaunchAtLoginStatus = .enabled
     var registerCallCount = 0
     var unregisterCallCount = 0
 
-    init(status: SMAppService.Status) {
+    init(status: LaunchAtLoginStatus) {
         self.status = status
     }
 

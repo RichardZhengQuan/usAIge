@@ -6,13 +6,24 @@ struct UsAIgeApp: App {
 
     var body: some Scene {
         Settings {
-            HUDSettingsView(
-                settings: appDelegate.settings,
-                snapshots: appDelegate.store.visibleSnapshots,
-                launchAtLogin: appDelegate.launchAtLogin,
-                updateController: appDelegate.updateController,
-                refreshUsage: { await appDelegate.store.refresh() }
-            )
+            Group {
+                if #available(macOS 14.0, *) {
+                    HUDSettingsView(
+                        settings: appDelegate.settings,
+                        snapshots: appDelegate.store.visibleSnapshots,
+                        launchAtLogin: appDelegate.launchAtLogin,
+                        updateController: appDelegate.updateController,
+                        refreshUsage: { await appDelegate.store.refresh() }
+                    )
+                } else {
+                    LegacyHUDSettingsRootView(
+                        settings: appDelegate.settings,
+                        store: appDelegate.store,
+                        launchAtLogin: appDelegate.launchAtLogin,
+                        updateController: appDelegate.updateController
+                    )
+                }
+            }
             .frame(width: 520, height: 680)
         }
     }

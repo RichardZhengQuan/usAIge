@@ -1,7 +1,7 @@
 import AppKit
+import Combine
 import CryptoKit
 import Foundation
-import Observation
 import UserNotifications
 
 struct UpdateManifest: Codable, Equatable, Sendable {
@@ -64,16 +64,15 @@ enum UpdateStatus: Equatable {
 }
 
 @MainActor
-@Observable
-final class UpdateController {
+final class UpdateController: ObservableObject {
     nonisolated static let notificationCategory = "USAGE_HUD_UPDATE"
     nonisolated static let notificationIdentifierPrefix = "usaige-update-"
     nonisolated static let defaultManifestURL = URL(
         string: "https://usaige-macos.richardqz.chatgpt.site/update.json"
     )!
 
-    private(set) var status: UpdateStatus = .idle
-    private(set) var isReplacementPrepared = false
+    @Published private(set) var status: UpdateStatus = .idle
+    @Published private(set) var isReplacementPrepared = false
 
     private let manifestURL: URL
     private let currentVersion: String
@@ -149,7 +148,7 @@ final class UpdateController {
             while !Task.isCancelled {
                 await self?.checkForUpdates()
                 do {
-                    try await Task.sleep(for: .seconds(6 * 60 * 60))
+                    try await Task.sleep(nanoseconds: 6 * 60 * 60 * 1_000_000_000)
                 } catch {
                     return
                 }
@@ -254,7 +253,10 @@ final class UpdateController {
 
 actor UpdateInstaller {
     func download(manifest: UpdateManifest, using session: URLSession) async throws -> URL {
-        let (temporaryURL, response) = try await session.download(from: manifest.downloadURL)
+        let (temporaryURL, response) = try await Self.download(
+            from: manifest.downloadURL,
+            using: session
+        )
         guard let httpResponse = response as? HTTPURLResponse,
               httpResponse.statusCode == 200 else {
             throw UpdateError.downloadFailed
@@ -361,6 +363,20 @@ actor UpdateInstaller {
             hasher.update(data: chunk)
         }
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func download(from url: URL, using session: URLSession) async throws -> (URL, URLResponse) {
+        try await withCheckedThrowingContinuation { continuation in
+            session.downloadTask(with: url) { location, response, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else if let location, let response {
+                    continuation.resume(returning: (location, response))
+                } else {
+                    continuation.resume(throwing: UpdateError.downloadFailed)
+                }
+            }.resume()
+        }
     }
 
     private static func mountPoint(from data: Data) throws -> URL {

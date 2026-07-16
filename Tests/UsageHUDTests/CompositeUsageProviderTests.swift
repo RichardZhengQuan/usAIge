@@ -2,7 +2,26 @@ import Foundation
 import Testing
 @testable import UsageHUD
 
-@Test func compositeDropsFailedSourceCacheWhenAnotherSourceSucceeds() async throws {
+@Test func compositeRetainsFailedSourceCacheWhenAnotherSourceSucceeds() async throws {
+    let remote = Fixtures.codexSnapshot.withRemoteIdentity()
+    let localProvider = SequencedUsageProvider(results: [
+        .success(.authenticated([Fixtures.codexSnapshot])),
+        .success(.authenticated([Fixtures.codexSnapshot])),
+    ])
+    let remoteProvider = SequencedUsageProvider(results: [
+        .success(.authenticated([remote])),
+        .failure(RemoteUsageError.requestTimedOut),
+    ])
+    let provider = CompositeUsageProvider(local: localProvider, remote: remoteProvider)
+
+    let first = try await provider.refresh()
+    let second = try await provider.refresh()
+
+    #expect(first.snapshots.count == 2)
+    #expect(second.snapshots.count == 2)
+}
+
+@Test func compositeDropsRemoteCacheWhenAllRemoteSourcesAreRemoved() async throws {
     let remote = Fixtures.codexSnapshot.withRemoteIdentity()
     let localProvider = SequencedUsageProvider(results: [
         .success(.authenticated([Fixtures.codexSnapshot])),
@@ -14,10 +33,9 @@ import Testing
     ])
     let provider = CompositeUsageProvider(local: localProvider, remote: remoteProvider)
 
-    let first = try await provider.refresh()
+    _ = try await provider.refresh()
     let second = try await provider.refresh()
 
-    #expect(first.snapshots.count == 2)
     #expect(second.snapshots == [Fixtures.codexSnapshot])
 }
 

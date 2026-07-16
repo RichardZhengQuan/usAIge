@@ -131,13 +131,13 @@ struct AIToolIcon: View {
                     .resizable()
                     .interpolation(.high)
                     .renderingMode(.template)
-                    .foregroundStyle(.primary)
+                    .foregroundColor(.primary)
             } else {
                 Image(systemName: tool.systemImage)
                     .resizable()
                     .scaledToFit()
                     .padding(size * 0.22)
-                    .foregroundStyle(.primary)
+                    .foregroundColor(.primary)
             }
         }
         .frame(width: size, height: size)

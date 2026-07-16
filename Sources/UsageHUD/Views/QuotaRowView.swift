@@ -51,6 +51,7 @@ enum QuotaRingPresentation {
     }
 }
 
+@available(macOS 14.0, *)
 struct QuotaRowView: View {
     let snapshot: QuotaSnapshot
     let openTool: (AIToolDescriptor) -> Void
@@ -297,6 +298,7 @@ struct QuotaRowView: View {
 
 }
 
+@available(macOS 14.0, *)
 private struct QuotaProgressBar: View {
     let remainingPercent: Double
     let severity: QuotaSeverity

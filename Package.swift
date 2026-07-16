@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "usAIge",
-    platforms: [.macOS(.v15)],
+    platforms: [.macOS(.v11)],
     products: [
         .executable(name: "usAIge", targets: ["UsageHUD"]),
     ],

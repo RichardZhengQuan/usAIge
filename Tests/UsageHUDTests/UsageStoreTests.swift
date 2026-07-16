@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import UsageHUD
@@ -98,7 +99,8 @@ import Testing
     let provider = CountingUsageProvider()
     let store = UsageStore(
         provider: provider,
-        automaticRefreshInterval: .milliseconds(10)
+        automaticRefreshInterval: 0.01,
+        monitorsNetworkChanges: false
     )
 
     store.start()
@@ -108,6 +110,42 @@ import Testing
     store.stop()
 
     #expect(await provider.refreshCount >= 2)
+}
+
+@MainActor
+@Test func refreshesImmediatelyAfterWakeNotification() async throws {
+    let provider = CountingUsageProvider()
+    let notificationCenter = NotificationCenter()
+    let store = UsageStore(
+        provider: provider,
+        automaticRefreshInterval: 60,
+        workspaceNotificationCenter: notificationCenter,
+        monitorsNetworkChanges: false
+    )
+
+    store.start()
+    for _ in 0..<50 where await provider.refreshCount < 1 {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    notificationCenter.post(name: NSWorkspace.didWakeNotification, object: nil)
+    for _ in 0..<50 where await provider.refreshCount < 2 {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    store.stop()
+
+    #expect(await provider.refreshCount >= 2)
+}
+
+@MainActor
+@Test func refreshesWhenNetworkConnectivityReturns() async {
+    let provider = CountingUsageProvider()
+    let store = UsageStore(provider: provider, monitorsNetworkChanges: false)
+
+    await store.handleNetworkAvailabilityChange(isAvailable: true)
+    await store.handleNetworkAvailabilityChange(isAvailable: false)
+    await store.handleNetworkAvailabilityChange(isAvailable: true)
+
+    #expect(await provider.refreshCount == 1)
 }
 
 private actor StubUsageProvider: CodexUsageProviding {

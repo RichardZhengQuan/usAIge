@@ -24,14 +24,20 @@ struct URLSessionRemoteLoader: RemoteDataLoading {
     }
 
     func data(for request: URLRequest, maxBytes: Int) async throws -> RemoteHTTPPayload {
-        let (bytes, response) = try await session.bytes(for: request)
-        guard let http = response as? HTTPURLResponse else { throw RemoteUsageError.invalidResponse }
-        var data = Data()
-        data.reserveCapacity(min(maxBytes, http.expectedContentLength > 0 ? Int(http.expectedContentLength) : 0))
-        for try await byte in bytes {
-            guard data.count < maxBytes else { throw RemoteUsageError.responseTooLarge }
-            data.append(byte)
+        let (data, response) = try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<(Data, URLResponse), Error>) in
+            session.dataTask(with: request) { data, response, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else if let data, let response {
+                    continuation.resume(returning: (data, response))
+                } else {
+                    continuation.resume(throwing: RemoteUsageError.invalidResponse)
+                }
+            }.resume()
         }
+        guard let http = response as? HTTPURLResponse else { throw RemoteUsageError.invalidResponse }
+        guard data.count <= maxBytes else { throw RemoteUsageError.responseTooLarge }
         return RemoteHTTPPayload(data: data, statusCode: http.statusCode)
     }
 }
@@ -160,7 +166,7 @@ actor RemoteUsageProvider: CodexUsageProviding {
         request.httpMethod = "GET"
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("usAIge/0.1.12", forHTTPHeaderField: "User-Agent")
+        request.setValue("usAIge/0.1.13", forHTTPHeaderField: "User-Agent")
         if let token = try credentials.token(for: tool.id), !token.isEmpty {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
@@ -169,7 +175,7 @@ actor RemoteUsageProvider: CodexUsageProviding {
         let payload = try await withThrowingTaskGroup(of: RemoteHTTPPayload.self) { group in
             group.addTask { try await loader.data(for: finalizedRequest, maxBytes: 1_048_576) }
             group.addTask {
-                try await Task.sleep(for: .seconds(15))
+                try await Task.sleep(nanoseconds: 15 * 1_000_000_000)
                 throw RemoteUsageError.requestTimedOut
             }
             guard let first = try await group.next() else { throw RemoteUsageError.invalidResponse }
