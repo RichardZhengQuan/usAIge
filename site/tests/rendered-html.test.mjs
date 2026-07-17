@@ -35,12 +35,24 @@ test("server-renders the current usAIge release", async () => {
 });
 
 test("loads the domain-locked VibeLoft telemetry client", async () => {
-  const source = await readFile(new URL("../app/vibeloft-telemetry.tsx", import.meta.url), "utf8");
+  const source = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
+  const response = await render();
+  const html = await response.text();
 
   assert.match(source, /https:\/\/vibeloft\.ai\/telemetry\/v1\.js/i);
   assert.match(source, /0d5781ba-0024-4ef4-b25d-2853ee434456/i);
   assert.match(source, /vl_web\.[A-Za-z0-9_-]{43}/i);
   assert.doesNotMatch(source, /REPLACE_WITH_NEW_WEB_AUTH_KEY/i);
+  assert.equal(
+    (html.match(/<script[^>]*src="https:\/\/vibeloft\.ai\/telemetry\/v1\.js"[^>]*><\/script>/gi) ?? [])
+      .length,
+    1,
+  );
+  assert.match(
+    html,
+    /<head>[\s\S]*<script[^>]*defer=""[^>]*src="https:\/\/vibeloft\.ai\/telemetry\/v1\.js"[^>]*data-vl-product-id="0d5781ba-0024-4ef4-b25d-2853ee434456"[^>]*data-vl-auth-key="vl_web\.[A-Za-z0-9_-]{43}"[^>]*><\/script>[\s\S]*<\/head>/i,
+  );
+  assert.doesNotMatch(source, /api\.vibeloft\.ai|supabase/i);
 });
 
 test("publishes a checksum matching the current disk image", async () => {
