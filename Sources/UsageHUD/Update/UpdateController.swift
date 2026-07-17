@@ -4,6 +4,10 @@ import CryptoKit
 import Foundation
 import UserNotifications
 
+private extension Array {
+    var nilIfEmpty: Self? { isEmpty ? nil : self }
+}
+
 struct UpdateManifest: Codable, Equatable, Sendable {
     let version: String
     let build: Int
@@ -25,6 +29,10 @@ struct UpdateManifest: Codable, Equatable, Sendable {
               normalizedHash.allSatisfy({ $0.isHexDigit }) else {
             throw UpdateError.invalidManifest
         }
+    }
+
+    static func newest(in manifests: [UpdateManifest]) -> UpdateManifest? {
+        manifests.max(by: { $0.build < $1.build })
     }
 }
 
@@ -67,14 +75,18 @@ enum UpdateStatus: Equatable {
 final class UpdateController: ObservableObject {
     nonisolated static let notificationCategory = "USAGE_HUD_UPDATE"
     nonisolated static let notificationIdentifierPrefix = "usaige-update-"
-    nonisolated static let defaultManifestURL = URL(
+    nonisolated static let currentManifestURL = URL(
         string: "https://usaige-macos.richardqz.chatgpt.site/update.json"
     )!
+    nonisolated static let legacyManifestURL = URL(
+        string: "https://pmrichq.com/project/usaige/update.json"
+    )!
+    nonisolated static let defaultManifestURLs = [currentManifestURL, legacyManifestURL]
 
     @Published private(set) var status: UpdateStatus = .idle
     @Published private(set) var isReplacementPrepared = false
 
-    private let manifestURL: URL
+    private let manifestURLs: [URL]
     private let currentVersion: String
     private let currentBuild: Int
     private let applicationURL: URL
@@ -123,11 +135,17 @@ final class UpdateController: ObservableObject {
         bundle: Bundle = .main,
         session: URLSession = .shared,
         userDefaults: UserDefaults = .standard,
-        installer: UpdateInstaller = UpdateInstaller()
+        installer: UpdateInstaller = UpdateInstaller(),
+        manifestURLs: [URL]? = nil
     ) {
-        let configuredURL = (bundle.object(forInfoDictionaryKey: "UpdateManifestURL") as? String)
+        let configuredURLs = (bundle.object(forInfoDictionaryKey: "UpdateManifestURLs") as? [String])?
+            .compactMap(URL.init(string:))
+        let legacyConfiguredURL = (bundle.object(forInfoDictionaryKey: "UpdateManifestURL") as? String)
             .flatMap(URL.init(string:))
-        manifestURL = configuredURL ?? Self.defaultManifestURL
+        self.manifestURLs = manifestURLs
+            ?? configuredURLs?.nilIfEmpty
+            ?? legacyConfiguredURL.map { [$0] }
+            ?? Self.defaultManifestURLs
         currentVersion = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
             ?? "Unknown"
         currentBuild = Int(bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "") ?? 0
@@ -171,13 +189,17 @@ final class UpdateController: ObservableObject {
 
         status = .checking
         do {
-            let (data, response) = try await session.data(from: manifestURL)
-            guard let httpResponse = response as? HTTPURLResponse,
-                  httpResponse.statusCode == 200 else {
+            var manifests: [UpdateManifest] = []
+            for manifestURL in manifestURLs {
+                do {
+                    manifests.append(try await loadManifest(from: manifestURL))
+                } catch {
+                    continue
+                }
+            }
+            guard let manifest = UpdateManifest.newest(in: manifests) else {
                 throw UpdateError.feedUnavailable
             }
-            let manifest = try JSONDecoder().decode(UpdateManifest.self, from: data)
-            try manifest.validate()
             if manifest.isNewer(thanBuild: currentBuild) {
                 status = .available(manifest)
                 await notifyIfNeeded(for: manifest)
@@ -187,6 +209,17 @@ final class UpdateController: ObservableObject {
         } catch {
             status = .failed(UpdateError.userFacingMessage(for: error))
         }
+    }
+
+    private func loadManifest(from url: URL) async throws -> UpdateManifest {
+        let (data, response) = try await session.data(from: url)
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw UpdateError.feedUnavailable
+        }
+        let manifest = try JSONDecoder().decode(UpdateManifest.self, from: data)
+        try manifest.validate()
+        return manifest
     }
 
     func installAvailableUpdate() async {
