@@ -57,6 +57,7 @@ struct HUDView: View {
             .frame(width: desiredSize.width, height: desiredSize.height)
             .background {
                 panelSurface
+                    .opacity(showsStatusSurface || isPanelHovered ? 1 : 0)
             }
             .overlay {
                 ZStack {
