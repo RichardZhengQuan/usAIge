@@ -225,6 +225,7 @@ struct QuotaRowView: View {
     let agentTaskID: String?
     let openTool: (AIToolDescriptor) -> Void
     let openAgentTask: (String) -> Void
+    let onDetailHoverChanged: (Bool) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovered = false
     @State private var criticalPulse = false
@@ -284,7 +285,11 @@ struct QuotaRowView: View {
         }
         .frame(width: 76, height: HUDMetrics.quotaRowHeight)
         .contentShape(Rectangle())
-        .onHover { isHovered = $0 }
+        .onHover { hoverState in
+            isHovered = hoverState
+            onDetailHoverChanged(hoverState)
+        }
+        .onDisappear { onDetailHoverChanged(false) }
         .popover(isPresented: $isHovered, attachmentAnchor: .rect(.bounds), arrowEdge: .trailing) {
             detailPopover
         }
