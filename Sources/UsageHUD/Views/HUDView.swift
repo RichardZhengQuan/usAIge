@@ -56,9 +56,7 @@ struct HUDView: View {
             .padding(.horizontal, 4)
             .frame(width: desiredSize.width, height: desiredSize.height)
             .background {
-                panelShape
-                    .fill(.regularMaterial)
-                    .opacity(showsStatusSurface || isPanelHovered ? 1 : 0)
+                panelSurface
             }
             .overlay {
                 ZStack {
@@ -107,6 +105,16 @@ struct HUDView: View {
 
     private var panelShape: RoundedRectangle {
         RoundedRectangle(cornerRadius: 18, style: .continuous)
+    }
+
+    @ViewBuilder
+    private var panelSurface: some View {
+        if #available(macOS 26.0, *) {
+            Color.clear
+                .glassEffect(.regular, in: .rect(cornerRadius: 18))
+        } else {
+            panelShape.fill(.regularMaterial)
+        }
     }
 
     @ViewBuilder
