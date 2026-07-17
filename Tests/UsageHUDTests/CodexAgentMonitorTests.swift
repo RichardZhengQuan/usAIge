@@ -176,6 +176,50 @@ private let referenceDate = Date(timeIntervalSince1970: 2_000_000)
     ).count == 1)
 }
 
+@Test func manuallyViewingCodexAcknowledgesOnlyAttentionStates() {
+    let thinking = task(.thinking, id: "thinking", updatedAt: referenceDate)
+    let completed = task(.complete, id: "complete", updatedAt: referenceDate)
+    let needsInput = task(.needsInput, id: "input", updatedAt: referenceDate)
+    let failed = task(.error, id: "error", updatedAt: referenceDate)
+
+    let acknowledgements = CodexAgentStore.acknowledgements(
+        afterAcknowledgingAttentionIn: [thinking, completed, needsInput, failed],
+        existing: [:],
+        viewedAt: referenceDate
+    )
+
+    #expect(acknowledgements[thinking.id] == nil)
+    #expect(acknowledgements[completed.id] == acknowledgement(for: completed))
+    #expect(acknowledgements[needsInput.id] == acknowledgement(for: needsInput))
+    #expect(acknowledgements[failed.id] == acknowledgement(for: failed))
+    #expect(CodexAgentStore.unacknowledgedTasks(
+        [thinking, completed, needsInput, failed],
+        acknowledgements: acknowledgements
+    ) == [thinking])
+}
+
+@Test func viewingCodexDoesNotHideAttentionThatArrivesAfterTheClick() {
+    let earlierCompletion = task(
+        .complete,
+        id: "earlier",
+        updatedAt: referenceDate.addingTimeInterval(-1)
+    )
+    let laterCompletion = task(
+        .complete,
+        id: "later",
+        updatedAt: referenceDate.addingTimeInterval(1)
+    )
+
+    let acknowledgements = CodexAgentStore.acknowledgements(
+        afterAcknowledgingAttentionIn: [earlierCompletion, laterCompletion],
+        existing: [:],
+        viewedAt: referenceDate
+    )
+
+    #expect(acknowledgements[earlierCompletion.id] == acknowledgement(for: earlierCompletion))
+    #expect(acknowledgements[laterCompletion.id] == nil)
+}
+
 private func agentPhase(_ type: String, extra: String = "") -> CodexAgentPhase {
     CodexAgentSessionDecoder.phase(
         from: eventData(type, extra: extra),

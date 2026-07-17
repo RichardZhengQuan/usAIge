@@ -272,3 +272,8 @@ codesign --verify --deep --strict 'dist/usAIge.app'
 ```
 
 The automated suite covers quota normalization, JSON-RPC framing, account/rate-limit parsing, remote connection links, state recovery, countdowns, notification thresholds and routing, settings persistence, panel geometry, and severity thresholds.
+
+## TODO
+
+- Add the usAIge website link to Settings.
+- Tune the main HUD glass-board opacity while the HUD is hovered.

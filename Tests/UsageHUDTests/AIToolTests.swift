@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import UsageHUD
 
@@ -15,4 +16,16 @@ import Testing
             == "codex://threads/019f1234-test"
     )
     #expect(AIToolLauncher.codexTaskURL(id: "") == nil)
+}
+
+@MainActor
+@Test func opensStandaloneCodexOrFallsBackToTheCodexWebsite() {
+    let installedApp = URL(fileURLWithPath: "/Applications/Codex.app")
+
+    #expect(AIToolLauncher.codexBundleIdentifier == "com.openai.codex")
+    #expect(AIToolLauncher.codexLaunchURL(applicationURL: installedApp) == installedApp)
+    #expect(
+        AIToolLauncher.codexLaunchURL(applicationURL: nil).absoluteString
+            == "https://chatgpt.com/codex/"
+    )
 }

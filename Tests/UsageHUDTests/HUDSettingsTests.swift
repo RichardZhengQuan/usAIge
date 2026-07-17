@@ -46,6 +46,32 @@ import Testing
 }
 
 @MainActor
+@Test func defaultsToTenPercentUsageAlertsAndPersistsASelectedInterval() {
+    let defaults = isolatedDefaults()
+    var settings: HUDSettings? = HUDSettings(defaults: defaults)
+
+    #expect(settings?.usageAlertIntervalPercent == 10)
+    settings?.usageAlertIntervalPercent = 20
+    settings = nil
+
+    let restored = HUDSettings(defaults: defaults)
+    #expect(restored.usageAlertIntervalPercent == 20)
+}
+
+@MainActor
+@Test func resetCreditVisibilityDefaultsOnAndPersistsUserChoice() {
+    let defaults = isolatedDefaults()
+    var settings: HUDSettings? = HUDSettings(defaults: defaults)
+
+    #expect(settings?.showsResetCredits == true)
+    settings?.showsResetCredits = false
+    settings = nil
+
+    let restored = HUDSettings(defaults: defaults)
+    #expect(restored.showsResetCredits == false)
+}
+
+@MainActor
 @Test func migratesVersionOneSettingsWithNewToolDefaults() throws {
     let defaults = isolatedDefaults()
     let legacy: [String: Any] = [
@@ -91,10 +117,46 @@ import Testing
 @MainActor
 @Test func registerBucketsStablyDeduplicatesRemoteRows() {
     let settings = HUDSettings(defaults: isolatedDefaults())
+    let daily = quota(id: "remote:daily")
+    let weekly = quota(id: "remote:weekly")
 
-    settings.registerBuckets(["remote:daily", "remote:daily", "remote:weekly"])
+    settings.registerBuckets([daily, daily, weekly])
 
     #expect(settings.bucketOrder == ["remote:daily", "remote:weekly"])
+}
+
+@MainActor
+@Test func defaultsToNewestNamedChatGPTBucketWhileKeepingLegacyBucketAvailable() {
+    let settings = HUDSettings(defaults: isolatedDefaults())
+    let legacy = quota(id: "codex", displayName: "Codex")
+    let newest = quota(id: "codex_bengalfox", displayName: "GPT-5.3-Codex-Spark")
+
+    settings.registerBuckets([legacy, newest])
+
+    #expect(settings.ordered([legacy, newest]).map(\.id) == [newest.id])
+    settings.hiddenBucketIDs.remove(legacy.id)
+    #expect(settings.ordered([legacy, newest]).map(\.id) == [legacy.id, newest.id])
+}
+
+@MainActor
+@Test func updatingUsersKeepTheirExistingVisibleBuckets() throws {
+    let defaults = isolatedDefaults()
+    let existingSettings: [String: Any] = [
+        "version": 4,
+        "bucketOrder": ["codex", "codex_bengalfox"],
+        "hiddenBucketIDs": [],
+    ]
+    defaults.set(
+        try JSONSerialization.data(withJSONObject: existingSettings),
+        forKey: "usageHUD.settings.v1"
+    )
+    let settings = HUDSettings(defaults: defaults)
+    let legacy = quota(id: "codex", displayName: "Codex")
+    let newest = quota(id: "codex_bengalfox", displayName: "GPT-5.3-Codex-Spark")
+
+    settings.registerBuckets([legacy, newest])
+
+    #expect(settings.ordered([legacy, newest]).map(\.id) == [legacy.id, newest.id])
 }
 
 @MainActor
@@ -105,10 +167,10 @@ private func isolatedDefaults() -> UserDefaults {
     return defaults
 }
 
-private func quota(id: String) -> QuotaSnapshot {
+private func quota(id: String, displayName: String? = nil) -> QuotaSnapshot {
     QuotaSnapshot(
         id: id,
-        displayName: id,
+        displayName: displayName ?? id,
         usedPercent: 0,
         remainingPercent: 100,
         resetAt: nil,

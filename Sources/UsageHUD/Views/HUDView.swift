@@ -8,6 +8,8 @@ struct HUDView: View {
     @ObservedObject var settings: HUDSettings
     @ObservedObject var updateController: UpdateController
     let openTool: (AIToolDescriptor) -> Void
+    let openCodex: () -> Void
+    let openSettings: () -> Void
     let resizePanel: (CGSize) -> Void
     @State private var isPanelHovered = false
     @State private var refreshRotation = 0.0
@@ -41,6 +43,13 @@ struct HUDView: View {
         }
     }
 
+    private var showsStatusSurface: Bool {
+        switch store.state {
+        case .current, .stale: false
+        default: true
+        }
+    }
+
     var body: some View {
         content
             .padding(.vertical, 10)
@@ -49,12 +58,15 @@ struct HUDView: View {
             .background {
                 panelShape
                     .fill(.regularMaterial)
-                    .opacity(isPanelHovered ? 1 : 0)
+                    .opacity(showsStatusSurface || isPanelHovered ? 1 : 0)
             }
             .overlay {
                 ZStack {
                     panelShape
-                        .stroke(.separator.opacity(isPanelHovered ? 0.42 : 0), lineWidth: 0.5)
+                        .stroke(
+                            .separator.opacity(showsStatusSurface ? 0.3 : (isPanelHovered ? 0.42 : 0)),
+                            lineWidth: 0.5
+                        )
                     if hasCriticalQuota {
                         panelShape
                             .stroke(Color.red.opacity(0.86), lineWidth: 1.5)
@@ -64,7 +76,11 @@ struct HUDView: View {
                     }
                 }
             }
-            .shadow(color: .black.opacity(isPanelHovered ? 0.16 : 0), radius: 18, y: 8)
+            .shadow(
+                color: .black.opacity(showsStatusSurface ? 0.2 : (isPanelHovered ? 0.16 : 0)),
+                radius: 18,
+                y: 8
+            )
             .contentShape(panelShape)
             .onHover { isHovered in
                 isPanelHovered = isHovered
@@ -76,13 +92,14 @@ struct HUDView: View {
                 HUDMetrics.contentOpacity(
                     configured: settings.opacity,
                     isHovered: isPanelHovered,
-                    isCritical: hasCriticalQuota
+                    isCritical: hasCriticalQuota,
+                    forceVisible: showsStatusSurface
                 )
             )
             .scaleEffect(settings.scale)
             .frame(width: scaledSize.width, height: scaledSize.height)
             .task(id: snapshots.map(\.id)) {
-                settings.registerBuckets(snapshots.map(\.id))
+                settings.registerBuckets(snapshots)
             }
             .onAppear { resizePanel(scaledSize) }
             .onChange(of: scaledSize) { _, size in resizePanel(size) }
@@ -96,17 +113,31 @@ struct HUDView: View {
     private var content: some View {
         switch store.state {
         case .connecting:
-            statusView(title: "Connecting…", symbol: "arrow.triangle.2.circlepath")
+            statusView(title: "Connecting")
         case .signedOut:
-            messageView(title: "Sign in through ChatGPT", symbol: "person.crop.circle.badge.exclamationmark", actionTitle: "Open ChatGPT") {
-                openTool(.descriptor(for: .chatGPT))
-            }
+            messageView(
+                title: "Connect",
+                detail: "Open Codex to connect",
+                symbol: "network.slash",
+                actionTitle: "Open Codex",
+                usesPrimaryAction: true,
+                action: openCodex
+            )
         case let .unavailable(message):
-            messageView(title: message, symbol: "bolt.horizontal.circle", actionTitle: "Open ChatGPT") {
-                openTool(.descriptor(for: .chatGPT))
-            }
+            messageView(
+                title: "Offline",
+                detail: message,
+                symbol: "wifi.slash",
+                actionTitle: "Open Codex",
+                action: openCodex
+            )
         case .empty:
-            messageView(title: "No usage limits", symbol: "circle.dotted", actionTitle: "Retry") {
+            messageView(
+                title: "No limits",
+                detail: "Nothing is available to display",
+                symbol: "circle.dotted",
+                actionTitle: "Retry"
+            ) {
                 Task { await store.refresh() }
             }
         case .current:
@@ -133,6 +164,7 @@ struct HUDView: View {
                         ForEach(snapshots) { snapshot in
                             QuotaRowView(
                                 snapshot: snapshot,
+                                showsResetCredits: settings.showsResetCredits,
                                 agentPhase: snapshot.toolID == .chatGPT ? agentStore.phase : .idle,
                                 agentTaskID: snapshot.toolID == .chatGPT
                                     ? agentStore.targetTask?.id
@@ -152,30 +184,40 @@ struct HUDView: View {
             }
 
             Divider().opacity(isPanelHovered ? 0.45 : 0)
-            footer(isStale: isStale)
+            footer(status: isStale ? .stale : .current)
         }
     }
 
-    private func footer(isStale: Bool) -> some View {
+    private func footer(status: FooterStatus) -> some View {
         HStack(spacing: 6) {
             refreshButton
-            if isStale {
+            switch status {
+            case .stale:
                 Image(systemName: "wifi.slash")
                     .foregroundStyle(.secondary)
                     .help("Usage may be out of date")
                     .accessibilityLabel("Usage may be out of date")
-            } else {
+            case .current:
                 Circle()
                     .fill(.green)
                     .frame(width: 7, height: 7)
                     .accessibilityLabel("Usage is current")
+            case .connecting:
+                ProgressView()
+                    .controlSize(.mini)
+                    .accessibilityLabel("Connecting to Codex")
+            case .disconnected:
+                Circle()
+                    .fill(.orange)
+                    .frame(width: 7, height: 7)
+                    .accessibilityLabel("Codex is disconnected")
             }
             settingsLink
         }
         .padding(.horizontal, 3)
         .frame(height: 24)
-        .opacity(HUDMetrics.controlOpacity(isHovered: isPanelHovered))
-        .allowsHitTesting(isPanelHovered)
+        .opacity(showsStatusSurface ? 1 : HUDMetrics.controlOpacity(isHovered: isPanelHovered))
+        .allowsHitTesting(showsStatusSurface || isPanelHovered)
     }
 
     private var refreshButton: some View {
@@ -202,7 +244,7 @@ struct HUDView: View {
     }
 
     private var settingsLink: some View {
-        SettingsLink {
+        Button(action: openSettings) {
             ZStack(alignment: .topTrailing) {
                 Image(systemName: "gearshape")
                     .frame(width: 18, height: 18)
@@ -250,34 +292,91 @@ struct HUDView: View {
         .accessibilityValue(showsBadge ? "New version available" : "")
     }
 
-    private func statusView(title: String, symbol: String) -> some View {
-        VStack(spacing: 12) {
-            ProgressView().controlSize(.small)
-            Label(title, systemImage: symbol).font(.headline)
-            footer(isStale: false)
+    private func statusView(title: String) -> some View {
+        VStack(spacing: 7) {
+            ZStack {
+                Circle().fill(Color.accentColor.opacity(0.14))
+                ProgressView().controlSize(.small)
+            }
+            .frame(width: 34, height: 34)
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            footer(status: .connecting)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func messageView(
         title: String,
+        detail: String,
         symbol: String,
         actionTitle: String,
+        usesPrimaryAction: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
-        VStack(spacing: 10) {
-            Image(systemName: symbol).font(.system(size: 24)).foregroundStyle(.secondary)
-            Text(title).font(.headline).multilineTextAlignment(.center)
-            Button(actionTitle, action: action).buttonStyle(.borderedProminent)
-            footer(isStale: false)
+        VStack(spacing: 7) {
+            if usesPrimaryAction {
+                Button(action: action) {
+                    messageHeader(title: title, symbol: symbol)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(actionTitle)
+                .accessibilityLabel(title)
+                .accessibilityHint(actionTitle)
+            } else {
+                messageHeader(title: title, symbol: symbol)
+            }
+            HStack(spacing: 5) {
+                refreshButton
+                Circle()
+                    .fill(.orange)
+                    .frame(width: 7, height: 7)
+                    .accessibilityLabel("Codex is disconnected")
+                settingsLink
+                if !usesPrimaryAction {
+                    Button(action: action) {
+                        Image(systemName: "arrow.up.forward")
+                            .frame(width: 18, height: 18)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(actionTitle)
+                    .accessibilityLabel(actionTitle)
+                }
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .help(detail)
+        .accessibilityValue(detail)
+    }
+
+    private func messageHeader(title: String, symbol: String) -> some View {
+        VStack(spacing: 7) {
+            Image(systemName: symbol)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.orange)
+                .frame(width: 34, height: 34)
+                .background(Color.orange.opacity(0.14), in: Circle())
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+        }
+    }
+
+    private enum FooterStatus {
+        case current
+        case stale
+        case connecting
+        case disconnected
     }
 }
 
 enum HUDMetrics {
     static let railWidth: CGFloat = 84
-    static let messageSize = CGSize(width: 220, height: 176)
+    static let messageSize = CGSize(width: railWidth, height: 120)
     static let itemSpacing: CGFloat = 10
 
     static func railHeight(rowCount: Int) -> CGFloat {
@@ -292,8 +391,10 @@ enum HUDMetrics {
     static func contentOpacity(
         configured: Double,
         isHovered: Bool,
-        isCritical: Bool = false
+        isCritical: Bool = false,
+        forceVisible: Bool = false
     ) -> Double {
+        if forceVisible { return 1 }
         if isHovered { return 1 }
         if isCritical { return max(configured, 0.92) }
         return configured

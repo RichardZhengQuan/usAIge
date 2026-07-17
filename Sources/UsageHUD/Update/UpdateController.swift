@@ -68,7 +68,7 @@ final class UpdateController: ObservableObject {
     nonisolated static let notificationCategory = "USAGE_HUD_UPDATE"
     nonisolated static let notificationIdentifierPrefix = "usaige-update-"
     nonisolated static let defaultManifestURL = URL(
-        string: "https://usaige-macos.richardqz.chatgpt.site/update.json"
+        string: "https://pmrichq.com/project/usaige/update.json"
     )!
 
     @Published private(set) var status: UpdateStatus = .idle

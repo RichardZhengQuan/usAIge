@@ -45,7 +45,7 @@ struct LegacyHUDView: View {
         .opacity(settings.opacity)
         .scaleEffect(settings.scale)
         .onAppear {
-            settings.registerBuckets(snapshots.map(\.id))
+            settings.registerBuckets(snapshots)
             resizePanel(HUDMetrics.scaledSize(desiredSize, scale: settings.scale))
         }
     }
@@ -114,6 +114,10 @@ struct LegacyHUDSettingsRootView: View {
                 HStack { Text("Scale"); Slider(value: scaleBinding, in: 0.75...1.5) }
 
                 Divider()
+                Text("Usage display").font(.headline)
+                Toggle("Show reset credits", isOn: resetCreditsVisibilityBinding)
+
+                Divider()
                 Text("Startup").font(.headline)
                 Toggle("Open usAIge at login", isOn: launchAtLoginBinding)
                     .disabled(!launchAtLogin.isSupported)
@@ -157,6 +161,13 @@ struct LegacyHUDSettingsRootView: View {
 
     private var scaleBinding: Binding<Double> {
         Binding(get: { settings.scale }, set: { settings.scale = $0 })
+    }
+
+    private var resetCreditsVisibilityBinding: Binding<Bool> {
+        Binding(
+            get: { settings.showsResetCredits },
+            set: { settings.showsResetCredits = $0 }
+        )
     }
 
     private var launchAtLoginBinding: Binding<Bool> {

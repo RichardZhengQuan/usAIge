@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     let updateController: UpdateController
     let usageLimitNotifications: UsageLimitNotificationController
     private var panel: HUDPanel?
+    private var codexAttentionMonitor: CodexAttentionMonitor?
     var settingsSceneOpener: @MainActor () -> Void = SettingsScenePresenter.open
     private var isTerminationPending = false
     private var hasRepliedToTermination = false
@@ -53,7 +54,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         notificationCenter.delegate = self
         notificationCenter.setNotificationCategories(AppNotificationCategories.all)
         store.onSnapshotsChanged = { [settings, usageLimitNotifications] snapshots in
-            usageLimitNotifications.observe(settings.ordered(snapshots))
+            usageLimitNotifications.observe(
+                settings.ordered(snapshots),
+                intervalPercent: settings.usageAlertIntervalPercent
+            )
         }
         let content: AnyView
         if #available(macOS 14.0, *) {
@@ -63,6 +67,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
                 settings: settings,
                 updateController: updateController,
                 openTool: AIToolLauncher.open,
+                openCodex: AIToolLauncher.openCodex,
+                openSettings: { [weak self] in self?.showSettings() },
                 resizePanel: { [weak self] size in self?.resizePanel(to: size) }
             ))
         } else {
@@ -82,6 +88,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         panel.orderFrontRegardless()
         store.start()
         agentStore.start()
+        let codexAttentionMonitor = CodexAttentionMonitor { [weak self] in
+            self?.agentStore.acknowledgeAttentionStates()
+        }
+        codexAttentionMonitor.start()
+        self.codexAttentionMonitor = codexAttentionMonitor
         updateController.start()
     }
 
@@ -97,6 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         if updateController.isReplacementPrepared {
             updateController.stop()
             usageLimitNotifications.stop()
+            codexAttentionMonitor?.stop()
             return .terminateNow
         }
 
@@ -104,6 +116,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         isTerminationPending = true
         updateController.stop()
         usageLimitNotifications.stop()
+        codexAttentionMonitor?.stop()
         Task { [weak self] in
             guard let self else { return }
             async let usageShutdown: Void = self.store.shutdown()
@@ -223,6 +236,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
 }
 
 @MainActor
+private final class CodexAttentionMonitor {
+    private static let bundleIdentifiers: Set<String> = [
+        "com.openai.codex",
+        "com.openai.chat",
+    ]
+
+    private let acknowledge: () -> Void
+    private var activationObserver: NSObjectProtocol?
+    private var clickMonitor: Any?
+
+    init(acknowledge: @escaping () -> Void) {
+        self.acknowledge = acknowledge
+    }
+
+    func start() {
+        guard activationObserver == nil, clickMonitor == nil else { return }
+        let workspaceCenter = NSWorkspace.shared.notificationCenter
+        activationObserver = workspaceCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
+                    as? NSRunningApplication else { return }
+            Task { @MainActor [weak self] in
+                self?.acknowledgeIfCodex(application)
+            }
+        }
+        clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let application = NSWorkspace.shared.frontmostApplication else { return }
+                self?.acknowledgeIfCodex(application)
+            }
+        }
+    }
+
+    func stop() {
+        if let activationObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(activationObserver)
+            self.activationObserver = nil
+        }
+        if let clickMonitor {
+            NSEvent.removeMonitor(clickMonitor)
+            self.clickMonitor = nil
+        }
+    }
+
+    private func acknowledgeIfCodex(_ application: NSRunningApplication) {
+        guard let bundleIdentifier = application.bundleIdentifier,
+              Self.bundleIdentifiers.contains(bundleIdentifier)
+        else { return }
+        acknowledge()
+    }
+}
+
+@MainActor
 enum SettingsScenePresenter {
     static func open() {
         NSApp.activate(ignoringOtherApps: true)
@@ -232,6 +301,24 @@ enum SettingsScenePresenter {
         } else {
             NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
         }
+        focusSettingsWindowWhenReady()
+    }
+
+    private static func focusSettingsWindowWhenReady() {
+        Task { @MainActor in
+            for _ in 0..<12 {
+                if let window = NSApp.windows.first(where: isSettingsWindow) {
+                    NSApp.activate(ignoringOtherApps: true)
+                    window.makeKeyAndOrderFront(nil)
+                    return
+                }
+                try? await Task.sleep(nanoseconds: 25_000_000)
+            }
+        }
+    }
+
+    private static func isSettingsWindow(_ window: NSWindow) -> Bool {
+        !(window is NSPanel) && window.styleMask.contains(.titled)
     }
 
     static func settingsMenuItem(in mainMenu: NSMenu?) -> NSMenuItem? {

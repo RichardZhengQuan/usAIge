@@ -72,6 +72,18 @@ enum AgentBreathingMotion {
     }
 }
 
+extension CodexAgentPhase {
+    var statusColor: Color? {
+        switch self {
+        case .idle: nil
+        case .thinking: Color(red: 0.18, green: 0.52, blue: 1.00)
+        case .complete: Color(red: 0.18, green: 0.88, blue: 0.45)
+        case .needsInput: Color(red: 1.00, green: 0.68, blue: 0.12)
+        case .error: Color(red: 1.00, green: 0.20, blue: 0.47)
+        }
+    }
+}
+
 @MainActor
 private final class PopoverCenterClickMonitor: ObservableObject {
     var screenFrame = CGRect.zero
@@ -153,6 +165,7 @@ private struct ScreenFrameReader: NSViewRepresentable {
 @available(macOS 14.0, *)
 struct QuotaRowView: View {
     let snapshot: QuotaSnapshot
+    let showsResetCredits: Bool
     let agentPhase: CodexAgentPhase
     let agentTaskID: String?
     let openTool: (AIToolDescriptor) -> Void
@@ -185,10 +198,19 @@ struct QuotaRowView: View {
             usageRing
 
             HStack(spacing: 4) {
-                typeTag(snapshot.typeTag, severity: primarySeverity)
+                typeTag(
+                    fallbackText: snapshot.typeTag,
+                    resetAt: snapshot.resetAt,
+                    availableResetCount: showsResetCredits ? snapshot.availableResetCount : nil,
+                    isCondensed: snapshot.secondaryWindow != nil,
+                    severity: primarySeverity
+                )
                 if let secondaryWindow = snapshot.secondaryWindow {
                     typeTag(
-                        secondaryWindow.typeTag,
+                        fallbackText: secondaryWindow.typeTag,
+                        resetAt: secondaryWindow.resetAt,
+                        availableResetCount: nil,
+                        isCondensed: true,
                         severity: QuotaSeverity(remainingPercent: secondaryWindow.remainingPercent)
                     )
                 }
@@ -259,7 +281,12 @@ struct QuotaRowView: View {
                 severity: primarySeverity
             )
             Button(action: performPrimaryAction) {
-                AIToolIcon(tool: tool, size: 23)
+                AIToolIcon(
+                    tool: tool,
+                    size: 23,
+                    showsContrastHalo: true,
+                    contrastHaloColor: agentPhase.statusColor
+                )
                     .frame(width: 60, height: 60)
                     .contentShape(Circle())
             }
@@ -354,15 +381,50 @@ struct QuotaRowView: View {
         }
     }
 
-    private func typeTag(_ text: String, severity: QuotaSeverity) -> some View {
-        Text(text)
-            .font(.system(.caption2, design: .rounded, weight: .bold))
-            .foregroundStyle(severity.color)
-            .shadow(color: severity.glowColor, radius: severity.glowRadius / 3)
-            .shadow(color: severity.glowColor.opacity(0.8), radius: severity.glowRadius)
-            .padding(.horizontal, 6)
+    private func typeTag(
+        fallbackText: String,
+        resetAt: Date?,
+        availableResetCount: Int?,
+        isCondensed: Bool,
+        severity: QuotaSeverity
+    ) -> some View {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            let resetText = ResetRemainingText.compact(until: resetAt, now: context.date)
+
+            HStack(spacing: isCondensed ? 2 : 4) {
+                Text(resetText ?? fallbackText)
+                    .font(.system(
+                        size: isCondensed ? 9 : 11,
+                        weight: .bold,
+                        design: .rounded
+                    ))
+                    .foregroundStyle(severity.color)
+                    .shadow(color: severity.glowColor, radius: severity.glowRadius / 3)
+                    .shadow(color: severity.glowColor.opacity(0.8), radius: severity.glowRadius)
+
+                if let availableResetCount {
+                    Text("\(availableResetCount)r")
+                        .font(.system(
+                            size: isCondensed ? 7 : 8,
+                            weight: .semibold,
+                            design: .rounded
+                        ))
+                        .monospacedDigit()
+                        .foregroundStyle(severity.color)
+                }
+            }
+            .padding(.horizontal, isCondensed ? 3 : 6)
             .padding(.vertical, 1)
             .background(.quaternary, in: Capsule())
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(
+                ResetRemainingText.accessibilityLabel(until: resetAt, now: context.date)
+                    ?? fallbackText
+            )
+            .accessibilityValue(
+                availableResetCount.map { "\($0) reset credits available" } ?? ""
+            )
+        }
     }
 
     private var detailPopover: some View {
@@ -452,19 +514,13 @@ private struct AgentStatusRingLight: View {
     let isHovered: Bool
 
     private var color: Color {
-        switch phase {
-        case .idle: .clear
-        case .thinking: Color(red: 0.18, green: 0.52, blue: 1.00)
-        case .complete: Color(red: 0.18, green: 0.88, blue: 0.45)
-        case .needsInput: Color(red: 1.00, green: 0.68, blue: 0.12)
-        case .error: Color(red: 1.00, green: 0.20, blue: 0.47)
-        }
+        phase.statusColor ?? .clear
     }
 
     var body: some View {
         ZStack {
             Circle()
-                .stroke(color.opacity(isHovered ? 0.86 : 0.72), lineWidth: 3)
+                .stroke(color.opacity(isHovered ? 0.86 : 0.72), lineWidth: 1)
                 .frame(width: diameter, height: diameter)
                 .blur(radius: 1.5)
 
@@ -558,5 +614,26 @@ enum ResetDateText {
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
         return formatter.string(from: date)
+    }
+}
+
+enum ResetRemainingText {
+    static func compact(until resetAt: Date?, now: Date = Date()) -> String? {
+        guard let resetAt else { return nil }
+        let seconds = resetAt.timeIntervalSince(now)
+        guard seconds > 0 else { return "NOW" }
+
+        if seconds >= 86_400 {
+            return "\(Int(ceil(seconds / 86_400)))D"
+        }
+        if seconds >= 3_600 {
+            return "\(Int(ceil(seconds / 3_600)))H"
+        }
+        return "\(max(1, Int(ceil(seconds / 60))))M"
+    }
+
+    static func accessibilityLabel(until resetAt: Date?, now: Date = Date()) -> String? {
+        guard let compactValue = compact(until: resetAt, now: now) else { return nil }
+        return compactValue == "NOW" ? "Resetting now" : "Resets in \(compactValue)"
     }
 }

@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import Foundation
 import ServiceManagement
 
 enum LaunchAtLoginStatus {
@@ -32,7 +33,10 @@ private final class ModernLaunchAtLoginService: LaunchAtLoginServicing {
 
 @MainActor
 final class LaunchAtLoginController: ObservableObject {
+    private static let defaultAppliedKey = "usageHUD.launchAtLoginDefaultApplied.v1"
+
     private let service: (any LaunchAtLoginServicing)?
+    private let defaults: UserDefaults
 
     @Published private(set) var isEnabled = false
     @Published private(set) var requiresApproval = false
@@ -40,7 +44,11 @@ final class LaunchAtLoginController: ObservableObject {
 
     var isSupported: Bool { service != nil }
 
-    init(service: (any LaunchAtLoginServicing)? = nil) {
+    init(
+        service: (any LaunchAtLoginServicing)? = nil,
+        defaults: UserDefaults = .standard
+    ) {
+        self.defaults = defaults
         if let service {
             self.service = service
         } else if #available(macOS 13.0, *) {
@@ -49,6 +57,7 @@ final class LaunchAtLoginController: ObservableObject {
             self.service = nil
         }
         refresh()
+        enableByDefaultIfNeeded()
     }
 
     func setEnabled(_ enabled: Bool) {
@@ -88,5 +97,12 @@ final class LaunchAtLoginController: ObservableObject {
         if #available(macOS 13.0, *) {
             SMAppService.openSystemSettingsLoginItems()
         }
+    }
+
+    private func enableByDefaultIfNeeded() {
+        guard defaults.object(forKey: Self.defaultAppliedKey) == nil else { return }
+        defaults.set(true, forKey: Self.defaultAppliedKey)
+        guard service?.status == .notRegistered else { return }
+        setEnabled(true)
     }
 }

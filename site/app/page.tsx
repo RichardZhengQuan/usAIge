@@ -1,4 +1,6 @@
-const downloadUrl = "/usAIge-0.1.14-alpha.dmg";
+const basePath = "/project/usaige";
+const assetUrl = (path: string) => `${basePath}/${path}`;
+const downloadUrl = assetUrl("usAIge-0.1.14-alpha.dmg");
 
 const statusColors = [
   { key: "error", label: "Error", color: "#ff5284", detail: "Always wins" },
@@ -21,7 +23,7 @@ export default function Home() {
     <main>
       <nav className="nav shell" aria-label="Main navigation">
         <a className="brand" href="#top" aria-label="usAIge home">
-          <img src="/app-icon.png" alt="" />
+          <img src={assetUrl("app-icon.png")} alt="" />
           <span>us<span>AI</span>ge</span>
         </a>
         <div className="nav__links">
@@ -51,7 +53,7 @@ export default function Home() {
         <div className="hero__visual" aria-label="Current usAIge HUD showing a blue breathing agent status">
           <div className="product-stage">
             <div className="product-stage__label"><span /> Live product capture</div>
-            <img src="/product-hud-status.png" alt="usAIge Codex limit ring with a blue running-status glory" />
+            <img src={assetUrl("product-hud-status.png")} alt="usAIge Codex limit ring with a blue running-status glory" />
             <div className="product-stage__note">
               <strong>One light for every task.</strong>
               <span>Breathes from 90% to 110% of the limit ring.</span>
@@ -118,12 +120,12 @@ export default function Home() {
           <p>Use the native Settings window to pick tools and usage types, reorder them, and tune the rail for your desk.</p>
         </div>
         <figure className="product-shot product-shot--settings">
-          <img src="/product-settings.png" alt="usAIge Settings showing active and connected AI tools" />
+          <img src={assetUrl("product-settings.png")} alt="usAIge Settings showing active and connected AI tools" />
           <figcaption><strong>Native macOS Settings</strong><span>Choose tools, usage windows, scale, opacity, startup, and updates.</span></figcaption>
         </figure>
         <figure className="product-shot product-shot--hud">
           <div className="product-shot__media product-shot__media--hud">
-            <img src="/product-hud-status.png" alt="Current usAIge floating Codex HUD with blue status glory" />
+            <img src={assetUrl("product-hud-status.png")} alt="Current usAIge floating Codex HUD with blue status glory" />
           </div>
           <figcaption><strong>The live floating rail</strong><span>Usage ring, agent state, and click-back target in one place.</span></figcaption>
         </figure>
@@ -161,12 +163,12 @@ export default function Home() {
             <span className="button__icon" aria-hidden="true">↓</span>
             <span><strong>Download usAIge</strong><small>v0.1.14 alpha · macOS 11 or later · Apple silicon</small></span>
           </a>
-          <a className="checksum" href="/usAIge-0.1.14-alpha.dmg.sha256" download>SHA-256 checksum</a>
+          <a className="checksum" href={assetUrl("usAIge-0.1.14-alpha.dmg.sha256")} download>SHA-256 checksum</a>
         </div>
       </section>
 
       <footer className="footer shell">
-        <a className="brand" href="#top"><img src="/app-icon.png" alt="" /><span>us<span>AI</span>ge</span></a>
+        <a className="brand" href="#top"><img src={assetUrl("app-icon.png")} alt="" /><span>us<span>AI</span>ge</span></a>
         <p>Built for people who would rather make things than monitor dashboards.</p>
         <span>v0.1.14 public alpha · 2026</span>
       </footer>
