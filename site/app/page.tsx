@@ -1,8 +1,8 @@
 const basePath = "/project/usaige";
 const assetUrl = (path: string) => `${basePath}/${path}`;
 const releaseBaseUrl = "https://usaige-macos.richardqz.chatgpt.site";
-const downloadUrl = `${releaseBaseUrl}/usAIge-0.2.0-alpha.dmg`;
-const checksumUrl = `${releaseBaseUrl}/usAIge-0.2.0-alpha.dmg.sha256`;
+const downloadUrl = `${releaseBaseUrl}/usAIge-0.2.1-alpha.dmg`;
+const checksumUrl = `${releaseBaseUrl}/usAIge-0.2.1-alpha.dmg.sha256`;
 
 const statusColors = [
   { key: "error", label: "Error", color: "#ff5284", detail: "Always wins" },
@@ -14,7 +14,7 @@ const statusColors = [
 const usageEffects = [
   ["Live dual windows", "See Codex’s short and weekly limits together, with real reset times and remaining percentages."],
   ["Priority color system", "Pink error, green recent completion, yellow needs input, blue running, and no light when idle."],
-  ["Critical quota glory", "Five usage bands build toward a persistent deep-red warning across the entire critical range."],
+  ["Critical quota signal", "Five usage bands culminate in a focused deep-red remaining arc while the unused track stays transparent."],
   ["Hover focus", "The rail returns to full opacity, reveals controls, refreshes stale data, and shows detailed reset context."],
   ["Your size and opacity", "Set resting opacity from 10–100% and scale the compact rail from 50–250%."],
   ["Local plus connected tools", "Read local Codex automatically and add compatible read-only HTTPS sources with Keychain tokens."],
@@ -38,7 +38,7 @@ export default function Home() {
 
       <section className="hero shell" id="top">
         <div className="hero__copy">
-          <p className="eyebrow"><span /> v0.2.0 · Native macOS utility</p>
+          <p className="eyebrow"><span /> v0.2.1 · Native macOS utility</p>
           <h1>Your AI work,<br /><em>still breathing.</em></h1>
           <p className="hero__lede">
             usAIge keeps usage limits and Codex task health in one quiet floating rail. One glance tells you whether agents are running, finished, waiting, or broken.
@@ -46,7 +46,7 @@ export default function Home() {
           <div className="hero__actions">
             <a className="button button--primary" href={downloadUrl} download>
               <span className="button__icon" aria-hidden="true">↓</span>
-              <span><strong>Download for macOS</strong><small>v0.2.0 alpha · macOS 11+ · Apple silicon</small></span>
+              <span><strong>Download for macOS</strong><small>v0.2.1 alpha · macOS 11+ · Apple silicon</small></span>
             </a>
             <a className="text-link" href="#agent-status">See the status system <span aria-hidden="true">→</span></a>
           </div>
@@ -163,7 +163,7 @@ export default function Home() {
         <div className="install__cta">
           <a className="button button--primary" href={downloadUrl} download>
             <span className="button__icon" aria-hidden="true">↓</span>
-            <span><strong>Download usAIge</strong><small>v0.2.0 alpha · macOS 11 or later · Apple silicon</small></span>
+            <span><strong>Download usAIge</strong><small>v0.2.1 alpha · macOS 11 or later · Apple silicon</small></span>
           </a>
           <a className="checksum" href={checksumUrl} download>SHA-256 checksum</a>
         </div>
@@ -172,7 +172,7 @@ export default function Home() {
       <footer className="footer shell">
         <a className="brand" href="#top"><img src={assetUrl("app-icon.png")} alt="" /><span>us<span>AI</span>ge</span></a>
         <p>Built for people who would rather make things than monitor dashboards.</p>
-        <span>v0.2.0 public alpha · 2026</span>
+        <span>v0.2.1 public alpha · 2026</span>
       </footer>
     </main>
   );

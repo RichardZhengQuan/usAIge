@@ -21,6 +21,8 @@ struct HUDSettingsRootView: View {
 
 @available(macOS 14.0, *)
 struct HUDSettingsView: View {
+    private static let websiteURL = URL(string: "https://pmrichq.com/project/usaige/")!
+
     @ObservedObject var settings: HUDSettings
     let snapshots: [QuotaSnapshot]
     @ObservedObject var launchAtLogin: LaunchAtLoginController
@@ -168,6 +170,7 @@ struct HUDSettingsView: View {
                 }
 
                 HStack(spacing: 10) {
+                    Link("About usAIge", destination: Self.websiteURL)
                     Spacer()
                     if isUpdateBusy {
                         ProgressView()
