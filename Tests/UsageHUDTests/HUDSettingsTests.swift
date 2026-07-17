@@ -51,11 +51,11 @@ import Testing
     var settings: HUDSettings? = HUDSettings(defaults: defaults)
 
     #expect(settings?.usageAlertIntervalPercent == 10)
-    settings?.usageAlertIntervalPercent = 20
+    settings?.usageAlertIntervalPercent = 15
     settings = nil
 
     let restored = HUDSettings(defaults: defaults)
-    #expect(restored.usageAlertIntervalPercent == 20)
+    #expect(restored.usageAlertIntervalPercent == 15)
 }
 
 @MainActor

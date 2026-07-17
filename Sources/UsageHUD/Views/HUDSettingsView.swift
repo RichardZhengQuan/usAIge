@@ -69,7 +69,7 @@ struct HUDSettingsView: View {
 
     private var settingsPage: some View {
         Form {
-            Section("Startup") {
+            Section("General") {
                 Toggle(
                     "Open usAIge at login",
                     isOn: Binding(
@@ -91,29 +91,34 @@ struct HUDSettingsView: View {
                         }
                     }
                 }
-            }
 
-            Section("Notifications") {
-                Picker(
-                    "Usage alerts",
-                    selection: Binding(
-                        get: { settings.usageAlertIntervalPercent },
-                        set: { settings.usageAlertIntervalPercent = $0 }
-                    )
-                ) {
-                    ForEach(HUDSettings.usageAlertIntervalOptions, id: \.self) { interval in
-                        Text("Every \(interval)% used").tag(interval)
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Usage alerts")
+
+                        Text("Alerts are sent when usage crosses each selected interval.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
+                    Spacer()
+                    Picker(
+                        "Usage alerts",
+                        selection: Binding(
+                            get: { settings.usageAlertIntervalPercent },
+                            set: { settings.usageAlertIntervalPercent = $0 }
+                        )
+                    ) {
+                        ForEach(HUDSettings.usageAlertIntervalOptions, id: \.self) { interval in
+                            Text("\(interval)%").tag(interval)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .accessibilityLabel("Usage alerts")
                 }
-                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-                Text("Alerts are sent when usage crosses each selected interval.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("Listening AI Tools") {
-                pageLink("AI Tools", destination: .aiTools)
+                pageLink("Manage AI Tools", destination: .aiTools)
             }
 
             Section("Display") {
@@ -125,17 +130,26 @@ struct HUDSettingsView: View {
                     Slider(value: binding(for: \HUDSettings.scale), in: HUDSettings.scaleRange)
                         .frame(width: 180)
                 }
-                Toggle(
-                    "Show reset credits",
-                    isOn: Binding(
-                        get: { settings.showsResetCredits },
-                        set: { settings.showsResetCredits = $0 }
-                    )
-                )
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Show reset credits")
 
-                Text("Shows available Codex resets beside the live reset countdown, such as 6D 1r.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                        Text("Shows available Codex resets beside the live reset countdown.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Toggle(
+                        "Show reset credits",
+                        isOn: Binding(
+                            get: { settings.showsResetCredits },
+                            set: { settings.showsResetCredits = $0 }
+                        )
+                    )
+                    .labelsHidden()
+                    .accessibilityLabel("Show reset credits")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             Section("More") {
@@ -145,10 +159,15 @@ struct HUDSettingsView: View {
                         Text("Current version \(updateController.currentVersionText)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        Text(updateController.statusText)
-                            .font(.caption)
-                            .foregroundStyle(isUpdateError ? Color.red : Color.secondary)
                     }
+                    Spacer()
+                    Text(updateController.statusText)
+                        .font(.caption)
+                        .foregroundStyle(isUpdateError ? Color.red : Color.secondary)
+                        .lineLimit(1)
+                }
+
+                HStack(spacing: 10) {
                     Spacer()
                     if isUpdateBusy {
                         ProgressView()
@@ -173,10 +192,6 @@ struct HUDSettingsView: View {
                             ? "New version available"
                             : updateController.statusText
                     )
-                }
-
-                HStack {
-                    Spacer()
                     Button("Quit usAIge") {
                         NSApplication.shared.terminate(nil)
                     }

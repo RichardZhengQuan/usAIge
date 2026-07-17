@@ -65,5 +65,37 @@ import Testing
     #expect(manifest.build == Int(plist["CFBundleVersion"] as? String ?? ""))
     #expect(manifest.minimumSystemVersion == "11.0")
     #expect(manifest.minimumSystemVersion == plist["LSMinimumSystemVersion"] as? String)
-    #expect(plist["UpdateManifestURL"] as? String == UpdateController.defaultManifestURL.absoluteString)
+    #expect(
+        plist["UpdateManifestURLs"] as? [String]
+            == UpdateController.defaultManifestURLs.map(\.absoluteString)
+    )
+}
+
+@Test func migrationReleaseChecksCurrentAndLegacyUpdateFeeds() {
+    #expect(UpdateController.defaultManifestURLs == [
+        UpdateController.currentManifestURL,
+        UpdateController.legacyManifestURL,
+    ])
+    #expect(UpdateController.currentManifestURL.host == "usaige-macos.richardqz.chatgpt.site")
+    #expect(UpdateController.legacyManifestURL.host == "pmrichq.com")
+}
+
+@Test func migrationReleaseChoosesTheNewestValidFeed() throws {
+    let current = UpdateManifest(
+        version: "0.2.0",
+        build: 19,
+        minimumSystemVersion: "11.0",
+        downloadURL: try #require(URL(string: "https://example.com/current.dmg")),
+        sha256: String(repeating: "a", count: 64)
+    )
+    let legacy = UpdateManifest(
+        version: "0.2.0",
+        build: 18,
+        minimumSystemVersion: "11.0",
+        downloadURL: try #require(URL(string: "https://example.com/legacy.dmg")),
+        sha256: String(repeating: "b", count: 64)
+    )
+
+    #expect(UpdateManifest.newest(in: [legacy, current]) == current)
+    #expect(UpdateManifest.newest(in: [current, legacy]) == current)
 }

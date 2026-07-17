@@ -23,7 +23,7 @@ struct UsAIgeApp: App {
                     )
                 }
             }
-            .frame(width: 520, height: 680)
+            .frame(width: 520, height: 580)
         }
     }
 }

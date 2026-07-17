@@ -88,7 +88,7 @@ test("publishes a valid automatic update manifest", async () => {
     },
     {
       version: "0.2.0",
-      build: 18,
+      build: 19,
       minimumSystemVersion: "11.0",
       sha256: digest,
     },
@@ -96,5 +96,26 @@ test("publishes a valid automatic update manifest", async () => {
   assert.equal(
     manifest.downloadURL,
     "https://usaige-macos.richardqz.chatgpt.site/usAIge-0.2.0-alpha.dmg",
+  );
+});
+
+test("exports the same migration release for the legacy host", async () => {
+  const legacyRoot = new URL("../out/project/usaige/", import.meta.url);
+  const html = await readFile(new URL("index.html", legacyRoot), "utf8");
+  const manifest = JSON.parse(await readFile(new URL("update.json", legacyRoot), "utf8"));
+  const dmg = await readFile(new URL("usAIge-0.2.0-alpha.dmg", legacyRoot));
+  const digest = createHash("sha256").update(dmg).digest("hex");
+
+  assert.match(
+    html,
+    /https:\/\/pmrichq\.com\/project\/usaige\/usAIge-0\.2\.0-alpha\.dmg/,
+  );
+  assert.deepEqual(
+    { version: manifest.version, build: manifest.build, sha256: manifest.sha256 },
+    { version: "0.2.0", build: 19, sha256: digest },
+  );
+  assert.equal(
+    manifest.downloadURL,
+    "https://pmrichq.com/project/usaige/usAIge-0.2.0-alpha.dmg",
   );
 });
