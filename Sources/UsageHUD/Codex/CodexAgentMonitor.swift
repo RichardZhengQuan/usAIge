@@ -148,7 +148,21 @@ actor CodexAgentProvider: CodexAgentProviding {
             return CodexAgentSessionDecoder.settledPhase(cached.phase, updatedAt: updatedAt, now: now)
         }
 
-        let rawPhase = CodexAgentSessionDecoder.phase(at: url, updatedAt: updatedAt, now: updatedAt)
+        let rawPhase: CodexAgentPhase
+        if let cached = sessionCache[url.path], fileSize >= cached.fileSize {
+            rawPhase = CodexAgentSessionDecoder.recentPhase(
+                at: url,
+                initialPhase: cached.phase,
+                updatedAt: updatedAt,
+                now: updatedAt
+            )
+        } else {
+            rawPhase = CodexAgentSessionDecoder.phase(
+                at: url,
+                updatedAt: updatedAt,
+                now: updatedAt
+            )
+        }
         sessionCache[url.path] = CachedSessionPhase(
             fileSize: fileSize,
             modificationDate: modificationDate,
@@ -160,28 +174,76 @@ actor CodexAgentProvider: CodexAgentProviding {
 
 enum CodexAgentSessionDecoder {
     private static let maximumTailBytes: UInt64 = 256 * 1024
+    private static let boundaryOverlapBytes: UInt64 = 64 * 1024
 
     static func phase(at url: URL, updatedAt: Date, now: Date) -> CodexAgentPhase {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return .idle }
         defer { try? handle.close() }
 
         guard let end = try? handle.seekToEnd() else { return .idle }
+        var upperBound = end
+
+        while upperBound > 0 {
+            let lowerBound = upperBound > maximumTailBytes ? upperBound - maximumTailBytes : 0
+            let readUpperBound = min(end, upperBound + boundaryOverlapBytes)
+            try? handle.seek(toOffset: lowerBound)
+            let data = handle.readData(ofLength: Int(readUpperBound - lowerBound))
+            if let latest = latestLifecyclePhase(
+                from: data,
+                startsMidLine: lowerBound > 0
+            ) {
+                return settledPhase(latest, updatedAt: updatedAt, now: now)
+            }
+
+            guard lowerBound > 0 else { break }
+            upperBound = lowerBound
+        }
+
+        return .idle
+    }
+
+    static func recentPhase(
+        at url: URL,
+        initialPhase: CodexAgentPhase,
+        updatedAt: Date,
+        now: Date
+    ) -> CodexAgentPhase {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return initialPhase }
+        defer { try? handle.close() }
+
+        guard let end = try? handle.seekToEnd() else { return initialPhase }
         let offset = end > maximumTailBytes ? end - maximumTailBytes : 0
         try? handle.seek(toOffset: offset)
         let data = handle.readDataToEndOfFile()
-        return phase(from: data, startsMidLine: offset > 0, updatedAt: updatedAt, now: now)
+        return phase(
+            from: data,
+            startsMidLine: offset > 0,
+            initialPhase: initialPhase,
+            updatedAt: updatedAt,
+            now: now
+        )
     }
 
     static func phase(
         from data: Data,
         startsMidLine: Bool = false,
+        initialPhase: CodexAgentPhase = .idle,
         updatedAt: Date,
         now: Date
     ) -> CodexAgentPhase {
+        let phase = latestLifecyclePhase(from: data, startsMidLine: startsMidLine)
+            ?? initialPhase
+        return settledPhase(phase, updatedAt: updatedAt, now: now)
+    }
+
+    private static func latestLifecyclePhase(
+        from data: Data,
+        startsMidLine: Bool
+    ) -> CodexAgentPhase? {
         var lines = data.split(separator: 0x0A, omittingEmptySubsequences: true)
         if startsMidLine, !lines.isEmpty { lines.removeFirst() }
 
-        var phase: CodexAgentPhase = .idle
+        var phase: CodexAgentPhase?
         for line in lines {
             guard let frame = try? JSONDecoder().decode(JSONValue.self, from: Data(line)),
                   let payload = frame["payload"],
@@ -207,7 +269,7 @@ enum CodexAgentSessionDecoder {
             }
         }
 
-        return settledPhase(phase, updatedAt: updatedAt, now: now)
+        return phase
     }
 
     static func settledPhase(
@@ -240,14 +302,18 @@ final class CodexAgentStore: ObservableObject {
         monitorTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
-                do {
-                    updateTasks(try await provider.refresh())
-                    lastError = nil
-                } catch {
-                    lastError = error.localizedDescription
-                }
+                await refresh()
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
+        }
+    }
+
+    func refresh() async {
+        do {
+            updateTasks(try await provider.refresh())
+            lastError = nil
+        } catch {
+            lastError = error.localizedDescription
         }
     }
 
