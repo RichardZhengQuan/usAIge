@@ -83,7 +83,7 @@ import Testing
 @Test func migrationReleaseChoosesTheNewestValidFeed() throws {
     let current = UpdateManifest(
         version: "0.2.0",
-        build: 21,
+        build: 22,
         minimumSystemVersion: "11.0",
         downloadURL: try #require(URL(string: "https://example.com/current.dmg")),
         sha256: String(repeating: "a", count: 64)
