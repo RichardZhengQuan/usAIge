@@ -199,6 +199,7 @@ struct HUDSettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .scrollDisabled(true)
         .padding()
     }
 

@@ -88,7 +88,7 @@ test("publishes a valid automatic update manifest", async () => {
     },
     {
       version: "0.2.0",
-      build: 19,
+      build: 21,
       minimumSystemVersion: "11.0",
       sha256: digest,
     },
@@ -112,7 +112,7 @@ test("exports the same migration release for the legacy host", async () => {
   );
   assert.deepEqual(
     { version: manifest.version, build: manifest.build, sha256: manifest.sha256 },
-    { version: "0.2.0", build: 19, sha256: digest },
+    { version: "0.2.0", build: 21, sha256: digest },
   );
   assert.equal(
     manifest.downloadURL,
