@@ -107,7 +107,7 @@ if [[ -d "$site_public" ]]; then
     digest="$(shasum -a 256 "$dmg" | awk '{print $1}')"
     cp "$dmg" "$site_public/$name.dmg"
     cp "$checksum" "$site_public/$name.dmg.sha256"
-    /usr/bin/printf '{\n  "version": "%s",\n  "build": %s,\n  "minimumSystemVersion": "%s",\n  "downloadURL": "https://pmrichq.com/project/usaige/%s.dmg",\n  "sha256": "%s"\n}\n' \
+    /usr/bin/printf '{\n  "version": "%s",\n  "build": %s,\n  "minimumSystemVersion": "%s",\n  "downloadURL": "https://usaige-macos.richardqz.chatgpt.site/%s.dmg",\n  "sha256": "%s"\n}\n' \
         "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Sources/UsageHUD/Resources/Info.plist)" \
         "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' Sources/UsageHUD/Resources/Info.plist)" \
         "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' Sources/UsageHUD/Resources/Info.plist)" \

@@ -69,31 +69,6 @@ struct HUDSettingsView: View {
 
     private var settingsPage: some View {
         Form {
-            Section("Floating panel") {
-                LabeledContent("Opacity") {
-                    Slider(value: binding(for: \HUDSettings.opacity), in: HUDSettings.opacityRange)
-                        .frame(width: 180)
-                }
-                LabeledContent("Scale") {
-                    Slider(value: binding(for: \HUDSettings.scale), in: HUDSettings.scaleRange)
-                        .frame(width: 180)
-                }
-            }
-
-            Section("Usage display") {
-                Toggle(
-                    "Show reset credits",
-                    isOn: Binding(
-                        get: { settings.showsResetCredits },
-                        set: { settings.showsResetCredits = $0 }
-                    )
-                )
-
-                Text("Shows available Codex resets beside the live reset countdown, such as 6D 1r.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
             Section("Startup") {
                 Toggle(
                     "Open usAIge at login",
@@ -139,6 +114,28 @@ struct HUDSettingsView: View {
 
             Section("Listening AI Tools") {
                 pageLink("AI Tools", destination: .aiTools)
+            }
+
+            Section("Display") {
+                LabeledContent("Opacity") {
+                    Slider(value: binding(for: \HUDSettings.opacity), in: HUDSettings.opacityRange)
+                        .frame(width: 180)
+                }
+                LabeledContent("Scale") {
+                    Slider(value: binding(for: \HUDSettings.scale), in: HUDSettings.scaleRange)
+                        .frame(width: 180)
+                }
+                Toggle(
+                    "Show reset credits",
+                    isOn: Binding(
+                        get: { settings.showsResetCredits },
+                        set: { settings.showsResetCredits = $0 }
+                    )
+                )
+
+                Text("Shows available Codex resets beside the live reset countdown, such as 6D 1r.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("More") {
