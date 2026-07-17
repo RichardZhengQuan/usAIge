@@ -22,8 +22,8 @@ test("server-renders the current usAIge release", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>usAIge — AI usage and agent status, always in sight<\/title>/i);
-  assert.match(html, /usAIge-0\.1\.14-alpha\.dmg/);
-  assert.match(html, /usAIge-0\.1\.14-alpha\.dmg\.sha256/);
+  assert.match(html, /usAIge-0\.2\.0-alpha\.dmg/);
+  assert.match(html, /usAIge-0\.2\.0-alpha\.dmg\.sha256/);
   assert.match(html, /Up to 100 active tasks/i);
   assert.match(html, /Pink error, green recent completion, yellow needs input, blue running/i);
   assert.match(html, /Click the ring to reopen the exact task/i);
@@ -56,21 +56,21 @@ test("loads the domain-locked VibeLoft telemetry client", async () => {
 });
 
 test("publishes a checksum matching the current disk image", async () => {
-  const dmg = await readFile(new URL("../public/usAIge-0.1.14-alpha.dmg", import.meta.url));
+  const dmg = await readFile(new URL("../public/usAIge-0.2.0-alpha.dmg", import.meta.url));
   const checksum = await readFile(
-    new URL("../public/usAIge-0.1.14-alpha.dmg.sha256", import.meta.url),
+    new URL("../public/usAIge-0.2.0-alpha.dmg.sha256", import.meta.url),
     "utf8",
   );
   const digest = createHash("sha256").update(dmg).digest("hex");
 
-  assert.equal(checksum.trim(), `${digest}  usAIge-0.1.14-alpha.dmg`);
+  assert.equal(checksum.trim(), `${digest}  usAIge-0.2.0-alpha.dmg`);
 });
 
 test("publishes a valid automatic update manifest", async () => {
   const manifest = JSON.parse(
     await readFile(new URL("../public/update.json", import.meta.url), "utf8"),
   );
-  const dmg = await readFile(new URL(`../public/usAIge-0.1.14-alpha.dmg`, import.meta.url));
+  const dmg = await readFile(new URL(`../public/usAIge-0.2.0-alpha.dmg`, import.meta.url));
   const digest = createHash("sha256").update(dmg).digest("hex");
 
   assert.deepEqual(
@@ -81,14 +81,14 @@ test("publishes a valid automatic update manifest", async () => {
       sha256: manifest.sha256,
     },
     {
-      version: "0.1.14",
-      build: 16,
+      version: "0.2.0",
+      build: 17,
       minimumSystemVersion: "11.0",
       sha256: digest,
     },
   );
   assert.equal(
     manifest.downloadURL,
-    "https://pmrichq.com/project/usaige/usAIge-0.1.14-alpha.dmg",
+    "https://pmrichq.com/project/usaige/usAIge-0.2.0-alpha.dmg",
   );
 });

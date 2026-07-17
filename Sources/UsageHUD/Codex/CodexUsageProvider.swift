@@ -92,7 +92,7 @@ actor CodexUsageProvider: CodexUsageProviding {
             "clientInfo": .object([
                 "name": .string("usaige"),
                 "title": .string("usAIge"),
-                "version": .string("0.1.14"),
+                "version": .string("0.2.0"),
             ]),
         ]))
         try await rpc.notify(method: "initialized", params: .object([:]))

@@ -54,20 +54,24 @@ enum QuotaRingPresentation {
 }
 
 enum AgentBreathingMotion {
-    static let minimumScale: CGFloat = 0.96
-    static let midpointScale: CGFloat = 1.00
-    static let maximumScale: CGFloat = 1.08
+    static let minimumThickness: CGFloat = 2
+    static let midpointThickness: CGFloat = 4
+    static let maximumThickness: CGFloat = 6
     static let keyframeDuration: TimeInterval = 0.825
-    static let minimumOpacity = 0.90
-    static let midpointOpacity = 0.96
+    static let minimumOpacity = 0.68
+    static let midpointOpacity = 0.84
     static let maximumOpacity = 1.00
 
-    static func opacity(for scale: CGFloat) -> Double {
-        if scale <= midpointScale {
-            let progress = Double((scale - minimumScale) / (midpointScale - minimumScale))
+    static func opacity(for thickness: CGFloat) -> Double {
+        if thickness <= midpointThickness {
+            let progress = Double(
+                (thickness - minimumThickness) / (midpointThickness - minimumThickness)
+            )
             return minimumOpacity + progress * (midpointOpacity - minimumOpacity)
         }
-        let progress = Double((scale - midpointScale) / (maximumScale - midpointScale))
+        let progress = Double(
+            (thickness - midpointThickness) / (maximumThickness - midpointThickness)
+        )
         return midpointOpacity + progress * (maximumOpacity - midpointOpacity)
     }
 }
@@ -518,47 +522,54 @@ private struct AgentStatusRingLight: View {
     }
 
     var body: some View {
-        ZStack {
-            Circle()
-                .stroke(color.opacity(isHovered ? 0.86 : 0.72), lineWidth: 1)
-                .frame(width: diameter, height: diameter)
-                .blur(radius: 1.5)
-
-            Circle()
-                .stroke(color.opacity(isHovered ? 0.54 : 0.42), lineWidth: 8)
-                .frame(width: diameter - 2, height: diameter - 2)
-                .blur(radius: 4.5)
-        }
+        let lightColor = color
+        Color.clear
+            .frame(width: diameter, height: diameter)
         .keyframeAnimator(
-            initialValue: AgentBreathingMotion.midpointScale,
+            initialValue: AgentBreathingMotion.midpointThickness,
             repeating: phase.showsLight && !reduceMotion
-        ) { content, scale in
-            content
-                .scaleEffect(scale)
-                .opacity(AgentBreathingMotion.opacity(for: scale))
+        ) { _, thickness in
+            let opacity = AgentBreathingMotion.opacity(for: thickness)
+            ZStack {
+                Circle()
+                    .stroke(
+                        lightColor.opacity((isHovered ? 0.88 : 0.74) * opacity),
+                        lineWidth: 1
+                    )
+                    .frame(width: diameter, height: diameter)
+                    .blur(radius: 1)
+
+                Circle()
+                    .stroke(
+                        lightColor.opacity((isHovered ? 0.60 : 0.48) * opacity),
+                        lineWidth: thickness
+                    )
+                    .frame(width: diameter - 4, height: diameter - 4)
+                    .blur(radius: thickness * 0.55)
+            }
         } keyframes: { _ in
             LinearKeyframe(
-                AgentBreathingMotion.minimumScale,
+                AgentBreathingMotion.minimumThickness,
                 duration: AgentBreathingMotion.keyframeDuration,
                 timingCurve: .easeInOut
             )
             LinearKeyframe(
-                AgentBreathingMotion.midpointScale,
+                AgentBreathingMotion.midpointThickness,
                 duration: AgentBreathingMotion.keyframeDuration,
                 timingCurve: .easeInOut
             )
             LinearKeyframe(
-                AgentBreathingMotion.maximumScale,
+                AgentBreathingMotion.maximumThickness,
                 duration: AgentBreathingMotion.keyframeDuration,
                 timingCurve: .easeInOut
             )
             LinearKeyframe(
-                AgentBreathingMotion.midpointScale,
+                AgentBreathingMotion.midpointThickness,
                 duration: AgentBreathingMotion.keyframeDuration,
                 timingCurve: .easeInOut
             )
         }
-        .frame(width: 84, height: 84)
+        .frame(width: diameter + 10, height: diameter + 10)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }

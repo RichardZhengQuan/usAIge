@@ -41,13 +41,13 @@ func mapsRemainingPercentageToVisibleRingFraction(input: (Double, Double)) {
     #expect(QuotaRingPresentation.arcFraction(remainingPercent: input.0) == input.1)
 }
 
-@Test func usesTheRequestedAsymmetricAgentBreathingRange() {
-    #expect(AgentBreathingMotion.minimumScale == 0.96)
-    #expect(AgentBreathingMotion.midpointScale == 1.00)
-    #expect(AgentBreathingMotion.maximumScale == 1.08)
-    #expect(AgentBreathingMotion.opacity(for: 0.96) == 0.90)
-    #expect(AgentBreathingMotion.opacity(for: 1.00) == 0.96)
-    #expect(AgentBreathingMotion.opacity(for: 1.08) == 1.00)
+@Test func breathesAgentGloryFromThinToThickWithoutChangingItsDiameter() {
+    #expect(AgentBreathingMotion.minimumThickness == 2)
+    #expect(AgentBreathingMotion.midpointThickness == 4)
+    #expect(AgentBreathingMotion.maximumThickness == 6)
+    #expect(AgentBreathingMotion.opacity(for: 2) == 0.68)
+    #expect(AgentBreathingMotion.opacity(for: 4) == 0.84)
+    #expect(AgentBreathingMotion.opacity(for: 6) == 1.00)
 }
 
 @Test func sizesHUDToVisibleRowsWithoutLeavingBlankSpace() {
