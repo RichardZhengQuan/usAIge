@@ -422,7 +422,7 @@ struct QuotaRowView: View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
             let resetText = ResetRemainingText.compact(until: resetAt, now: context.date)
 
-            HStack(alignment: .center, spacing: isCondensed ? 2 : 4) {
+            HStack(alignment: .center, spacing: isCondensed ? 1 : 2) {
                 Text(resetText ?? fallbackText)
                     .font(.system(
                         size: isCondensed ? 9 : 11,
