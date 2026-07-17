@@ -12,6 +12,7 @@ struct HUDView: View {
     let openSettings: () -> Void
     let resizePanel: (CGSize) -> Void
     @State private var isPanelHovered = false
+    @State private var detailHoveredSnapshotIDs: Set<String> = []
     @State private var refreshRotation = 0.0
 
     private var snapshots: [QuotaSnapshot] {
@@ -70,7 +71,9 @@ struct HUDView: View {
                 ZStack {
                     panelShape
                         .stroke(
-                            .separator.opacity(showsStatusSurface ? 0.3 : (isPanelHovered ? 1 : 0)),
+                            .separator.opacity(
+                                isPanelHovered || !detailHoveredSnapshotIDs.isEmpty ? 1 : 0
+                            ),
                             lineWidth: 0.5
                         )
                     if hasCriticalQuota && isPanelHovered {
@@ -190,6 +193,13 @@ struct HUDView: View {
                                 openAgentTask: { taskID in
                                     agentStore.acknowledge(taskID: taskID)
                                     AIToolLauncher.openCodexTask(id: taskID)
+                                },
+                                onDetailHoverChanged: { isHovered in
+                                    if isHovered {
+                                        detailHoveredSnapshotIDs.insert(snapshot.id)
+                                    } else {
+                                        detailHoveredSnapshotIDs.remove(snapshot.id)
+                                    }
                                 }
                             )
                         }
@@ -402,7 +412,7 @@ struct HUDGlassSurface: View {
                 .mix(with: .white, by: 0.45)
                 .opacity(0.02)
             let glass = isActive
-                ? Glass.regular.tint(tint).interactive()
+                ? Glass.clear.tint(tint).interactive()
                 : Glass.identity
 
             Color.clear
