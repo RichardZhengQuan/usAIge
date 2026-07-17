@@ -1,6 +1,6 @@
 const basePath = "/project/usaige";
 const assetUrl = (path: string) => `${basePath}/${path}`;
-const downloadUrl = assetUrl("usAIge-0.1.14-alpha.dmg");
+const downloadUrl = assetUrl("usAIge-0.2.0-alpha.dmg");
 
 const statusColors = [
   { key: "error", label: "Error", color: "#ff5284", detail: "Always wins" },
@@ -36,7 +36,7 @@ export default function Home() {
 
       <section className="hero shell" id="top">
         <div className="hero__copy">
-          <p className="eyebrow"><span /> v0.1.14 · Native macOS utility</p>
+          <p className="eyebrow"><span /> v0.2.0 · Native macOS utility</p>
           <h1>Your AI work,<br /><em>still breathing.</em></h1>
           <p className="hero__lede">
             usAIge keeps usage limits and Codex task health in one quiet floating rail. One glance tells you whether agents are running, finished, waiting, or broken.
@@ -44,7 +44,7 @@ export default function Home() {
           <div className="hero__actions">
             <a className="button button--primary" href={downloadUrl} download>
               <span className="button__icon" aria-hidden="true">↓</span>
-              <span><strong>Download for macOS</strong><small>v0.1.14 alpha · macOS 11+ · Apple silicon</small></span>
+              <span><strong>Download for macOS</strong><small>v0.2.0 alpha · macOS 11+ · Apple silicon</small></span>
             </a>
             <a className="text-link" href="#agent-status">See the status system <span aria-hidden="true">→</span></a>
           </div>
@@ -56,7 +56,7 @@ export default function Home() {
             <img src={assetUrl("product-hud-status.png")} alt="usAIge Codex limit ring with a blue running-status glory" />
             <div className="product-stage__note">
               <strong>One light for every task.</strong>
-              <span>Breathes from 90% to 110% of the limit ring.</span>
+              <span>Breathes from a thin halo to a stronger status glow.</span>
             </div>
           </div>
         </div>
@@ -161,16 +161,16 @@ export default function Home() {
         <div className="install__cta">
           <a className="button button--primary" href={downloadUrl} download>
             <span className="button__icon" aria-hidden="true">↓</span>
-            <span><strong>Download usAIge</strong><small>v0.1.14 alpha · macOS 11 or later · Apple silicon</small></span>
+            <span><strong>Download usAIge</strong><small>v0.2.0 alpha · macOS 11 or later · Apple silicon</small></span>
           </a>
-          <a className="checksum" href={assetUrl("usAIge-0.1.14-alpha.dmg.sha256")} download>SHA-256 checksum</a>
+          <a className="checksum" href={assetUrl("usAIge-0.2.0-alpha.dmg.sha256")} download>SHA-256 checksum</a>
         </div>
       </section>
 
       <footer className="footer shell">
         <a className="brand" href="#top"><img src={assetUrl("app-icon.png")} alt="" /><span>us<span>AI</span>ge</span></a>
         <p>Built for people who would rather make things than monitor dashboards.</p>
-        <span>v0.1.14 public alpha · 2026</span>
+        <span>v0.2.0 public alpha · 2026</span>
       </footer>
     </main>
   );

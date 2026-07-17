@@ -1,7 +1,7 @@
 {
-  "version": "0.1.14",
-  "build": 16,
+  "version": "0.2.0",
+  "build": 17,
   "minimumSystemVersion": "11.0",
-  "downloadURL": "https://pmrichq.com/project/usaige/usAIge-0.1.14-alpha.dmg",
-  "sha256": "e84ab0106395b426bfe77ebbdd5a6e9d1b5def3c0586c5737b5340fa43479931"
+  "downloadURL": "https://pmrichq.com/project/usaige/usAIge-0.2.0-alpha.dmg",
+  "sha256": "5f0ede6ad73235c0496f2bb53f6d2c863b5497c5018b6fdfd3efac9908634566"
 }
