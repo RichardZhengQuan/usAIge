@@ -1,10 +1,11 @@
+import Foundation
 import Testing
 @testable import UsageHUD
 
 @MainActor
 @Test func enablingLaunchAtLoginRegistersTheMainApp() {
     let service = LaunchAtLoginServiceStub(status: .notRegistered)
-    let controller = LaunchAtLoginController(service: service)
+    let controller = LaunchAtLoginController(service: service, defaults: initializedDefaults())
 
     controller.setEnabled(true)
 
@@ -16,7 +17,7 @@ import Testing
 @MainActor
 @Test func disablingLaunchAtLoginUnregistersTheMainApp() {
     let service = LaunchAtLoginServiceStub(status: .enabled)
-    let controller = LaunchAtLoginController(service: service)
+    let controller = LaunchAtLoginController(service: service, defaults: initializedDefaults())
 
     controller.setEnabled(false)
 
@@ -28,12 +29,43 @@ import Testing
 @Test func launchAtLoginSurfacesRequiredUserApproval() {
     let service = LaunchAtLoginServiceStub(status: .notRegistered)
     service.statusAfterRegister = .requiresApproval
-    let controller = LaunchAtLoginController(service: service)
+    let controller = LaunchAtLoginController(service: service, defaults: initializedDefaults())
 
     controller.setEnabled(true)
 
     #expect(controller.requiresApproval)
     #expect(controller.errorMessage?.contains("Login Items") == true)
+}
+
+@MainActor
+@Test func launchAtLoginIsEnabledByDefaultOnlyOnce() {
+    let defaults = isolatedDefaults()
+    let firstService = LaunchAtLoginServiceStub(status: .notRegistered)
+
+    let firstController = LaunchAtLoginController(service: firstService, defaults: defaults)
+
+    #expect(firstService.registerCallCount == 1)
+    #expect(firstController.isEnabled)
+
+    firstController.setEnabled(false)
+    let secondService = LaunchAtLoginServiceStub(status: .notRegistered)
+    let secondController = LaunchAtLoginController(service: secondService, defaults: defaults)
+
+    #expect(secondService.registerCallCount == 0)
+    #expect(!secondController.isEnabled)
+}
+
+private func initializedDefaults() -> UserDefaults {
+    let defaults = isolatedDefaults()
+    defaults.set(true, forKey: "usageHUD.launchAtLoginDefaultApplied.v1")
+    return defaults
+}
+
+private func isolatedDefaults() -> UserDefaults {
+    let suite = "LaunchAtLoginControllerTests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defaults.removePersistentDomain(forName: suite)
+    return defaults
 }
 
 private final class LaunchAtLoginServiceStub: LaunchAtLoginServicing {

@@ -86,6 +86,9 @@ struct AIToolDescriptor: Identifiable, Equatable, Sendable {
 
 @MainActor
 enum AIToolLauncher {
+    static let codexBundleIdentifier = "com.openai.codex"
+    static let codexWebsiteURL = URL(string: "https://chatgpt.com/codex/")!
+
     static func applicationURL(for tool: AIToolDescriptor) -> URL? {
         tool.bundleIdentifiers.lazy.compactMap {
             NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0)
@@ -102,6 +105,22 @@ enum AIToolLauncher {
         } else if let webURL = tool.webURL {
             NSWorkspace.shared.open(webURL)
         }
+    }
+
+    static func codexLaunchURL(applicationURL: URL?) -> URL {
+        applicationURL ?? codexWebsiteURL
+    }
+
+    static func openCodex() {
+        let applicationURL = NSWorkspace.shared.urlForApplication(
+            withBundleIdentifier: codexBundleIdentifier
+        )
+        let launchURL = codexLaunchURL(applicationURL: applicationURL)
+        guard applicationURL != nil else {
+            NSWorkspace.shared.open(launchURL)
+            return
+        }
+        NSWorkspace.shared.openApplication(at: launchURL, configuration: .init())
     }
 
     static func codexTaskURL(id: String) -> URL? {
@@ -146,6 +165,8 @@ enum AIToolLauncher {
 struct AIToolIcon: View {
     let tool: AIToolDescriptor
     var size: CGFloat = 24
+    var showsContrastHalo = false
+    var contrastHaloColor: Color?
 
     private var monochromeImage: NSImage? {
         guard tool.id == .chatGPT,
@@ -179,6 +200,21 @@ struct AIToolIcon: View {
             }
         }
         .frame(width: size, height: size)
+        .background(contrastHalo)
         .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private var contrastHalo: some View {
+        if showsContrastHalo {
+            Circle()
+                .fill(
+                    (contrastHaloColor ?? Color(NSColor.windowBackgroundColor))
+                        .opacity(0.38)
+                )
+                .frame(width: size + 4, height: size + 4)
+                .blur(radius: 2)
+                .accessibilityHidden(true)
+        }
     }
 }

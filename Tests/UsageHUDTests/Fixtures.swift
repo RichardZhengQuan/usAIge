@@ -59,6 +59,9 @@ enum Fixtures {
                 ]),
             ]),
         ]),
+        "rateLimitResetCredits": .object([
+            "availableCount": .number(6),
+        ]),
     ])
 
     static let singleBucketRateLimits: JSONValue = .object([

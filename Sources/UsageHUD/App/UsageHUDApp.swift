@@ -8,12 +8,11 @@ struct UsAIgeApp: App {
         Settings {
             Group {
                 if #available(macOS 14.0, *) {
-                    HUDSettingsView(
+                    HUDSettingsRootView(
                         settings: appDelegate.settings,
-                        snapshots: appDelegate.store.visibleSnapshots,
+                        store: appDelegate.store,
                         launchAtLogin: appDelegate.launchAtLogin,
-                        updateController: appDelegate.updateController,
-                        refreshUsage: { await appDelegate.store.refresh() }
+                        updateController: appDelegate.updateController
                     )
                 } else {
                     LegacyHUDSettingsRootView(

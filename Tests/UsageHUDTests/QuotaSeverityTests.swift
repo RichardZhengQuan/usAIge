@@ -53,7 +53,7 @@ func mapsRemainingPercentageToVisibleRingFraction(input: (Double, Double)) {
 @Test func sizesHUDToVisibleRowsWithoutLeavingBlankSpace() {
     #expect(HUDMetrics.railHeight(rowCount: 2) == 227)
     #expect(HUDMetrics.railHeight(rowCount: 8) == 450)
-    #expect(HUDMetrics.messageSize == CGSize(width: 220, height: 176))
+    #expect(HUDMetrics.messageSize == CGSize(width: 84, height: 120))
     #expect(HUDMetrics.railWidth == 84)
 }
 
@@ -87,6 +87,16 @@ func mapsRemainingPercentageToVisibleRingFraction(input: (Double, Double)) {
     #expect(
         HUDMetrics.contentOpacity(configured: 0.4, isHovered: true, isCritical: true)
             == 1
+    )
+}
+
+@Test func keepsConnectionStatusVisibleWithoutHover() {
+    #expect(
+        HUDMetrics.contentOpacity(
+            configured: 0.1,
+            isHovered: false,
+            forceVisible: true
+        ) == 1
     )
 }
 

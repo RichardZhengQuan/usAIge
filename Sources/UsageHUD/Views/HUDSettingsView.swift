@@ -29,6 +29,7 @@ struct HUDSettingsView: View {
     @State private var remoteToolToDelete: RemoteAITool?
     @State private var remoteToolError: String?
     @State private var route: [SettingsDestination] = []
+    @State private var isDetectingLocalTools = false
 
     private var activeToolIDs: [AIToolID] {
         settings.toolOrder.filter { id in snapshots.contains(where: { $0.toolID == id }) }
@@ -79,6 +80,20 @@ struct HUDSettingsView: View {
                 }
             }
 
+            Section("Usage display") {
+                Toggle(
+                    "Show reset credits",
+                    isOn: Binding(
+                        get: { settings.showsResetCredits },
+                        set: { settings.showsResetCredits = $0 }
+                    )
+                )
+
+                Text("Shows available Codex resets beside the live reset countdown, such as 6D 1r.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Startup") {
                 Toggle(
                     "Open usAIge at login",
@@ -101,6 +116,25 @@ struct HUDSettingsView: View {
                         }
                     }
                 }
+            }
+
+            Section("Notifications") {
+                Picker(
+                    "Usage alerts",
+                    selection: Binding(
+                        get: { settings.usageAlertIntervalPercent },
+                        set: { settings.usageAlertIntervalPercent = $0 }
+                    )
+                ) {
+                    ForEach(HUDSettings.usageAlertIntervalOptions, id: \.self) { interval in
+                        Text("Every \(interval)% used").tag(interval)
+                    }
+                }
+                .pickerStyle(.menu)
+
+                Text("Alerts are sent when usage crosses each selected interval.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Listening AI Tools") {
@@ -159,20 +193,7 @@ struct HUDSettingsView: View {
     private var aiToolsPage: some View {
         pageContainer(title: "AI Tools") {
             Form {
-                Section {
-                    pageLink("Local AI Tools", destination: .localAITools)
-                    pageLink("Remote AI Tools", destination: .remoteAITools)
-                }
-            }
-            .formStyle(.grouped)
-            .padding(.horizontal)
-        }
-    }
-
-    private var localAIToolsPage: some View {
-        pageContainer(title: "Local AI Tools") {
-            Form {
-                Section {
+                Section("Local AI Tools") {
                     if activeLocalToolIDs.isEmpty {
                         Text("No local tools detected.")
                             .foregroundStyle(.secondary)
@@ -184,17 +205,31 @@ struct HUDSettingsView: View {
                             }
                         }
                     }
+                    HStack {
+                        Spacer()
+                        Button {
+                            Task {
+                                isDetectingLocalTools = true
+                                await refreshUsage()
+                                isDetectingLocalTools = false
+                            }
+                        } label: {
+                            if isDetectingLocalTools {
+                                HStack(spacing: 8) {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                    Text("Detecting…")
+                                }
+                            } else {
+                                Label("Detect", systemImage: "magnifyingglass")
+                            }
+                        }
+                        .disabled(isDetectingLocalTools)
+                        .accessibilityHint("Scans again for supported local AI tools")
+                    }
                 }
-            }
-            .formStyle(.grouped)
-            .padding(.horizontal)
-        }
-    }
 
-    private var remoteAIToolsPage: some View {
-        pageContainer(title: "Remote AI Tools") {
-            Form {
-                Section("Connections") {
+                Section("Remote AI Tools") {
                     if settings.remoteTools.isEmpty {
                         Text("No remote tools connected.")
                             .foregroundStyle(.secondary)
@@ -208,8 +243,15 @@ struct HUDSettingsView: View {
                             .font(.caption)
                             .foregroundStyle(.red)
                     }
-                    pageLink("Set Up Remote AI Tool", destination: .remoteToolSetup(nil))
-                        .accessibilityLabel("Set Up Remote AI Tool")
+                    HStack {
+                        Spacer()
+                        Button {
+                            route.append(.remoteToolSetup(nil))
+                        } label: {
+                            Label("Add Remote", systemImage: "plus")
+                        }
+                        .accessibilityHint("Opens remote AI tool setup")
+                    }
                 }
 
                 if !activeRemoteToolIDs.isEmpty {
@@ -233,10 +275,6 @@ struct HUDSettingsView: View {
         switch destination {
         case .aiTools:
             aiToolsPage
-        case .localAITools:
-            localAIToolsPage
-        case .remoteAITools:
-            remoteAIToolsPage
         case let .remoteToolSetup(toolID):
             let tool = remoteTool(for: toolID)
             pageContainer(title: tool == nil ? "Set Up Remote AI Tool" : "Edit Remote AI Tool") {
@@ -456,8 +494,6 @@ struct HUDSettingsView: View {
 
 private enum SettingsDestination: Hashable {
     case aiTools
-    case localAITools
-    case remoteAITools
     case remoteToolSetup(AIToolID?)
 }
 

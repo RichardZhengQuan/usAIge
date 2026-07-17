@@ -9,7 +9,7 @@ async function render() {
   const { default: worker } = await import(workerUrl.href);
 
   return worker.fetch(
-    new Request("http://localhost/", { headers: { accept: "text/html" } }),
+    new Request("http://localhost/project/usaige/", { headers: { accept: "text/html" } }),
     { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } },
     { waitUntil() {}, passThroughOnException() {} },
   );
@@ -89,6 +89,6 @@ test("publishes a valid automatic update manifest", async () => {
   );
   assert.equal(
     manifest.downloadURL,
-    "https://usaige-macos.richardqz.chatgpt.site/usAIge-0.1.14-alpha.dmg",
+    "https://pmrichq.com/project/usaige/usAIge-0.1.14-alpha.dmg",
   );
 });

@@ -292,6 +292,7 @@ final class CodexAgentStore: ObservableObject {
     private var monitorTask: Task<Void, Never>?
     private var tasks: [CodexAgentTask] = []
     private var acknowledgements: [String: CodexAgentAcknowledgement] = [:]
+    private var lastCodexViewedAt: Date?
 
     init(provider: any CodexAgentProviding) {
         self.provider = provider
@@ -335,6 +336,16 @@ final class CodexAgentStore: ObservableObject {
         publishAggregate()
     }
 
+    func acknowledgeAttentionStates(viewedAt: Date = Date()) {
+        lastCodexViewedAt = max(lastCodexViewedAt ?? .distantPast, viewedAt)
+        acknowledgements = Self.acknowledgements(
+            afterAcknowledgingAttentionIn: tasks,
+            existing: acknowledgements,
+            viewedAt: viewedAt
+        )
+        publishAggregate()
+    }
+
     nonisolated static func aggregate(_ tasks: [CodexAgentTask]) -> CodexAgentPhase {
         aggregateStatus(tasks).phase
     }
@@ -362,12 +373,35 @@ final class CodexAgentStore: ObservableObject {
         }
     }
 
+    nonisolated static func acknowledgements(
+        afterAcknowledgingAttentionIn tasks: [CodexAgentTask],
+        existing: [String: CodexAgentAcknowledgement],
+        viewedAt: Date
+    ) -> [String: CodexAgentAcknowledgement] {
+        var updated = existing
+        for task in tasks
+        where task.phase.requiresAcknowledgement && task.updatedAt <= viewedAt {
+            updated[task.id] = CodexAgentAcknowledgement(
+                phase: task.phase,
+                updatedAt: task.updatedAt
+            )
+        }
+        return updated
+    }
+
     private func updateTasks(_ refreshedTasks: [CodexAgentTask]) {
         tasks = refreshedTasks
         let tasksByID = Dictionary(uniqueKeysWithValues: refreshedTasks.map { ($0.id, $0) })
         acknowledgements = acknowledgements.filter { taskID, acknowledgement in
             guard let task = tasksByID[taskID] else { return false }
             return task.phase == acknowledgement.phase && task.updatedAt <= acknowledgement.updatedAt
+        }
+        if let lastCodexViewedAt {
+            acknowledgements = Self.acknowledgements(
+                afterAcknowledgingAttentionIn: refreshedTasks,
+                existing: acknowledgements,
+                viewedAt: lastCodexViewedAt
+            )
         }
         publishAggregate()
     }

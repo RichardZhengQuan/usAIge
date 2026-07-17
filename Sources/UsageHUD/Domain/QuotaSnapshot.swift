@@ -65,6 +65,7 @@ struct QuotaSnapshot: Identifiable, Codable, Equatable, Sendable {
     let windowDurationMinutes: Int?
     let planType: String?
     let updatedAt: Date
+    var availableResetCount: Int? = nil
     var secondaryWindow: QuotaWindowSnapshot? = nil
 
     var typeTag: String {

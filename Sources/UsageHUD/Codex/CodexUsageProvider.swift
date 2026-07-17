@@ -106,26 +106,51 @@ actor CodexUsageProvider: CodexUsageProviding {
         } else {
             wrapped = .object(["rateLimits": params])
         }
+        let availableResetCount = Self.availableResetCount(in: wrapped)
         let updates = Self.decodeSnapshots(from: wrapped, updatedAt: now())
-        for snapshot in updates {
+        for var snapshot in updates {
+            snapshot.availableResetCount = availableResetCount
+                ?? snapshotsByID[snapshot.id]?.availableResetCount
+                ?? snapshotsByID.values.compactMap(\.availableResetCount).first
             snapshotsByID[snapshot.id] = snapshot
+        }
+        if let availableResetCount {
+            for id in snapshotsByID.keys {
+                snapshotsByID[id]?.availableResetCount = availableResetCount
+            }
         }
         return snapshotsByID.values.sorted { $0.id < $1.id }
     }
 
     private static func decodeSnapshots(from response: JSONValue, updatedAt: Date) -> [QuotaSnapshot] {
+        let availableResetCount = availableResetCount(in: response)
         if let byID = response["rateLimitsByLimitId"]?.objectValue {
             return byID.keys.sorted().compactMap { key in
-                decodeBucket(byID[key], fallbackID: key, updatedAt: updatedAt)
+                decodeBucket(
+                    byID[key],
+                    fallbackID: key,
+                    availableResetCount: availableResetCount,
+                    updatedAt: updatedAt
+                )
             }
         }
         guard let single = response["rateLimits"] else { return [] }
-        return [decodeBucket(single, fallbackID: "codex", updatedAt: updatedAt)].compactMap { $0 }
+        return [decodeBucket(
+            single,
+            fallbackID: "codex",
+            availableResetCount: availableResetCount,
+            updatedAt: updatedAt
+        )].compactMap { $0 }
+    }
+
+    private static func availableResetCount(in response: JSONValue) -> Int? {
+        response["rateLimitResetCredits"]?["availableCount"]?.intValue
     }
 
     private static func decodeBucket(
         _ value: JSONValue?,
         fallbackID: String,
+        availableResetCount: Int?,
         updatedAt: Date
     ) -> QuotaSnapshot? {
         guard let object = value?.objectValue,
@@ -146,7 +171,7 @@ actor CodexUsageProvider: CodexUsageProviding {
         if case let .number(value)? = secondary?["resetsAt"] { secondaryResetsAt = value }
         else { secondaryResetsAt = nil }
         let planType = object["planType"]?.stringValue
-        return QuotaSnapshot.make(
+        var snapshot = QuotaSnapshot.make(
             from: RateLimitBucket(
                 limitID: id,
                 limitName: limitName,
@@ -160,5 +185,7 @@ actor CodexUsageProvider: CodexUsageProviding {
             ),
             updatedAt: updatedAt
         )
+        snapshot.availableResetCount = availableResetCount
+        return snapshot
     }
 }

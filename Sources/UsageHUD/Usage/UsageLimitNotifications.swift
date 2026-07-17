@@ -19,6 +19,8 @@ struct UsageLimitThresholdEvent: Equatable, Sendable {
 }
 
 struct UsageLimitThresholdTracker {
+    private let stepPercent: Int
+
     private struct WindowKey: Hashable {
         let toolID: AIToolID
         let bucketID: String
@@ -34,6 +36,10 @@ struct UsageLimitThresholdTracker {
     }
 
     private var observations: [WindowKey: Observation] = [:]
+
+    init(stepPercent: Int = HUDSettings.defaultUsageAlertIntervalPercent) {
+        self.stepPercent = max(1, min(100, stepPercent))
+    }
 
     mutating func events(for snapshots: [QuotaSnapshot]) -> [UsageLimitThresholdEvent] {
         var activeKeys: Set<WindowKey> = []
@@ -94,7 +100,8 @@ struct UsageLimitThresholdTracker {
     ) -> UsageLimitThresholdEvent? {
         let used = min(100, max(0, usedPercent))
         let remaining = min(100, max(0, remainingPercent))
-        let band = min(20, max(0, Int(floor(used / 5))))
+        let maximumBand = 100 / stepPercent
+        let band = min(maximumBand, max(0, Int(floor(used / Double(stepPercent)))))
 
         guard let previous = observations[key] else {
             observations[key] = Observation(
@@ -116,7 +123,7 @@ struct UsageLimitThresholdTracker {
         )
         let lacksStableResetIdentity = previous.resetAt == nil || resetAt == nil
         let confirmedByRollover = lacksStableResetIdentity && fellToLowerBand
-            && (usageDrop >= 5 || (band == 0 && usageDrop >= 1))
+            && (usageDrop >= Double(stepPercent) || (band == 0 && usageDrop >= 1))
         let confirmedByResetDate = (fellToLowerBand || previous.pendingReset)
             && resetDateAdvanced
         let isNewCycle = confirmedByRollover || confirmedByResetDate
@@ -134,7 +141,7 @@ struct UsageLimitThresholdTracker {
                 key: key,
                 snapshot: snapshot,
                 windowTag: windowTag,
-                thresholdPercent: band * 5,
+                thresholdPercent: band * stepPercent,
                 usedPercent: used,
                 remainingPercent: remaining,
                 resetAt: resetAt
@@ -166,7 +173,7 @@ struct UsageLimitThresholdTracker {
             key: key,
             snapshot: snapshot,
             windowTag: windowTag,
-            thresholdPercent: band * 5,
+            thresholdPercent: band * stepPercent,
             usedPercent: used,
             remainingPercent: remaining,
             resetAt: resetAt
@@ -337,6 +344,7 @@ final class SystemUsageLimitNotificationScheduler: UsageLimitNotificationSchedul
 @MainActor
 final class UsageLimitNotificationController {
     private var tracker = UsageLimitThresholdTracker()
+    private var intervalPercent = HUDSettings.defaultUsageAlertIntervalPercent
     private let scheduler: any UsageLimitNotificationScheduling
     private var deliveryTask: Task<Void, Never>?
     private var queuedEvents: [UsageLimitThresholdEvent] = []
@@ -348,8 +356,15 @@ final class UsageLimitNotificationController {
         self.scheduler = scheduler
     }
 
-    func observe(_ snapshots: [QuotaSnapshot]) {
+    func observe(
+        _ snapshots: [QuotaSnapshot],
+        intervalPercent requestedInterval: Int = HUDSettings.defaultUsageAlertIntervalPercent
+    ) {
         guard !isStopped else { return }
+        if requestedInterval != intervalPercent {
+            intervalPercent = requestedInterval
+            tracker = UsageLimitThresholdTracker(stepPercent: requestedInterval)
+        }
         let events = tracker.events(for: snapshots)
         let shouldPrepare = !hasPrepared && !snapshots.isEmpty
         if shouldPrepare { hasPrepared = true }

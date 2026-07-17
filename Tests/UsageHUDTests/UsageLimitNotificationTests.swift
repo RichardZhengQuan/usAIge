@@ -4,7 +4,7 @@ import UserNotifications
 @testable import UsageHUD
 
 @Test func usageLimitTrackerBootstrapsWithoutAlertingThenReportsFivePercentSteps() {
-    var tracker = UsageLimitThresholdTracker()
+    var tracker = UsageLimitThresholdTracker(stepPercent: 5)
 
     #expect(tracker.events(for: [snapshot(usedPercent: 4.9)]).isEmpty)
     #expect(tracker.events(for: [snapshot(usedPercent: 5.1)]).map(\.thresholdPercent) == [5])
@@ -12,8 +12,18 @@ import UserNotifications
     #expect(tracker.events(for: [snapshot(usedPercent: 10)]).map(\.thresholdPercent) == [10])
 }
 
-@Test func usageLimitTrackerCoalescesAJumpToTheNewestCrossedBoundary() throws {
+@Test func usageLimitTrackerDefaultsToTenPercentSteps() {
     var tracker = UsageLimitThresholdTracker()
+
+    #expect(tracker.events(for: [snapshot(usedPercent: 4.9)]).isEmpty)
+    #expect(tracker.events(for: [snapshot(usedPercent: 9.9)]).isEmpty)
+    #expect(tracker.events(for: [snapshot(usedPercent: 10)]).map(\.thresholdPercent) == [10])
+    #expect(tracker.events(for: [snapshot(usedPercent: 19.9)]).isEmpty)
+    #expect(tracker.events(for: [snapshot(usedPercent: 20)]).map(\.thresholdPercent) == [20])
+}
+
+@Test func usageLimitTrackerCoalescesAJumpToTheNewestCrossedBoundary() throws {
+    var tracker = UsageLimitThresholdTracker(stepPercent: 5)
 
     #expect(tracker.events(for: [snapshot(usedPercent: 11)]).isEmpty)
     let event = try #require(tracker.events(for: [snapshot(usedPercent: 23)]).only)
@@ -24,7 +34,7 @@ import UserNotifications
 }
 
 @Test func usageLimitTrackerObservesPrimaryAndSecondaryWindowsIndependently() {
-    var tracker = UsageLimitThresholdTracker()
+    var tracker = UsageLimitThresholdTracker(stepPercent: 5)
 
     #expect(
         tracker.events(
@@ -40,7 +50,7 @@ import UserNotifications
 }
 
 @Test func usageLimitTrackerStartsAQuietBaselineAfterAReset() {
-    var tracker = UsageLimitThresholdTracker()
+    var tracker = UsageLimitThresholdTracker(stepPercent: 5)
     let firstReset = Date(timeIntervalSince1970: 1_800_003_600)
     let nextReset = Date(timeIntervalSince1970: 1_800_021_600)
 
@@ -61,7 +71,7 @@ import UserNotifications
 }
 
 @Test func usageLimitTrackerDoesNotRepeatAfterADownwardCorrection() {
-    var tracker = UsageLimitThresholdTracker()
+    var tracker = UsageLimitThresholdTracker(stepPercent: 5)
     let resetAt = Date(timeIntervalSince1970: 1_800_003_600)
 
     #expect(tracker.events(for: [snapshot(usedPercent: 24, resetAt: resetAt)]).isEmpty)
@@ -74,7 +84,7 @@ import UserNotifications
 }
 
 @Test func usageLimitTrackerDoesNotMistakeABoundaryCorrectionForAReset() {
-    var tracker = UsageLimitThresholdTracker()
+    var tracker = UsageLimitThresholdTracker(stepPercent: 5)
     let resetAt = Date(timeIntervalSince1970: 1_800_003_600)
 
     #expect(tracker.events(for: [snapshot(usedPercent: 4.9, resetAt: resetAt)]).isEmpty)
@@ -87,7 +97,7 @@ import UserNotifications
 }
 
 @Test func usageLimitTrackerReportsTheLatestBoundarySeenAfterAConfirmedReset() {
-    var tracker = UsageLimitThresholdTracker()
+    var tracker = UsageLimitThresholdTracker(stepPercent: 5)
     let firstReset = Date(timeIntervalSince1970: 1_800_003_600)
     let nextReset = Date(timeIntervalSince1970: 1_800_021_600)
 
@@ -99,7 +109,7 @@ import UserNotifications
 }
 
 @Test func usageLimitTrackerHandlesUsageAndResetDateArrivingInSeparateUpdates() {
-    var tracker = UsageLimitThresholdTracker()
+    var tracker = UsageLimitThresholdTracker(stepPercent: 5)
     let firstReset = Date(timeIntervalSince1970: 1_800_003_600)
     let nextReset = Date(timeIntervalSince1970: 1_800_021_600)
 
@@ -117,7 +127,7 @@ import UserNotifications
 }
 
 @Test func usageLimitTrackerRearmsAfterARolloverWithoutAResetDate() {
-    var tracker = UsageLimitThresholdTracker()
+    var tracker = UsageLimitThresholdTracker(stepPercent: 5)
 
     #expect(tracker.events(for: [snapshot(usedPercent: 49, resetAt: nil)]).isEmpty)
     #expect(
@@ -132,7 +142,7 @@ import UserNotifications
 }
 
 @Test func usageLimitTrackerIgnoresSmallResetDateCorrections() {
-    var tracker = UsageLimitThresholdTracker()
+    var tracker = UsageLimitThresholdTracker(stepPercent: 5)
     let resetAt = Date(timeIntervalSince1970: 1_800_003_600)
     let correctedReset = resetAt.addingTimeInterval(5 * 60)
 
@@ -151,7 +161,7 @@ import UserNotifications
 }
 
 @Test func usageLimitTrackerReportsOneHundredPercentOnlyOnce() {
-    var tracker = UsageLimitThresholdTracker()
+    var tracker = UsageLimitThresholdTracker(stepPercent: 5)
 
     #expect(tracker.events(for: [snapshot(usedPercent: 94)]).isEmpty)
     #expect(
@@ -162,7 +172,7 @@ import UserNotifications
 }
 
 @Test func usageLimitTrackerTreatsAReappearingLimitAsANewBaseline() {
-    var tracker = UsageLimitThresholdTracker()
+    var tracker = UsageLimitThresholdTracker(stepPercent: 5)
 
     #expect(tracker.events(for: [snapshot(usedPercent: 24)]).isEmpty)
     #expect(tracker.events(for: []).isEmpty)
@@ -170,7 +180,7 @@ import UserNotifications
 }
 
 @Test func usageLimitNotificationRequestDescribesTheCurrentLimit() throws {
-    var tracker = UsageLimitThresholdTracker()
+    var tracker = UsageLimitThresholdTracker(stepPercent: 5)
     #expect(tracker.events(for: [snapshot(usedPercent: 20)]).isEmpty)
     let event = try #require(tracker.events(for: [snapshot(usedPercent: 26)]).only)
 

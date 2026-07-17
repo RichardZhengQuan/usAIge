@@ -18,21 +18,29 @@ struct HUDPosition: Codable, Equatable, Sendable {
 final class HUDSettings: ObservableObject {
     static let scaleRange: ClosedRange<Double> = 0.5...2.5
     static let opacityRange: ClosedRange<Double> = 0.1...1.0
+    nonisolated static let usageAlertIntervalOptions = [5, 10, 20, 25]
+    nonisolated static let defaultUsageAlertIntervalPercent = 10
 
     private struct Payload: Codable, Equatable {
-        var version = 3
+        var version = 6
         var bucketOrder: [String] = []
         var hiddenBucketIDs: Set<String> = []
         var toolOrder: [AIToolID] = AIToolID.builtInIDs
         var hiddenToolIDs: Set<AIToolID> = []
         var scale = 1.0
         var opacity = 0.92
+        var showsResetCredits = true
+        var usageAlertIntervalPercent = HUDSettings.defaultUsageAlertIntervalPercent
+        var didApplyLatestBucketDefault = false
         var positions: [String: HUDPosition] = [:]
         var remoteTools: [RemoteAITool] = []
 
         enum CodingKeys: String, CodingKey {
             case version, bucketOrder, hiddenBucketIDs, toolOrder, hiddenToolIDs
             case scale, opacity, positions
+            case showsResetCredits
+            case usageAlertIntervalPercent
+            case didApplyLatestBucketDefault
             case remoteTools
         }
 
@@ -47,6 +55,18 @@ final class HUDSettings: ObservableObject {
             hiddenToolIDs = try values.decodeIfPresent(Set<AIToolID>.self, forKey: .hiddenToolIDs) ?? []
             scale = try values.decodeIfPresent(Double.self, forKey: .scale) ?? 1
             opacity = try values.decodeIfPresent(Double.self, forKey: .opacity) ?? 0.92
+            showsResetCredits = try values.decodeIfPresent(
+                Bool.self,
+                forKey: .showsResetCredits
+            ) ?? true
+            usageAlertIntervalPercent = try values.decodeIfPresent(
+                Int.self,
+                forKey: .usageAlertIntervalPercent
+            ) ?? HUDSettings.defaultUsageAlertIntervalPercent
+            didApplyLatestBucketDefault = try values.decodeIfPresent(
+                Bool.self,
+                forKey: .didApplyLatestBucketDefault
+            ) ?? false
             positions = try values.decodeIfPresent([String: HUDPosition].self, forKey: .positions) ?? [:]
             remoteTools = try values.decodeIfPresent([RemoteAITool].self, forKey: .remoteTools) ?? []
         }
@@ -60,14 +80,21 @@ final class HUDSettings: ObservableObject {
         self.defaults = defaults
         if let data = defaults.data(forKey: Self.storageKey),
            let decoded = try? JSONDecoder().decode(Payload.self, from: data),
-           (1...3).contains(decoded.version) {
+           (1...6).contains(decoded.version) {
             payload = decoded
-            payload.version = 3
+            if decoded.version < 5 {
+                // Updating users keep their existing bucket visibility exactly as configured.
+                payload.didApplyLatestBucketDefault = true
+            }
+            payload.version = 6
         } else {
             payload = Payload()
         }
         payload.scale = Self.clamp(payload.scale, to: Self.scaleRange)
         payload.opacity = Self.clamp(payload.opacity, to: Self.opacityRange)
+        if !Self.usageAlertIntervalOptions.contains(payload.usageAlertIntervalPercent) {
+            payload.usageAlertIntervalPercent = Self.defaultUsageAlertIntervalPercent
+        }
         var seenRemoteIDs: Set<AIToolID> = []
         payload.remoteTools = payload.remoteTools.filter {
             Self.isValidRemoteID($0.id) && seenRemoteIDs.insert($0.id).inserted
@@ -104,6 +131,20 @@ final class HUDSettings: ObservableObject {
     var opacity: Double {
         get { payload.opacity }
         set { payload.opacity = Self.clamp(newValue, to: Self.opacityRange); persist() }
+    }
+
+    var showsResetCredits: Bool {
+        get { payload.showsResetCredits }
+        set { payload.showsResetCredits = newValue; persist() }
+    }
+
+    var usageAlertIntervalPercent: Int {
+        get { payload.usageAlertIntervalPercent }
+        set {
+            guard Self.usageAlertIntervalOptions.contains(newValue) else { return }
+            payload.usageAlertIntervalPercent = newValue
+            persist()
+        }
     }
 
     var remoteTools: [RemoteAITool] {
@@ -193,10 +234,28 @@ final class HUDSettings: ObservableObject {
         toolOrder = order
     }
 
-    func registerBuckets(_ ids: [String]) {
-        let additions = Self.stableUnique(ids).filter { !bucketOrder.contains($0) }
-        guard !additions.isEmpty else { return }
-        bucketOrder.append(contentsOf: additions)
+    func registerBuckets(_ snapshots: [QuotaSnapshot]) {
+        let additions = Self.stableUnique(snapshots.map(\.id)).filter { !payload.bucketOrder.contains($0) }
+        var changed = !additions.isEmpty
+        if !additions.isEmpty {
+            payload.bucketOrder.append(contentsOf: additions)
+        }
+
+        if !payload.didApplyLatestBucketDefault {
+            let chatGPTBuckets = snapshots.filter { $0.toolID == .chatGPT }
+            if chatGPTBuckets.count > 1,
+               let newest = Self.newestDefaultBucket(in: chatGPTBuckets) {
+                payload.hiddenBucketIDs.formUnion(
+                    chatGPTBuckets.lazy.map(\.id).filter { $0 != newest.id }
+                )
+                payload.hiddenBucketIDs.remove(newest.id)
+                payload.didApplyLatestBucketDefault = true
+                changed = true
+            }
+        }
+
+        guard changed else { return }
+        persist()
     }
 
     private func persist() {
@@ -213,6 +272,17 @@ final class HUDSettings: ObservableObject {
     private static func stableUnique<T: Hashable>(_ values: [T]) -> [T] {
         var seen: Set<T> = []
         return values.filter { seen.insert($0).inserted }
+    }
+
+    private static func newestDefaultBucket(in snapshots: [QuotaSnapshot]) -> QuotaSnapshot? {
+        snapshots.max { lhs, rhs in
+            let lhsIsNamedModel = lhs.id != "codex"
+            let rhsIsNamedModel = rhs.id != "codex"
+            if lhsIsNamedModel != rhsIsNamedModel {
+                return !lhsIsNamedModel && rhsIsNamedModel
+            }
+            return lhs.displayName.compare(rhs.displayName, options: .numeric) == .orderedAscending
+        }
     }
 
     private static func isValidRemoteID(_ id: AIToolID) -> Bool {
