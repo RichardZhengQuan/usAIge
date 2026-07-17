@@ -46,6 +46,45 @@ private let referenceDate = Date(timeIntervalSince1970: 2_000_000)
     ) == .idle)
 }
 
+@Test func findsActiveTurnBeforeAFullTailOfNonLifecycleEvents() throws {
+    let url = FileManager.default.temporaryDirectory
+        .appendingPathComponent("usaige-long-session-\(UUID().uuidString).jsonl")
+    defer { try? FileManager.default.removeItem(at: url) }
+
+    var data = eventData("task_started")
+    let noise = Data(
+        "{\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\"}}\n".utf8
+    )
+    while data.count < 512 * 1024 { data.append(noise) }
+    try data.write(to: url)
+
+    #expect(CodexAgentSessionDecoder.phase(
+        at: url,
+        updatedAt: referenceDate,
+        now: referenceDate
+    ) == .thinking)
+}
+
+@Test func recentDecodePreservesActiveStateWhenStartFallsOutOfTail() throws {
+    let url = FileManager.default.temporaryDirectory
+        .appendingPathComponent("usaige-appended-session-\(UUID().uuidString).jsonl")
+    defer { try? FileManager.default.removeItem(at: url) }
+
+    let noise = Data(
+        "{\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\"}}\n".utf8
+    )
+    var data = Data()
+    while data.count < 512 * 1024 { data.append(noise) }
+    try data.write(to: url)
+
+    #expect(CodexAgentSessionDecoder.recentPhase(
+        at: url,
+        initialPhase: .thinking,
+        updatedAt: referenceDate,
+        now: referenceDate
+    ) == .thinking)
+}
+
 @Test func aggregatesAgentStatesIntoOnePrioritizedLight() {
     #expect(CodexAgentStore.aggregate([task(.idle), task(.thinking)]) == .thinking)
     #expect(CodexAgentStore.aggregate([task(.thinking), task(.needsInput)]) == .needsInput)

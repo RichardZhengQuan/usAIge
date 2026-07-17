@@ -185,7 +185,11 @@ struct HUDView: View {
                     refreshRotation += 360
                 }
             }
-            Task { await store.refresh() }
+            Task {
+                async let usageRefresh: Void = store.refresh()
+                async let agentRefresh: Void = agentStore.refresh()
+                _ = await (usageRefresh, agentRefresh)
+            }
         } label: {
             Image(systemName: "arrow.clockwise")
                 .rotationEffect(.degrees(refreshRotation))
@@ -193,8 +197,8 @@ struct HUDView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("Refresh usage")
-        .accessibilityLabel("Refresh usage")
+        .help("Refresh usage and Codex status")
+        .accessibilityLabel("Refresh usage and Codex status")
     }
 
     private var settingsLink: some View {
