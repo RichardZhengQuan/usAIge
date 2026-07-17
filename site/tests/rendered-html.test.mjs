@@ -22,8 +22,14 @@ test("server-renders the current usAIge release", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>usAIge — AI usage and agent status, always in sight<\/title>/i);
-  assert.match(html, /usAIge-0\.2\.0-alpha\.dmg/);
-  assert.match(html, /usAIge-0\.2\.0-alpha\.dmg\.sha256/);
+  assert.match(
+    html,
+    /https:\/\/usaige-macos\.richardqz\.chatgpt\.site\/usAIge-0\.2\.0-alpha\.dmg/,
+  );
+  assert.match(
+    html,
+    /https:\/\/usaige-macos\.richardqz\.chatgpt\.site\/usAIge-0\.2\.0-alpha\.dmg\.sha256/,
+  );
   assert.match(html, /Up to 100 active tasks/i);
   assert.match(html, /Pink error, green recent completion, yellow needs input, blue running/i);
   assert.match(html, /Click the ring to reopen the exact task/i);
@@ -82,13 +88,13 @@ test("publishes a valid automatic update manifest", async () => {
     },
     {
       version: "0.2.0",
-      build: 17,
+      build: 18,
       minimumSystemVersion: "11.0",
       sha256: digest,
     },
   );
   assert.equal(
     manifest.downloadURL,
-    "https://pmrichq.com/project/usaige/usAIge-0.2.0-alpha.dmg",
+    "https://usaige-macos.richardqz.chatgpt.site/usAIge-0.2.0-alpha.dmg",
   );
 });

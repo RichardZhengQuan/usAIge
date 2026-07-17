@@ -1,6 +1,8 @@
 const basePath = "/project/usaige";
 const assetUrl = (path: string) => `${basePath}/${path}`;
-const downloadUrl = assetUrl("usAIge-0.2.0-alpha.dmg");
+const releaseBaseUrl = "https://usaige-macos.richardqz.chatgpt.site";
+const downloadUrl = `${releaseBaseUrl}/usAIge-0.2.0-alpha.dmg`;
+const checksumUrl = `${releaseBaseUrl}/usAIge-0.2.0-alpha.dmg.sha256`;
 
 const statusColors = [
   { key: "error", label: "Error", color: "#ff5284", detail: "Always wins" },
@@ -163,7 +165,7 @@ export default function Home() {
             <span className="button__icon" aria-hidden="true">↓</span>
             <span><strong>Download usAIge</strong><small>v0.2.0 alpha · macOS 11 or later · Apple silicon</small></span>
           </a>
-          <a className="checksum" href={assetUrl("usAIge-0.2.0-alpha.dmg.sha256")} download>SHA-256 checksum</a>
+          <a className="checksum" href={checksumUrl} download>SHA-256 checksum</a>
         </div>
       </section>
 
