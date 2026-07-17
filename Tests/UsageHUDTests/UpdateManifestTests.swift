@@ -4,7 +4,7 @@ import Testing
 
 @Test func updateManifestUsesBuildNumberForAvailability() throws {
     let manifest = UpdateManifest(
-        version: "0.2.0",
+        version: "0.2.1",
         build: 8,
         minimumSystemVersion: "15.0",
         downloadURL: try #require(URL(string: "https://example.com/usAIge.dmg")),
@@ -18,7 +18,7 @@ import Testing
 
 @Test func updateManifestRejectsInsecureDownloadsAndInvalidHashes() throws {
     let insecure = UpdateManifest(
-        version: "0.2.0",
+        version: "0.2.1",
         build: 8,
         minimumSystemVersion: "15.0",
         downloadURL: try #require(URL(string: "http://example.com/usAIge.dmg")),
@@ -35,13 +35,13 @@ import Testing
     #expect(!UpdateStatus.checking.isPrimaryActionEnabled)
 
     let manifest = UpdateManifest(
-        version: "0.2.0",
+        version: "0.2.1",
         build: 8,
         minimumSystemVersion: "15.0",
         downloadURL: try #require(URL(string: "https://example.com/usAIge.dmg")),
         sha256: String(repeating: "a", count: 64)
     )
-    #expect(UpdateStatus.available(manifest).primaryButtonTitle == "Update to 0.2.0")
+    #expect(UpdateStatus.available(manifest).primaryButtonTitle == "Update to 0.2.1")
 }
 
 @Test func publishedUpdateManifestMatchesPackagedRelease() throws {
@@ -82,15 +82,15 @@ import Testing
 
 @Test func migrationReleaseChoosesTheNewestValidFeed() throws {
     let current = UpdateManifest(
-        version: "0.2.0",
-        build: 22,
+        version: "0.2.1",
+        build: 23,
         minimumSystemVersion: "11.0",
         downloadURL: try #require(URL(string: "https://example.com/current.dmg")),
         sha256: String(repeating: "a", count: 64)
     )
     let legacy = UpdateManifest(
         version: "0.2.0",
-        build: 18,
+        build: 22,
         minimumSystemVersion: "11.0",
         downloadURL: try #require(URL(string: "https://example.com/legacy.dmg")),
         sha256: String(repeating: "b", count: 64)

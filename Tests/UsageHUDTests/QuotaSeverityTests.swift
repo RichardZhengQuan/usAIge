@@ -41,17 +41,53 @@ func mapsRemainingPercentageToVisibleRingFraction(input: (Double, Double)) {
     #expect(QuotaRingPresentation.arcFraction(remainingPercent: input.0) == input.1)
 }
 
-@Test func breathesAgentGloryFromThinToThickWithoutChangingItsDiameter() {
+@Test func hidesResetCreditsUnlessTheAvailableCountIsPositive() {
+    #expect(
+        ResetCreditPresentation.displayedCount(
+            showsResetCredits: true,
+            availableCount: 1
+        ) == 1
+    )
+    #expect(
+        ResetCreditPresentation.displayedCount(
+            showsResetCredits: true,
+            availableCount: 0
+        ) == nil
+    )
+    #expect(
+        ResetCreditPresentation.displayedCount(
+            showsResetCredits: true,
+            availableCount: nil
+        ) == nil
+    )
+    #expect(
+        ResetCreditPresentation.displayedCount(
+            showsResetCredits: false,
+            availableCount: 2
+        ) == nil
+    )
+}
+
+@Test func breathesAgentGloryOutwardWithoutCrossingRingInterior() {
     #expect(AgentBreathingMotion.minimumThickness == 2)
     #expect(AgentBreathingMotion.midpointThickness == 4)
     #expect(AgentBreathingMotion.maximumThickness == 6)
     #expect(AgentBreathingMotion.opacity(for: 2) == 0.68)
     #expect(AgentBreathingMotion.opacity(for: 4) == 0.84)
     #expect(AgentBreathingMotion.opacity(for: 6) == 1.00)
+    #expect(AgentBreathingMotion.outwardDiameter(baseDiameter: 46, thickness: 2) == 48)
+    #expect(AgentBreathingMotion.outwardDiameter(baseDiameter: 46, thickness: 6) == 52)
+
+    let innerRadiusAtMinimum = (48.0 - 2.0) / 2.0
+    let innerRadiusAtMaximum = (52.0 - 6.0) / 2.0
+    #expect(innerRadiusAtMinimum == 23)
+    #expect(innerRadiusAtMaximum == 23)
 }
 
 @Test func sizesHUDToVisibleRowsWithoutLeavingBlankSpace() {
-    #expect(HUDMetrics.railHeight(rowCount: 2) == 227)
+    #expect(HUDMetrics.quotaRowHeight == 84)
+    #expect(HUDMetrics.railHeight(rowCount: 1) == 149)
+    #expect(HUDMetrics.railHeight(rowCount: 2) == 243)
     #expect(HUDMetrics.railHeight(rowCount: 8) == 450)
     #expect(HUDMetrics.messageSize == CGSize(width: 84, height: 120))
     #expect(HUDMetrics.railWidth == 84)
@@ -103,4 +139,10 @@ func mapsRemainingPercentageToVisibleRingFraction(input: (Double, Double)) {
 @Test func hidesFooterControlsUntilHovered() {
     #expect(HUDMetrics.controlOpacity(isHovered: false) == 0)
     #expect(HUDMetrics.controlOpacity(isHovered: true) == 1)
+}
+
+@Test func usesFullNativeGlassOnlyWhileActive() {
+    #expect(HUDMetrics.glassSurfaceOpacity(isHovered: false) == 0)
+    #expect(HUDMetrics.glassSurfaceOpacity(isHovered: true) == 1)
+    #expect(HUDMetrics.glassSurfaceOpacity(isHovered: false, forceVisible: true) == 1)
 }

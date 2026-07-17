@@ -43,6 +43,14 @@ struct HUDView: View {
         }
     }
 
+    private var currentLimitSeverity: QuotaSeverity {
+        let remainingPercentages = snapshots.flatMap { snapshot in
+            [snapshot.remainingPercent, snapshot.secondaryWindow?.remainingPercent]
+                .compactMap { $0 }
+        }
+        return QuotaSeverity(remainingPercent: remainingPercentages.min() ?? 100)
+    }
+
     private var showsStatusSurface: Bool {
         switch store.state {
         case .current, .stale: false
@@ -57,16 +65,15 @@ struct HUDView: View {
             .frame(width: desiredSize.width, height: desiredSize.height)
             .background {
                 panelSurface
-                    .opacity(showsStatusSurface || isPanelHovered ? 1 : 0)
             }
             .overlay {
                 ZStack {
                     panelShape
                         .stroke(
-                            .separator.opacity(showsStatusSurface ? 0.3 : (isPanelHovered ? 0.42 : 0)),
+                            .separator.opacity(showsStatusSurface ? 0.3 : (isPanelHovered ? 1 : 0)),
                             lineWidth: 0.5
                         )
-                    if hasCriticalQuota {
+                    if hasCriticalQuota && isPanelHovered {
                         panelShape
                             .stroke(Color.red.opacity(0.86), lineWidth: 1.5)
                             .shadow(color: .red, radius: 8)
@@ -110,12 +117,13 @@ struct HUDView: View {
 
     @ViewBuilder
     private var panelSurface: some View {
-        if #available(macOS 26.0, *) {
-            Color.clear
-                .glassEffect(.regular, in: .rect(cornerRadius: 18))
-        } else {
-            panelShape.fill(.regularMaterial)
-        }
+        HUDGlassSurface(
+            severity: currentLimitSeverity,
+            isActive: HUDMetrics.glassSurfaceOpacity(
+                isHovered: isPanelHovered,
+                forceVisible: showsStatusSurface
+            ) > 0
+        )
     }
 
     @ViewBuilder
@@ -383,14 +391,44 @@ struct HUDView: View {
     }
 }
 
+@available(macOS 14.0, *)
+struct HUDGlassSurface: View {
+    let severity: QuotaSeverity
+    let isActive: Bool
+
+    var body: some View {
+        if #available(macOS 26.0, *) {
+            let tint = severity.color
+                .mix(with: .white, by: 0.45)
+                .opacity(0.02)
+            let glass = isActive
+                ? Glass.regular.tint(tint).interactive()
+                : Glass.identity
+
+            Color.clear
+                .glassEffect(
+                    glass,
+                    in: .rect(cornerRadius: 18)
+                )
+        } else {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .opacity(isActive ? 1 : 0)
+        }
+    }
+}
+
 enum HUDMetrics {
     static let railWidth: CGFloat = 84
     static let messageSize = CGSize(width: railWidth, height: 120)
     static let itemSpacing: CGFloat = 10
+    static let quotaRowHeight: CGFloat = 84
+    static let hoveredGlassOpacity = 1.0
 
     static func railHeight(rowCount: Int) -> CGFloat {
-        let additionalGapHeight = CGFloat(max(0, rowCount - 1)) * (itemSpacing - 2)
-        return min(450, max(120, 63 + CGFloat(rowCount) * 78 + additionalGapHeight))
+        let rowsHeight = CGFloat(rowCount) * quotaRowHeight
+        let gapsHeight = CGFloat(max(0, rowCount - 1)) * itemSpacing
+        return min(450, max(120, 65 + rowsHeight + gapsHeight))
     }
 
     static func scaledSize(_ size: CGSize, scale: Double) -> CGSize {
@@ -411,5 +449,10 @@ enum HUDMetrics {
 
     static func controlOpacity(isHovered: Bool) -> Double {
         isHovered ? 1 : 0
+    }
+
+    static func glassSurfaceOpacity(isHovered: Bool, forceVisible: Bool = false) -> Double {
+        if forceVisible { return 1 }
+        return isHovered ? hoveredGlassOpacity : 0
     }
 }

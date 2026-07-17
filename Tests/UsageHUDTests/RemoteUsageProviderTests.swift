@@ -80,7 +80,7 @@ import Testing
     #expect(request.url == endpoint)
     #expect(request.httpMethod == "GET")
     #expect(request.value(forHTTPHeaderField: "Accept") == "application/json")
-    #expect(request.value(forHTTPHeaderField: "User-Agent") == "usAIge/0.2.0")
+    #expect(request.value(forHTTPHeaderField: "User-Agent") == "usAIge/0.2.1")
     #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer test-token")
 }
 
