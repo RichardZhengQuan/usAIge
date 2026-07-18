@@ -1,57 +1,27 @@
 import SwiftUI
 
 struct DashboardView: View {
-    @Environment(AppModel.self) private var model
+    @Environment(RelayAppModel.self) private var model
 
     var body: some View {
         Group {
-            if !model.canModifyTools, model.systemErrorMessage == nil {
-                ProgressView("Loading saved tools…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if model.tools.isEmpty {
+            if !model.isConnected {
                 ContentUnavailableView {
-                    Label("No AI tools yet", systemImage: "gauge.open.with.lines.needle.33percent")
+                    Label("Connect your Mac", systemImage: "macbook.and.iphone")
                 } description: {
-                    Text(model.systemErrorMessage ?? "Connect a remote usage endpoint to see quota limits and reset times here and in the widget.")
-                } actions: {
-                    VStack {
-                        if model.systemErrorMessage != nil {
-                            Button(model.canRetryPersistence ? "Retry Saving" : "Try Again", systemImage: "arrow.clockwise") {
-                                Task { await model.recoverFromSystemError() }
-                            }
-                        }
-                        Button("Add AI Tool", systemImage: "plus") {
-                            model.isPresentingAddTool = true
-                        }
-                        .buttonStyle(.glassProminent)
-                        .disabled(!model.canStartToolMutation)
-                    }
-                }
-            } else if model.enabledTools.isEmpty {
-                ContentUnavailableView {
-                    Label("All AI tools are off", systemImage: "pause.circle")
-                } description: {
-                    Text("Open the Tools tab and enable at least one connection to resume quota updates.")
+                    Text("Open iPhone Sync in usAIge Settings on your Mac, then enter its pairing code in the Connection tab.")
                 }
             } else if model.snapshots.isEmpty, model.isRefreshing {
-                ProgressView("Getting current limits…")
+                ProgressView("Getting limits from your Mac…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if model.snapshots.isEmpty, let message = model.primaryErrorMessage {
+            } else if model.snapshots.isEmpty {
                 ContentUnavailableView {
                     Label("Limits unavailable", systemImage: "wifi.exclamationmark")
                 } description: {
-                    Text(message)
+                    Text(model.errorMessage ?? "Keep usAIge running on your Mac, then try again.")
                 } actions: {
-                    Button(model.canRetryPersistence ? "Retry Saving" : "Try Again", systemImage: "arrow.clockwise") {
-                        Task {
-                            if model.systemErrorMessage != nil {
-                                await model.recoverFromSystemError()
-                            } else {
-                                await model.refreshAll()
-                            }
-                        }
-                    }
-                    .buttonStyle(.glassProminent)
+                    Button("Try Again", systemImage: "arrow.clockwise") { Task { await model.refreshAll() } }
+                        .buttonStyle(.glassProminent)
                 }
             } else {
                 quotaList
@@ -59,116 +29,45 @@ struct DashboardView: View {
         }
         .navigationTitle("AI Usage")
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                Button("Refresh", systemImage: "arrow.clockwise") {
-                    Task { await model.refreshAll() }
-                }
-                .disabled(model.isRefreshing || model.enabledTools.isEmpty)
-
-                Button("Add Tool", systemImage: "plus") {
-                    model.isPresentingAddTool = true
-                }
-                .disabled(!model.canStartToolMutation)
-            }
+            Button("Refresh", systemImage: "arrow.clockwise") { Task { await model.refreshAll() } }
+                .disabled(!model.isConnected || model.isRefreshing)
         }
     }
 
     private var quotaList: some View {
         List {
-            if let systemError = model.systemErrorMessage {
+            if model.isCacheStale || model.errorMessage != nil {
                 Section {
-                    StatusBanner(
-                        title: "Saved changes need attention",
-                        detail: systemError,
-                        systemImage: "externaldrive.badge.exclamationmark"
-                    )
-                    Button(model.canRetryPersistence ? "Retry Saving" : "Try Again", systemImage: "arrow.clockwise") {
-                        Task { await model.recoverFromSystemError() }
-                    }
-                }
-            } else if model.isCacheStale || !model.errorsByToolID.isEmpty {
-                Section {
-                    StatusBanner(
-                        title: model.isCacheStale ? "Showing saved limits" : "Some tools did not update",
-                        detail: model.statusDetail,
-                        systemImage: model.isCacheStale ? "clock.badge.exclamationmark" : "exclamationmark.arrow.trianglehead.2.clockwise.rotate.90"
-                    )
-                }
-            }
-
-            ForEach(model.enabledTools) { tool in
-                Section {
-                    let values = model.snapshots(for: tool.id)
-                    if values.isEmpty {
-                        ToolUnavailableRow(tool: tool, message: model.errorsByToolID[tool.id])
-                    } else {
-                        ForEach(values) { snapshot in
-                            QuotaRow(snapshot: snapshot)
+                    Label {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Showing saved limits").font(.headline)
+                            Text(model.errorMessage ?? model.statusDetail).font(.subheadline).foregroundStyle(.secondary)
                         }
-                    }
+                    } icon: { Image(systemName: "clock.badge.exclamationmark").foregroundStyle(.orange) }
+                }
+            }
+            ForEach(groupedTools, id: \.id) { tool in
+                Section {
+                    ForEach(tool.values) { QuotaRow(snapshot: $0) }
                 } header: {
-                    Label(tool.name, systemImage: tool.symbolName)
+                    Label(tool.name, systemImage: "sparkles")
                 } footer: {
-                    if let date = model.lastRefreshByToolID[tool.id] {
-                        Text("Updated \(date, style: .relative)")
-                    }
+                    if let updated = tool.values.map(\.updatedAt).min() { Text("Updated \(updated, style: .relative)") }
                 }
             }
         }
-        .refreshable {
-            await model.refreshAll()
-        }
-        .overlay {
-            if model.isRefreshing {
-                ProgressView()
-                    .controlSize(.small)
-                    .padding(10)
-                    .glassEffect(.regular, in: .circle)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .padding(.top, 8)
-                    .accessibilityLabel("Refreshing limits")
-            }
+        .refreshable { await model.refreshAll() }
+        .overlay(alignment: .top) {
+            if model.isRefreshing { ProgressView().padding(10).glassEffect(.regular, in: .circle).padding(.top, 8) }
         }
     }
-}
 
-private struct StatusBanner: View {
-    let title: String
-    let detail: String
-    let systemImage: String
-
-    var body: some View {
-        Label {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.headline)
-                Text(detail)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-        } icon: {
-            Image(systemName: systemImage)
-                .foregroundStyle(.orange)
+    private var groupedTools: [(id: UUID, name: String, values: [QuotaSnapshot])] {
+        var seen: [UUID] = []
+        for snapshot in model.snapshots where !seen.contains(snapshot.toolID) { seen.append(snapshot.toolID) }
+        return seen.map { id in
+            let values = model.snapshots.filter { $0.toolID == id }
+            return (id, values.first?.toolName ?? "AI Tool", values)
         }
-        .accessibilityElement(children: .combine)
-    }
-}
-
-private struct ToolUnavailableRow: View {
-    let tool: RemoteToolConfiguration
-    let message: String?
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "exclamationmark.circle")
-                .foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("No limits available")
-                Text(message ?? "Pull to refresh or check this tool's endpoint.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .accessibilityElement(children: .combine)
     }
 }

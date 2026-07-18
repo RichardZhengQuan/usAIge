@@ -1,30 +1,28 @@
 # usAIge
 
-usAIge has native clients for macOS, iPhone, iPad, and Apple Watch. The iOS 26
-app connects to
-user-owned remote HTTPS endpoints, displays current AI quota limits and reset
-times, and shares successful snapshots with Home Screen widgets and a paired
-Apple Watch.
+usAIge has native clients for macOS, iPhone, iPad, and Apple Watch. The Mac is
+the trusted limit collector: it reads local Codex and configured remote tools,
+then relays only normalized percentages and reset times to paired iPhones.
 
 ## iOS app and widget
 
 Open `usAIge-iOS.xcodeproj` in Xcode 26. The project contains:
 
-- A native tab-based iPhone and iPad app with Usage and Tools sections.
-- Add and Edit Connection flows that test the endpoint before saving it,
-  including bearer-token rotation or removal.
-- Keychain storage for optional bearer tokens.
+- A native tab-based iPhone and iPad app with Usage and Connection sections.
+- Account-free pairing with an 8-character, one-use code shown by the Mac.
+- A device-scoped relay token stored in the iOS Keychain.
 - An App Group JSON cache containing quota values only, never tokens.
 - Small, medium, and large widgets backed by the shared cache.
-- Immediate foreground and pull-to-refresh updates plus best-effort iOS
-  background refresh scheduling.
+- Immediate foreground and pull-to-refresh updates plus APNs-assisted,
+  best-effort background refresh scheduling.
 - Credential-free WatchConnectivity sync to the Watch app and watch-face
   complications.
 
-The endpoint contract and a complete response example are documented in
-[`docs/remote-usage-api.md`](docs/remote-usage-api.md). iOS controls the exact
-time granted to background tasks and widget timelines, so the app shows saved
-data and its update age instead of promising minute-exact background delivery.
+Open **Settings → iPhone Sync** on the Mac, create a code, and enter it in the
+iPhone Connection tab. One Mac can issue separate revocable codes for multiple
+iPhones. iOS controls the exact time granted to background tasks and widget
+timelines, so the app shows saved data and its update age instead of promising
+minute-exact background delivery.
 
 Build the iOS app for Simulator with:
 
@@ -37,26 +35,25 @@ xcodebuild \
 ```
 
 For device builds, select the same Apple development team for the app and
-widget targets, then register `group.com.richardq.usaige` as an App Group for
-both bundle identifiers. Simulator builds can be compiled without signing.
+widget targets, register `group.com.richardq.usaige` as an App Group, and enable
+Push Notifications plus the Remote notifications background mode.
 
 ### iOS privacy
 
-- Tool names, HTTPS endpoint paths, enabled state, and refresh intervals are
-  stored in the app's sandboxed Application Support directory.
-- Optional bearer tokens are stored separately in the iOS Keychain and can be
-  rotated or removed from Edit Connection.
+- The channel and device identifiers are stored in the app sandbox. The
+  device-scoped read token is stored separately in the iOS Keychain.
 - The App Group cache shared with the widget contains normalized quota values,
   reset times, and refresh metadata, but never bearer tokens.
-- The app sends requests only to endpoints the user adds. It does not read
-  browser cookies, prompts, or account content.
+- The relay retains only the latest normalized snapshot until the Mac owner
+  disconnects the channel. It receives no provider credentials, browser
+  cookies, prompts, account content, or Codex task state.
 
 ## Apple Watch app and complications
 
 The Apple Watch version shows every synced remote AI limit and provides
 circular, rectangular, inline, and native quarter-curve corner complications.
-Users configure endpoints and optional credentials in the existing iOS app;
-only normalized quota snapshots are transferred to the Watch.
+Users configure sources on the Mac; only normalized quota snapshots are
+relayed to iPhone and transferred to the Watch.
 
 Open the combined project at `Apple/usAIgeApple.xcodeproj` to build the iOS app,
 iOS widget, Watch app, and Watch widget together. Setup, supported watch-face

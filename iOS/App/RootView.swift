@@ -2,11 +2,11 @@ import SwiftUI
 
 enum AppSection: Hashable {
     case usage
-    case tools
+    case connection
 }
 
 struct RootView: View {
-    @Environment(AppModel.self) private var model
+    @Environment(RelayAppModel.self) private var model
     @State private var selection: AppSection = .usage
 
     var body: some View {
@@ -19,15 +19,10 @@ struct RootView: View {
                 }
             }
 
-            Tab("Tools", systemImage: "shippingbox.and.arrow.backward", value: .tools) {
+            Tab("Connection", systemImage: "macbook.and.iphone", value: .connection) {
                 NavigationStack {
                     ToolsView()
                 }
-            }
-        }
-        .sheet(isPresented: $model.isPresentingAddTool) {
-            NavigationStack {
-                AddToolView()
             }
         }
     }

@@ -140,11 +140,12 @@ export default function Home() {
           <h2>You choose<br /><em>every source.</em></h2>
         </div>
         <div className="privacy__copy">
-          <p>usAIge reads local Codex state and only the remote endpoints you explicitly add. It does not scrape websites, inspect screen pixels, or invent missing values.</p>
+          <p>usAIge reads local Codex state and only the remote endpoints you explicitly add. Optional iPhone Sync relays the latest normalized percentages and reset times—never provider credentials, prompts, or task content.</p>
           <ul>
             <li><span>✓</span> No browser cookies read</li>
             <li><span>✓</span> No separate account login</li>
             <li><span>✓</span> Remote tokens stay in Keychain</li>
+            <li><span>✓</span> Relay data is deleted when unlinked</li>
             <li><span>✓</span> No app activity tracking</li>
           </ul>
         </div>

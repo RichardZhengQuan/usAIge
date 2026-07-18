@@ -105,6 +105,7 @@ struct LegacyHUDSettingsRootView: View {
     @ObservedObject var store: UsageStore
     @ObservedObject var launchAtLogin: LaunchAtLoginController
     @ObservedObject var updateController: UpdateController
+    @ObservedObject var relaySync: RelaySyncController
 
     var body: some View {
         ScrollView {
@@ -125,6 +126,30 @@ struct LegacyHUDSettingsRootView: View {
                     Text("Open at login is available on macOS 13 or later.")
                         .font(.caption)
                         .foregroundColor(.secondary)
+                }
+
+                Divider()
+                Text("iPhone Sync").font(.headline)
+                if relaySync.isLinked {
+                    Text("Connected as \(relaySync.macName)")
+                    if let code = relaySync.pairingCode, let expiry = relaySync.pairingExpiresAt, expiry > Date() {
+                        Text(code).font(.system(.title2, design: .monospaced).weight(.semibold))
+                        Text("Code expires \(expiry, style: .time).")
+                            .font(.caption).foregroundColor(.secondary)
+                    }
+                    Button("Add iPhone") { Task { await relaySync.createPairingCode() } }
+                    ForEach(relaySync.devices) { device in
+                        HStack {
+                            Text(device.name)
+                            Spacer()
+                            Button("Revoke") { Task { await relaySync.revoke(device) } }
+                        }
+                    }
+                    Button("Disconnect All") { Task { await relaySync.disconnectAll() } }
+                } else {
+                    Text("Create a one-time code, then enter it in usAIge on iPhone.")
+                        .font(.caption).foregroundColor(.secondary)
+                    Button("Create Connection") { Task { await relaySync.createChannel() } }
                 }
 
                 Divider()

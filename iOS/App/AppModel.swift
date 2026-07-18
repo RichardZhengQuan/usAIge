@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import UIKit
 import WidgetKit
 
 @MainActor
@@ -37,21 +38,22 @@ final class AppModel {
         quotaCache: SharedQuotaCache = SharedQuotaCache(),
         tokenVault: KeychainTokenVault = KeychainTokenVault(),
         usageClient: RemoteUsageClient = RemoteUsageClient(),
-        watchCoordinator: WatchSyncCoordinator = WatchSyncCoordinator()
+        watchCoordinator: WatchSyncCoordinator? = nil
     ) {
         self.toolStore = toolStore
         self.quotaCache = quotaCache
         self.tokenVault = tokenVault
         self.usageClient = usageClient
-        self.watchCoordinator = watchCoordinator
-        watchCoordinator.refreshHandler = { [weak self] in
+        let resolvedWatchCoordinator = watchCoordinator ?? WatchSyncCoordinator()
+        self.watchCoordinator = resolvedWatchCoordinator
+        resolvedWatchCoordinator.refreshHandler = { [weak self] in
             guard let self else {
                 return WatchUsageSnapshotEnvelope(generatedAt: Date(), tools: [])
             }
             await self.refreshAll()
             return self.watchSnapshotEnvelope()
         }
-        watchCoordinator.activate()
+        resolvedWatchCoordinator.activate()
     }
 
     var enabledTools: [RemoteToolConfiguration] {
@@ -816,6 +818,210 @@ final class AppModel {
         left.scheme?.lowercased() == right.scheme?.lowercased()
             && left.host?.lowercased() == right.host?.lowercased()
             && (left.port ?? 443) == (right.port ?? 443)
+    }
+}
+
+@MainActor
+@Observable
+final class RelayAppModel {
+    var connection: RelayConnection?
+    var snapshots: [QuotaSnapshot] = []
+    var isRefreshing = false
+    var pairingCode = ""
+    var errorMessage: String?
+    private(set) var cacheSavedAt: Date?
+    private(set) var serverReceivedAt: Date?
+
+    private let connectionStore: RelayConnectionStore
+    private let quotaCache: SharedQuotaCache
+    private let tokenVault: KeychainTokenVault
+    private let client: RelayClient
+    private let watchCoordinator: WatchSyncCoordinator
+    private var etag: String?
+    private var apnsToken: String?
+    private var startupTask: Task<Void, Never>?
+    private static let serverReceivedAtKey = "usAIge.relay.serverReceivedAt"
+
+    init(
+        connectionStore: RelayConnectionStore = RelayConnectionStore(),
+        quotaCache: SharedQuotaCache = SharedQuotaCache(),
+        tokenVault: KeychainTokenVault = KeychainTokenVault(service: "com.richardq.usaige.relay"),
+        client: RelayClient = RelayClient(),
+        watchCoordinator: WatchSyncCoordinator? = nil
+    ) {
+        self.connectionStore = connectionStore
+        self.quotaCache = quotaCache
+        self.tokenVault = tokenVault
+        self.client = client
+        let resolvedWatchCoordinator = watchCoordinator ?? WatchSyncCoordinator()
+        self.watchCoordinator = resolvedWatchCoordinator
+        resolvedWatchCoordinator.refreshHandler = { [weak self] in
+            await self?.refreshAll()
+            return self?.watchEnvelope() ?? WatchUsageSnapshotEnvelope(generatedAt: Date(), tools: [])
+        }
+        resolvedWatchCoordinator.activate()
+    }
+
+    var isConnected: Bool { connection != nil }
+    var minimumRefreshIntervalMinutes: Int { 15 }
+    var isCacheStale: Bool {
+        guard let cacheSavedAt else { return !snapshots.isEmpty }
+        return Date().timeIntervalSince(cacheSavedAt) > 15 * 60
+    }
+    var statusDetail: String {
+        if let serverReceivedAt { return "Last received from \(connection?.macName ?? "Mac") \(serverReceivedAt.formatted(.relative(presentation: .named)))." }
+        return "Open the Mac app and refresh again."
+    }
+
+    func start() async {
+        if let startupTask { await startupTask.value; return }
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                connection = try await connectionStore.load()
+                let cache = try await quotaCache.load()
+                snapshots = cache.snapshots
+                cacheSavedAt = cache.savedAt
+                serverReceivedAt = UserDefaults.standard.object(forKey: Self.serverReceivedAtKey) as? Date
+                watchCoordinator.publish(watchEnvelope(generatedAt: cache.savedAt))
+            } catch { errorMessage = "Saved connection could not be loaded: \(error.localizedDescription)" }
+        }
+        startupTask = task
+        await task.value
+    }
+
+    func pair() async {
+        let code = pairingCode
+        isRefreshing = true
+        errorMessage = nil
+        do {
+            let result = try await client.claim(code: code, deviceName: UIDevice.current.name)
+            try tokenVault.save(result.readToken, for: result.connection.deviceID)
+            do {
+                try await connectionStore.save(result.connection)
+            } catch {
+                try? tokenVault.deleteToken(for: result.connection.deviceID)
+                throw error
+            }
+            connection = result.connection
+            pairingCode = ""
+            if let apnsToken { try? await registerAPNs(apnsToken) }
+            isRefreshing = false
+            await refreshAll()
+        } catch {
+            isRefreshing = false
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func refreshAll() async {
+        guard let connection else { return }
+        guard !isRefreshing else { return }
+        isRefreshing = true
+        defer { isRefreshing = false }
+        do {
+            guard let token = try tokenVault.token(for: connection.deviceID) else { throw RelayClientError.unauthorized }
+            guard let result = try await client.fetch(connection: connection, token: token, etag: etag) else {
+                errorMessage = nil
+                return
+            }
+            snapshots = result.snapshots
+            serverReceivedAt = result.serverReceivedAt
+            UserDefaults.standard.set(result.serverReceivedAt, forKey: Self.serverReceivedAtKey)
+            etag = result.etag
+            errorMessage = nil
+            try await saveCache()
+        } catch {
+            errorMessage = error.localizedDescription
+            if let relayError = error as? RelayClientError, case .unauthorized = relayError {
+                await clearLocalConnection()
+            }
+        }
+    }
+
+    @discardableResult
+    func refreshDueTools(forceWhenCacheIsEmpty: Bool = false) async -> Bool {
+        if forceWhenCacheIsEmpty || isCacheStale { await refreshAll() }
+        return errorMessage == nil
+    }
+
+    func cancelRefresh() {}
+
+    func receiveAPNsToken(_ data: Data, environment: String) async {
+        let value = data.map { String(format: "%02x", $0) }.joined()
+        apnsToken = value
+        do { try await registerAPNs(value, environment: environment) }
+        catch { errorMessage = "Push updates could not be enabled: \(error.localizedDescription)" }
+    }
+
+    func handleBackgroundPush() async -> Bool {
+        await refreshAll()
+        return errorMessage == nil
+    }
+
+    func disconnect() async {
+        if let connection, let token = try? tokenVault.token(for: connection.deviceID) {
+            try? await client.disconnect(connection: connection, token: token)
+        }
+        await clearLocalConnection()
+    }
+
+    private func registerAPNs(_ value: String, environment: String? = nil) async throws {
+        guard let connection, let token = try tokenVault.token(for: connection.deviceID) else { return }
+        #if DEBUG
+        let resolvedEnvironment = environment ?? "sandbox"
+        #else
+        let resolvedEnvironment = environment ?? "production"
+        #endif
+        try await client.registerAPNs(connection: connection, token: token, apnsToken: value, environment: resolvedEnvironment)
+    }
+
+    private func clearLocalConnection() async {
+        if let connection { try? tokenVault.deleteToken(for: connection.deviceID) }
+        try? await connectionStore.delete()
+        connection = nil
+        snapshots = []
+        etag = nil
+        serverReceivedAt = nil
+        UserDefaults.standard.removeObject(forKey: Self.serverReceivedAtKey)
+        try? await quotaCache.save(.empty)
+        WidgetCenter.shared.reloadTimelines(ofKind: "com.richardq.usaige.limits")
+    }
+
+    private func saveCache() async throws {
+        let now = Date()
+        let toolIDs = Set(snapshots.map(\.toolID))
+        let metadata = toolIDs.map {
+            RefreshScheduleMetadata(toolID: $0).recordingAttempt(at: now).recordingSuccess(at: now, refreshIntervalMinutes: 15)
+        }
+        try await quotaCache.save(QuotaCacheState(snapshots: snapshots, refreshMetadata: metadata, savedAt: now))
+        cacheSavedAt = now
+        WidgetCenter.shared.reloadTimelines(ofKind: "com.richardq.usaige.limits")
+        watchCoordinator.publish(watchEnvelope(generatedAt: now))
+    }
+
+    private func watchEnvelope(generatedAt: Date = Date()) -> WatchUsageSnapshotEnvelope {
+        let grouped = Dictionary(grouping: snapshots, by: \.toolID)
+        let tools = grouped.compactMap { toolID, values -> WatchToolQuotaSnapshot? in
+            guard let first = values.first else { return nil }
+            return WatchToolQuotaSnapshot(
+                id: toolID.uuidString.lowercased(),
+                displayName: first.toolName,
+                sourceUpdatedAt: values.map(\.updatedAt).min() ?? generatedAt,
+                receivedAt: generatedAt,
+                limits: values.map { snapshot in
+                    WatchQuotaSnapshot(
+                        id: snapshot.limitID,
+                        displayName: snapshot.displayName,
+                        primary: WatchQuotaWindowSnapshot(remainingPercent: snapshot.remainingPercent, resetAt: snapshot.resetAt, windowDurationSeconds: snapshot.windowDurationMinutes.map { $0 * 60 }),
+                        secondary: snapshot.secondaryWindow.map { WatchQuotaWindowSnapshot(remainingPercent: $0.remainingPercent, resetAt: $0.resetAt, windowDurationSeconds: $0.windowDurationMinutes.map { $0 * 60 }) },
+                        planType: snapshot.planType
+                    )
+                },
+                symbolName: "sparkles"
+            )
+        }
+        return WatchUsageSnapshotEnvelope(generatedAt: generatedAt, tools: tools)
     }
 }
 

@@ -4,10 +4,10 @@ import SwiftUI
 struct UsAIgeIOSApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var scenePhase
-    @State private var model: AppModel
+    @State private var model: RelayAppModel
 
     init() {
-        let model = AppModel()
+        let model = RelayAppModel()
         _model = State(initialValue: model)
         // Attach before application launch finishes so a background-task launch
         // never races the first WindowGroup view task.
