@@ -6,7 +6,7 @@
       "idx": 0,
       "version": "6",
       "when": 1784382678682,
-      "tag": "0000_relay_sync",
+      "tag": "0001_relay_schema",
       "breakpoints": true
     }
   ]
