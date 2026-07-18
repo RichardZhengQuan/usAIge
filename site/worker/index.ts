@@ -1,8 +1,9 @@
 /** Cloudflare Worker entry point for the vinext-starter template. */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
+import { handleRelayRequest, type RelayEnv } from "./relay-api";
 
-interface Env {
+interface Env extends RelayEnv {
   ASSETS: Fetcher;
   DB: D1Database;
   IMAGES: {
@@ -28,6 +29,9 @@ interface ExecutionContext {
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    const relayResponse = await handleRelayRequest(request, env, ctx);
+    if (relayResponse) return relayResponse;
 
     if (url.pathname === "/_vinext/image") {
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];

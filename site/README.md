@@ -92,6 +92,13 @@ actions tied to the current ChatGPT user. Leave public content anonymous.
 - `npm test`: build the starter and verify its rendered loading skeleton
 - `npm run db:generate`: generate Drizzle migrations after schema changes
 
+## Relay runtime configuration
+
+The Mac-to-iPhone relay uses the logical D1 binding `DB`. Silent push is
+enabled only when the hosted Sites environment contains `APNS_TEAM_ID`,
+`APNS_KEY_ID`, `APNS_PRIVATE_KEY`, and `APNS_TOPIC`. Keep the `.p8` private key
+in hosted secret storage; never add it to the repository or a local env file.
+
 ## Learn More
 
 - [vinext Documentation](https://github.com/cloudflare/vinext)

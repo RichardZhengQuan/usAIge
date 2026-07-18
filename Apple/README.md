@@ -1,10 +1,10 @@
 # usAIge for Apple Watch
 
-This project adds a native watchOS app and WidgetKit complications to usAIge's existing iOS app. The iPhone remains the secure configuration and network layer; Apple Watch receives only normalized, credential-free quota snapshots.
+This project adds a native watchOS app and WidgetKit complications to usAIge's iPhone app. The Mac remains the trusted source and the iPhone receives normalized relay snapshots; Apple Watch receives only credential-free quota snapshots from the iPhone.
 
 ## What is included
 
-- `usAIge-iOS`: the existing iPhone and iPad app for adding, editing, disabling, and deleting remote AI usage endpoints. Optional bearer tokens stay in the iPhone Keychain.
+- `usAIge-iOS`: the iPhone and iPad app for pairing with a Mac using a one-use code. Its device-scoped relay token stays in the iPhone Keychain.
 - `usAIgeWatch`: inspect every synced tool and quota, see primary and secondary windows, and request an immediate refresh from a reachable iPhone.
 - `usAIgeWatchWidget`: watch-face complications for circular, rectangular, inline, and corner families.
 - `WatchUsageSnapshot`: a small, versioned, credential-free transfer contract shared by the iOS app, Watch app, and Watch widget.
@@ -49,13 +49,11 @@ Before a device build, select the same Apple Developer team for the iOS app, iOS
 
 Running a paired simulator scheme also requires matching iOS and watchOS simulator runtimes installed in Xcode.
 
-## Add a remote AI tool
+## Pair with a Mac
 
-1. Open usAIge on the paired iPhone.
-2. Tap **Add AI Tool**.
-3. Enter a display name and an HTTPS endpoint.
-4. Add a bearer token if the endpoint requires one.
-5. Save. The iPhone validates and fetches the endpoint, then sends the sanitized result to Apple Watch.
+1. On the Mac, open **usAIge Settings → iPhone Sync** and create a connection.
+2. Open the iPhone Connection tab and enter the 8-character code.
+3. The iPhone fetches the latest sanitized Mac snapshot and forwards it to Apple Watch.
 
 Tokens never enter the WatchConnectivity payload or App Group snapshot file. The widget extension has no credential access and performs no authenticated network request.
 

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import UserNotifications
 
@@ -11,11 +12,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     let launchAtLogin: LaunchAtLoginController
     let updateController: UpdateController
     let usageLimitNotifications: UsageLimitNotificationController
+    let relaySync: RelaySyncController
     private var panel: HUDPanel?
     private var codexAttentionMonitor: CodexAttentionMonitor?
     var settingsSceneOpener: @MainActor () -> Void = SettingsScenePresenter.open
     private var isTerminationPending = false
     private var hasRepliedToTermination = false
+    private var relaySettingsObserver: AnyCancellable?
 
     override init() {
         let configuredSettings = HUDSettings()
@@ -45,6 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         launchAtLogin = LaunchAtLoginController()
         updateController = UpdateController()
         usageLimitNotifications = UsageLimitNotificationController()
+        relaySync = RelaySyncController()
         super.init()
     }
 
@@ -53,11 +57,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         let notificationCenter = UNUserNotificationCenter.current()
         notificationCenter.delegate = self
         notificationCenter.setNotificationCategories(AppNotificationCategories.all)
-        store.onSnapshotsChanged = { [settings, usageLimitNotifications] snapshots in
+        store.onSnapshotsChanged = { [settings, usageLimitNotifications, relaySync] snapshots in
+            let visible = settings.ordered(snapshots)
             usageLimitNotifications.observe(
-                settings.ordered(snapshots),
+                visible,
                 intervalPercent: settings.usageAlertIntervalPercent
             )
+            relaySync.observe(visible)
         }
         let content: AnyView
         if #available(macOS 14.0, *) {
@@ -87,6 +93,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         positionPanel(panel)
         panel.orderFrontRegardless()
         store.start()
+        relaySync.start()
+        relaySettingsObserver = settings.objectWillChange.sink { [weak self] in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.relaySync.observe(self.settings.ordered(self.store.visibleSnapshots))
+            }
+        }
         agentStore.start()
         let codexAttentionMonitor = CodexAttentionMonitor { [weak self] in
             self?.agentStore.acknowledgeAttentionStates()

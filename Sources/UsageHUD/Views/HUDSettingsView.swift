@@ -7,6 +7,7 @@ struct HUDSettingsRootView: View {
     @ObservedObject var store: UsageStore
     @ObservedObject var launchAtLogin: LaunchAtLoginController
     @ObservedObject var updateController: UpdateController
+    @ObservedObject var relaySync: RelaySyncController
 
     var body: some View {
         HUDSettingsView(
@@ -14,6 +15,7 @@ struct HUDSettingsRootView: View {
             snapshots: store.visibleSnapshots,
             launchAtLogin: launchAtLogin,
             updateController: updateController,
+            relaySync: relaySync,
             refreshUsage: { await store.refresh() }
         )
     }
@@ -27,6 +29,7 @@ struct HUDSettingsView: View {
     let snapshots: [QuotaSnapshot]
     @ObservedObject var launchAtLogin: LaunchAtLoginController
     @ObservedObject var updateController: UpdateController
+    @ObservedObject var relaySync: RelaySyncController
     let refreshUsage: () async -> Void
     @State private var remoteToolToDelete: RemoteAITool?
     @State private var remoteToolError: String?
@@ -121,6 +124,7 @@ struct HUDSettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 pageLink("Manage AI Tools", destination: .aiTools)
+                pageLink("iPhone Sync", destination: .iphoneSync)
             }
 
             Section("Display") {
@@ -302,6 +306,82 @@ struct HUDSettingsView: View {
                     onDismiss: goBack
                 )
             }
+        case .iphoneSync:
+            iPhoneSyncPage
+        }
+    }
+
+    private var iPhoneSyncPage: some View {
+        pageContainer(title: "iPhone Sync") {
+            Form {
+                Section("Connection") {
+                    if relaySync.isLinked {
+                        LabeledContent("Mac", value: relaySync.macName)
+                        LabeledContent("Status", value: relayStatusText)
+                        if let date = relaySync.lastUploadAt {
+                            LabeledContent("Last upload", value: date.formatted(date: .omitted, time: .shortened))
+                        }
+                    } else {
+                        ContentUnavailableView(
+                            "Not Connected",
+                            systemImage: "iphone.and.arrow.forward",
+                            description: Text("Create a code, then enter it in usAIge on iPhone.")
+                        )
+                    }
+                    if let code = relaySync.pairingCode, let expiry = relaySync.pairingExpiresAt, expiry > Date() {
+                        LabeledContent("Pairing code") {
+                            Text(code)
+                                .font(.system(.title2, design: .monospaced, weight: .semibold))
+                                .textSelection(.enabled)
+                        }
+                        Text("Expires \(expiry.formatted(date: .omitted, time: .shortened)). Each code connects one iPhone.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Spacer()
+                        Button(relaySync.isLinked ? "Add iPhone" : "Create Connection") {
+                            Task {
+                                if relaySync.isLinked { await relaySync.createPairingCode() }
+                                else { await relaySync.createChannel() }
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                }
+                if relaySync.isLinked {
+                    Section("Paired iPhones") {
+                        if relaySync.devices.isEmpty {
+                            Text("No iPhones paired yet.").foregroundStyle(.secondary)
+                        }
+                        ForEach(relaySync.devices) { device in
+                            HStack {
+                                Label(device.name, systemImage: "iphone")
+                                Spacer()
+                                Text(device.lastSeenAt, style: .relative).font(.caption).foregroundStyle(.secondary)
+                                Button("Revoke", role: .destructive) { Task { await relaySync.revoke(device) } }
+                            }
+                        }
+                    }
+                    Section {
+                        Button("Disconnect All", role: .destructive) { Task { await relaySync.disconnectAll() } }
+                    } footer: {
+                        Text("Only normalized limit percentages and reset times are relayed. Disconnecting deletes the server channel and revokes every iPhone.")
+                    }
+                }
+            }
+            .formStyle(.grouped)
+            .padding(.horizontal)
+        }
+    }
+
+    private var relayStatusText: String {
+        switch relaySync.status {
+        case .disconnected: "Disconnected"
+        case .connecting: "Connecting…"
+        case .connected: "Connected"
+        case .uploading: "Uploading…"
+        case let .failed(message): message
         }
     }
 
@@ -511,6 +591,7 @@ struct HUDSettingsView: View {
 private enum SettingsDestination: Hashable {
     case aiTools
     case remoteToolSetup(AIToolID?)
+    case iphoneSync
 }
 
 @available(macOS 14.0, *)

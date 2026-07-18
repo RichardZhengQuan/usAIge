@@ -11,6 +11,7 @@ options:
 settings:
   base:
     CURRENT_PROJECT_VERSION: 1
+    DEVELOPMENT_TEAM: B68TWP5679
     MARKETING_VERSION: 0.2.1
     SWIFT_VERSION: 6.0
   configs:
@@ -34,6 +35,11 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.richardq.usaige
         PRODUCT_NAME: usAIge
         TARGETED_DEVICE_FAMILY: "1,2"
+      configs:
+        Debug:
+          APS_ENVIRONMENT: development
+        Release:
+          APS_ENVIRONMENT: production
     dependencies:
       - target: UsageWidget
       - target: usAIgeWatch

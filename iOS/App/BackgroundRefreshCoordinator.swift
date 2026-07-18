@@ -9,7 +9,23 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         BackgroundRefreshCoordinator.register()
+        application.registerForRemoteNotifications()
         return true
+    }
+
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        Task { @MainActor in await BackgroundRefreshCoordinator.receiveAPNsToken(deviceToken) }
+    }
+
+    func application(
+        _ application: UIApplication,
+        didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+        fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+    ) {
+        Task { @MainActor in
+            let succeeded = await BackgroundRefreshCoordinator.handleBackgroundPush()
+            completionHandler(succeeded ? .newData : .failed)
+        }
     }
 }
 
@@ -20,11 +36,21 @@ enum BackgroundRefreshCoordinator {
         subsystem: "com.richardq.usaige",
         category: "BackgroundRefresh"
     )
-    private static weak var model: AppModel?
+    private static weak var model: RelayAppModel?
 
-    static func attach(_ appModel: AppModel) {
+    static func attach(_ appModel: RelayAppModel) {
         model = appModel
     }
+
+    static func receiveAPNsToken(_ token: Data) async {
+        #if DEBUG
+        await model?.receiveAPNsToken(token, environment: "sandbox")
+        #else
+        await model?.receiveAPNsToken(token, environment: "production")
+        #endif
+    }
+
+    static func handleBackgroundPush() async -> Bool { await model?.handleBackgroundPush() ?? false }
 
     static func register() {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: taskIdentifier, using: nil) { task in
