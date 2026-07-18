@@ -16,6 +16,7 @@ const pairingLifetimeMs = 10 * 60_000;
 const pushIntervalMs = 20 * 60_000;
 const maximumBodyBytes = 256 * 1024;
 let cachedProviderToken: { value: string; createdAt: number } | undefined;
+let schemaReady: Promise<void> | undefined;
 
 export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: RelayContext): Promise<Response | null> {
   const url = new URL(request.url);
@@ -23,6 +24,7 @@ export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: R
   if (!env.DB) return json({ error: "Relay storage is unavailable." }, 503);
 
   try {
+    await ensureRelaySchema(env.DB);
     if (request.method === "POST" && url.pathname === "/api/v1/channels") {
       await enforceRateLimit(env.DB, `create:${clientAddress(request)}`, 10, 60 * 60_000);
       const payload = await readJSON(request) as { macName?: string };
@@ -137,6 +139,19 @@ export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: R
     if (error instanceof RelayError) return json({ error: error.message }, error.status);
     return json({ error: "Relay request failed." }, 500);
   }
+}
+
+async function ensureRelaySchema(db: D1Database) {
+  if (!schemaReady) {
+    schemaReady = db.batch([
+      db.prepare("CREATE TABLE IF NOT EXISTS relay_channels (id TEXT PRIMARY KEY NOT NULL, mac_name TEXT NOT NULL, upload_token_hash TEXT NOT NULL UNIQUE, snapshot_json TEXT, snapshot_hash TEXT, snapshot_version INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, last_upload_at TEXT)"),
+      db.prepare("CREATE TABLE IF NOT EXISTS relay_pairings (id TEXT PRIMARY KEY NOT NULL, channel_id TEXT NOT NULL REFERENCES relay_channels(id) ON DELETE CASCADE, code_hash TEXT NOT NULL UNIQUE, expires_at TEXT NOT NULL, claimed_at TEXT, failed_attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)"),
+      db.prepare("CREATE TABLE IF NOT EXISTS relay_devices (id TEXT PRIMARY KEY NOT NULL, channel_id TEXT NOT NULL REFERENCES relay_channels(id) ON DELETE CASCADE, name TEXT NOT NULL, read_token_hash TEXT NOT NULL UNIQUE, apns_token TEXT, apns_environment TEXT, last_push_at TEXT, created_at TEXT NOT NULL, last_seen_at TEXT NOT NULL)"),
+      db.prepare("CREATE INDEX IF NOT EXISTS relay_devices_channel_idx ON relay_devices(channel_id)"),
+      db.prepare("CREATE TABLE IF NOT EXISTS relay_rate_limits (key TEXT PRIMARY KEY NOT NULL, count INTEGER NOT NULL, window_started_at TEXT NOT NULL)"),
+    ]).then(() => undefined).catch(error => { schemaReady = undefined; throw error; });
+  }
+  await schemaReady;
 }
 
 class RelayError extends Error {
