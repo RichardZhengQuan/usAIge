@@ -12,7 +12,7 @@ type DeviceRow = { id: string; channel_id: string; name: string; read_token_hash
 type RemoteToolRow = { id: string; channel_id: string; name: string; symbol_name: string; website_url: string | null; write_token_hash: string; snapshot_json: string | null; created_at: string; last_upload_at: string | null };
 
 const encoder = new TextEncoder();
-const pairingAlphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+const pairingAlphabet = "0123456789";
 const pairingLifetimeMs = 10 * 60_000;
 const pushIntervalMs = 20 * 60_000;
 const maximumBodyBytes = 256 * 1024;
@@ -352,4 +352,4 @@ async function providerToken(env: RelayEnv) {
   const value = `${header}.${claims}.${base64url(signature)}`; cachedProviderToken = { value, createdAt: now }; return value;
 }
 
-export const relayTestSupport = { normalizeCode, validateSnapshot, validateRemoteToolSnapshot, sha256 };
+export const relayTestSupport = { normalizeCode, randomCode, validateSnapshot, validateRemoteToolSnapshot, sha256 };

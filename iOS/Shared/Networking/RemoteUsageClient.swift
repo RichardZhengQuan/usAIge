@@ -198,7 +198,7 @@ public enum RelayClientError: LocalizedError, Sendable {
     case invalidCode, invalidResponse, unauthorized, server(String)
     public var errorDescription: String? {
         switch self {
-        case .invalidCode: "Enter the 8-character code shown on your Mac."
+        case .invalidCode: "Enter the 8-digit code shown on your Mac."
         case .invalidResponse: "The relay returned an invalid response."
         case .unauthorized: "This iPhone is no longer connected. Pair it again from the Mac."
         case let .server(message): message
@@ -212,7 +212,7 @@ public struct RelayClient: Sendable {
     public init(session: URLSession = .shared) { self.session = session }
 
     public func claim(code: String, deviceName: String) async throws -> RelayClaimResult {
-        let normalized = code.uppercased().filter { $0.isLetter || $0.isNumber }
+        let normalized = code.filter { $0.isASCII && $0.isNumber }
         guard normalized.count == 8 else { throw RelayClientError.invalidCode }
         var request = URLRequest(url: Self.baseURL.appending(path: "pairings/claim"))
         request.httpMethod = "POST"

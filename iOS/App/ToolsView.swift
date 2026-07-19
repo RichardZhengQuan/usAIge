@@ -20,14 +20,14 @@ struct ToolsView: View {
             }
 
             Section {
-                TextField("8-character code", text: $model.pairingCode)
-                    .textInputAutocapitalization(.characters)
-                    .autocorrectionDisabled()
+                TextField("8-digit code", text: $model.pairingCode)
+                    .keyboardType(.numberPad)
+                    .textContentType(.oneTimeCode)
                     .font(.system(.title2, design: .monospaced, weight: .semibold))
                     .multilineTextAlignment(.center)
                     .focused($codeFocused)
                     .onChange(of: model.pairingCode) { _, value in
-                        model.pairingCode = String(value.uppercased().filter { $0.isLetter || $0.isNumber }.prefix(8))
+                        model.pairingCode = String(value.filter { $0.isASCII && $0.isNumber }.prefix(8))
                     }
                 Button(model.connections.isEmpty ? "Connect" : "Add Mac", systemImage: "link.badge.plus") {
                     Task { await model.pair() }
@@ -41,7 +41,7 @@ struct ToolsView: View {
             } header: {
                 Text(model.connections.isEmpty ? "Pair with Mac" : "Add Another Mac")
             } footer: {
-                Text("On the Mac, open usAIge Settings → iPhone Sync → Create Connection. Each Mac uses its own 8-character code.")
+                Text("On the Mac, open usAIge Settings → iPhone Sync → Create Connection. Each Mac uses its own 8-digit code.")
             }
 
             Section {
