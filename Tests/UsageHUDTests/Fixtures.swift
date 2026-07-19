@@ -61,6 +61,16 @@ enum Fixtures {
         ]),
         "rateLimitResetCredits": .object([
             "availableCount": .number(6),
+            "credits": .array([
+                .object([
+                    "id": .string("reset-1"),
+                    "status": .string("available"),
+                    "resetType": .string("codexRateLimits"),
+                    "grantedAt": .number(1_800_000_000),
+                    "expiresAt": .number(1_800_950_400),
+                    "title": .string("Full reset"),
+                ]),
+            ]),
         ]),
     ])
 

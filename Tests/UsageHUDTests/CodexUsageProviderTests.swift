@@ -20,6 +20,9 @@ import Testing
     #expect(result.snapshots[0].secondaryWindow?.remainingPercent == 67)
     #expect(result.snapshots[0].secondaryWindow?.typeTag == "7D")
     #expect(result.snapshots.allSatisfy { $0.availableResetCount == 6 })
+    #expect(result.snapshots.allSatisfy {
+        $0.resetCreditExpiresAt == Date(timeIntervalSince1970: 1_800_950_400)
+    })
     #expect(await rpc.requestedMethods == ["initialize", "account/read", "account/rateLimits/read"])
     #expect(await rpc.notifiedMethods == ["initialized"])
 }

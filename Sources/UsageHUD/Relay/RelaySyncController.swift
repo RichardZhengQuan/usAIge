@@ -22,10 +22,16 @@ struct RelaySessionStatusPayload: Codable, Equatable, Sendable {
     let updatedAt: Date
 }
 
+struct RelayResetCreditsPayload: Codable, Equatable, Sendable {
+    let availableCount: Int
+    let expiresAt: Date?
+}
+
 struct RelayToolPayload: Encodable, Equatable, Sendable {
     let id: String
     let name: String
     let symbolName: String
+    let resetCredits: RelayResetCreditsPayload?
     let limits: [RelayLimitPayload]
     let sessionStatus: RelaySessionStatusPayload?
 }
@@ -47,10 +53,18 @@ struct RelaySnapshotPayload: Encodable, Equatable, Sendable {
             let values = snapshots.filter { $0.toolID == toolID }
             guard let first = values.first else { return nil }
             let descriptor = AIToolDescriptor.descriptor(for: first)
+            let availableResetCount = values.compactMap(\.availableResetCount).first
+            let resetCreditExpiresAt = values.compactMap(\.resetCreditExpiresAt).first
             return RelayToolPayload(
                 id: toolID.rawValue,
                 name: first.toolName ?? descriptor.name,
                 symbolName: first.toolSystemImage ?? descriptor.systemImage,
+                resetCredits: availableResetCount.map {
+                    RelayResetCreditsPayload(
+                        availableCount: $0,
+                        expiresAt: resetCreditExpiresAt
+                    )
+                },
                 limits: values.map { snapshot in
                     RelayLimitPayload(
                         id: snapshot.id,
@@ -248,6 +262,7 @@ final class RelaySyncController: ObservableObject {
         uploadTask?.cancel()
         uploadTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard !Task.isCancelled else { return }
             await self?.uploadLatest(force: false)
         }
     }

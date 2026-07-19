@@ -31,6 +31,11 @@ protocol AutomaticUsageProviding: CodexUsageProviding {
 }
 
 actor CodexUsageProvider: CodexUsageProviding {
+    private struct ResetCreditSummary {
+        let availableCount: Int
+        let earliestExpiration: Date?
+    }
+
     private let rpc: any RPCRequesting
     private let now: @Sendable () -> Date
     private var initialized = false
@@ -106,30 +111,37 @@ actor CodexUsageProvider: CodexUsageProviding {
         } else {
             wrapped = .object(["rateLimits": params])
         }
-        let availableResetCount = Self.availableResetCount(in: wrapped)
+        let resetCredits = Self.resetCreditSummary(in: wrapped)
         let updates = Self.decodeSnapshots(from: wrapped, updatedAt: now())
         for var snapshot in updates {
-            snapshot.availableResetCount = availableResetCount
-                ?? snapshotsByID[snapshot.id]?.availableResetCount
-                ?? snapshotsByID.values.compactMap(\.availableResetCount).first
+            if let resetCredits {
+                snapshot.availableResetCount = resetCredits.availableCount
+                snapshot.resetCreditExpiresAt = resetCredits.earliestExpiration
+            } else {
+                snapshot.availableResetCount = snapshotsByID[snapshot.id]?.availableResetCount
+                    ?? snapshotsByID.values.compactMap(\.availableResetCount).first
+                snapshot.resetCreditExpiresAt = snapshotsByID[snapshot.id]?.resetCreditExpiresAt
+                    ?? snapshotsByID.values.compactMap(\.resetCreditExpiresAt).first
+            }
             snapshotsByID[snapshot.id] = snapshot
         }
-        if let availableResetCount {
+        if let resetCredits {
             for id in snapshotsByID.keys {
-                snapshotsByID[id]?.availableResetCount = availableResetCount
+                snapshotsByID[id]?.availableResetCount = resetCredits.availableCount
+                snapshotsByID[id]?.resetCreditExpiresAt = resetCredits.earliestExpiration
             }
         }
         return snapshotsByID.values.sorted { $0.id < $1.id }
     }
 
     private static func decodeSnapshots(from response: JSONValue, updatedAt: Date) -> [QuotaSnapshot] {
-        let availableResetCount = availableResetCount(in: response)
+        let resetCredits = resetCreditSummary(in: response)
         if let byID = response["rateLimitsByLimitId"]?.objectValue {
             return byID.keys.sorted().compactMap { key in
                 decodeBucket(
                     byID[key],
                     fallbackID: key,
-                    availableResetCount: availableResetCount,
+                    resetCredits: resetCredits,
                     updatedAt: updatedAt
                 )
             }
@@ -138,19 +150,30 @@ actor CodexUsageProvider: CodexUsageProviding {
         return [decodeBucket(
             single,
             fallbackID: "codex",
-            availableResetCount: availableResetCount,
+            resetCredits: resetCredits,
             updatedAt: updatedAt
         )].compactMap { $0 }
     }
 
-    private static func availableResetCount(in response: JSONValue) -> Int? {
-        response["rateLimitResetCredits"]?["availableCount"]?.intValue
+    private static func resetCreditSummary(in response: JSONValue) -> ResetCreditSummary? {
+        guard let value = response["rateLimitResetCredits"],
+              let availableCount = value["availableCount"]?.intValue else { return nil }
+        let expirations = value["credits"]?.arrayValue?.compactMap { credit -> Date? in
+            guard credit["status"]?.stringValue == "available",
+                  credit["resetType"]?.stringValue == "codexRateLimits",
+                  let timestamp = credit["expiresAt"]?.numberValue else { return nil }
+            return Date(timeIntervalSince1970: timestamp)
+        } ?? []
+        return ResetCreditSummary(
+            availableCount: max(0, availableCount),
+            earliestExpiration: expirations.min()
+        )
     }
 
     private static func decodeBucket(
         _ value: JSONValue?,
         fallbackID: String,
-        availableResetCount: Int?,
+        resetCredits: ResetCreditSummary?,
         updatedAt: Date
     ) -> QuotaSnapshot? {
         guard let object = value?.objectValue,
@@ -185,7 +208,8 @@ actor CodexUsageProvider: CodexUsageProviding {
             ),
             updatedAt: updatedAt
         )
-        snapshot.availableResetCount = availableResetCount
+        snapshot.availableResetCount = resetCredits?.availableCount
+        snapshot.resetCreditExpiresAt = resetCredits?.earliestExpiration
         return snapshot
     }
 }

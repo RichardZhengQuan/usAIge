@@ -286,12 +286,12 @@ async function readJSON(request: Request): Promise<unknown> {
   try { return JSON.parse(text || "{}"); } catch { throw new RelayError("Request body must be valid JSON.", 400); }
 }
 function validateSnapshot(value: unknown): asserts value is Record<string, unknown> {
-  const root = value as { schemaVersion?: unknown; generatedAt?: unknown; tools?: unknown };
-  if (!root || !hasOnlyKeys(root, ["schemaVersion", "generatedAt", "tools"]) || root.schemaVersion !== 1 || !isDateString(root.generatedAt) || !Array.isArray(root.tools) || root.tools.length > 100) {
+  const root = value as { schemaVersion?: unknown; generatedAt?: unknown; tools?: unknown; sessionStatus?: unknown };
+  if (!root || !hasOnlyKeys(root, ["schemaVersion", "generatedAt", "tools", "sessionStatus"]) || root.schemaVersion !== 1 || !isDateString(root.generatedAt) || !Array.isArray(root.tools) || root.tools.length > 100 || (root.sessionStatus != null && !isSessionStatus(root.sessionStatus))) {
     throw new RelayError("Invalid snapshot schema.", 400);
   }
-  for (const tool of root.tools as Array<{ id?: unknown; name?: unknown; symbolName?: unknown; limits?: unknown; sessionStatus?: unknown }>) {
-    if (!hasOnlyKeys(tool, ["id", "name", "symbolName", "limits", "sessionStatus"]) || !isBoundedString(tool.id, 128) || !isBoundedString(tool.name, 128) || !isBoundedString(tool.symbolName, 128) || !Array.isArray(tool.limits) || tool.limits.length > 100 || (tool.sessionStatus != null && !isSessionStatus(tool.sessionStatus))) {
+  for (const tool of root.tools as Array<{ id?: unknown; name?: unknown; symbolName?: unknown; resetCredits?: unknown; limits?: unknown; sessionStatus?: unknown }>) {
+    if (!hasOnlyKeys(tool, ["id", "name", "symbolName", "resetCredits", "limits", "sessionStatus"]) || !isBoundedString(tool.id, 128) || !isBoundedString(tool.name, 128) || !isBoundedString(tool.symbolName, 128) || (tool.resetCredits != null && !isResetCredits(tool.resetCredits)) || !Array.isArray(tool.limits) || tool.limits.length > 100 || (tool.sessionStatus != null && !isSessionStatus(tool.sessionStatus))) {
       throw new RelayError("Invalid tool snapshot.", 400);
     }
     for (const limit of tool.limits as Array<{ id?: unknown; name?: unknown; planType?: unknown; primary?: unknown; secondary?: unknown }>) {
@@ -301,13 +301,6 @@ function validateSnapshot(value: unknown): asserts value is Record<string, unkno
     }
   }
 }
-function isSessionStatus(value: unknown) {
-  if (!value || typeof value !== "object") return false;
-  const status = value as { phase?: unknown; updatedAt?: unknown };
-  return hasOnlyKeys(status, ["phase", "updatedAt"])
-    && ["idle", "thinking", "complete", "needsInput", "error"].includes(String(status.phase))
-    && isDateString(status.updatedAt);
-}
 function sessionStatusSignature(value: unknown) {
   const root = value as { tools?: unknown } | null;
   if (!root || !Array.isArray(root.tools)) return "[]";
@@ -315,6 +308,23 @@ function sessionStatusSignature(value: unknown) {
     const value = tool as { id?: unknown; sessionStatus?: unknown };
     return [value.id, value.sessionStatus ?? null];
   }));
+}
+function isResetCredits(value: unknown) {
+  const credits = value as { availableCount?: unknown; expiresAt?: unknown } | null;
+  return !!credits
+    && hasOnlyKeys(credits, ["availableCount", "expiresAt"])
+    && Number.isInteger(credits.availableCount)
+    && Number(credits.availableCount) >= 0
+    && Number(credits.availableCount) <= 1_000
+    && (credits.expiresAt == null || isDateString(credits.expiresAt));
+}
+function isSessionStatus(value: unknown) {
+  const status = value as { phase?: unknown; updatedAt?: unknown } | null;
+  return !!status
+    && hasOnlyKeys(status, ["phase", "updatedAt"])
+    && typeof status.phase === "string"
+    && ["idle", "thinking", "complete", "needsInput", "error"].includes(status.phase)
+    && isDateString(status.updatedAt);
 }
 function validateRemoteToolSnapshot(value: unknown): asserts value is Record<string, unknown> {
   const root = value as { schemaVersion?: unknown; generatedAt?: unknown; limits?: unknown };

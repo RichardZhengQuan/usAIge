@@ -7,6 +7,8 @@ import Testing
     snapshot.toolName = "Codex"
     snapshot.toolWebURL = URL(string: "https://example.com/private?token=secret")
     snapshot.toolSystemImage = "sparkles"
+    snapshot.availableResetCount = 1
+    snapshot.resetCreditExpiresAt = Date(timeIntervalSince1970: 1_800_950_400)
 
     let payload = RelaySnapshotPayload.make(
         from: [snapshot],
@@ -25,6 +27,12 @@ import Testing
     #expect(payload.tools[0].limits[0].primary.remainingPercent == 75)
     #expect(payload.tools[0].limits[0].secondary?.remainingPercent == 67)
     #expect(payload.tools[0].sessionStatus?.phase == .thinking)
+    #expect(payload.tools[0].resetCredits?.availableCount == 1)
+    #expect(payload.tools[0].resetCredits?.expiresAt == Date(timeIntervalSince1970: 1_800_950_400))
+    #expect(payload.tools[0].sessionStatus?.phase == .thinking)
+    #expect(text.contains("thinking"))
+    #expect(!text.contains("session-id"))
+    #expect(!text.contains("workspace"))
     #expect(!text.contains("token"))
     #expect(!text.contains("example.com"))
     #expect(!text.contains("task"))

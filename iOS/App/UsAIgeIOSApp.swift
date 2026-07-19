@@ -16,24 +16,28 @@ struct UsAIgeIOSApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView()
-                .environment(model)
-                .task {
-                    await model.start()
-                    await model.refreshAll()
-                }
-                .onChange(of: scenePhase) { _, phase in
-                    switch phase {
-                    case .active:
-                        Task { await model.refreshAll() }
-                    case .background:
-                        BackgroundRefreshCoordinator.schedule(
-                            afterMinutes: model.minimumRefreshIntervalMinutes
-                        )
-                    default:
-                        break
-                    }
-                }
+            appRoot
         }
+    }
+
+    private var appRoot: some View {
+        RootView()
+            .environment(model)
+            .task {
+                await model.start()
+                await model.refreshAll()
+            }
+            .onChange(of: scenePhase) { _, phase in
+                switch phase {
+                case .active:
+                    Task { await model.refreshAll() }
+                case .background:
+                    BackgroundRefreshCoordinator.schedule(
+                        afterMinutes: model.minimumRefreshIntervalMinutes
+                    )
+                default:
+                    break
+                }
+            }
     }
 }

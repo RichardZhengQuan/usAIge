@@ -356,20 +356,6 @@ private enum WidgetQuotaSeverity {
 }
 
 private extension CodexSessionPhase {
-    var showsLight: Bool {
-        self != .idle
-    }
-
-    var label: String {
-        switch self {
-        case .idle: "Idle"
-        case .thinking: "Thinking"
-        case .complete: "Complete"
-        case .needsInput: "Needs input"
-        case .error: "Error"
-        }
-    }
-
     var color: Color {
         switch self {
         case .idle: .clear
@@ -449,6 +435,16 @@ private enum WidgetQuotaFormat {
             return "\(Int(ceil(remaining / 3_600)))H"
         }
         return "\(max(1, Int(ceil(remaining / 60))))M"
+    }
+
+    static func color(_ remainingPercent: Double) -> Color {
+        switch QuotaSeverity(remainingPercent: remainingPercent) {
+        case .abundant: .blue
+        case .healthy: .green
+        case .caution: .orange
+        case .low: .red
+        case .critical: Color(red: 0.72, green: 0, blue: 0.04)
+        }
     }
 }
 

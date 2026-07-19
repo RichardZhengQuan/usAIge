@@ -289,6 +289,7 @@ final class CodexAgentStore: ObservableObject {
     @Published private(set) var lastError: String?
 
     var onAttentionEvent: (@MainActor (CodexAgentTask) -> Void)?
+    var onAggregatePhaseChanged: (@MainActor (CodexAgentPhase, Date) -> Void)?
 
     private let provider: any CodexAgentProviding
     private var monitorTask: Task<Void, Never>?
@@ -433,8 +434,15 @@ final class CodexAgentStore: ObservableObject {
             tasks,
             acknowledgements: acknowledgements
         ))
+        let previousPhase = phase
         phase = aggregate.phase
         targetTask = aggregate.task
+        if aggregate.phase != previousPhase {
+            onAggregatePhaseChanged?(
+                aggregate.phase,
+                aggregate.task?.updatedAt ?? Date()
+            )
+        }
     }
 
     private nonisolated static func priority(of phase: CodexAgentPhase) -> Int {

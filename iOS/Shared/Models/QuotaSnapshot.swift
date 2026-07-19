@@ -1,11 +1,44 @@
 import Foundation
 
+public enum QuotaSeverity: Equatable, Sendable {
+    case abundant
+    case healthy
+    case caution
+    case low
+    case critical
+
+    public init(remainingPercent: Double) {
+        if remainingPercent <= 10 {
+            self = .critical
+        } else if remainingPercent <= 20 {
+            self = .low
+        } else if remainingPercent <= 40 {
+            self = .caution
+        } else if remainingPercent <= 60 {
+            self = .healthy
+        } else {
+            self = .abundant
+        }
+    }
+}
+
 public enum CodexSessionPhase: String, Codable, Equatable, Hashable, Sendable {
     case idle
     case thinking
     case complete
     case needsInput
     case error
+    public var label: String {
+        switch self {
+        case .idle: "Idle"
+        case .thinking: "Thinking"
+        case .complete: "Complete"
+        case .needsInput: "Needs input"
+        case .error: "Error"
+        }
+    }
+
+    public var showsLight: Bool { self != .idle }
 }
 
 public struct CodexSessionStatus: Codable, Equatable, Hashable, Sendable {
@@ -65,6 +98,8 @@ public struct QuotaSnapshot: Codable, Equatable, Hashable, Identifiable, Sendabl
     public let updatedAt: Date
     public let planType: String?
     public let windowDurationMinutes: Int?
+    public let availableResetCount: Int?
+    public let resetCreditExpiresAt: Date?
     public let secondaryWindow: QuotaWindowSnapshot?
     public let sessionStatus: CodexSessionStatus?
 
@@ -79,6 +114,8 @@ public struct QuotaSnapshot: Codable, Equatable, Hashable, Identifiable, Sendabl
         updatedAt: Date,
         planType: String? = nil,
         windowDurationMinutes: Int? = nil,
+        availableResetCount: Int? = nil,
+        resetCreditExpiresAt: Date? = nil,
         secondaryWindow: QuotaWindowSnapshot? = nil,
         sessionStatus: CodexSessionStatus? = nil
     ) {
@@ -92,6 +129,8 @@ public struct QuotaSnapshot: Codable, Equatable, Hashable, Identifiable, Sendabl
         self.updatedAt = updatedAt
         self.planType = planType
         self.windowDurationMinutes = windowDurationMinutes.flatMap { $0 > 0 ? $0 : nil }
+        self.availableResetCount = availableResetCount.map { max(0, $0) }
+        self.resetCreditExpiresAt = resetCreditExpiresAt
         self.secondaryWindow = secondaryWindow
         self.sessionStatus = sessionStatus
     }

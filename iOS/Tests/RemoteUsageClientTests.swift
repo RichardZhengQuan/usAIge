@@ -118,6 +118,31 @@ final class RemoteUsageClientTests: XCTestCase {
         )
     }
 
+    func testRelayFetchDecodesStatusAndResetCredits() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RemoteUsageStubURLProtocol.self]
+        let relay = RelayClient(session: URLSession(configuration: configuration))
+        let connection = RelayConnection(
+            channelID: UUID(uuidString: "11111111-1111-4111-8111-111111111111")!,
+            deviceID: UUID(uuidString: "22222222-2222-4222-8222-222222222222")!,
+            macName: "Studio Mac"
+        )
+
+        let fetched = try await relay.fetch(connection: connection, token: "read-token")
+        let result = try XCTUnwrap(fetched)
+
+        XCTAssertEqual(result.snapshots.first?.sessionStatus?.phase, .thinking)
+        XCTAssertEqual(
+            result.snapshots.first?.sessionStatus?.updatedAt,
+            Date(timeIntervalSince1970: 1_800_000_099)
+        )
+        XCTAssertEqual(result.snapshots.first?.availableResetCount, 1)
+        XCTAssertEqual(
+            result.snapshots.first?.resetCreditExpiresAt,
+            Date(timeIntervalSince1970: 1_800_950_400)
+        )
+    }
+
     func testRelayRegistrationIncludesSessionNotificationPreference() async throws {
         RemoteUsageStubURLProtocol.resetLastRequest()
         let configuration = URLSessionConfiguration.ephemeral
@@ -276,6 +301,8 @@ private final class RemoteUsageStubURLProtocol: URLProtocol, @unchecked Sendable
         let responseBody: Data
         if url.path.hasSuffix("/session-events"), request.httpMethod == "GET" {
             responseBody = Data(#"{"events":[{"id":"session-1:finished:123","kind":"finished","sessionTitle":"Ship notification inbox","workspaceName":"GPTUsage","occurredAt":"2026-07-19T12:00:00Z"}]}"#.utf8)
+        } else if url.path.contains("/api/v1/channels/"), request.httpMethod == "GET" {
+            responseBody = Data(#"{"version":8,"serverReceivedAt":"2027-01-15T08:01:40Z","snapshot":{"schemaVersion":1,"generatedAt":"2027-01-15T08:01:40Z","tools":[{"id":"chatGPT","name":"ChatGPT","symbolName":"sparkles","resetCredits":{"availableCount":1,"expiresAt":"2027-01-26T08:00:00Z"},"sessionStatus":{"phase":"thinking","updatedAt":"2027-01-15T08:01:39Z"},"limits":[{"id":"codex","name":"Codex","planType":"pro","primary":{"remainingPercent":86,"resetAt":"2027-01-20T08:00:00Z","windowDurationMinutes":10080},"secondary":null}]}]}}"#.utf8)
         } else {
             responseBody = Data(#"{"limits":[{"id":"messages","usedPercent":25}]}"#.utf8)
         }
