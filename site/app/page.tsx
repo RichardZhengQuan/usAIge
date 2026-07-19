@@ -1,3 +1,5 @@
+import { SectionLink } from "./section-link";
+
 const basePath = "/project/usaige";
 const assetUrl = (path: string) => `${basePath}/${path}`;
 const releaseBaseUrl = "https://usaige-macos.richardqz.chatgpt.site";
@@ -24,14 +26,14 @@ export default function Home() {
   return (
     <main>
       <nav className="nav shell" aria-label="Main navigation">
-        <a className="brand" href="#top" aria-label="usAIge home">
+        <SectionLink className="brand" targetId="top" aria-label="usAIge home">
           <img src={assetUrl("app-icon.png")} alt="" />
           <span>us<span>AI</span>ge</span>
-        </a>
+        </SectionLink>
         <div className="nav__links">
-          <a href="#agent-status">Agent status</a>
-          <a href="#usage-effects">Usage effects</a>
-          <a href="#product">Product</a>
+          <SectionLink targetId="agent-status">Agent status</SectionLink>
+          <SectionLink targetId="usage-effects">Usage effects</SectionLink>
+          <SectionLink targetId="product">Product</SectionLink>
           <a className="nav__download" href={downloadUrl} download>Download <span aria-hidden="true">↘</span></a>
         </div>
       </nav>
@@ -48,7 +50,7 @@ export default function Home() {
               <span className="button__icon" aria-hidden="true">↓</span>
               <span><strong>Download for macOS</strong><small>v0.2.1 alpha · macOS 11+ · Apple silicon</small></span>
             </a>
-            <a className="text-link" href="#agent-status">See the status system <span aria-hidden="true">→</span></a>
+            <SectionLink className="text-link" targetId="agent-status">See the status system <span aria-hidden="true">→</span></SectionLink>
           </div>
         </div>
 
@@ -171,7 +173,7 @@ export default function Home() {
       </section>
 
       <footer className="footer shell">
-        <a className="brand" href="#top"><img src={assetUrl("app-icon.png")} alt="" /><span>us<span>AI</span>ge</span></a>
+        <SectionLink className="brand" targetId="top"><img src={assetUrl("app-icon.png")} alt="" /><span>us<span>AI</span>ge</span></SectionLink>
         <p>Built for people who would rather make things than monitor dashboards.</p>
         <span>v0.2.1 public alpha · 2026</span>
       </footer>

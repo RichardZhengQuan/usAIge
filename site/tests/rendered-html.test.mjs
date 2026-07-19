@@ -42,9 +42,13 @@ test("server-renders the current usAIge release", async () => {
 
 test("keeps menu hash navigation stable in Safari", async () => {
   const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  const sectionLink = await readFile(new URL("../app/section-link.tsx", import.meta.url), "utf8");
 
   assert.match(styles, /html\s*\{[^}]*scroll-behavior\s*:\s*auto\s*;/i);
   assert.doesNotMatch(styles, /scroll-behavior\s*:\s*smooth\s*;/i);
+  assert.match(sectionLink, /event\.preventDefault\(\)/);
+  assert.match(sectionLink, /history\.replaceState/);
+  assert.match(sectionLink, /scrollIntoView\(\{\s*behavior:\s*"auto"/);
 });
 
 test("loads the domain-locked VibeLoft telemetry client", async () => {
