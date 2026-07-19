@@ -146,17 +146,10 @@ enum AIToolLauncher {
         ) { runningApplication, _ in
             guard let runningApplication else { return }
             Task { @MainActor in
-                if #available(macOS 14.0, *) {
-                    NSApplication.shared.activate()
-                    await Task.yield()
-                    NSApplication.shared.yieldActivation(to: runningApplication)
-                    runningApplication.activate(
-                        from: .current,
-                        options: [.activateAllWindows]
-                    )
-                } else {
-                    runningApplication.activate(options: [.activateAllWindows])
-                }
+                // The HUD is a non-activating panel, so usAIge may not be frontmost here.
+                // Activating it first creates an asynchronous race that consumes the first
+                // click. The user-initiated deep link already authorizes Codex activation.
+                runningApplication.activate(options: [.activateAllWindows])
             }
         }
     }
