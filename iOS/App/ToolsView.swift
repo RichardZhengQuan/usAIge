@@ -2,10 +2,8 @@ import SwiftUI
 
 struct ToolsView: View {
     @Environment(RelayAppModel.self) private var model
-    @FocusState private var codeFocused: Bool
 
     var body: some View {
-        @Bindable var model = model
         Form {
             if !model.connections.isEmpty {
                 Section("Connected Macs") {
@@ -16,32 +14,10 @@ struct ToolsView: View {
                             MacConnectionRow(connectionID: connection.channelID)
                         }
                     }
-                }
-            }
 
-            Section {
-                TextField("8-digit code", text: $model.pairingCode)
-                    .keyboardType(.numberPad)
-                    .textContentType(.oneTimeCode)
-                    .font(.system(.title2, design: .monospaced, weight: .semibold))
-                    .multilineTextAlignment(.center)
-                    .focused($codeFocused)
-                    .onChange(of: model.pairingCode) { _, value in
-                        model.pairingCode = String(value.filter { $0.isASCII && $0.isNumber }.prefix(8))
-                    }
-                Button(model.connections.isEmpty ? "Connect" : "Add Mac", systemImage: "link.badge.plus") {
-                    Task { await model.pair() }
                 }
-                .buttonStyle(.glassProminent)
-                .frame(maxWidth: .infinity)
-                .disabled(model.pairingCode.count != 8 || model.isRefreshing)
-                if let error = model.pairingErrorMessage {
-                    Text(error).font(.caption).foregroundStyle(.red)
-                }
-            } header: {
-                Text(model.connections.isEmpty ? "Pair with Mac" : "Add Another Mac")
-            } footer: {
-                Text("On the Mac, open usAIge Settings → iPhone Sync → Create Connection. Each Mac uses its own 8-digit code.")
+            } else {
+                MacPairingSection(isAddingAnotherMac: false)
             }
 
             Section {
@@ -51,7 +27,75 @@ struct ToolsView: View {
             }
         }
         .navigationTitle("Connection")
-        .task { if !model.isConnected { codeFocused = true } }
+        .toolbarTitleDisplayMode(.inlineLarge)
+        .toolbar {
+            if !model.connections.isEmpty {
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink {
+                        AddMacView()
+                    } label: {
+                        Label("Add Mac", systemImage: "plus")
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct AddMacView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        Form {
+            MacPairingSection(isAddingAnotherMac: true) {
+                dismiss()
+            }
+        }
+        .navigationTitle("Add Mac")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct MacPairingSection: View {
+    @Environment(RelayAppModel.self) private var model
+    @FocusState private var codeFocused: Bool
+    let isAddingAnotherMac: Bool
+    var onPairSuccess: () -> Void = {}
+
+    var body: some View {
+        @Bindable var model = model
+
+        Section {
+            TextField("8-digit code", text: $model.pairingCode)
+                .keyboardType(.numberPad)
+                .textContentType(.oneTimeCode)
+                .font(.system(.title2, design: .monospaced, weight: .semibold))
+                .multilineTextAlignment(.center)
+                .focused($codeFocused)
+                .onChange(of: model.pairingCode) { _, value in
+                    model.pairingCode = String(value.filter { $0.isASCII && $0.isNumber }.prefix(8))
+                }
+            Button(isAddingAnotherMac ? "Add Mac" : "Connect", systemImage: "link.badge.plus") {
+                let connectionCount = model.connections.count
+                Task {
+                    await model.pair()
+                    if model.connections.count > connectionCount {
+                        onPairSuccess()
+                    }
+                }
+            }
+            .buttonStyle(.glassProminent)
+            .frame(maxWidth: .infinity)
+            .disabled(model.pairingCode.count != 8 || model.isRefreshing)
+            if let error = model.pairingErrorMessage {
+                Text(error).font(.caption).foregroundStyle(.red)
+            }
+        } header: {
+            Text(isAddingAnotherMac ? "Add Another Mac" : "Pair with Mac")
+        } footer: {
+            Text("On the Mac, open usAIge Settings → iPhone Sync → Create Connection. Each Mac uses its own 8-digit code.")
+        }
+        .task { codeFocused = true }
     }
 }
 
