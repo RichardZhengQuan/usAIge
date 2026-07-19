@@ -1,6 +1,7 @@
 import CoreGraphics
 import Combine
 import Foundation
+import Security
 
 struct HUDPosition: Codable, Equatable, Sendable {
     var x: Double
@@ -21,8 +22,12 @@ final class HUDSettings: ObservableObject {
     nonisolated static let usageAlertIntervalOptions = Array(stride(from: 5, through: 100, by: 5))
     nonisolated static let defaultUsageAlertIntervalPercent = 10
 
+    private struct LegacyRemoteTool: Codable, Equatable {
+        let id: AIToolID
+    }
+
     private struct Payload: Codable, Equatable {
-        var version = 6
+        var version = 7
         var bucketOrder: [String] = []
         var hiddenBucketIDs: Set<String> = []
         var toolOrder: [AIToolID] = AIToolID.builtInIDs
@@ -33,7 +38,7 @@ final class HUDSettings: ObservableObject {
         var usageAlertIntervalPercent = HUDSettings.defaultUsageAlertIntervalPercent
         var didApplyLatestBucketDefault = false
         var positions: [String: HUDPosition] = [:]
-        var remoteTools: [RemoteAITool] = []
+        var remoteTools: [LegacyRemoteTool] = []
 
         enum CodingKeys: String, CodingKey {
             case version, bucketOrder, hiddenBucketIDs, toolOrder, hiddenToolIDs
@@ -68,7 +73,7 @@ final class HUDSettings: ObservableObject {
                 forKey: .didApplyLatestBucketDefault
             ) ?? false
             positions = try values.decodeIfPresent([String: HUDPosition].self, forKey: .positions) ?? [:]
-            remoteTools = try values.decodeIfPresent([RemoteAITool].self, forKey: .remoteTools) ?? []
+            remoteTools = try values.decodeIfPresent([LegacyRemoteTool].self, forKey: .remoteTools) ?? []
         }
     }
 
@@ -80,13 +85,26 @@ final class HUDSettings: ObservableObject {
         self.defaults = defaults
         if let data = defaults.data(forKey: Self.storageKey),
            let decoded = try? JSONDecoder().decode(Payload.self, from: data),
-           (1...6).contains(decoded.version) {
+           (1...7).contains(decoded.version) {
             payload = decoded
             if decoded.version < 5 {
                 // Updating users keep their existing bucket visibility exactly as configured.
                 payload.didApplyLatestBucketDefault = true
             }
-            payload.version = 6
+            if decoded.version < 7 {
+                let legacyRemoteIDs = Set(payload.remoteTools.map(\.id))
+                Self.deleteLegacyRemoteCredentials(for: legacyRemoteIDs)
+                payload.remoteTools = []
+                payload.toolOrder.removeAll { legacyRemoteIDs.contains($0) }
+                payload.hiddenToolIDs.subtract(legacyRemoteIDs)
+                payload.bucketOrder.removeAll { id in
+                    legacyRemoteIDs.contains { id.hasPrefix("\($0.rawValue):") }
+                }
+                payload.hiddenBucketIDs = payload.hiddenBucketIDs.filter { id in
+                    !legacyRemoteIDs.contains { id.hasPrefix("\($0.rawValue):") }
+                }
+            }
+            payload.version = 7
         } else {
             payload = Payload()
         }
@@ -95,11 +113,8 @@ final class HUDSettings: ObservableObject {
         if !Self.usageAlertIntervalOptions.contains(payload.usageAlertIntervalPercent) {
             payload.usageAlertIntervalPercent = Self.defaultUsageAlertIntervalPercent
         }
-        var seenRemoteIDs: Set<AIToolID> = []
-        payload.remoteTools = payload.remoteTools.filter {
-            Self.isValidRemoteID($0.id) && seenRemoteIDs.insert($0.id).inserted
-        }
-        payload.toolOrder = Self.stableUnique(payload.toolOrder + payload.remoteTools.map(\.id))
+        payload.remoteTools = []
+        payload.toolOrder = Self.stableUnique(payload.toolOrder)
         payload.bucketOrder = Self.stableUnique(payload.bucketOrder)
     }
 
@@ -147,10 +162,6 @@ final class HUDSettings: ObservableObject {
         }
     }
 
-    var remoteTools: [RemoteAITool] {
-        payload.remoteTools
-    }
-
     func ordered(_ snapshots: [QuotaSnapshot]) -> [QuotaSnapshot] {
         let order = Dictionary(uniqueKeysWithValues: Self.stableUnique(bucketOrder).enumerated().map { ($1, $0) })
         return snapshots
@@ -169,37 +180,6 @@ final class HUDSettings: ObservableObject {
         toolOrder
             .filter { !hiddenToolIDs.contains($0) }
             .map(AIToolDescriptor.descriptor(for:))
-    }
-
-    func upsertRemoteTool(_ tool: RemoteAITool) throws {
-        guard Self.isValidRemoteID(tool.id) else {
-            throw RemoteToolConfigurationError.invalidIdentifier
-        }
-        if let index = payload.remoteTools.firstIndex(where: { $0.id == tool.id }) {
-            payload.remoteTools[index] = tool
-        } else {
-            payload.remoteTools.append(tool)
-        }
-        if !payload.toolOrder.contains(tool.id) {
-            payload.toolOrder.append(tool.id)
-        }
-        persist()
-    }
-
-    func setRemoteToolEnabled(_ id: AIToolID, enabled: Bool) {
-        guard let index = payload.remoteTools.firstIndex(where: { $0.id == id }) else { return }
-        payload.remoteTools[index].isEnabled = enabled
-        persist()
-    }
-
-    func removeRemoteTool(_ id: AIToolID) {
-        payload.remoteTools.removeAll { $0.id == id }
-        payload.toolOrder.removeAll { $0 == id }
-        payload.hiddenToolIDs.remove(id)
-        let prefix = "\(id.rawValue):"
-        payload.bucketOrder.removeAll { $0.hasPrefix(prefix) }
-        payload.hiddenBucketIDs = payload.hiddenBucketIDs.filter { !$0.hasPrefix(prefix) }
-        persist()
     }
 
     func setPosition(_ point: CGPoint, for displayKey: String) {
@@ -236,9 +216,14 @@ final class HUDSettings: ObservableObject {
 
     func registerBuckets(_ snapshots: [QuotaSnapshot]) {
         let additions = Self.stableUnique(snapshots.map(\.id)).filter { !payload.bucketOrder.contains($0) }
-        var changed = !additions.isEmpty
+        let toolAdditions = Self.stableUnique(snapshots.map(\.toolID))
+            .filter { !payload.toolOrder.contains($0) }
+        var changed = !additions.isEmpty || !toolAdditions.isEmpty
         if !additions.isEmpty {
             payload.bucketOrder.append(contentsOf: additions)
+        }
+        if !toolAdditions.isEmpty {
+            payload.toolOrder.append(contentsOf: toolAdditions)
         }
 
         if !payload.didApplyLatestBucketDefault {
@@ -285,15 +270,15 @@ final class HUDSettings: ObservableObject {
         }
     }
 
-    private static func isValidRemoteID(_ id: AIToolID) -> Bool {
-        UUID(uuidString: id.rawValue) != nil && !AIToolID.builtInIDs.contains(id)
+    private static func deleteLegacyRemoteCredentials(for ids: Set<AIToolID>) {
+        for id in ids {
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: "com.richardqz.usaige.remote-tools",
+                kSecAttrAccount as String: id.rawValue,
+            ]
+            _ = SecItemDelete(query as CFDictionary)
+        }
     }
-}
 
-enum RemoteToolConfigurationError: LocalizedError {
-    case invalidIdentifier
-
-    var errorDescription: String? {
-        "Remote tool identifiers must be unique UUIDs."
-    }
 }

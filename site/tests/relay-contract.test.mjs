@@ -45,6 +45,18 @@ test("rejects credentials, malformed windows, and oversized schemas", () => {
   assert.throws(() => relayTestSupport.validateSnapshot(tooManyTools));
 });
 
+test("accepts paired remote tool uploads without provider credentials", () => {
+  const upload = {
+    schemaVersion: 1,
+    generatedAt: "2026-07-19T12:00:00Z",
+    limits: validSnapshot().tools[0].limits,
+  };
+  assert.doesNotThrow(() => relayTestSupport.validateRemoteToolSnapshot(upload));
+
+  upload.providerToken = "must-not-pass";
+  assert.throws(() => relayTestSupport.validateRemoteToolSnapshot(upload));
+});
+
 test("hashes capabilities with SHA-256", async () => {
   assert.equal(
     await relayTestSupport.sha256("usg_mac_example"),

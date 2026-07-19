@@ -1,24 +1,33 @@
 import AppKit
 
 enum RemoteToolSetupPrompt {
-    static let text = """
-    Help me connect an AI service to usAIge on this Mac.
+    static let claimURL = "https://usaige-macos.richardqz.chatgpt.site/api/v1/tool-pairings/claim"
 
-    1. Ask which AI service and plan I use. Codex already connects to usAIge automatically, so I only need this for another service.
-    2. Use only official documentation, APIs, or documented local commands. Confirm that my account exposes machine-readable current remaining limits and reset times, not only historical usage.
-    3. If supported, help me identify or create a read-only local or team adapter. Its GET endpoint must return this shape:
+    static func text(pairingCode: String) -> String {
+        """
+        Connect this AI tool to usAIge using one-time pairing code \(pairingCode).
 
-       {"limits":[{"id":"requests","name":"Requests","primary":{"usedPercent":42,"windowDurationMinutes":300,"resetsAt":1893456000}}]}
+        1. Use only official documentation, APIs, or documented local commands. Confirm that this account exposes machine-readable current remaining limits and reset times. Never guess, estimate, scrape a web UI, read browser cookies, or use undocumented private APIs.
+        2. Claim the code once by POSTing JSON to \(claimURL):
 
-       `remainingPercent` may replace `usedPercent`; `resetsAt` is Unix time in seconds. Use HTTP only for localhost and HTTPS everywhere else.
-    4. Test the endpoint, then give me the display name, Usage URL, optional website URL, and one URL-encoded `usaige://connect?...` link without secrets. If authentication is required, explain how to create a revocable adapter-specific token and tell me to enter it in usAIge's Advanced setup; do not print the token in chat.
-    5. Never guess or estimate limits, scrape a web UI, read browser cookies, reuse consumer OAuth or session credentials, or use undocumented private APIs.
-    6. If my account cannot expose this data, say it cannot be connected safely. Personal Claude subscriptions currently have no official API for reading remaining limits.
-    """
+           {"code":"\(pairingCode)","toolName":"My AI Tool","symbolName":"cpu","websiteURL":"https://example.com"}
+
+        3. The response contains an uploadURL and a revocable writeToken. Store the token in the system credential store; do not print it in chat, logs, source code, or shell history.
+        4. Upload normalized limits to uploadURL with `Authorization: Bearer <writeToken>` and this JSON shape:
+
+           {"schemaVersion":1,"generatedAt":"2026-07-19T12:00:00Z","limits":[{"id":"weekly","name":"Weekly","planType":"Pro","primary":{"remainingPercent":42,"resetAt":"2026-07-20T12:00:00Z","windowDurationMinutes":10080},"secondary":null}]}
+
+        5. Send only display metadata, normalized remaining percentages, reset times, and window durations. Keep provider credentials and raw account data on this machine. Refresh the upload when the official source changes.
+        6. If this account cannot expose the data through a supported official method, do not claim the code; say it cannot be connected safely.
+        """
+    }
 
     @MainActor
-    static func copy(to pasteboard: NSPasteboard = .general) -> Bool {
+    static func copy(
+        pairingCode: String,
+        to pasteboard: NSPasteboard = .general
+    ) -> Bool {
         pasteboard.clearContents()
-        return pasteboard.setString(text, forType: .string)
+        return pasteboard.setString(text(pairingCode: pairingCode), forType: .string)
     }
 }

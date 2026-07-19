@@ -3,21 +3,17 @@ import Foundation
 import Testing
 @testable import UsageHUD
 
-@Test func setupPromptRequestsASafeConnectionLink() {
-    let prompt = RemoteToolSetupPrompt.text
+@Test func setupPromptUsesOneTimePairingAndNormalizedUploads() {
+    let prompt = RemoteToolSetupPrompt.text(pairingCode: "ABCD2345")
 
-    #expect(prompt.contains("usaige://connect"))
-    #expect(prompt.contains("display name"))
-    #expect(prompt.contains("Usage URL"))
-    #expect(prompt.contains("website URL"))
-    #expect(prompt.contains("revocable adapter-specific token"))
-    #expect(prompt.contains("\"limits\""))
-    #expect(prompt.contains("\"primary\""))
-    #expect(prompt.contains("usedPercent"))
-    #expect(prompt.contains("resetsAt"))
-    #expect(prompt.contains("Never guess or estimate limits"))
-    #expect(prompt.contains("say it cannot be connected safely"))
-    #expect(!prompt.contains("token=secret"))
+    #expect(prompt.contains("ABCD2345"))
+    #expect(prompt.contains(RemoteToolSetupPrompt.claimURL))
+    #expect(prompt.contains("uploadURL"))
+    #expect(prompt.contains("writeToken"))
+    #expect(prompt.contains("remainingPercent"))
+    #expect(prompt.contains("Never guess, estimate"))
+    #expect(prompt.contains("cannot be connected safely"))
+    #expect(!prompt.contains("usaige://connect"))
 }
 
 @MainActor
@@ -25,6 +21,6 @@ import Testing
     let pasteboard = NSPasteboard(name: .init("usaige.tests.\(UUID().uuidString)"))
     defer { pasteboard.releaseGlobally() }
 
-    #expect(RemoteToolSetupPrompt.copy(to: pasteboard))
-    #expect(pasteboard.string(forType: .string) == RemoteToolSetupPrompt.text)
+    #expect(RemoteToolSetupPrompt.copy(pairingCode: "ABCD2345", to: pasteboard))
+    #expect(pasteboard.string(forType: .string) == RemoteToolSetupPrompt.text(pairingCode: "ABCD2345"))
 }
