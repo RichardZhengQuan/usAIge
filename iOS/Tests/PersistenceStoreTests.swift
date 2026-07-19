@@ -137,6 +137,28 @@ final class PersistenceStoreTests: XCTestCase {
         XCTAssertEqual(restored, [RelayConnectionState(connection: connection)])
     }
 
+    func testSessionEventStoreRoundTripsNotificationHistory() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = SessionEventStore(
+            fileURL: directory.appendingPathComponent("session-events.json")
+        )
+        let event = SessionEventRecord(
+            eventID: "session-1:permission_needed:123",
+            channelID: UUID(uuidString: "11111111-1111-4111-8111-111111111111")!,
+            macName: "Studio Mac",
+            kind: .permissionNeeded,
+            sessionTitle: "Publish the iOS build",
+            workspaceName: "GPTUsage",
+            occurredAt: Date(timeIntervalSince1970: 1_721_000_000)
+        )
+
+        try await store.save([event])
+        let restored = try await store.load()
+
+        XCTAssertEqual(restored, [event])
+    }
+
     private func temporaryDirectory() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

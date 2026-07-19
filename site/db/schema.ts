@@ -1,4 +1,4 @@
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const relayChannels = sqliteTable("relay_channels", {
   id: text("id").primaryKey(),
@@ -56,6 +56,20 @@ export const relayRemoteTools = sqliteTable("relay_remote_tools", {
   createdAt: text("created_at").notNull(),
   lastUploadAt: text("last_upload_at"),
 }, (table) => ({ channelIndex: index("relay_remote_tools_channel_idx").on(table.channelID) }));
+
+export const relaySessionEvents = sqliteTable("relay_session_events", {
+  id: text("id").primaryKey(),
+  channelID: text("channel_id").notNull().references(() => relayChannels.id, { onDelete: "cascade" }),
+  eventID: text("event_id").notNull(),
+  kind: text("kind").notNull(),
+  sessionTitle: text("session_title").notNull(),
+  workspaceName: text("workspace_name").notNull(),
+  occurredAt: text("occurred_at").notNull(),
+  receivedAt: text("received_at").notNull(),
+}, (table) => ({
+  channelEventIndex: uniqueIndex("relay_session_events_channel_event_idx").on(table.channelID, table.eventID),
+  channelTimeIndex: index("relay_session_events_channel_time_idx").on(table.channelID, table.occurredAt),
+}));
 
 export const relayRateLimits = sqliteTable("relay_rate_limits", {
   key: text("key").primaryKey(),

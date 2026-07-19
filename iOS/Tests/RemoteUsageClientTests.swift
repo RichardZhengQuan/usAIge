@@ -3,6 +3,26 @@ import XCTest
 @testable import usAIge_iOS
 
 final class RemoteUsageClientTests: XCTestCase {
+    func testSessionNotificationRouterTargetsTheInboxEvent() throws {
+        let channelID = UUID(uuidString: "11111111-1111-4111-8111-111111111111")!
+        let destination = try XCTUnwrap(SessionNotificationRouter.destination(
+            categoryIdentifier: SessionNotificationRouter.categoryIdentifier,
+            userInfo: [
+                "sessionEvent": [
+                    "id": "session-1:permission_needed:123",
+                    "channelID": channelID.uuidString.lowercased(),
+                ],
+            ]
+        ))
+
+        XCTAssertEqual(destination.channelID, channelID)
+        XCTAssertEqual(destination.eventID, "session-1:permission_needed:123")
+        XCTAssertNil(SessionNotificationRouter.destination(
+            categoryIdentifier: "OTHER",
+            userInfo: [:]
+        ))
+    }
+
     func testFetchOmitsAuthorizationForPublicEndpoint() async throws {
         let snapshots = try await client().fetch(
             configuration: configuration(path: "/public"),
@@ -126,6 +146,31 @@ final class RemoteUsageClientTests: XCTestCase {
         XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer read-token")
     }
 
+    func testRelayFetchesSessionNotificationHistory() async throws {
+        let relay = relayClient()
+        let connection = RelayConnection(
+            channelID: UUID(uuidString: "11111111-1111-4111-8111-111111111111")!,
+            deviceID: UUID(uuidString: "22222222-2222-4222-8222-222222222222")!,
+            macName: "Studio Mac"
+        )
+
+        let events = try await relay.fetchSessionEvents(
+            connection: connection,
+            token: "read-token"
+        )
+
+        XCTAssertEqual(events.count, 1)
+        XCTAssertEqual(events.first?.eventID, "session-1:finished:123")
+        XCTAssertEqual(events.first?.kind, .finished)
+        XCTAssertEqual(events.first?.sessionTitle, "Ship notification inbox")
+        XCTAssertEqual(events.first?.workspaceName, "GPTUsage")
+        XCTAssertEqual(events.first?.macName, "Studio Mac")
+        XCTAssertEqual(
+            events.first?.id,
+            "11111111-1111-4111-8111-111111111111:session-1:finished:123"
+        )
+    }
+
     private func client(maximumResponseBytes: Int = 1_048_576) -> RemoteUsageClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [RemoteUsageStubURLProtocol.self]
@@ -134,6 +179,12 @@ final class RemoteUsageClientTests: XCTestCase {
             now: { Date(timeIntervalSince1970: 1_000) },
             maximumResponseBytes: maximumResponseBytes
         )
+    }
+
+    private func relayClient() -> RelayClient {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RemoteUsageStubURLProtocol.self]
+        return RelayClient(session: URLSession(configuration: configuration))
     }
 
     private func configuration(path: String) -> RemoteToolConfiguration {
@@ -199,9 +250,15 @@ private final class RemoteUsageStubURLProtocol: URLProtocol, @unchecked Sendable
             didReceive: response,
             cacheStoragePolicy: .notAllowed
         )
+        let responseBody: Data
+        if url.path.hasSuffix("/session-events"), request.httpMethod == "GET" {
+            responseBody = Data(#"{"events":[{"id":"session-1:finished:123","kind":"finished","sessionTitle":"Ship notification inbox","workspaceName":"GPTUsage","occurredAt":"2026-07-19T12:00:00Z"}]}"#.utf8)
+        } else {
+            responseBody = Data(#"{"limits":[{"id":"messages","usedPercent":25}]}"#.utf8)
+        }
         client?.urlProtocol(
             self,
-            didLoad: Data(#"{"limits":[{"id":"messages","usedPercent":25}]}"#.utf8)
+            didLoad: responseBody
         )
         client?.urlProtocolDidFinishLoading(self)
     }
