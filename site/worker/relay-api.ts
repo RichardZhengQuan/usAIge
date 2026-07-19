@@ -16,7 +16,7 @@ type RemoteToolRow = { id: string; channel_id: string; name: string; symbol_name
 const encoder = new TextEncoder();
 const pairingAlphabet = "0123456789";
 const pairingLifetimeMs = 10 * 60_000;
-const pushIntervalMs = 20 * 60_000;
+const quotaPushIntervalMs = 20 * 60_000;
 const maximumBodyBytes = 256 * 1024;
 let cachedProviderToken: { value: string; createdAt: number } | undefined;
 let schemaReady: Promise<void> | undefined;
@@ -111,6 +111,8 @@ export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: R
       const payload = await readJSON(request);
       validateSnapshot(payload);
       const canonical = JSON.stringify(payload);
+      const sessionStatusChanged = sessionStatusSignature(payload)
+        !== sessionStatusSignature(channel.snapshot_json ? JSON.parse(channel.snapshot_json) : null);
       const snapshotHash = await sha256(canonical);
       const now = new Date().toISOString();
       const existingHash = await env.DB.prepare("SELECT snapshot_hash FROM relay_channels WHERE id = ?").bind(channelID).first<{ snapshot_hash: string | null }>();
@@ -120,7 +122,7 @@ export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: R
          snapshot_version = snapshot_version + ? WHERE id = ?`
       ).bind(canonical, snapshotHash, now, changed ? 1 : 0, channelID).run();
       const updated = await channelByID(env.DB, channelID);
-      if (changed && updated) ctx.waitUntil(pushChannel(env, updated));
+      if (changed && updated) ctx.waitUntil(pushChannel(env, updated, sessionStatusChanged));
       return json({ version: updated?.snapshot_version ?? channel.snapshot_version, serverReceivedAt: now, changed });
     }
 
@@ -288,8 +290,8 @@ function validateSnapshot(value: unknown): asserts value is Record<string, unkno
   if (!root || !hasOnlyKeys(root, ["schemaVersion", "generatedAt", "tools"]) || root.schemaVersion !== 1 || !isDateString(root.generatedAt) || !Array.isArray(root.tools) || root.tools.length > 100) {
     throw new RelayError("Invalid snapshot schema.", 400);
   }
-  for (const tool of root.tools as Array<{ id?: unknown; name?: unknown; symbolName?: unknown; limits?: unknown }>) {
-    if (!hasOnlyKeys(tool, ["id", "name", "symbolName", "limits"]) || !isBoundedString(tool.id, 128) || !isBoundedString(tool.name, 128) || !isBoundedString(tool.symbolName, 128) || !Array.isArray(tool.limits) || tool.limits.length > 100) {
+  for (const tool of root.tools as Array<{ id?: unknown; name?: unknown; symbolName?: unknown; limits?: unknown; sessionStatus?: unknown }>) {
+    if (!hasOnlyKeys(tool, ["id", "name", "symbolName", "limits", "sessionStatus"]) || !isBoundedString(tool.id, 128) || !isBoundedString(tool.name, 128) || !isBoundedString(tool.symbolName, 128) || !Array.isArray(tool.limits) || tool.limits.length > 100 || (tool.sessionStatus != null && !isSessionStatus(tool.sessionStatus))) {
       throw new RelayError("Invalid tool snapshot.", 400);
     }
     for (const limit of tool.limits as Array<{ id?: unknown; name?: unknown; planType?: unknown; primary?: unknown; secondary?: unknown }>) {
@@ -298,6 +300,21 @@ function validateSnapshot(value: unknown): asserts value is Record<string, unkno
       }
     }
   }
+}
+function isSessionStatus(value: unknown) {
+  if (!value || typeof value !== "object") return false;
+  const status = value as { phase?: unknown; updatedAt?: unknown };
+  return hasOnlyKeys(status, ["phase", "updatedAt"])
+    && ["idle", "thinking", "complete", "needsInput", "error"].includes(String(status.phase))
+    && isDateString(status.updatedAt);
+}
+function sessionStatusSignature(value: unknown) {
+  const root = value as { tools?: unknown } | null;
+  if (!root || !Array.isArray(root.tools)) return "[]";
+  return JSON.stringify(root.tools.map(tool => {
+    const value = tool as { id?: unknown; sessionStatus?: unknown };
+    return [value.id, value.sessionStatus ?? null];
+  }));
 }
 function validateRemoteToolSnapshot(value: unknown): asserts value is Record<string, unknown> {
   const root = value as { schemaVersion?: unknown; generatedAt?: unknown; limits?: unknown };
@@ -383,12 +400,13 @@ async function enforceRateLimit(db: D1Database, key: string, maximum: number, wi
   await db.prepare("UPDATE relay_rate_limits SET count = count + 1 WHERE key = ?").bind(hashed).run();
 }
 
-async function pushChannel(env: RelayEnv, channel: ChannelRow) {
+async function pushChannel(env: RelayEnv, channel: ChannelRow, bypassThrottle = false) {
   if (!env.APNS_TEAM_ID || !env.APNS_KEY_ID || !env.APNS_PRIVATE_KEY || !env.APNS_TOPIC) return;
   const devices = await env.DB.prepare("SELECT * FROM relay_devices WHERE channel_id = ? AND apns_token IS NOT NULL").bind(channel.id).all<DeviceRow>();
   for (const device of devices.results) {
     const now = new Date();
-    const cutoff = new Date(now.getTime() - pushIntervalMs).toISOString();
+    const interval = bypassThrottle ? 0 : quotaPushIntervalMs;
+    const cutoff = new Date(now.getTime() - interval).toISOString();
     const claimed = await env.DB.prepare("UPDATE relay_devices SET last_push_at = ? WHERE id = ? AND (last_push_at IS NULL OR last_push_at <= ?)")
       .bind(now.toISOString(), device.id, cutoff).run();
     if ((claimed.meta.changes ?? 0) !== 1) continue;
@@ -466,4 +484,4 @@ async function providerToken(env: RelayEnv) {
   const value = `${header}.${claims}.${base64url(signature)}`; cachedProviderToken = { value, createdAt: now }; return value;
 }
 
-export const relayTestSupport = { normalizeCode, randomCode, validateSnapshot, validateRemoteToolSnapshot, validateSessionEvent, sessionEventCopy, sha256 };
+export const relayTestSupport = { normalizeCode, randomCode, validateSnapshot, validateRemoteToolSnapshot, validateSessionEvent, sessionEventCopy, sessionStatusSignature, sha256 };

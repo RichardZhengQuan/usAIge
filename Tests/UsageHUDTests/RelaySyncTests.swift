@@ -10,6 +10,10 @@ import Testing
 
     let payload = RelaySnapshotPayload.make(
         from: [snapshot],
+        codexSessionStatus: RelaySessionStatusPayload(
+            phase: .thinking,
+            updatedAt: Date(timeIntervalSince1970: 1_800_000_099)
+        ),
         at: Date(timeIntervalSince1970: 1_800_000_100)
     )
     let encoder = JSONEncoder()
@@ -20,8 +24,10 @@ import Testing
     #expect(payload.tools.count == 1)
     #expect(payload.tools[0].limits[0].primary.remainingPercent == 75)
     #expect(payload.tools[0].limits[0].secondary?.remainingPercent == 67)
+    #expect(payload.tools[0].sessionStatus?.phase == .thinking)
     #expect(!text.contains("token"))
     #expect(!text.contains("example.com"))
+    #expect(!text.contains("task"))
 }
 
 @Test func relaySnapshotPreservesToolAndLimitOrder() {
@@ -60,4 +66,22 @@ import Testing
         phase: .thinking,
         updatedAt: date
     )) == nil)
+}
+
+@Test func relaySessionStatusIsAttachedOnlyToChatGPT() {
+    var remote = Fixtures.codexSnapshot
+    remote.toolID = AIToolID(rawValue: "11111111-1111-4111-8111-111111111111")
+    remote.toolName = "Team Claude"
+
+    let status = RelaySessionStatusPayload(
+        phase: .needsInput,
+        updatedAt: Date(timeIntervalSince1970: 1_800_000_200)
+    )
+    let payload = RelaySnapshotPayload.make(
+        from: [remote, Fixtures.codexSnapshot],
+        codexSessionStatus: status
+    )
+
+    #expect(payload.tools[0].sessionStatus == nil)
+    #expect(payload.tools[1].sessionStatus == status)
 }

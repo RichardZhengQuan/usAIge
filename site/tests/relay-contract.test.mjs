@@ -9,6 +9,10 @@ const validSnapshot = () => ({
     id: "chatGPT",
     name: "ChatGPT",
     symbolName: "sparkles",
+    sessionStatus: {
+      phase: "thinking",
+      updatedAt: "2026-07-18T12:00:02Z",
+    },
     limits: [{
       id: "weekly",
       name: "Weekly",
@@ -35,6 +39,35 @@ test("generates 8-digit pairing codes", () => {
 
 test("accepts normalized visible-limit snapshots", () => {
   assert.doesNotThrow(() => relayTestSupport.validateSnapshot(validSnapshot()));
+});
+
+test("accepts bounded session phases without task content", () => {
+  const snapshot = validSnapshot();
+  assert.doesNotThrow(() => relayTestSupport.validateSnapshot(snapshot));
+
+  snapshot.tools[0].sessionStatus.taskTitle = "Private task";
+  assert.throws(() => relayTestSupport.validateSnapshot(snapshot));
+
+  delete snapshot.tools[0].sessionStatus.taskTitle;
+  snapshot.tools[0].sessionStatus.phase = "unknown";
+  assert.throws(() => relayTestSupport.validateSnapshot(snapshot));
+});
+
+test("distinguishes session transitions from quota-only changes", () => {
+  const first = validSnapshot();
+  const quotaOnly = validSnapshot();
+  quotaOnly.tools[0].limits[0].primary.remainingPercent = 60;
+  assert.equal(
+    relayTestSupport.sessionStatusSignature(first),
+    relayTestSupport.sessionStatusSignature(quotaOnly),
+  );
+
+  const completed = validSnapshot();
+  completed.tools[0].sessionStatus.phase = "complete";
+  assert.notEqual(
+    relayTestSupport.sessionStatusSignature(first),
+    relayTestSupport.sessionStatusSignature(completed),
+  );
 });
 
 test("rejects credentials, malformed windows, and oversized schemas", () => {

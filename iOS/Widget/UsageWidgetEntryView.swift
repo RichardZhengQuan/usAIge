@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 import WidgetKit
 
 struct UsageWidgetEntryView: View {
@@ -15,21 +14,21 @@ struct UsageWidgetEntryView: View {
             case let .stale(snapshots, oldestUpdate):
                 quotaContent(snapshots, status: .stale(oldestUpdate))
             case .empty:
-                WidgetUnavailableView(
-                    symbol: "plus.circle",
-                    title: "No limits yet",
+                HUDUnavailableView(
+                    symbol: "plus",
+                    title: "No limits",
                     message: "Open usAIge to add an AI tool."
                 )
             case .error:
-                WidgetUnavailableView(
-                    symbol: "exclamationmark.triangle",
-                    title: "Limits unavailable",
-                    message: "Open usAIge to try again."
+                HUDUnavailableView(
+                    symbol: "exclamationmark",
+                    title: "Unavailable",
+                    message: "Open usAIge to refresh."
                 )
             }
         }
         .containerBackground(for: .widget) {
-            Color(uiColor: .systemBackground)
+            HUDWidgetBackground()
         }
     }
 
@@ -40,21 +39,44 @@ struct UsageWidgetEntryView: View {
     ) -> some View {
         switch family {
         case .systemSmall:
-            SmallQuotaWidget(snapshot: snapshots[0], status: status)
-        case .systemLarge:
-            QuotaListWidget(
-                snapshots: Array(snapshots.prefix(4)),
-                totalCount: snapshots.count,
+            HUDQuotaTile(
+                snapshot: snapshots[0],
                 status: status,
-                showsDetails: true
+                now: entry.date,
+                moduleSize: 100
             )
         default:
-            QuotaListWidget(
-                snapshots: Array(snapshots.prefix(2)),
-                totalCount: snapshots.count,
-                status: status,
-                showsDetails: false
+            mediumQuotaContent(snapshots, status: status)
+        }
+    }
+
+    @ViewBuilder
+    private func mediumQuotaContent(
+        _ snapshots: [QuotaSnapshot],
+        status: WidgetQuotaStatus
+    ) -> some View {
+        let visibleSnapshots = Array(snapshots.prefix(4))
+
+        if visibleSnapshots.isEmpty {
+            HUDUnavailableView(
+                symbol: "plus",
+                title: "No limits",
+                message: "Open usAIge to add an AI tool."
             )
+        } else {
+            let showsFour = visibleSnapshots.count == 4
+
+            HStack(spacing: showsFour ? 12 : 18) {
+                ForEach(visibleSnapshots) { snapshot in
+                    HUDQuotaTile(
+                        snapshot: snapshot,
+                        status: status,
+                        now: entry.date,
+                        moduleSize: showsFour ? 70 : 86
+                    )
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
     }
 }
@@ -63,25 +85,9 @@ private enum WidgetQuotaStatus {
     case current
     case stale(Date)
 
-    var title: String {
-        switch self {
-        case .current: "Current"
-        case .stale: "Stale"
-        }
-    }
-
-    var symbol: String {
-        switch self {
-        case .current: "checkmark.circle.fill"
-        case .stale: "exclamationmark.triangle.fill"
-        }
-    }
-
-    var color: Color {
-        switch self {
-        case .current: .green
-        case .stale: .orange
-        }
+    var isStale: Bool {
+        if case .stale = self { return true }
+        return false
     }
 
     var accessibilityDescription: String {
@@ -92,111 +98,86 @@ private enum WidgetQuotaStatus {
             "Stale cached data, oldest update \(WidgetQuotaAccessibility.date(date))"
         }
     }
-
-    var staleDate: Date? {
-        guard case let .stale(date) = self else { return nil }
-        return date
-    }
 }
 
-private struct WidgetHeader: View {
-    let status: WidgetQuotaStatus
-    var count: Int?
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Label("AI Limits", systemImage: "gauge.with.dots.needle.50percent")
-                .font(.caption.weight(.semibold))
-                .labelStyle(.titleAndIcon)
-                .lineLimit(1)
-
-            Spacer(minLength: 4)
-
-            if let count {
-                Text(count, format: .number)
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel("\(count) limits")
-            }
-
-            VStack(alignment: .trailing, spacing: 0) {
-                Label(status.title, systemImage: status.symbol)
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(status.color)
-                    .labelStyle(.titleAndIcon)
-                    .lineLimit(1)
-                if let staleDate = status.staleDate {
-                    Text(staleDate, style: .relative)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("AI limits, \(status.accessibilityDescription)")
-    }
-}
-
-private struct SmallQuotaWidget: View {
+private struct HUDQuotaTile: View {
     let snapshot: QuotaSnapshot
     let status: WidgetQuotaStatus
+    let now: Date
+    let moduleSize: CGFloat
 
-    private var displayedWindow: QuotaWindowSnapshot {
-        guard let secondary = snapshot.secondaryWindow,
-              secondary.remainingPercent < snapshot.remainingPercent else {
-            return snapshot.primaryWindow
+    private var primarySeverity: WidgetQuotaSeverity {
+        WidgetQuotaSeverity(remainingPercent: snapshot.remainingPercent)
+    }
+
+    private var secondarySeverity: WidgetQuotaSeverity? {
+        snapshot.secondaryWindow.map {
+            WidgetQuotaSeverity(remainingPercent: $0.remainingPercent)
         }
-        return secondary
+    }
+
+    private var visibleSessionPhase: CodexSessionPhase? {
+        guard let phase = snapshot.sessionStatus?.phase, phase.showsLight else { return nil }
+        return phase
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            WidgetHeader(status: status)
+        VStack(spacing: 4) {
+            ZStack {
+                if let visibleSessionPhase {
+                    HUDSessionStatusLight(
+                        phase: visibleSessionPhase,
+                        diameter: moduleSize * 0.97
+                    )
+                }
 
-            VStack(alignment: .leading, spacing: 1) {
-                Text(snapshot.toolName)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Text(snapshot.displayName)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
+                if let secondary = snapshot.secondaryWindow {
+                    HUDQuotaRing(
+                        remainingPercent: secondary.remainingPercent,
+                        severity: secondarySeverity ?? .abundant,
+                        lineWidth: moduleSize * 0.05
+                    )
+                    .frame(width: moduleSize * 0.97, height: moduleSize * 0.97)
+                }
+
+                HUDQuotaRing(
+                    remainingPercent: snapshot.remainingPercent,
+                    severity: primarySeverity,
+                    lineWidth: moduleSize * 0.067
+                )
+                .frame(
+                    width: moduleSize * 0.77,
+                    height: moduleSize * 0.77
+                )
+
+                WidgetToolMark(snapshot: snapshot, size: moduleSize * 0.38)
             }
-
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(WidgetQuotaFormat.percent(displayedWindow.remainingPercent))
-                    .font(.system(.title, design: .rounded, weight: .bold))
-                    .foregroundStyle(WidgetQuotaFormat.color(displayedWindow.remainingPercent))
-                    .contentTransition(.numericText())
-                    .minimumScaleFactor(0.75)
-                Text("remaining")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-
-            ProgressView(
-                value: WidgetQuotaFormat.fraction(displayedWindow.remainingPercent),
-                total: 1
-            )
-            .tint(WidgetQuotaFormat.color(displayedWindow.remainingPercent))
-            .widgetAccentable()
-            .accessibilityHidden(true)
+            .frame(width: moduleSize, height: moduleSize)
+            .opacity(status.isStale ? 0.58 : 1)
 
             HStack(spacing: 4) {
-                Text(displayedWindow.typeTag)
-                    .fontWeight(.semibold)
-                if let resetAt = displayedWindow.resetAt {
-                    Text("·")
-                    Text(resetAt, style: .relative)
-                } else {
-                    Text("· Reset unavailable")
+                HUDWindowTag(
+                    text: WidgetQuotaFormat.resetTag(
+                        resetAt: snapshot.resetAt,
+                        fallback: snapshot.typeTag,
+                        now: now
+                    ),
+                    severity: primarySeverity,
+                    isCondensed: snapshot.secondaryWindow != nil
+                )
+
+                if let secondary = snapshot.secondaryWindow {
+                    HUDWindowTag(
+                        text: WidgetQuotaFormat.resetTag(
+                            resetAt: secondary.resetAt,
+                            fallback: secondary.typeTag,
+                            now: now
+                        ),
+                        severity: secondarySeverity ?? .abundant,
+                        isCondensed: true
+                    )
                 }
             }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
         }
         .privacySensitive()
         .accessibilityElement(children: .ignore)
@@ -206,169 +187,268 @@ private struct SmallQuotaWidget: View {
     }
 }
 
-private struct QuotaListWidget: View {
-    let snapshots: [QuotaSnapshot]
-    let totalCount: Int
-    let status: WidgetQuotaStatus
-    let showsDetails: Bool
+private struct HUDSessionStatusLight: View {
+    let phase: CodexSessionPhase
+    let diameter: CGFloat
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            WidgetHeader(status: status, count: totalCount)
+        ZStack {
+            Circle()
+                .stroke(phase.color.opacity(0.82), lineWidth: 1.5)
+                .frame(width: diameter, height: diameter)
+                .blur(radius: 1)
 
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(snapshots) { snapshot in
-                    QuotaWidgetRow(snapshot: snapshot, showsDetails: showsDetails)
-                        .padding(.vertical, showsDetails ? 5 : 3)
-                    if snapshot.id != snapshots.last?.id {
-                        Divider()
-                    }
-                }
-            }
-            .padding(.top, showsDetails ? 5 : 3)
-
-            if totalCount > snapshots.count {
-                Text("+ \(totalCount - snapshots.count) more in usAIge")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .accessibilityLabel("\(totalCount - snapshots.count) more limits in usAIge")
-                    .padding(.top, 3)
-            }
-
-            Spacer(minLength: 0)
+            Circle()
+                .stroke(phase.color.opacity(0.34), lineWidth: 7)
+                .frame(width: diameter + 4, height: diameter + 4)
+                .blur(radius: 4)
         }
-        .privacySensitive()
+        .accessibilityHidden(true)
     }
 }
 
-private struct QuotaWidgetRow: View {
-    let snapshot: QuotaSnapshot
-    let showsDetails: Bool
+private struct HUDQuotaRing: View {
+    let remainingPercent: Double
+    let severity: WidgetQuotaSeverity
+    let lineWidth: CGFloat
+
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: showsDetails ? 6 : 4) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(snapshot.toolName)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                    Text(snapshot.displayName)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-
-                Spacer(minLength: 4)
-
-                WindowValue(
-                    typeTag: snapshot.typeTag,
-                    remainingPercent: snapshot.remainingPercent
+        ZStack {
+            Circle()
+                .stroke(
+                    Color.primary.opacity(colorScheme == .dark ? 0.085 : 0.11),
+                    lineWidth: lineWidth
                 )
 
-                if let secondary = snapshot.secondaryWindow {
-                    WindowValue(
-                        typeTag: secondary.typeTag,
-                        remainingPercent: secondary.remainingPercent
-                    )
-                }
-            }
-
-            ProgressView(
-                value: WidgetQuotaFormat.fraction(snapshot.remainingPercent),
-                total: 1
-            )
-            .tint(WidgetQuotaFormat.color(snapshot.remainingPercent))
-            .widgetAccentable()
-            .accessibilityHidden(true)
-
-            if showsDetails {
-                HStack(spacing: 4) {
-                    if let resetAt = snapshot.resetAt {
-                        Text("Resets")
-                        Text(resetAt, style: .relative)
-                    } else {
-                        Text("Reset time unavailable")
-                    }
-
-                    if let planType = snapshot.planType, !planType.isEmpty {
-                        Text("·")
-                        Text(planType.capitalized)
-                    }
-                }
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-            }
+            Circle()
+                .trim(from: 0, to: WidgetQuotaFormat.arcFraction(remainingPercent))
+                .stroke(
+                    severity.color,
+                    style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+                )
+                .rotationEffect(.degrees(-90))
+                .shadow(color: severity.glowColor, radius: severity.glowRadius * 0.35)
+                .shadow(color: severity.glowColor, radius: severity.glowRadius)
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(WidgetQuotaAccessibility.snapshot(snapshot))
+        .widgetAccentable()
+        .accessibilityHidden(true)
     }
 }
 
-private struct WindowValue: View {
-    let typeTag: String
-    let remainingPercent: Double
+private struct HUDWindowTag: View {
+    let text: String
+    let severity: WidgetQuotaSeverity
+    let isCondensed: Bool
 
     var body: some View {
-        VStack(alignment: .trailing, spacing: 0) {
-            Text(WidgetQuotaFormat.percent(remainingPercent))
-                .font(.subheadline.monospacedDigit().weight(.bold))
-                .foregroundStyle(WidgetQuotaFormat.color(remainingPercent))
-                .contentTransition(.numericText())
-            Text(typeTag)
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
-        }
-        .fixedSize(horizontal: true, vertical: false)
+        Text(text)
+            .font(.system(size: isCondensed ? 9 : 11, weight: .bold, design: .rounded))
+            .monospacedDigit()
+            .foregroundStyle(severity.color)
+            .padding(.horizontal, isCondensed ? 3 : 6)
+            .frame(height: isCondensed ? 16 : 20)
+            .background(Color.primary.opacity(0.06), in: Capsule())
+            .shadow(color: severity.glowColor, radius: severity.glowRadius * 0.6)
     }
 }
 
-private struct WidgetUnavailableView: View {
+private struct HUDWidgetBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        ZStack {
+            if colorScheme == .dark {
+                Color(red: 0.045, green: 0.047, blue: 0.052)
+            } else {
+                Color(red: 0.955, green: 0.96, blue: 0.97)
+            }
+            RadialGradient(
+                colors: [
+                    Color.white.opacity(colorScheme == .dark ? 0.055 : 0.72),
+                    .clear
+                ],
+                center: .topLeading,
+                startRadius: 0,
+                endRadius: 260
+            )
+            LinearGradient(
+                colors: colorScheme == .dark
+                    ? [Color.blue.opacity(0.025), Color.black.opacity(0.12)]
+                    : [Color.blue.opacity(0.035), Color.black.opacity(0.025)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+    }
+}
+
+private struct HUDUnavailableView: View {
     let symbol: String
     let title: String
     let message: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("AI Limits", systemImage: "gauge.with.dots.needle.50percent")
-                .font(.caption.weight(.semibold))
-
-            Spacer(minLength: 0)
-
-            Image(systemName: symbol)
-                .font(.title2)
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
+        VStack(spacing: 9) {
+            ZStack {
+                Circle()
+                    .stroke(Color.primary.opacity(0.09), lineWidth: 5)
+                Image(systemName: symbol)
+                    .font(.title2.weight(.medium))
+                    .foregroundStyle(Color.primary.opacity(0.72))
+            }
+            .frame(width: 72, height: 72)
 
             Text(title)
-                .font(.headline)
-                .lineLimit(2)
+                .font(.system(.subheadline, design: .rounded, weight: .bold))
+                .foregroundStyle(Color.primary.opacity(0.9))
             Text(message)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(3)
-
-            Spacer(minLength: 0)
+                .font(.caption2)
+                .foregroundStyle(Color.primary.opacity(0.5))
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("AI limits. \(title). \(message)")
     }
 }
 
+private enum WidgetQuotaSeverity {
+    case abundant
+    case healthy
+    case caution
+    case low
+    case critical
+
+    init(remainingPercent: Double) {
+        if remainingPercent <= 10 {
+            self = .critical
+        } else if remainingPercent <= 20 {
+            self = .low
+        } else if remainingPercent <= 40 {
+            self = .caution
+        } else if remainingPercent <= 60 {
+            self = .healthy
+        } else {
+            self = .abundant
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .abundant: .blue
+        case .healthy: .green
+        case .caution: .orange
+        case .low: .red
+        case .critical: Color(red: 0.72, green: 0, blue: 0.04)
+        }
+    }
+
+    var glowColor: Color {
+        self == .critical ? .red.opacity(0.7) : color.opacity(0.24)
+    }
+
+    var glowRadius: CGFloat {
+        self == .critical ? 7 : 2
+    }
+}
+
+private extension CodexSessionPhase {
+    var showsLight: Bool {
+        self != .idle
+    }
+
+    var label: String {
+        switch self {
+        case .idle: "Idle"
+        case .thinking: "Thinking"
+        case .complete: "Complete"
+        case .needsInput: "Needs input"
+        case .error: "Error"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .idle: .clear
+        case .thinking: Color(red: 0.18, green: 0.52, blue: 1.00)
+        case .complete: Color(red: 0.18, green: 0.88, blue: 0.45)
+        case .needsInput: Color(red: 1.00, green: 0.68, blue: 0.12)
+        case .error: Color(red: 1.00, green: 0.20, blue: 0.47)
+        }
+    }
+}
+
+private struct WidgetToolMark: View {
+    let snapshot: QuotaSnapshot
+    let size: CGFloat
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        Group {
+            if WidgetToolSymbol.isChatGPT(snapshot) {
+                Image("ChatGPTMark")
+                    .resizable()
+                    .interpolation(.high)
+                    .renderingMode(.template)
+                    .scaledToFit()
+            } else {
+                Image(systemName: WidgetToolSymbol.forSnapshot(snapshot))
+                    .resizable()
+                    .scaledToFit()
+                    .padding(size * 0.12)
+            }
+        }
+        .frame(width: size, height: size)
+        .foregroundStyle(Color.primary.opacity(0.88))
+        .shadow(
+            color: colorScheme == .dark ? .black.opacity(0.65) : .white.opacity(0.8),
+            radius: colorScheme == .dark ? 3 : 1,
+            y: 1
+        )
+        .accessibilityHidden(true)
+    }
+}
+
+private enum WidgetToolSymbol {
+    static func isChatGPT(_ snapshot: QuotaSnapshot) -> Bool {
+        let value = "\(snapshot.toolName) \(snapshot.displayName)".lowercased()
+        return value.contains("chatgpt") || value.contains("codex")
+    }
+
+    static func forSnapshot(_ snapshot: QuotaSnapshot) -> String {
+        let value = "\(snapshot.toolName) \(snapshot.displayName)".lowercased()
+        if value.contains("claude") { return "brain.head.profile" }
+        if value.contains("gemini") { return "diamond.fill" }
+        if value.contains("cursor") { return "cursorarrow.rays" }
+        return "cpu"
+    }
+}
+
 private enum WidgetQuotaFormat {
-    static func fraction(_ remainingPercent: Double) -> Double {
-        min(max(remainingPercent / 100, 0), 1)
+    static func arcFraction(_ remainingPercent: Double) -> Double {
+        if remainingPercent <= 0 { return 1 }
+        return min(max(remainingPercent / 100, 0), 1)
     }
 
     static func percent(_ remainingPercent: Double) -> String {
         "\(Int(min(max(remainingPercent, 0), 100).rounded()))%"
     }
 
-    static func color(_ remainingPercent: Double) -> Color {
-        if remainingPercent <= 10 { return .red }
-        if remainingPercent <= 20 { return .orange }
-        return .accentColor
+    static func resetTag(resetAt: Date?, fallback: String, now: Date) -> String {
+        guard let resetAt else { return fallback }
+        let remaining = resetAt.timeIntervalSince(now)
+        guard remaining > 0 else { return "NOW" }
+        if remaining >= 86_400 {
+            return "\(Int(ceil(remaining / 86_400)))D"
+        }
+        if remaining >= 3_600 {
+            return "\(Int(ceil(remaining / 3_600)))H"
+        }
+        return "\(max(1, Int(ceil(remaining / 60))))M"
     }
 }
 
@@ -396,6 +476,10 @@ private enum WidgetQuotaAccessibility {
 
         if let planType = snapshot.planType, !planType.isEmpty {
             parts.append("\(planType) plan")
+        }
+        if let sessionStatus = snapshot.sessionStatus,
+           sessionStatus.phase.showsLight {
+            parts.append("Codex session \(sessionStatus.phase.label)")
         }
         return parts.joined(separator: ", ")
     }

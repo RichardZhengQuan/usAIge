@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     private var isTerminationPending = false
     private var hasRepliedToTermination = false
     private var relaySettingsObserver: AnyCancellable?
+    private var relayAgentObserver: AnyCancellable?
 
     override init() {
         let configuredSettings = HUDSettings()
@@ -103,6 +104,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         agentStore.onAttentionEvent = { [weak relaySync] task in
             relaySync?.sendSessionEvent(for: task)
         }
+        relayAgentObserver = agentStore.$phase
+            .removeDuplicates()
+            .sink { [weak relaySync] phase in
+                relaySync?.observeCodexSession(phase)
+            }
         agentStore.start()
         let codexAttentionMonitor = CodexAttentionMonitor { [weak self] in
             self?.agentStore.acknowledgeAttentionStates()

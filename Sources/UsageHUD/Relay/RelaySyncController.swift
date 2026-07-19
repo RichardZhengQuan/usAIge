@@ -17,11 +17,17 @@ struct RelayLimitPayload: Codable, Equatable, Sendable {
     let secondary: RelayWindowPayload?
 }
 
+struct RelaySessionStatusPayload: Codable, Equatable, Sendable {
+    let phase: CodexAgentPhase
+    let updatedAt: Date
+}
+
 struct RelayToolPayload: Encodable, Equatable, Sendable {
     let id: String
     let name: String
     let symbolName: String
     let limits: [RelayLimitPayload]
+    let sessionStatus: RelaySessionStatusPayload?
 }
 
 struct RelaySnapshotPayload: Encodable, Equatable, Sendable {
@@ -29,7 +35,11 @@ struct RelaySnapshotPayload: Encodable, Equatable, Sendable {
     let generatedAt: Date
     let tools: [RelayToolPayload]
 
-    static func make(from snapshots: [QuotaSnapshot], at date: Date = Date()) -> Self {
+    static func make(
+        from snapshots: [QuotaSnapshot],
+        codexSessionStatus: RelaySessionStatusPayload? = nil,
+        at date: Date = Date()
+    ) -> Self {
         let orderedIDs = snapshots.reduce(into: [AIToolID]()) { values, snapshot in
             if !values.contains(snapshot.toolID) { values.append(snapshot.toolID) }
         }
@@ -59,7 +69,8 @@ struct RelaySnapshotPayload: Encodable, Equatable, Sendable {
                             )
                         }
                     )
-                }
+                },
+                sessionStatus: toolID == .chatGPT ? codexSessionStatus : nil
             )
         }
         return Self(generatedAt: date, tools: tools)
@@ -175,6 +186,7 @@ final class RelaySyncController: ObservableObject {
     private let session: URLSession
     private let credentials: RelayMacCredentialStore
     private var latestSnapshots: [QuotaSnapshot] = []
+    private var latestCodexSessionStatus: RelaySessionStatusPayload?
     private var uploadTask: Task<Void, Never>?
     private var heartbeatTask: Task<Void, Never>?
     private var remotePairingPollTask: Task<Void, Never>?
@@ -219,6 +231,19 @@ final class RelaySyncController: ObservableObject {
 
     func observe(_ snapshots: [QuotaSnapshot]) {
         latestSnapshots = snapshots
+        scheduleUpload()
+    }
+
+    func observeCodexSession(_ phase: CodexAgentPhase, at date: Date = Date()) {
+        let status = RelaySessionStatusPayload(phase: phase, updatedAt: date)
+        guard status.phase != latestCodexSessionStatus?.phase else { return }
+        latestCodexSessionStatus = status
+        if !latestSnapshots.isEmpty {
+            scheduleUpload()
+        }
+    }
+
+    private func scheduleUpload() {
         guard isLinked else { return }
         uploadTask?.cancel()
         uploadTask = Task { [weak self] in
@@ -384,7 +409,10 @@ final class RelaySyncController: ObservableObject {
         }
         status = .uploading
         do {
-            let payload = RelaySnapshotPayload.make(from: latestSnapshots)
+            let payload = RelaySnapshotPayload.make(
+                from: latestSnapshots,
+                codexSessionStatus: latestCodexSessionStatus
+            )
             var request = try authorizedURLRequest(method: "PUT", path: "channels/\(channelID)/snapshot")
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601

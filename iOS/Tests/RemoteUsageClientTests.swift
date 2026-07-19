@@ -195,6 +195,29 @@ final class RemoteUsageClientTests: XCTestCase {
     }
 }
 
+final class RelayClientSessionStatusTests: XCTestCase {
+    func testRelayFetchDecodesCodexSessionStatus() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RelaySnapshotStubURLProtocol.self]
+        let client = RelayClient(session: URLSession(configuration: configuration))
+        let connection = RelayConnection(
+            channelID: UUID(uuidString: "11111111-1111-4111-8111-111111111111")!,
+            deviceID: UUID(uuidString: "22222222-2222-4222-8222-222222222222")!,
+            macName: "Test Mac"
+        )
+
+        let fetched = try await client.fetch(connection: connection, token: "read-token")
+        let result = try XCTUnwrap(fetched)
+
+        XCTAssertEqual(result.snapshots.count, 1)
+        XCTAssertEqual(result.snapshots[0].sessionStatus?.phase, .needsInput)
+        XCTAssertEqual(
+            result.snapshots[0].sessionStatus?.updatedAt,
+            ISO8601DateFormatter().date(from: "2026-07-19T12:00:02Z")
+        )
+    }
+}
+
 private final class RemoteUsageStubURLProtocol: URLProtocol, @unchecked Sendable {
     private static let requestRecorder = RelayRequestRecorder()
 
@@ -305,4 +328,27 @@ private final class RelayRequestRecorder: @unchecked Sendable {
             body = nil
         }
     }
+}
+
+private final class RelaySnapshotStubURLProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        let payload = #"{"version":8,"serverReceivedAt":"2026-07-19T12:00:03Z","snapshot":{"generatedAt":"2026-07-19T12:00:02Z","tools":[{"id":"chatGPT","name":"ChatGPT","symbolName":"sparkles","sessionStatus":{"phase":"needsInput","updatedAt":"2026-07-19T12:00:02Z"},"limits":[{"id":"codex","name":"Codex","planType":"Plus","primary":{"remainingPercent":72,"resetAt":"2026-07-20T12:00:00Z","windowDurationMinutes":10080},"secondary":null}]}]}}"#
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Content-Type": "application/json", "ETag": "\"8\""]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(payload.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }
