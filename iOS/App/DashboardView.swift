@@ -28,6 +28,7 @@ struct DashboardView: View {
             }
         }
         .navigationTitle("AI Usage")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             Button("Refresh", systemImage: "arrow.clockwise") { Task { await model.refreshAll() } }
                 .disabled(!model.isConnected || model.isRefreshing)
