@@ -98,20 +98,29 @@ import Testing
 }
 
 @MainActor
-@Test func persistsRemoteToolsAndKeepsTheirIdentifiersUnique() throws {
+@Test func removesLegacyEndpointBasedRemoteToolsDuringMigration() throws {
     let defaults = isolatedDefaults()
-    let endpoint = try #require(URL(string: "https://example.com/limits"))
-    let remoteID = AIToolID(rawValue: "5f73a498-85b0-49c5-97b1-288a081e532e")
-    var settings: HUDSettings? = HUDSettings(defaults: defaults)
-    try settings?.upsertRemoteTool(RemoteAITool(id: remoteID, name: "Remote", endpoint: endpoint))
-    try settings?.upsertRemoteTool(RemoteAITool(id: remoteID, name: "Renamed", endpoint: endpoint))
-    settings = nil
+    let remoteID = "5f73a498-85b0-49c5-97b1-288a081e532e"
+    let legacy: [String: Any] = [
+        "version": 6,
+        "toolOrder": ["chatGPT", remoteID],
+        "bucketOrder": ["\(remoteID):weekly"],
+        "hiddenBucketIDs": ["\(remoteID):weekly"],
+        "remoteTools": [[
+            "id": remoteID,
+            "name": "Legacy Remote",
+            "endpoint": "https://example.com/limits",
+            "systemImage": "cpu",
+            "isEnabled": true,
+        ]],
+    ]
+    defaults.set(try JSONSerialization.data(withJSONObject: legacy), forKey: "usageHUD.settings.v1")
 
-    let restored = HUDSettings(defaults: defaults)
+    let settings = HUDSettings(defaults: defaults)
 
-    #expect(restored.remoteTools.count == 1)
-    #expect(restored.remoteTools.first?.name == "Renamed")
-    #expect(restored.toolOrder.filter { $0 == remoteID }.count == 1)
+    #expect(!settings.toolOrder.contains(AIToolID(rawValue: remoteID)))
+    #expect(!settings.bucketOrder.contains("\(remoteID):weekly"))
+    #expect(!settings.hiddenBucketIDs.contains("\(remoteID):weekly"))
 }
 
 @MainActor

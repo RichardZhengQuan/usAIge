@@ -3,13 +3,13 @@ import Combine
 import Foundation
 import Security
 
-struct RelayWindowPayload: Encodable, Equatable, Sendable {
+struct RelayWindowPayload: Codable, Equatable, Sendable {
     let remainingPercent: Double
     let resetAt: Date?
     let windowDurationMinutes: Int?
 }
 
-struct RelayLimitPayload: Encodable, Equatable, Sendable {
+struct RelayLimitPayload: Codable, Equatable, Sendable {
     let id: String
     let name: String
     let planType: String?
@@ -79,6 +79,49 @@ struct RelayPhoneDevice: Codable, Identifiable, Equatable, Sendable {
     }
 }
 
+struct RelayRemoteToolSnapshot: Codable, Equatable, Sendable {
+    let schemaVersion: Int
+    let generatedAt: Date
+    let limits: [RelayLimitPayload]
+}
+
+struct RelayRemoteTool: Identifiable, Decodable, Equatable, Sendable {
+    let id: String
+    let name: String
+    let symbolName: String
+    let websiteURL: URL?
+    let createdAt: Date
+    let lastUploadAt: Date?
+    let snapshot: RelayRemoteToolSnapshot?
+
+    var toolID: AIToolID { AIToolID(rawValue: id) }
+
+    func quotaSnapshots() -> [QuotaSnapshot] {
+        guard let snapshot else { return [] }
+        return snapshot.limits.map { limit in
+            var value = QuotaSnapshot.make(
+                from: RateLimitBucket(
+                    limitID: "\(id):\(limit.id)",
+                    limitName: limit.name,
+                    usedPercent: 100 - limit.primary.remainingPercent,
+                    windowDurationMinutes: limit.primary.windowDurationMinutes,
+                    resetsAt: limit.primary.resetAt?.timeIntervalSince1970,
+                    planType: limit.planType,
+                    secondaryUsedPercent: limit.secondary.map { 100 - $0.remainingPercent },
+                    secondaryWindowDurationMinutes: limit.secondary?.windowDurationMinutes,
+                    secondaryResetsAt: limit.secondary?.resetAt?.timeIntervalSince1970
+                ),
+                updatedAt: snapshot.generatedAt
+            )
+            value.toolID = toolID
+            value.toolName = name
+            value.toolWebURL = websiteURL
+            value.toolSystemImage = symbolName
+            return value
+        }
+    }
+}
+
 @MainActor
 final class RelaySyncController: ObservableObject {
     enum Status: Equatable {
@@ -89,6 +132,9 @@ final class RelaySyncController: ObservableObject {
     @Published private(set) var pairingCode: String?
     @Published private(set) var pairingExpiresAt: Date?
     @Published private(set) var devices: [RelayPhoneDevice] = []
+    @Published private(set) var remoteTools: [RelayRemoteTool] = []
+    @Published private(set) var remotePairingCode: String?
+    @Published private(set) var remotePairingExpiresAt: Date?
     @Published private(set) var lastUploadAt: Date?
 
     private static let relayURL = URL(string: "https://usaige-macos.richardqz.chatgpt.site/api/v1/")!
@@ -101,6 +147,7 @@ final class RelaySyncController: ObservableObject {
     private var latestSnapshots: [QuotaSnapshot] = []
     private var uploadTask: Task<Void, Never>?
     private var heartbeatTask: Task<Void, Never>?
+    private var remotePairingPollTask: Task<Void, Never>?
     private var retryAttempt = 0
     private var isUploadInFlight = false
     private var hasPendingUpload = false
@@ -128,9 +175,15 @@ final class RelaySyncController: ObservableObject {
                 guard let self else { return }
                 await self.uploadLatest(force: true)
                 await self.refreshDevices()
+                _ = try? await self.refreshRemoteTools()
             }
         }
-        if isLinked { Task { await refreshDevices() } }
+        if isLinked {
+            Task {
+                await refreshDevices()
+                _ = try? await refreshRemoteTools()
+            }
+        }
     }
 
     func observe(_ snapshots: [QuotaSnapshot]) {
@@ -183,6 +236,53 @@ final class RelaySyncController: ObservableObject {
         } catch { status = .failed(error.localizedDescription) }
     }
 
+    func createRemoteToolPairingCode() async {
+        status = .connecting
+        if !isLinked {
+            await createChannel()
+        }
+        guard let channelID else { return }
+        status = .connecting
+        do {
+            let response: PairingResponse = try await authorizedRequest(
+                method: "POST",
+                path: "channels/\(channelID)/tool-pairings"
+            )
+            remotePairingCode = response.pairingCode
+            remotePairingExpiresAt = response.expiresAt
+            status = .connected
+            startRemotePairingPoll(expiresAt: response.expiresAt)
+        } catch {
+            status = .failed(error.localizedDescription)
+        }
+    }
+
+    @discardableResult
+    func refreshRemoteTools() async throws -> [QuotaSnapshot] {
+        guard let channelID else { throw RemoteUsageError.noSources }
+        let response: RemoteToolsResponse = try await authorizedRequest(
+            method: "GET",
+            path: "channels/\(channelID)/tools"
+        )
+        remoteTools = response.tools
+        if response.tools.isEmpty { throw RemoteUsageError.noSources }
+        status = .connected
+        return response.tools.flatMap { $0.quotaSnapshots() }
+    }
+
+    func revoke(_ tool: RelayRemoteTool) async {
+        guard let channelID else { return }
+        do {
+            try await authorizedVoid(
+                method: "DELETE",
+                path: "channels/\(channelID)/tools/\(tool.id)"
+            )
+            remoteTools.removeAll { $0.id == tool.id }
+        } catch {
+            status = .failed(error.localizedDescription)
+        }
+    }
+
     func revoke(_ device: RelayPhoneDevice) async {
         guard let channelID else { return }
         do {
@@ -200,8 +300,33 @@ final class RelaySyncController: ObservableObject {
         pairingCode = nil
         pairingExpiresAt = nil
         devices = []
+        remoteTools = []
+        remotePairingCode = nil
+        remotePairingExpiresAt = nil
+        remotePairingPollTask?.cancel()
+        remotePairingPollTask = nil
         lastUploadAt = nil
         status = .disconnected
+    }
+
+    private func startRemotePairingPoll(expiresAt: Date) {
+        remotePairingPollTask?.cancel()
+        let existingIDs = Set(remoteTools.map(\.id))
+        remotePairingPollTask = Task { [weak self] in
+            while !Task.isCancelled, Date() < expiresAt {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                guard let self else { return }
+                _ = try? await self.refreshRemoteTools()
+                if Set(self.remoteTools.map(\.id)) != existingIDs {
+                    self.remotePairingCode = nil
+                    self.remotePairingExpiresAt = nil
+                    return
+                }
+            }
+            guard let self else { return }
+            self.remotePairingCode = nil
+            self.remotePairingExpiresAt = nil
+        }
     }
 
     private func uploadLatest(force: Bool) async {
@@ -278,6 +403,7 @@ final class RelaySyncController: ObservableObject {
 private struct CreateChannelResponse: Decodable { let channelID, uploadToken, macName, pairingCode: String; let expiresAt: Date }
 private struct PairingResponse: Decodable { let pairingCode: String; let expiresAt: Date }
 private struct DeviceListResponse: Decodable { let devices: [RelayPhoneDevice] }
+private struct RemoteToolsResponse: Decodable { let tools: [RelayRemoteTool] }
 private struct UploadResponse: Decodable { let version: Int; let serverReceivedAt: Date; let changed: Bool }
 private struct ErrorResponse: Decodable { let error: String }
 private enum RelaySyncError: LocalizedError { case missingCredential, requestFailed, server(String); var errorDescription: String? { switch self { case .missingCredential: "The Mac relay key is missing. Disconnect and pair again."; case .requestFailed: "The relay request failed."; case let .server(message): message } } }

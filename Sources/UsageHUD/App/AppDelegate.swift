@@ -23,6 +23,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     override init() {
         let configuredSettings = HUDSettings()
         settings = configuredSettings
+        let configuredRelaySync = RelaySyncController()
+        relaySync = configuredRelaySync
         let localProvider: any CodexUsageProviding
         let agentProvider: any CodexAgentProviding
         if let executable = CodexExecutableResolver.resolve() {
@@ -36,10 +38,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
             localProvider = MissingCodexProvider()
             agentProvider = MissingCodexAgentProvider()
         }
-        let remoteProvider = RemoteUsageProvider(
-            configuration: { configuredSettings.remoteTools },
-            credentials: KeychainCredentialStore()
-        )
+        let remoteProvider = RemoteUsageProvider {
+            try await configuredRelaySync.refreshRemoteTools()
+        }
         store = UsageStore(provider: CompositeUsageProvider(
             local: localProvider,
             remote: remoteProvider
@@ -48,7 +49,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         launchAtLogin = LaunchAtLoginController()
         updateController = UpdateController()
         usageLimitNotifications = UsageLimitNotificationController()
-        relaySync = RelaySyncController()
         super.init()
     }
 

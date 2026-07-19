@@ -9,6 +9,7 @@ export interface RelayEnv {
 type RelayContext = { waitUntil(promise: Promise<unknown>): void };
 type ChannelRow = { id: string; mac_name: string; upload_token_hash: string; snapshot_json: string | null; snapshot_version: number; last_upload_at: string | null };
 type DeviceRow = { id: string; channel_id: string; name: string; read_token_hash: string; apns_token: string | null; apns_environment: string | null; last_push_at: string | null };
+type RemoteToolRow = { id: string; channel_id: string; name: string; symbol_name: string; website_url: string | null; write_token_hash: string; snapshot_json: string | null; created_at: string; last_upload_at: string | null };
 
 const encoder = new TextEncoder();
 const pairingAlphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
@@ -61,6 +62,31 @@ export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: R
       return json({ channelID: pairing.channel_id, deviceID, readToken, macName: channel?.mac_name ?? "Mac" }, 201);
     }
 
+    if (request.method === "POST" && url.pathname === "/api/v1/tool-pairings/claim") {
+      await enforceRateLimit(env.DB, `tool-claim:${clientAddress(request)}`, 20, 15 * 60_000);
+      const payload = await readJSON(request) as { code?: string; toolName?: string; symbolName?: string; websiteURL?: string };
+      const normalizedCode = normalizeCode(payload.code);
+      const pairing = await env.DB.prepare(
+        "SELECT id, channel_id, expires_at, claimed_at FROM relay_tool_pairings WHERE code_hash = ?"
+      ).bind(await sha256(normalizedCode)).first<{ id: string; channel_id: string; expires_at: string; claimed_at: string | null }>();
+      if (!pairing || pairing.claimed_at || Date.parse(pairing.expires_at) <= Date.now()) {
+        return json({ error: "That pairing code is invalid or expired." }, 400);
+      }
+      const toolID = crypto.randomUUID();
+      const writeToken = randomToken("usg_tool_");
+      const now = new Date().toISOString();
+      const toolName = cleanName(payload.toolName, "Remote AI Tool");
+      const symbolName = cleanSymbolName(payload.symbolName);
+      const websiteURL = cleanWebsiteURL(payload.websiteURL);
+      const claim = await env.DB.prepare("UPDATE relay_tool_pairings SET claimed_at = ? WHERE id = ? AND claimed_at IS NULL")
+        .bind(now, pairing.id).run();
+      if ((claim.meta.changes ?? 0) !== 1) return json({ error: "That pairing code is invalid or expired." }, 400);
+      await env.DB.prepare("INSERT INTO relay_remote_tools (id, channel_id, name, symbol_name, website_url, write_token_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+        .bind(toolID, pairing.channel_id, toolName, symbolName, websiteURL, await sha256(writeToken), now).run();
+      const uploadURL = `${url.origin}/api/v1/channels/${pairing.channel_id}/tools/${toolID}/snapshot`;
+      return json({ channelID: pairing.channel_id, toolID, writeToken, uploadURL }, 201);
+    }
+
     const channelMatch = url.pathname.match(/^\/api\/v1\/channels\/([^/]+)(?:\/(.*))?$/);
     if (!channelMatch) return json({ error: "Not found." }, 404);
     const channelID = channelMatch[1];
@@ -71,6 +97,11 @@ export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: R
     if (request.method === "POST" && tail === "pairings") {
       if (!await authorizeMac(request, channel)) return unauthorized();
       return json(await createPairing(env.DB, channelID, new Date()), 201);
+    }
+
+    if (request.method === "POST" && tail === "tool-pairings") {
+      if (!await authorizeMac(request, channel)) return unauthorized();
+      return json(await createToolPairing(env.DB, channelID, new Date()), 201);
     }
 
     if (request.method === "PUT" && tail === "snapshot") {
@@ -106,6 +137,41 @@ export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: R
       const rows = await env.DB.prepare("SELECT id, name, created_at, last_seen_at FROM relay_devices WHERE channel_id = ? ORDER BY created_at")
         .bind(channelID).all();
       return json({ devices: rows.results });
+    }
+
+    if (request.method === "GET" && tail === "tools") {
+      if (!await authorizeMac(request, channel)) return unauthorized();
+      const rows = await env.DB.prepare("SELECT id, name, symbol_name, website_url, snapshot_json, created_at, last_upload_at FROM relay_remote_tools WHERE channel_id = ? ORDER BY created_at")
+        .bind(channelID).all<RemoteToolRow>();
+      return json({ tools: rows.results.map(tool => ({
+        id: tool.id,
+        name: tool.name,
+        symbolName: tool.symbol_name,
+        websiteURL: tool.website_url,
+        createdAt: tool.created_at,
+        lastUploadAt: tool.last_upload_at,
+        snapshot: tool.snapshot_json ? JSON.parse(tool.snapshot_json) : null,
+      })) });
+    }
+
+    const toolSnapshotMatch = tail.match(/^tools\/([^/]+)\/snapshot$/);
+    if (toolSnapshotMatch && request.method === "PUT") {
+      const tool = await remoteToolByID(env.DB, channelID, toolSnapshotMatch[1]);
+      if (!tool || !await authorizeRemoteTool(request, tool)) return unauthorized();
+      const payload = await readJSON(request);
+      validateRemoteToolSnapshot(payload);
+      const now = new Date().toISOString();
+      await env.DB.prepare("UPDATE relay_remote_tools SET snapshot_json = ?, last_upload_at = ? WHERE id = ? AND channel_id = ?")
+        .bind(JSON.stringify(payload), now, tool.id, channelID).run();
+      return json({ accepted: true, serverReceivedAt: now });
+    }
+
+    const remoteToolMatch = tail.match(/^tools\/([^/]+)$/);
+    if (remoteToolMatch && request.method === "DELETE") {
+      if (!await authorizeMac(request, channel)) return unauthorized();
+      await env.DB.prepare("DELETE FROM relay_remote_tools WHERE id = ? AND channel_id = ?")
+        .bind(remoteToolMatch[1], channelID).run();
+      return new Response(null, { status: 204 });
     }
 
     const deviceMatch = tail.match(/^devices\/([^/]+)$/);
@@ -148,6 +214,9 @@ async function ensureRelaySchema(db: D1Database) {
       db.prepare("CREATE TABLE IF NOT EXISTS relay_pairings (id TEXT PRIMARY KEY NOT NULL, channel_id TEXT NOT NULL REFERENCES relay_channels(id) ON DELETE CASCADE, code_hash TEXT NOT NULL UNIQUE, expires_at TEXT NOT NULL, claimed_at TEXT, failed_attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)"),
       db.prepare("CREATE TABLE IF NOT EXISTS relay_devices (id TEXT PRIMARY KEY NOT NULL, channel_id TEXT NOT NULL REFERENCES relay_channels(id) ON DELETE CASCADE, name TEXT NOT NULL, read_token_hash TEXT NOT NULL UNIQUE, apns_token TEXT, apns_environment TEXT, last_push_at TEXT, created_at TEXT NOT NULL, last_seen_at TEXT NOT NULL)"),
       db.prepare("CREATE INDEX IF NOT EXISTS relay_devices_channel_idx ON relay_devices(channel_id)"),
+      db.prepare("CREATE TABLE IF NOT EXISTS relay_tool_pairings (id TEXT PRIMARY KEY NOT NULL, channel_id TEXT NOT NULL REFERENCES relay_channels(id) ON DELETE CASCADE, code_hash TEXT NOT NULL UNIQUE, expires_at TEXT NOT NULL, claimed_at TEXT, created_at TEXT NOT NULL)"),
+      db.prepare("CREATE TABLE IF NOT EXISTS relay_remote_tools (id TEXT PRIMARY KEY NOT NULL, channel_id TEXT NOT NULL REFERENCES relay_channels(id) ON DELETE CASCADE, name TEXT NOT NULL, symbol_name TEXT NOT NULL, website_url TEXT, write_token_hash TEXT NOT NULL UNIQUE, snapshot_json TEXT, created_at TEXT NOT NULL, last_upload_at TEXT)"),
+      db.prepare("CREATE INDEX IF NOT EXISTS relay_remote_tools_channel_idx ON relay_remote_tools(channel_id)"),
       db.prepare("CREATE TABLE IF NOT EXISTS relay_rate_limits (key TEXT PRIMARY KEY NOT NULL, count INTEGER NOT NULL, window_started_at TEXT NOT NULL)"),
     ]).then(() => undefined).catch(error => { schemaReady = undefined; throw error; });
   }
@@ -181,6 +250,17 @@ function validateSnapshot(value: unknown): asserts value is Record<string, unkno
     }
   }
 }
+function validateRemoteToolSnapshot(value: unknown): asserts value is Record<string, unknown> {
+  const root = value as { schemaVersion?: unknown; generatedAt?: unknown; limits?: unknown };
+  if (!root || !hasOnlyKeys(root, ["schemaVersion", "generatedAt", "limits"]) || root.schemaVersion !== 1 || !isDateString(root.generatedAt) || !Array.isArray(root.limits) || root.limits.length > 100) {
+    throw new RelayError("Invalid remote tool snapshot schema.", 400);
+  }
+  for (const limit of root.limits as Array<{ id?: unknown; name?: unknown; planType?: unknown; primary?: unknown; secondary?: unknown }>) {
+    if (!hasOnlyKeys(limit, ["id", "name", "planType", "primary", "secondary"]) || !isBoundedString(limit.id, 256) || !isBoundedString(limit.name, 128) || (limit.planType != null && !isBoundedString(limit.planType, 128)) || !isWindow(limit.primary) || (limit.secondary != null && !isWindow(limit.secondary))) {
+      throw new RelayError("Invalid remote tool limit.", 400);
+    }
+  }
+}
 function isBoundedString(value: unknown, maximum: number): value is string { return typeof value === "string" && value.length > 0 && value.length <= maximum; }
 function isDateString(value: unknown): value is string { return typeof value === "string" && value.length <= 64 && Number.isFinite(Date.parse(value)); }
 function hasOnlyKeys(value: object, allowed: string[]) { return Object.keys(value).every(key => allowed.includes(key)); }
@@ -193,7 +273,9 @@ function isWindow(value: unknown) {
     && (window.windowDurationMinutes == null || (Number.isInteger(window.windowDurationMinutes) && Number(window.windowDurationMinutes) >= 0 && Number(window.windowDurationMinutes) <= 525_600));
 }
 async function channelByID(db: D1Database, id: string) { return db.prepare("SELECT * FROM relay_channels WHERE id = ?").bind(id).first<ChannelRow>(); }
+async function remoteToolByID(db: D1Database, channelID: string, id: string) { return db.prepare("SELECT * FROM relay_remote_tools WHERE id = ? AND channel_id = ?").bind(id, channelID).first<RemoteToolRow>(); }
 async function authorizeMac(request: Request, channel: ChannelRow) { const token = bearer(request); return !!token && timingSafeEqual(await sha256(token), channel.upload_token_hash); }
+async function authorizeRemoteTool(request: Request, tool: RemoteToolRow) { const token = bearer(request); return !!token && timingSafeEqual(await sha256(token), tool.write_token_hash); }
 async function authorizePhone(request: Request, db: D1Database, channelID: string) {
   const token = bearer(request); if (!token) return null;
   return db.prepare("SELECT * FROM relay_devices WHERE channel_id = ? AND read_token_hash = ?").bind(channelID, await sha256(token)).first<DeviceRow>();
@@ -202,6 +284,11 @@ function bearer(request: Request) { const value = request.headers.get("authoriza
 function unauthorized() { return json({ error: "Unauthorized." }, 401); }
 function json(value: unknown, status = 200, headers: HeadersInit = {}) { return Response.json(value, { status, headers: { "cache-control": "no-store", ...headers } }); }
 function cleanName(value: unknown, fallback: string) { const name = typeof value === "string" ? value.trim().slice(0, 80) : ""; return name || fallback; }
+function cleanSymbolName(value: unknown) { const symbol = typeof value === "string" ? value.trim() : ""; return /^[a-z0-9.-]{1,64}$/i.test(symbol) ? symbol : "cpu"; }
+function cleanWebsiteURL(value: unknown) {
+  if (typeof value !== "string" || value.length > 2048) return null;
+  try { const url = new URL(value); return ["http:", "https:"].includes(url.protocol) ? url.toString() : null; } catch { return null; }
+}
 function normalizeCode(value: unknown) {
   const raw = typeof value === "string" ? value.trim().toUpperCase() : "";
   const pattern = `[${pairingAlphabet}]{8}`;
@@ -215,6 +302,12 @@ function randomCode() { const bytes = crypto.getRandomValues(new Uint8Array(8));
 async function createPairing(db: D1Database, channelID: string, now: Date) {
   const code = randomCode(); const expiresAt = new Date(now.getTime() + pairingLifetimeMs).toISOString();
   await db.prepare("INSERT INTO relay_pairings (id, channel_id, code_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?)")
+    .bind(crypto.randomUUID(), channelID, await sha256(code), expiresAt, now.toISOString()).run();
+  return { pairingCode: code, expiresAt };
+}
+async function createToolPairing(db: D1Database, channelID: string, now: Date) {
+  const code = randomCode(); const expiresAt = new Date(now.getTime() + pairingLifetimeMs).toISOString();
+  await db.prepare("INSERT INTO relay_tool_pairings (id, channel_id, code_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?)")
     .bind(crypto.randomUUID(), channelID, await sha256(code), expiresAt, now.toISOString()).run();
   return { pairingCode: code, expiresAt };
 }
@@ -259,4 +352,4 @@ async function providerToken(env: RelayEnv) {
   const value = `${header}.${claims}.${base64url(signature)}`; cachedProviderToken = { value, createdAt: now }; return value;
 }
 
-export const relayTestSupport = { normalizeCode, validateSnapshot, sha256 };
+export const relayTestSupport = { normalizeCode, validateSnapshot, validateRemoteToolSnapshot, sha256 };

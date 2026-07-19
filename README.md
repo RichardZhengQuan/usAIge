@@ -1,7 +1,7 @@
 # usAIge
 
 usAIge has native clients for macOS, iPhone, iPad, and Apple Watch. The Mac is
-the trusted limit collector: it reads local Codex and configured remote tools,
+the trusted limit collector: it reads local Codex and paired remote tools,
 then relays only normalized percentages and reset times to paired iPhones.
 
 ## iOS app and widget
@@ -75,7 +75,7 @@ While idle, the panel surface is fully transparent and every visible control is 
 - macOS 11 or later on an Apple-silicon Mac.
 - Swift 6.2 and Xcode 26 for source builds.
 - For local Codex limits: the ChatGPT or Codex macOS app, or a `codex` executable on `PATH`, with an existing Codex-managed ChatGPT sign-in.
-- For remote limits: an HTTPS JSON endpoint that implements the contract below. Plain HTTP is accepted only for loopback development endpoints.
+- For remote limits: a compatible adapter that can claim a one-time usAIge pairing code and upload normalized limits.
 
 usAIge uses the bundled Codex executable from the ChatGPT/Codex application when available. It does not implement a second account login.
 
@@ -131,52 +131,41 @@ usAIge starts `codex app-server` locally and uses its documented JSON-RPC method
 
 The app prefers `rateLimitsByLimitId` and falls back to the legacy single `rateLimits` bucket. It reads both the primary and secondary windows for each bucket and never estimates a missing limit.
 
-### Remote AI tools (0.1.11)
+### Remote AI tools
 
 Connect a remote source from **Settings**:
 
-1. In **Connected AI tools**, click **Connect a Tool**.
-2. Paste the `usaige://connect?...` link supplied by a compatible service or your team administrator.
-3. Click **Connect**. The link fills in the service name, Usage URL, website, and optional access token for you.
+1. Open **Manage AI Tools → Add AI Tool**.
+2. Click **Create Connection** to generate an 8-character, one-use code.
+3. Copy the connection instructions into Codex, Claude Code, or another compatible adapter. The tool claims the code and stores its revocable upload credential locally.
+4. When the first normalized limit snapshot arrives, usAIge shows the paired tool automatically. Revoke it from the same screen at any time.
 
-If you do not have a connection link, use **Get help → Copy Setup Prompt** in the connection sheet. Paste that request into Codex or Claude Code. It will check the provider's documented options, prepare a compatible adapter and link when possible, or explain clearly when the account cannot expose usage. The prompt is self-contained and explicitly forbids browser scraping, copied session credentials, secrets in chat, and undocumented private APIs.
+This is the same pairing model used by iPhone Sync: short-lived codes, separately revocable devices/tools, and no account password inside usAIge. The old connection-link, endpoint editor, and pasted bearer-token flow have been removed.
 
-A public HTTPS Usage URL can also be pasted directly. Use the panel refresh button for an immediate request; enabled remote tools otherwise refresh every 60 seconds.
+The adapter must use an official provider API or documented local command. Consumer plans that do not expose machine-readable current remaining limits cannot be connected safely; usAIge does not scrape provider websites or reuse browser sessions.
 
-### Where does the connection link come from?
+#### Upload contract
 
-It does not come from an ordinary AI-app login. A compatible service or a team-owned adapter must issue it. Consumer Claude, Gemini, and Cursor accounts do not currently expose their subscription limits through a simple endpoint that usAIge can call. [OpenAI](https://developers.openai.com/api/reference/resources/admin/subresources/organization/subresources/usage) and [Anthropic](https://platform.claude.com/docs/en/api/admin/usage_report/retrieve_messages) usage APIs are organization/admin APIs for API consumption, [Cursor's usage API](https://docs.cursor.com/en/account/teams/admin-api) is for team administrators, and [Gemini](https://ai.google.dev/gemini-api/docs/rate-limits) directs users to AI Studio to view active limits. usAIge does not scrape browser sessions to work around those restrictions.
-
-For a team adapter, URL-encode the values into this format and deliver the result through a secure channel:
-
-```text
-usaige://connect?name=Team%20Claude&endpoint=https%3A%2F%2Flimits.example.com%2Fusage&website=https%3A%2F%2Fclaude.ai&token=secret
-```
-
-The optional token is moved into macOS Keychain when the link is accepted; the connection link itself is not saved in preferences. Anyone holding a token-bearing link can access whatever that token permits, so treat it like a password.
-
-Developers operating a compatible endpoint can instead expand **Advanced setup** and enter the details manually.
-
-The configured endpoint must use HTTPS. For local development only, HTTP is accepted when the host is `localhost`, `127.0.0.1`, or `::1`. usAIge sends a `GET` request with `Accept: application/json`. If a token is configured, the request also includes `Authorization: Bearer <token>`.
-
-The endpoint must return a JSON object with a `limits` array. This is the canonical response contract:
+After claiming the code, the relay returns an `uploadURL` and `writeToken`. Upload with `Authorization: Bearer <writeToken>` and this body:
 
 ```json
 {
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-19T12:00:00Z",
   "limits": [
     {
       "id": "requests",
       "name": "Requests",
       "planType": "Pro",
       "primary": {
-        "usedPercent": 42,
+        "remainingPercent": 58,
         "windowDurationMinutes": 300,
-        "resetsAt": 1893456000
+        "resetAt": "2030-01-01T00:00:00Z"
       },
       "secondary": {
         "remainingPercent": 67,
         "windowDurationMinutes": 10080,
-        "resetsAt": 1893974400
+        "resetAt": "2030-01-07T00:00:00Z"
       }
     }
   ]
@@ -185,19 +174,19 @@ The endpoint must return a JSON object with a `limits` array. This is the canoni
 
 Contract details:
 
-- `id` is a required, non-empty string that remains stable for the limit. `name` and `planType` are optional strings.
+- `id` and `name` are required stable strings. `planType` is optional.
 - `primary` is required for a displayed limit. `secondary` is optional; include it when the provider has another quota window.
-- Each window must provide either `usedPercent` or `remainingPercent` as a JSON number. If both are present, `usedPercent` takes precedence. Values are normalized to the `0...100` range.
+- Each window must provide `remainingPercent` as a JSON number in `0...100`.
 - `windowDurationMinutes` is an optional integer. Common values include `300` for five hours and `10080` for seven days.
-- `resetsAt` is an optional JSON number containing an absolute Unix timestamp in seconds, not milliseconds or a relative countdown. For example, `1893456000` is `2030-01-01T00:00:00Z`.
-- Unknown fields are ignored. A limit without a usable primary percentage is omitted rather than estimated.
+- `resetAt` is an optional ISO-8601 timestamp.
+- Unknown fields and provider credentials are rejected. A malformed upload cannot replace the last accepted snapshot.
 
 #### Remote limits and safety
 
-- A response must have a successful `2xx` HTTP status, valid JSON, no more than 100 limits, and a body no larger than 1 MB. The body is streamed and cancelled as soon as it crosses that limit.
-- Each request has a 15-second timeout. A failure in one configured remote tool does not prevent other available sources from reporting their limits.
-- Remote tools are read-only: usAIge makes `GET` requests and never sends account usage back to the provider.
-- Configure only endpoints you trust. The endpoint operator can observe the request, bearer token, IP address, and standard HTTP metadata.
+- Pairing codes expire after 10 minutes and can be claimed only once.
+- Each paired tool receives its own write-only credential and can be revoked independently.
+- The relay receives only normalized display metadata and quota windows. Provider credentials remain with the adapter.
+- The Mac polls paired snapshots on the normal remote refresh cadence and relays the combined visible view to paired iPhones.
 
 ## Settings
 
@@ -205,7 +194,7 @@ Use the gear button on the panel to open native macOS Settings. Available prefer
 
 - Active AI tool visibility.
 - Quota visibility and vertical ordering.
-- Connecting remote AI tools with a one-step connection link, plus advanced manual setup.
+- Connecting remote AI tools with one-time pairing codes and per-tool revocation.
 - Panel opacity and scale.
 - Optional automatic launch when you log in to your Mac.
 - Automatic update checks, local new-version notifications, and one-click in-app updates.
@@ -214,7 +203,7 @@ Use the gear button on the panel to open native macOS Settings. Available prefer
 
 Drag the panel by its background. Its safe position is stored separately for each display. If a display disappears, the panel is clamped onto an available screen the next time it is positioned.
 
-The built-in OpenAI/Codex source reads its local app-server. Additional tools appear only when you configure a remote endpoint that returns valid usage data; usAIge does not scrape provider websites or invent missing values.
+The built-in OpenAI/Codex source reads its local app-server. Additional tools appear only after a paired adapter uploads valid normalized usage data; usAIge does not scrape provider websites or invent missing values.
 
 ## Updates
 
@@ -230,9 +219,9 @@ When a quota resets, the new window starts its own notification cycle. Selecting
 
 - No browser cookies or web pages are read.
 - No OpenAI credentials are copied or stored by usAIge.
-- An optional remote bearer token is stored in the macOS Keychain, never in usAIge preferences, and is sent only in requests to that tool's configured endpoint.
+- The Mac relay credential is stored in macOS Keychain. Each remote tool keeps its own write credential outside usAIge.
 - No screen pixels are captured or inspected.
-- Preferences contain visual settings, bucket identifiers, display positions, and remote tool metadata such as names and URLs; they do not contain bearer tokens.
+- Preferences contain visual settings, bucket identifiers, and display positions; they do not contain remote-tool bearer tokens.
 - Unsupported or malformed quota buckets are omitted rather than guessed.
 
 ## Visibility
@@ -268,7 +257,7 @@ scripts/package-dmg.sh
 codesign --verify --deep --strict 'dist/usAIge.app'
 ```
 
-The automated suite covers quota normalization, JSON-RPC framing, account/rate-limit parsing, remote connection links, state recovery, countdowns, notification thresholds and routing, settings persistence, panel geometry, and severity thresholds.
+The automated suite covers quota normalization, JSON-RPC framing, account/rate-limit parsing, one-time remote pairing payloads, state recovery, countdowns, notification thresholds and routing, settings persistence, panel geometry, and severity thresholds.
 
 ## TODO
 
