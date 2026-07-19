@@ -17,9 +17,7 @@ struct RootView: View {
         TabView(selection: $selection) {
             Tab("Usage", systemImage: "gauge.with.dots.needle.67percent", value: .usage) {
                 NavigationStack {
-                    DashboardView {
-                        selection = .connection
-                    }
+                    DashboardView()
                 }
             }
 

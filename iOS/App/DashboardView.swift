@@ -2,7 +2,6 @@ import SwiftUI
 
 struct DashboardView: View {
     @Environment(RelayAppModel.self) private var model
-    let openConnection: () -> Void
 
     var body: some View {
         Group {
@@ -32,8 +31,6 @@ struct DashboardView: View {
         .toolbarTitleDisplayMode(.inlineLarge)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
-                Button("Connection", systemImage: "plus", action: openConnection)
-
                 Button("Refresh", systemImage: "arrow.clockwise") { Task { await model.refreshAll() } }
                     .disabled(!model.isConnected || model.isRefreshing)
             }
