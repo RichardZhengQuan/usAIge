@@ -3,6 +3,37 @@ import XCTest
 @testable import usAIge_iOS
 
 final class QuotaModelTests: XCTestCase {
+    func testSessionStatusPhasesExposeMacOSLabelsAndLightState() {
+        XCTAssertEqual(CodexSessionPhase.thinking.label, "Thinking")
+        XCTAssertEqual(CodexSessionPhase.complete.label, "Complete")
+        XCTAssertEqual(CodexSessionPhase.needsInput.label, "Needs input")
+        XCTAssertEqual(CodexSessionPhase.error.label, "Error")
+        XCTAssertFalse(CodexSessionPhase.idle.showsLight)
+        XCTAssertTrue(CodexSessionPhase.thinking.showsLight)
+    }
+
+    func testQuotaSeverityMatchesMacOSFiveBandThresholds() {
+        let cases: [(Double, QuotaSeverity)] = [
+            (100, .abundant),
+            (60.1, .abundant),
+            (60, .healthy),
+            (40.1, .healthy),
+            (40, .caution),
+            (20.1, .caution),
+            (20, .low),
+            (10.1, .low),
+            (10, .critical),
+            (0, .critical),
+        ]
+
+        for (remainingPercent, expectedSeverity) in cases {
+            XCTAssertEqual(
+                QuotaSeverity(remainingPercent: remainingPercent),
+                expectedSeverity
+            )
+        }
+    }
+
     func testWindowTypeTagsAndPercentageNormalization() {
         XCTAssertEqual(window(minutes: 300).typeTag, "5H")
         XCTAssertEqual(window(minutes: 1_440).typeTag, "1D")
@@ -45,6 +76,25 @@ final class QuotaModelTests: XCTestCase {
                 maximumAge: 900
             )
         )
+    }
+
+    func testResetCreditSummaryNormalizesCountAndPreservesExpiration() {
+        let expiration = Date(timeIntervalSince1970: 1_800_950_400)
+        let snapshot = QuotaSnapshot(
+            id: "tool:limit",
+            limitID: "limit",
+            toolID: UUID(),
+            toolName: "Codex",
+            displayName: "Codex",
+            remainingPercent: 50,
+            resetAt: nil,
+            updatedAt: Date(),
+            availableResetCount: -1,
+            resetCreditExpiresAt: expiration
+        )
+
+        XCTAssertEqual(snapshot.availableResetCount, 0)
+        XCTAssertEqual(snapshot.resetCreditExpiresAt, expiration)
     }
 
     func testRefreshMetadataRecordsSuccessAndFailure() {

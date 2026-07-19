@@ -60,6 +60,8 @@ final class PersistenceStoreTests: XCTestCase {
             updatedAt: now,
             planType: "Pro",
             windowDurationMinutes: 300,
+            availableResetCount: 1,
+            resetCreditExpiresAt: now.addingTimeInterval(86_400),
             secondaryWindow: nil,
             sessionStatus: CodexSessionStatus(
                 phase: .thinking,

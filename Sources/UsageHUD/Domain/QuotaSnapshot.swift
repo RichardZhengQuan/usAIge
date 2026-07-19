@@ -66,6 +66,7 @@ struct QuotaSnapshot: Identifiable, Codable, Equatable, Sendable {
     let planType: String?
     let updatedAt: Date
     var availableResetCount: Int? = nil
+    var resetCreditExpiresAt: Date? = nil
     var secondaryWindow: QuotaWindowSnapshot? = nil
 
     var typeTag: String {

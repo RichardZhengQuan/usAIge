@@ -1290,6 +1290,8 @@ final class RelayAppModel {
                     updatedAt: snapshot.updatedAt,
                     planType: snapshot.planType,
                     windowDurationMinutes: snapshot.windowDurationMinutes,
+                    availableResetCount: snapshot.availableResetCount,
+                    resetCreditExpiresAt: snapshot.resetCreditExpiresAt,
                     secondaryWindow: snapshot.secondaryWindow,
                     sessionStatus: snapshot.sessionStatus
                 )

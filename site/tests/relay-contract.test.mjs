@@ -13,6 +13,10 @@ const validSnapshot = () => ({
       phase: "thinking",
       updatedAt: "2026-07-18T12:00:02Z",
     },
+    resetCredits: {
+      availableCount: 1,
+      expiresAt: "2026-08-13T00:00:00Z",
+    },
     limits: [{
       id: "weekly",
       name: "Weekly",
@@ -39,6 +43,42 @@ test("generates 8-digit pairing codes", () => {
 
 test("accepts normalized visible-limit snapshots", () => {
   assert.doesNotThrow(() => relayTestSupport.validateSnapshot(validSnapshot()));
+
+  const legacySnapshot = validSnapshot();
+  legacySnapshot.sessionStatus = {
+    phase: "thinking",
+    updatedAt: "2026-07-18T11:59:59Z",
+  };
+  assert.doesNotThrow(() => relayTestSupport.validateSnapshot(legacySnapshot));
+});
+
+test("accepts only normalized reset-credit summaries", () => {
+  const snapshot = validSnapshot();
+  assert.doesNotThrow(() => relayTestSupport.validateSnapshot(snapshot));
+
+  snapshot.tools[0].resetCredits.availableCount = -1;
+  assert.throws(() => relayTestSupport.validateSnapshot(snapshot));
+
+  snapshot.tools[0].resetCredits.availableCount = 1;
+  snapshot.tools[0].resetCredits.creditId = "private-provider-id";
+  assert.throws(() => relayTestSupport.validateSnapshot(snapshot));
+});
+
+test("accepts only privacy-minimal legacy aggregate session status", () => {
+  for (const phase of ["idle", "thinking", "complete", "needsInput", "error"]) {
+    const snapshot = validSnapshot();
+    snapshot.sessionStatus = { phase, updatedAt: "2026-07-18T11:59:59Z" };
+    assert.doesNotThrow(() => relayTestSupport.validateSnapshot(snapshot));
+  }
+
+  const privateStatus = validSnapshot();
+  privateStatus.sessionStatus = { phase: "thinking", updatedAt: "2026-07-18T11:59:59Z" };
+  privateStatus.sessionStatus.taskTitle = "Secret task";
+  assert.throws(() => relayTestSupport.validateSnapshot(privateStatus));
+
+  const invalidPhase = validSnapshot();
+  invalidPhase.sessionStatus = { phase: "running", updatedAt: "2026-07-18T11:59:59Z" };
+  assert.throws(() => relayTestSupport.validateSnapshot(invalidPhase));
 });
 
 test("accepts bounded session phases without task content", () => {
