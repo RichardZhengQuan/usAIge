@@ -29,6 +29,9 @@ export const relayDevices = sqliteTable("relay_devices", {
   apnsToken: text("apns_token"),
   apnsEnvironment: text("apns_environment"),
   lastPushAt: text("last_push_at"),
+  sessionNotificationsEnabled: integer("session_notifications_enabled", { mode: "boolean" })
+    .notNull()
+    .default(false),
   createdAt: text("created_at").notNull(),
   lastSeenAt: text("last_seen_at").notNull(),
 }, (table) => ({ channelIndex: index("relay_devices_channel_idx").on(table.channelID) }));

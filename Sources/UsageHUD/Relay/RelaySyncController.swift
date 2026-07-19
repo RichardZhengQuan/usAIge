@@ -66,6 +66,36 @@ struct RelaySnapshotPayload: Encodable, Equatable, Sendable {
     }
 }
 
+struct RelaySessionEventPayload: Encodable, Equatable, Sendable {
+    enum Kind: String, Encodable, Sendable {
+        case finished
+        case error
+        case permissionNeeded = "permission_needed"
+    }
+
+    let schemaVersion = 1
+    let eventID: String
+    let kind: Kind
+    let sessionTitle: String
+    let workspaceName: String
+    let occurredAt: Date
+
+    init?(task: CodexAgentTask) {
+        switch task.phase {
+        case .complete: kind = .finished
+        case .error: kind = .error
+        case .needsInput: kind = .permissionNeeded
+        case .idle, .thinking: return nil
+        }
+        eventID = String("\(task.id):\(task.phase.rawValue):\(task.updatedAt.timeIntervalSince1970)".prefix(256))
+        let title = task.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let workspace = task.workspaceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        sessionTitle = String((title.isEmpty ? "Codex session" : title).prefix(160))
+        workspaceName = String((workspace.isEmpty ? "Mac workspace" : workspace).prefix(160))
+        occurredAt = task.updatedAt
+    }
+}
+
 struct RelayPhoneDevice: Codable, Identifiable, Equatable, Sendable {
     let id: String
     let name: String
@@ -151,6 +181,7 @@ final class RelaySyncController: ObservableObject {
     private var retryAttempt = 0
     private var isUploadInFlight = false
     private var hasPendingUpload = false
+    private var sentSessionEventIDs: Set<String> = []
 
     init(
         defaults: UserDefaults = .standard,
@@ -193,6 +224,14 @@ final class RelaySyncController: ObservableObject {
         uploadTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             await self?.uploadLatest(force: false)
+        }
+    }
+
+    func sendSessionEvent(for task: CodexAgentTask) {
+        guard isLinked, let payload = RelaySessionEventPayload(task: task),
+              sentSessionEventIDs.insert(payload.eventID).inserted else { return }
+        Task { [weak self] in
+            await self?.postSessionEvent(payload)
         }
     }
 
@@ -367,12 +406,41 @@ final class RelaySyncController: ObservableObject {
         }
     }
 
+    private func postSessionEvent(
+        _ payload: RelaySessionEventPayload,
+        attempt: Int = 0
+    ) async {
+        guard let channelID else { return }
+        do {
+            var request = try authorizedURLRequest(
+                method: "POST",
+                path: "channels/\(channelID)/session-events"
+            )
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            request.httpBody = try encoder.encode(payload)
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            try await sendVoid(request)
+        } catch {
+            guard attempt < 3 else {
+                sentSessionEventIDs.remove(payload.eventID)
+                return
+            }
+            let delay = UInt64(pow(2.0, Double(attempt)) * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: delay)
+            await postSessionEvent(payload, attempt: attempt + 1)
+        }
+    }
+
     private func authorizedRequest<T: Decodable>(method: String, path: String) async throws -> T {
         try await send(authorizedURLRequest(method: method, path: path))
     }
 
     private func authorizedVoid(method: String, path: String) async throws {
-        let request = try authorizedURLRequest(method: method, path: path)
+        try await sendVoid(authorizedURLRequest(method: method, path: path))
+    }
+
+    private func sendVoid(_ request: URLRequest) async throws {
         let (_, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw RelaySyncError.requestFailed

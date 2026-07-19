@@ -256,10 +256,20 @@ public struct RelayClient: Sendable {
         return RelaySnapshotResult(snapshots: values, serverReceivedAt: envelope.serverReceivedAt, version: envelope.version, etag: http.value(forHTTPHeaderField: "ETag"))
     }
 
-    public func registerAPNs(connection: RelayConnection, token: String, apnsToken: String, environment: String) async throws {
+    public func registerAPNs(
+        connection: RelayConnection,
+        token: String,
+        apnsToken: String,
+        environment: String,
+        sessionNotificationsEnabled: Bool
+    ) async throws {
         var request = authorized(connection: connection, token: token, path: "channels/\(connection.channelID.uuidString.lowercased())/devices/\(connection.deviceID.uuidString.lowercased())", method: "PUT")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(APNsRequest(apnsToken: apnsToken, environment: environment))
+        request.httpBody = try JSONEncoder().encode(APNsRequest(
+            apnsToken: apnsToken,
+            environment: environment,
+            sessionNotificationsEnabled: sessionNotificationsEnabled
+        ))
         let (_, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw RelayClientError.invalidResponse }
     }
@@ -301,7 +311,10 @@ public struct RelayClient: Sendable {
 
 private struct ClaimRequest: Encodable { let code, deviceName: String }
 private struct ClaimResponse: Decodable { let channelID, deviceID, readToken, macName: String }
-private struct APNsRequest: Encodable { let apnsToken, environment: String }
+private struct APNsRequest: Encodable {
+    let apnsToken, environment: String
+    let sessionNotificationsEnabled: Bool
+}
 private struct ServerError: Decodable { let error: String }
 private struct RelayEnvelope: Decodable {
     let version: Int; let serverReceivedAt: Date; let snapshot: RelaySnapshotDocument

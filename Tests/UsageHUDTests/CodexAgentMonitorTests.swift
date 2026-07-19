@@ -220,6 +220,28 @@ private let referenceDate = Date(timeIntervalSince1970: 2_000_000)
     #expect(acknowledgements[laterCompletion.id] == nil)
 }
 
+@Test func sessionNotificationsEmitOnlyNewAttentionTransitions() {
+    let running = task(.thinking, id: "session", updatedAt: referenceDate)
+    let finished = task(
+        .complete,
+        id: "session",
+        updatedAt: referenceDate.addingTimeInterval(1)
+    )
+
+    #expect(CodexAgentStore.newAttentionTasks(
+        [finished],
+        previous: [running.id: running]
+    ) == [finished])
+    #expect(CodexAgentStore.newAttentionTasks(
+        [finished],
+        previous: [finished.id: finished]
+    ).isEmpty)
+    #expect(CodexAgentStore.newAttentionTasks(
+        [running],
+        previous: [:]
+    ).isEmpty)
+}
+
 private func agentPhase(_ type: String, extra: String = "") -> CodexAgentPhase {
     CodexAgentSessionDecoder.phase(
         from: eventData(type, extra: extra),

@@ -34,3 +34,30 @@ import Testing
     #expect(payload.tools.map(\.name) == ["Team Claude", "ChatGPT"])
     #expect(payload.tools.flatMap(\.limits).map(\.id) == ["codex", "codex"])
 }
+
+@Test func relaySessionEventMapsAttentionStatesWithoutSessionContent() throws {
+    let date = Date(timeIntervalSince1970: 1_800_000_100)
+    let task = CodexAgentTask(
+        id: "session-id",
+        title: "Approve release",
+        workspaceName: "GPTUsage",
+        phase: .needsInput,
+        updatedAt: date
+    )
+    let payload = try #require(RelaySessionEventPayload(task: task))
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let text = try #require(String(data: encoder.encode(payload), encoding: .utf8))
+
+    #expect(payload.kind == .permissionNeeded)
+    #expect(text.contains("Approve release"))
+    #expect(text.contains("GPTUsage"))
+    #expect(!text.contains("prompt"))
+    #expect(RelaySessionEventPayload(task: CodexAgentTask(
+        id: "running",
+        title: "Running",
+        workspaceName: "GPTUsage",
+        phase: .thinking,
+        updatedAt: date
+    )) == nil)
+}

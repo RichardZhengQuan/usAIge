@@ -8,7 +8,8 @@ export interface RelayEnv {
 
 type RelayContext = { waitUntil(promise: Promise<unknown>): void };
 type ChannelRow = { id: string; mac_name: string; upload_token_hash: string; snapshot_json: string | null; snapshot_version: number; last_upload_at: string | null };
-type DeviceRow = { id: string; channel_id: string; name: string; read_token_hash: string; apns_token: string | null; apns_environment: string | null; last_push_at: string | null };
+type DeviceRow = { id: string; channel_id: string; name: string; read_token_hash: string; apns_token: string | null; apns_environment: string | null; last_push_at: string | null; session_notifications_enabled: number };
+type SessionEvent = { schemaVersion: 1; eventID: string; kind: "finished" | "error" | "permission_needed"; sessionTitle: string; workspaceName: string; occurredAt: string };
 type RemoteToolRow = { id: string; channel_id: string; name: string; symbol_name: string; website_url: string | null; write_token_hash: string; snapshot_json: string | null; created_at: string; last_upload_at: string | null };
 
 const encoder = new TextEncoder();
@@ -122,6 +123,15 @@ export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: R
       return json({ version: updated?.snapshot_version ?? channel.snapshot_version, serverReceivedAt: now, changed });
     }
 
+    if (request.method === "POST" && tail === "session-events") {
+      if (!await authorizeMac(request, channel)) return unauthorized();
+      await enforceRateLimit(env.DB, `events:${channelID}`, 240, 60 * 60_000);
+      const event = await readJSON(request);
+      validateSessionEvent(event);
+      ctx.waitUntil(pushSessionEvent(env, channel, event));
+      return json({ accepted: true }, 202);
+    }
+
     if (request.method === "GET" && tail === "snapshot") {
       const device = await authorizePhone(request, env.DB, channelID);
       if (!device) return unauthorized();
@@ -178,12 +188,15 @@ export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: R
     if (deviceMatch && request.method === "PUT") {
       const device = await authorizePhone(request, env.DB, channelID);
       if (!device || device.id !== deviceMatch[1]) return unauthorized();
-      const payload = await readJSON(request) as { apnsToken?: string; environment?: string };
+      const payload = await readJSON(request) as { apnsToken?: string; environment?: string; sessionNotificationsEnabled?: boolean };
       if (!/^[a-fA-F0-9]{32,256}$/.test(payload.apnsToken ?? "") || !["sandbox", "production"].includes(payload.environment ?? "")) {
         return json({ error: "Invalid APNs registration." }, 400);
       }
-      await env.DB.prepare("UPDATE relay_devices SET apns_token = ?, apns_environment = ?, last_seen_at = ? WHERE id = ?")
-        .bind(payload.apnsToken!.toLowerCase(), payload.environment, new Date().toISOString(), device.id).run();
+      if (payload.sessionNotificationsEnabled != null && typeof payload.sessionNotificationsEnabled !== "boolean") {
+        return json({ error: "Invalid notification preference." }, 400);
+      }
+      await env.DB.prepare("UPDATE relay_devices SET apns_token = ?, apns_environment = ?, session_notifications_enabled = ?, last_seen_at = ? WHERE id = ?")
+        .bind(payload.apnsToken!.toLowerCase(), payload.environment, payload.sessionNotificationsEnabled === true ? 1 : 0, new Date().toISOString(), device.id).run();
       return json({ registered: true });
     }
 
@@ -209,16 +222,27 @@ export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: R
 
 async function ensureRelaySchema(db: D1Database) {
   if (!schemaReady) {
-    schemaReady = db.batch([
-      db.prepare("CREATE TABLE IF NOT EXISTS relay_channels (id TEXT PRIMARY KEY NOT NULL, mac_name TEXT NOT NULL, upload_token_hash TEXT NOT NULL UNIQUE, snapshot_json TEXT, snapshot_hash TEXT, snapshot_version INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, last_upload_at TEXT)"),
-      db.prepare("CREATE TABLE IF NOT EXISTS relay_pairings (id TEXT PRIMARY KEY NOT NULL, channel_id TEXT NOT NULL REFERENCES relay_channels(id) ON DELETE CASCADE, code_hash TEXT NOT NULL UNIQUE, expires_at TEXT NOT NULL, claimed_at TEXT, failed_attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)"),
-      db.prepare("CREATE TABLE IF NOT EXISTS relay_devices (id TEXT PRIMARY KEY NOT NULL, channel_id TEXT NOT NULL REFERENCES relay_channels(id) ON DELETE CASCADE, name TEXT NOT NULL, read_token_hash TEXT NOT NULL UNIQUE, apns_token TEXT, apns_environment TEXT, last_push_at TEXT, created_at TEXT NOT NULL, last_seen_at TEXT NOT NULL)"),
-      db.prepare("CREATE INDEX IF NOT EXISTS relay_devices_channel_idx ON relay_devices(channel_id)"),
-      db.prepare("CREATE TABLE IF NOT EXISTS relay_tool_pairings (id TEXT PRIMARY KEY NOT NULL, channel_id TEXT NOT NULL REFERENCES relay_channels(id) ON DELETE CASCADE, code_hash TEXT NOT NULL UNIQUE, expires_at TEXT NOT NULL, claimed_at TEXT, created_at TEXT NOT NULL)"),
-      db.prepare("CREATE TABLE IF NOT EXISTS relay_remote_tools (id TEXT PRIMARY KEY NOT NULL, channel_id TEXT NOT NULL REFERENCES relay_channels(id) ON DELETE CASCADE, name TEXT NOT NULL, symbol_name TEXT NOT NULL, website_url TEXT, write_token_hash TEXT NOT NULL UNIQUE, snapshot_json TEXT, created_at TEXT NOT NULL, last_upload_at TEXT)"),
-      db.prepare("CREATE INDEX IF NOT EXISTS relay_remote_tools_channel_idx ON relay_remote_tools(channel_id)"),
-      db.prepare("CREATE TABLE IF NOT EXISTS relay_rate_limits (key TEXT PRIMARY KEY NOT NULL, count INTEGER NOT NULL, window_started_at TEXT NOT NULL)"),
-    ]).then(() => undefined).catch(error => { schemaReady = undefined; throw error; });
+    schemaReady = (async () => {
+      await db.batch([
+        db.prepare("CREATE TABLE IF NOT EXISTS relay_channels (id TEXT PRIMARY KEY NOT NULL, mac_name TEXT NOT NULL, upload_token_hash TEXT NOT NULL UNIQUE, snapshot_json TEXT, snapshot_hash TEXT, snapshot_version INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, last_upload_at TEXT)"),
+        db.prepare("CREATE TABLE IF NOT EXISTS relay_pairings (id TEXT PRIMARY KEY NOT NULL, channel_id TEXT NOT NULL REFERENCES relay_channels(id) ON DELETE CASCADE, code_hash TEXT NOT NULL UNIQUE, expires_at TEXT NOT NULL, claimed_at TEXT, failed_attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)"),
+        db.prepare("CREATE TABLE IF NOT EXISTS relay_devices (id TEXT PRIMARY KEY NOT NULL, channel_id TEXT NOT NULL REFERENCES relay_channels(id) ON DELETE CASCADE, name TEXT NOT NULL, read_token_hash TEXT NOT NULL UNIQUE, apns_token TEXT, apns_environment TEXT, last_push_at TEXT, session_notifications_enabled INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, last_seen_at TEXT NOT NULL)"),
+        db.prepare("CREATE INDEX IF NOT EXISTS relay_devices_channel_idx ON relay_devices(channel_id)"),
+        db.prepare("CREATE TABLE IF NOT EXISTS relay_tool_pairings (id TEXT PRIMARY KEY NOT NULL, channel_id TEXT NOT NULL REFERENCES relay_channels(id) ON DELETE CASCADE, code_hash TEXT NOT NULL UNIQUE, expires_at TEXT NOT NULL, claimed_at TEXT, created_at TEXT NOT NULL)"),
+        db.prepare("CREATE TABLE IF NOT EXISTS relay_remote_tools (id TEXT PRIMARY KEY NOT NULL, channel_id TEXT NOT NULL REFERENCES relay_channels(id) ON DELETE CASCADE, name TEXT NOT NULL, symbol_name TEXT NOT NULL, website_url TEXT, write_token_hash TEXT NOT NULL UNIQUE, snapshot_json TEXT, created_at TEXT NOT NULL, last_upload_at TEXT)"),
+        db.prepare("CREATE INDEX IF NOT EXISTS relay_remote_tools_channel_idx ON relay_remote_tools(channel_id)"),
+        db.prepare("CREATE TABLE IF NOT EXISTS relay_rate_limits (key TEXT PRIMARY KEY NOT NULL, count INTEGER NOT NULL, window_started_at TEXT NOT NULL)"),
+      ]);
+      const columns = await db.prepare("PRAGMA table_info(relay_devices)").all<{ name: string }>();
+      if (!columns.results.some(column => column.name === "session_notifications_enabled")) {
+        try {
+          await db.prepare("ALTER TABLE relay_devices ADD COLUMN session_notifications_enabled INTEGER NOT NULL DEFAULT 0").run();
+        } catch (error) {
+          const refreshed = await db.prepare("PRAGMA table_info(relay_devices)").all<{ name: string }>();
+          if (!refreshed.results.some(column => column.name === "session_notifications_enabled")) throw error;
+        }
+      }
+    })().catch(error => { schemaReady = undefined; throw error; });
   }
   await schemaReady;
 }
@@ -259,6 +283,18 @@ function validateRemoteToolSnapshot(value: unknown): asserts value is Record<str
     if (!hasOnlyKeys(limit, ["id", "name", "planType", "primary", "secondary"]) || !isBoundedString(limit.id, 256) || !isBoundedString(limit.name, 128) || (limit.planType != null && !isBoundedString(limit.planType, 128)) || !isWindow(limit.primary) || (limit.secondary != null && !isWindow(limit.secondary))) {
       throw new RelayError("Invalid remote tool limit.", 400);
     }
+  }
+}
+function validateSessionEvent(value: unknown): asserts value is SessionEvent {
+  const event = value as Partial<SessionEvent> | null;
+  if (!event || !hasOnlyKeys(event, ["schemaVersion", "eventID", "kind", "sessionTitle", "workspaceName", "occurredAt"])
+    || event.schemaVersion !== 1
+    || !isBoundedString(event.eventID, 256)
+    || !["finished", "error", "permission_needed"].includes(event.kind ?? "")
+    || !isBoundedString(event.sessionTitle, 160)
+    || !isBoundedString(event.workspaceName, 160)
+    || !isDateString(event.occurredAt)) {
+    throw new RelayError("Invalid session event.", 400);
   }
 }
 function isBoundedString(value: unknown, maximum: number): value is string { return typeof value === "string" && value.length > 0 && value.length <= maximum; }
@@ -341,6 +377,48 @@ async function pushChannel(env: RelayEnv, channel: ChannelRow) {
     }
   }
 }
+async function pushSessionEvent(env: RelayEnv, channel: ChannelRow, event: SessionEvent) {
+  if (!env.APNS_TEAM_ID || !env.APNS_KEY_ID || !env.APNS_PRIVATE_KEY || !env.APNS_TOPIC) return;
+  const devices = await env.DB.prepare(
+    "SELECT * FROM relay_devices WHERE channel_id = ? AND apns_token IS NOT NULL AND session_notifications_enabled = 1"
+  ).bind(channel.id).all<DeviceRow>();
+  const copy = sessionEventCopy(event);
+  for (const device of devices.results) {
+    const host = device.apns_environment === "sandbox" ? "https://api.sandbox.push.apple.com" : "https://api.push.apple.com";
+    const response = await fetch(`${host}/3/device/${device.apns_token}`, {
+      method: "POST",
+      headers: {
+        authorization: `bearer ${await providerToken(env)}`,
+        "apns-topic": env.APNS_TOPIC,
+        "apns-push-type": "alert",
+        "apns-priority": "10",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        aps: {
+          alert: { title: `${channel.mac_name}: ${copy.title}`, body: copy.body },
+          sound: "default",
+          category: "USAGE_HUD_SESSION_EVENT",
+          "thread-id": channel.id,
+        },
+        sessionEvent: { id: event.eventID, kind: event.kind, occurredAt: event.occurredAt },
+      }),
+    });
+    if (!response.ok) {
+      const reason = (await response.json().catch(() => ({})) as { reason?: string }).reason;
+      if (["BadDeviceToken", "DeviceTokenNotForTopic", "Unregistered"].includes(reason ?? "")) {
+        await env.DB.prepare("UPDATE relay_devices SET apns_token = NULL, apns_environment = NULL WHERE id = ?").bind(device.id).run();
+      }
+    }
+  }
+}
+function sessionEventCopy(event: SessionEvent) {
+  const title = event.kind === "finished" ? "Session Finished"
+    : event.kind === "error" ? "Session Error" : "Permission Needed";
+  const body = event.workspaceName === event.sessionTitle
+    ? event.sessionTitle : `${event.sessionTitle} · ${event.workspaceName}`;
+  return { title, body };
+}
 async function providerToken(env: RelayEnv) {
   const now = Date.now(); if (cachedProviderToken && now - cachedProviderToken.createdAt < 50 * 60_000) return cachedProviderToken.value;
   const header = base64url(encoder.encode(JSON.stringify({ alg: "ES256", kid: env.APNS_KEY_ID })));
@@ -352,4 +430,4 @@ async function providerToken(env: RelayEnv) {
   const value = `${header}.${claims}.${base64url(signature)}`; cachedProviderToken = { value, createdAt: now }; return value;
 }
 
-export const relayTestSupport = { normalizeCode, randomCode, validateSnapshot, validateRemoteToolSnapshot, sha256 };
+export const relayTestSupport = { normalizeCode, randomCode, validateSnapshot, validateRemoteToolSnapshot, validateSessionEvent, sessionEventCopy, sha256 };
