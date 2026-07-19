@@ -82,6 +82,22 @@ final class RemoteUsageClientTests: XCTestCase {
         }
     }
 
+    func testRelayToolIdentityIsStableWithinMacAndDistinctAcrossMacs() {
+        let firstMac = UUID(uuidString: "11111111-1111-4111-8111-111111111111")!
+        let secondMac = UUID(uuidString: "22222222-2222-4222-8222-222222222222")!
+
+        let first = RelayClient.scopedToolUUID(channelID: firstMac, toolID: "chatgpt")
+
+        XCTAssertEqual(
+            first,
+            RelayClient.scopedToolUUID(channelID: firstMac, toolID: "chatgpt")
+        )
+        XCTAssertNotEqual(
+            first,
+            RelayClient.scopedToolUUID(channelID: secondMac, toolID: "chatgpt")
+        )
+    }
+
     private func client(maximumResponseBytes: Int = 1_048_576) -> RemoteUsageClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [RemoteUsageStubURLProtocol.self]

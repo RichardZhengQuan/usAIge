@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 public enum RemoteUsageClientError: Error, Equatable, LocalizedError, Sendable {
@@ -133,13 +134,48 @@ public struct RelayConnection: Codable, Equatable, Sendable {
     public let macName: String
 }
 
+public struct RelayConnectionState: Codable, Equatable, Sendable {
+    public let connection: RelayConnection
+    public let snapshots: [QuotaSnapshot]
+    public let serverReceivedAt: Date?
+    public let cacheSavedAt: Date?
+    public let etag: String?
+
+    public init(
+        connection: RelayConnection,
+        snapshots: [QuotaSnapshot] = [],
+        serverReceivedAt: Date? = nil,
+        cacheSavedAt: Date? = nil,
+        etag: String? = nil
+    ) {
+        self.connection = connection
+        self.snapshots = snapshots
+        self.serverReceivedAt = serverReceivedAt
+        self.cacheSavedAt = cacheSavedAt
+        self.etag = etag
+    }
+}
+
 public actor RelayConnectionStore {
     public nonisolated let storageURL: URL
     public init(fileURL: URL? = nil) {
         storageURL = fileURL ?? JSONFileStorage.applicationSupportDirectory().appendingPathComponent("relay-connection.json")
     }
-    public func load() throws -> RelayConnection? { try JSONFileStorage.load(RelayConnection.self, from: storageURL) }
-    public func save(_ value: RelayConnection) throws { try JSONFileStorage.save(value, to: storageURL) }
+    public func load() throws -> [RelayConnectionState] {
+        guard FileManager.default.fileExists(atPath: storageURL.path) else { return [] }
+        let data = try Data(contentsOf: storageURL, options: .mappedIfSafe)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        if let states = try? decoder.decode([RelayConnectionState].self, from: data) {
+            return states
+        }
+        // Migrate the original one-Mac connection document in place on the
+        // next save. Its shared quota cache is attached by RelayAppModel.
+        return [RelayConnectionState(connection: try decoder.decode(RelayConnection.self, from: data))]
+    }
+    public func save(_ values: [RelayConnectionState]) throws {
+        try JSONFileStorage.save(values, to: storageURL)
+    }
     public func delete() throws {
         guard FileManager.default.fileExists(atPath: storageURL.path) else { return }
         try FileManager.default.removeItem(at: storageURL)
@@ -198,7 +234,10 @@ public struct RelayClient: Sendable {
         let envelope = try decoder.decode(RelayEnvelope.self, from: data)
         let values = envelope.snapshot.tools.flatMap { tool in
             tool.limits.map { limit in
-                let toolID = UUID(uuidString: tool.id) ?? Self.builtInToolUUID(for: tool.id)
+                let toolID = Self.scopedToolUUID(
+                    channelID: connection.channelID,
+                    toolID: tool.id
+                )
                 return QuotaSnapshot(
                     id: QuotaSnapshot.stableID(toolID: toolID, limitID: limit.id),
                     limitID: limit.id,
@@ -251,16 +290,12 @@ public struct RelayClient: Sendable {
             throw RelayClientError.server(message)
         }
     }
-    private static func builtInToolUUID(for id: String) -> UUID {
-        let suffix: String
-        switch id.lowercased() {
-        case "chatgpt": suffix = "0001"
-        case "claude": suffix = "0002"
-        case "gemini": suffix = "0003"
-        case "cursor": suffix = "0004"
-        default: suffix = "ffff"
+    static func scopedToolUUID(channelID: UUID, toolID: String) -> UUID {
+        let input = Data("\(channelID.uuidString.lowercased()):\(toolID)".utf8)
+        let digest = SHA256.hash(data: input)
+        return digest.withUnsafeBytes { bytes in
+            NSUUID(uuidBytes: bytes.bindMemory(to: UInt8.self).baseAddress!) as UUID
         }
-        return UUID(uuidString: "00000000-0000-4000-8000-00000000\(suffix)")!
     }
 }
 
