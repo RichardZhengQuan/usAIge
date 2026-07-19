@@ -29,7 +29,7 @@ struct DashboardView: View {
             }
         }
         .navigationTitle("AI Usage")
-        .navigationBarTitleDisplayMode(.inline)
+        .toolbarTitleDisplayMode(.inlineLarge)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button("Connection", systemImage: "plus", action: openConnection)
