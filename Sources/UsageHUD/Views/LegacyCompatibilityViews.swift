@@ -129,7 +129,7 @@ struct LegacyHUDSettingsRootView: View {
                 }
 
                 Divider()
-                Text("iPhone Sync").font(.headline)
+                Text("iPhone & Apple Watch Sync").font(.headline)
                 if relaySync.isLinked {
                     Text("Connected as \(relaySync.macName)")
                     if let code = relaySync.pairingCode, let expiry = relaySync.pairingExpiresAt, expiry > Date() {
