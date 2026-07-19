@@ -18,7 +18,7 @@ Open `usAIge-iOS.xcodeproj` in Xcode 26. The project contains:
 - Credential-free WatchConnectivity sync to the Watch app and watch-face
   complications.
 
-Open **Settings → iPhone Sync** on the Mac, create a code, and enter it in the
+Open **Settings → iPhone & Apple Watch Sync** on the Mac, create a code, and enter it in the
 iPhone Connection tab. One Mac can issue separate revocable codes for multiple
 iPhones. iOS controls the exact time granted to background tasks and widget
 timelines, so the app shows saved data and its update age instead of promising

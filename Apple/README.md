@@ -51,7 +51,7 @@ Running a paired simulator scheme also requires matching iOS and watchOS simulat
 
 ## Pair with a Mac
 
-1. On the Mac, open **usAIge Settings → iPhone Sync** and create a connection.
+1. On the Mac, open **usAIge Settings → iPhone & Apple Watch Sync** and create a connection.
 2. Open the iPhone Connection tab and enter the 8-character code.
 3. The iPhone fetches the latest sanitized Mac snapshot and forwards it to Apple Watch.
 

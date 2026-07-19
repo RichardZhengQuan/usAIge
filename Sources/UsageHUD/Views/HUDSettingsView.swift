@@ -124,7 +124,7 @@ struct HUDSettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 pageLink("Manage AI Tools", destination: .aiTools)
-                pageLink("iPhone Sync", destination: .iphoneSync)
+                pageLink("iPhone & Apple Watch Sync", destination: .iphoneSync)
             }
 
             Section("Display") {
@@ -312,7 +312,7 @@ struct HUDSettingsView: View {
     }
 
     private var iPhoneSyncPage: some View {
-        pageContainer(title: "iPhone Sync") {
+        pageContainer(title: "iPhone & Apple Watch Sync") {
             Form {
                 Section("Connection") {
                     if relaySync.isLinked {
@@ -366,7 +366,7 @@ struct HUDSettingsView: View {
                     Section {
                         Button("Disconnect All", role: .destructive) { Task { await relaySync.disconnectAll() } }
                     } footer: {
-                        Text("Only normalized limit percentages and reset times are relayed. Disconnecting deletes the server channel and revokes every iPhone.")
+                        Text("Only normalized limit percentages and reset times are relayed. A paired iPhone forwards them to Apple Watch. Disconnecting deletes the server channel and revokes every iPhone.")
                     }
                 }
             }
