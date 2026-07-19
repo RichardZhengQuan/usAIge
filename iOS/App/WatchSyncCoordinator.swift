@@ -12,8 +12,10 @@ private final class WatchReplyHandlerBox: @unchecked Sendable {
 @MainActor
 final class WatchSyncCoordinator: NSObject, WCSessionDelegate {
     typealias RefreshHandler = @MainActor () async -> WatchUsageSnapshotEnvelope
+    typealias ProvisionHandler = @MainActor (UUID) async -> [WatchRelayCredential]
 
     var refreshHandler: RefreshHandler?
+    var provisionHandler: ProvisionHandler?
     private let session: WCSession?
 
     override init() {
@@ -46,20 +48,32 @@ final class WatchSyncCoordinator: NSObject, WCSessionDelegate {
         didReceiveMessage message: [String: Any],
         replyHandler: @escaping ([String: Any]) -> Void
     ) {
-        guard message[WatchMessageKey.command] as? String == WatchMessageKey.refresh else {
-            replyHandler([:])
-            return
-        }
-
         let reply = WatchReplyHandlerBox(replyHandler)
+        let command = message[WatchMessageKey.command] as? String
+        let installationIDValue = message[WatchMessageKey.installationID] as? String
         Task { @MainActor [weak self] in
-            guard let handler = self?.refreshHandler else {
+            switch command {
+            case WatchMessageKey.refresh:
+                guard let handler = self?.refreshHandler else {
+                    reply.call([:])
+                    return
+                }
+                let envelope = await handler()
+                let data = try? WatchUsageSnapshotCodec.encode(envelope)
+                reply.call(data.map { [WatchMessageKey.snapshot: $0] } ?? [:])
+            case WatchMessageKey.provisionCellular:
+                guard let installationIDValue,
+                      let installationID = UUID(uuidString: installationIDValue),
+                      let handler = self?.provisionHandler else {
+                    reply.call([:])
+                    return
+                }
+                let credentials = await handler(installationID)
+                let data = try? WatchRelayCredentialCodec.encode(credentials)
+                reply.call(data.map { [WatchMessageKey.relayCredentials: $0] } ?? [:])
+            default:
                 reply.call([:])
-                return
             }
-            let envelope = await handler()
-            let data = try? WatchUsageSnapshotCodec.encode(envelope)
-            reply.call(data.map { [WatchMessageKey.snapshot: $0] } ?? [:])
         }
     }
 }

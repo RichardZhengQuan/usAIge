@@ -41,6 +41,9 @@ public struct WatchQuotaSnapshot: Codable, Hashable, Identifiable, Sendable {
 public struct WatchToolQuotaSnapshot: Codable, Hashable, Identifiable, Sendable {
     public let id: String
     public let displayName: String
+    public let sourceID: String?
+    public let sourceName: String?
+    public let serverUpdatedAt: Date?
     public let sourceUpdatedAt: Date
     public let receivedAt: Date
     public let limits: [WatchQuotaSnapshot]
@@ -49,6 +52,9 @@ public struct WatchToolQuotaSnapshot: Codable, Hashable, Identifiable, Sendable 
     public init(
         id: String,
         displayName: String,
+        sourceID: String? = nil,
+        sourceName: String? = nil,
+        serverUpdatedAt: Date? = nil,
         sourceUpdatedAt: Date,
         receivedAt: Date,
         limits: [WatchQuotaSnapshot],
@@ -56,6 +62,9 @@ public struct WatchToolQuotaSnapshot: Codable, Hashable, Identifiable, Sendable 
     ) {
         self.id = id
         self.displayName = displayName
+        self.sourceID = sourceID
+        self.sourceName = sourceName
+        self.serverUpdatedAt = serverUpdatedAt
         self.sourceUpdatedAt = sourceUpdatedAt
         self.receivedAt = receivedAt
         self.limits = limits
@@ -107,8 +116,37 @@ public enum WatchUsageSnapshotCodec {
     }
 }
 
+public struct WatchRelayCredential: Codable, Hashable, Sendable {
+    public let channelID: UUID
+    public let deviceID: UUID
+    public let macName: String
+    public let readToken: String
+
+    public init(channelID: UUID, deviceID: UUID, macName: String, readToken: String) {
+        self.channelID = channelID
+        self.deviceID = deviceID
+        self.macName = macName
+        self.readToken = readToken
+    }
+}
+
+public enum WatchRelayCredentialCodec {
+    public static func encode(_ credentials: [WatchRelayCredential]) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try encoder.encode(credentials)
+    }
+
+    public static func decode(_ data: Data) throws -> [WatchRelayCredential] {
+        try JSONDecoder().decode([WatchRelayCredential].self, from: data)
+    }
+}
+
 public enum WatchMessageKey {
     public static let command = "command"
     public static let refresh = "refresh"
+    public static let provisionCellular = "provisionCellular"
     public static let snapshot = "snapshot"
+    public static let installationID = "installationID"
+    public static let relayCredentials = "relayCredentials"
 }

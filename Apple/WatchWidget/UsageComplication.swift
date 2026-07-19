@@ -34,6 +34,11 @@ struct SelectedLimit {
         "\(tool.id):\(limit.id)"
     }
 
+    var scopeName: String {
+        guard let sourceName = tool.sourceName else { return tool.displayName }
+        return "\(sourceName) · \(tool.displayName)"
+    }
+
     var remainingPercent: Double {
         constrainingWindow.remainingPercent
     }
@@ -169,16 +174,22 @@ struct UsageComplicationView: View {
 
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 3) {
-                        if let symbolName = selected.tool.symbolName {
-                            Image(systemName: symbolName)
-                                .font(.caption2)
-                        }
-                        Text(selected.tool.displayName)
+                        Image(
+                            systemName: selected.tool.sourceName == nil
+                                ? (selected.tool.symbolName ?? "sparkles")
+                                : "laptopcomputer"
+                        )
+                        .font(.caption2)
+                        Text(selected.tool.sourceName ?? selected.tool.displayName)
                             .font(.caption.weight(.semibold))
                             .lineLimit(1)
                     }
 
-                    Text(selected.limit.displayName)
+                    Text(
+                        selected.tool.sourceName == nil
+                            ? selected.limit.displayName
+                            : "\(selected.tool.displayName) · \(selected.limit.displayName)"
+                    )
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -238,7 +249,7 @@ struct UsageComplicationView: View {
 
     private func inlineSummary(_ selected: SelectedLimit) -> some View {
         Label(
-            "\(selected.tool.displayName) · \(selected.durationTag) \(Int(selected.remainingPercent.rounded()))%",
+            "\(selected.scopeName) · \(selected.durationTag) \(Int(selected.remainingPercent.rounded()))%",
             systemImage: entry.selectedLimitIsStale
                 ? "clock.badge.exclamationmark"
                 : (selected.tool.symbolName ?? "hourglass")
@@ -250,42 +261,42 @@ struct UsageComplicationView: View {
     @ViewBuilder
     private var corner: some View {
         if let selected = entry.selectedLimit {
-            ZStack {
-                AccessoryWidgetBackground()
-
-                Image(systemName: selected.tool.symbolName ?? "sparkles")
-                    .font(.title3.bold())
-                    .widgetAccentable()
-            }
-            .opacity(entry.selectedLimitIsStale ? 0.62 : 1)
-            .widgetLabel {
-                Gauge(value: selected.remainingPercent, in: 0...100) {
-                    Text(entry.selectedLimitIsStale ? "STALE" : selected.durationTag)
-                } currentValueLabel: {
-                    Text("\(Int(selected.remainingPercent.rounded()))")
-                        .monospacedDigit()
-                } minimumValueLabel: {
-                    Text("0")
-                } maximumValueLabel: {
-                    Text("100")
+            usAIgeCurvedLabel
+                .textCase(nil)
+                .widgetCurvesContent()
+                .widgetLabel {
+                    ProgressView(
+                        value: UsagePalette.arcFraction(
+                            remainingPercent: selected.remainingPercent
+                        )
+                    )
                 }
                 .tint(entry.selectedLimitIsStale ? .orange : selected.color)
-            }
+                .opacity(entry.selectedLimitIsStale ? 0.62 : 1)
         } else {
-            ZStack {
-                AccessoryWidgetBackground()
-                Image(systemName: "hourglass.badge.plus")
-                    .widgetAccentable()
-            }
-            .widgetLabel { Text("Set up usAIge") }
+            usAIgeCurvedLabel
+                .textCase(nil)
+                .widgetCurvesContent()
+                .widgetLabel {
+                    Text("Set up")
+                }
+                .tint(.secondary)
         }
+    }
+
+    private var usAIgeCurvedLabel: Text {
+        // WidgetKit forces ordinary Latin text to uppercase in corner curves.
+        // These sans-serif lowercase glyphs preserve the usAIge wordmark casing.
+        Text("𝗎𝗌").foregroundColor(.white)
+            + Text("AI").foregroundColor(Color(red: 0.70, green: 1, blue: 0.20))
+            + Text("𝗀𝖾").foregroundColor(.white)
     }
 
     private var accessibilityText: String {
         guard let selected = entry.selectedLimit else {
             return "No AI usage limits. Set up usAIge on iPhone."
         }
-        var text = "\(selected.tool.displayName), \(selected.limit.displayName), \(selected.durationTag), \(Int(selected.remainingPercent.rounded())) percent remaining"
+        var text = "\(selected.scopeName), \(selected.limit.displayName), \(selected.durationTag), \(Int(selected.remainingPercent.rounded())) percent remaining"
         if entry.selectedLimitIsStale { text += ", data may be stale" }
         return text
     }
@@ -315,10 +326,13 @@ private extension WatchUsageSnapshotEnvelope {
         return WatchUsageSnapshotEnvelope(
             generatedAt: now,
             tools: [
-                WatchToolQuotaSnapshot(
-                    id: "preview",
-                    displayName: "Claude Team",
-                    sourceUpdatedAt: now,
+                    WatchToolQuotaSnapshot(
+                        id: "preview",
+                        displayName: "Claude Team",
+                        sourceID: "preview-mac",
+                        sourceName: "Richard's Mac",
+                        serverUpdatedAt: now,
+                        sourceUpdatedAt: now,
                     receivedAt: now,
                     limits: [
                         WatchQuotaSnapshot(

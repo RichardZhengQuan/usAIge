@@ -42,6 +42,7 @@
 		A77F37D4BB4C1F0A28750AF8 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B40D91178C457E64933BA17 /* AppModel.swift */; };
 		A81A9E3EDE5E115343D04FEA /* WatchUsageSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 272534A177E9E323D5B934EA /* WatchUsageSnapshot.swift */; };
 		A5C0D3E4F60718293A4B5C6D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6FC7614EF737DCD73A9DA265 /* Assets.xcassets */; };
+		D1C0A7E20260719000000001 /* AppIcon.png in Resources */ = {isa = PBXBuildFile; fileRef = D1C0A7E20260719000000002 /* AppIcon.png */; };
 		A9C9B0CECD7974F67332DF7E /* UsAIgeIOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 748D7F8E8764CF75E137E7AD /* UsAIgeIOSApp.swift */; };
 		B09FFAD914ADD82AA2F84AB0 /* RefreshScheduleMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A320A032CF1CA5A368FC44E /* RefreshScheduleMetadata.swift */; };
 		B2840949CC73DE6E18967A6A /* QuotaTimelineProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E84F94942FEBC2B09F6F3D4 /* QuotaTimelineProvider.swift */; };
@@ -157,6 +158,7 @@
 		B8AB3EAD0D261E2D01C7B0D2 /* QuotaRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuotaRow.swift; sourceTree = "<group>"; };
 		BB4888B646262C0A1D9AB091 /* usAIgeWatchWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = usAIgeWatchWidgetBundle.swift; sourceTree = "<group>"; };
 		CFCB83ACE67932543D3877F1 /* UsageComplication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageComplication.swift; sourceTree = "<group>"; };
+		D1C0A7E20260719000000002 /* AppIcon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Assets.xcassets/AppIcon.appiconset/AppIcon.png; sourceTree = "<group>"; };
 		E88FF0BC3A39736F30433687 /* JSONFileStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONFileStorage.swift; sourceTree = "<group>"; };
 		FC9F126328C84F7B6F676D5A /* ToolsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -264,6 +266,7 @@
 			children = (
 				64BFB475AF2A56A35BC55C5A /* AddToolView.swift */,
 				5B40D91178C457E64933BA17 /* AppModel.swift */,
+				D1C0A7E20260719000000002 /* AppIcon.png */,
 				6FC7614EF737DCD73A9DA265 /* Assets.xcassets */,
 				869C3D31360AAF9CE92444C7 /* BackgroundRefreshCoordinator.swift */,
 				9497029FAEFA3DF008F19B56 /* DashboardView.swift */,
@@ -442,6 +445,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A5C0D3E4F60718293A4B5C6D /* Assets.xcassets in Resources */,
+				D1C0A7E20260719000000001 /* AppIcon.png in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
