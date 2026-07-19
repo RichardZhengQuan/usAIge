@@ -194,6 +194,59 @@ public struct RelaySnapshotResult: Sendable {
     public let etag: String?
 }
 
+public enum SessionEventKind: String, Codable, Equatable, Sendable {
+    case finished
+    case error
+    case permissionNeeded = "permission_needed"
+}
+
+public struct SessionEventRecord: Codable, Equatable, Identifiable, Sendable {
+    public let eventID: String
+    public let channelID: UUID
+    public let macName: String
+    public let kind: SessionEventKind
+    public let sessionTitle: String
+    public let workspaceName: String
+    public let occurredAt: Date
+
+    public var id: String { "\(channelID.uuidString.lowercased()):\(eventID)" }
+
+    public init(
+        eventID: String,
+        channelID: UUID,
+        macName: String,
+        kind: SessionEventKind,
+        sessionTitle: String,
+        workspaceName: String,
+        occurredAt: Date
+    ) {
+        self.eventID = eventID
+        self.channelID = channelID
+        self.macName = macName
+        self.kind = kind
+        self.sessionTitle = sessionTitle
+        self.workspaceName = workspaceName
+        self.occurredAt = occurredAt
+    }
+}
+
+public actor SessionEventStore {
+    public nonisolated let storageURL: URL
+
+    public init(fileURL: URL? = nil) {
+        storageURL = fileURL ?? JSONFileStorage.applicationSupportDirectory()
+            .appendingPathComponent("session-events.json")
+    }
+
+    public func load() throws -> [SessionEventRecord] {
+        try JSONFileStorage.load([SessionEventRecord].self, from: storageURL) ?? []
+    }
+
+    public func save(_ values: [SessionEventRecord]) throws {
+        try JSONFileStorage.save(values, to: storageURL)
+    }
+}
+
 public enum RelayClientError: LocalizedError, Sendable {
     case invalidCode, invalidResponse, unauthorized, server(String)
     public var errorDescription: String? {
@@ -274,6 +327,37 @@ public struct RelayClient: Sendable {
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw RelayClientError.invalidResponse }
     }
 
+    public func fetchSessionEvents(
+        connection: RelayConnection,
+        token: String
+    ) async throws -> [SessionEventRecord] {
+        let request = authorized(
+            connection: connection,
+            token: token,
+            path: "channels/\(connection.channelID.uuidString.lowercased())/session-events",
+            method: "GET"
+        )
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw RelayClientError.invalidResponse
+        }
+        try validate(http: http, data: data)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let envelope = try decoder.decode(SessionEventEnvelope.self, from: data)
+        return envelope.events.map { event in
+            SessionEventRecord(
+                eventID: event.id,
+                channelID: connection.channelID,
+                macName: connection.macName,
+                kind: event.kind,
+                sessionTitle: event.sessionTitle,
+                workspaceName: event.workspaceName,
+                occurredAt: event.occurredAt
+            )
+        }
+    }
+
     public func disconnect(connection: RelayConnection, token: String) async throws {
         let request = authorized(connection: connection, token: token, path: "channels/\(connection.channelID.uuidString.lowercased())/devices/\(connection.deviceID.uuidString.lowercased())", method: "DELETE")
         let (data, response) = try await session.data(for: request)
@@ -318,6 +402,16 @@ private struct APNsRequest: Encodable {
 private struct ServerError: Decodable { let error: String }
 private struct RelayEnvelope: Decodable {
     let version: Int; let serverReceivedAt: Date; let snapshot: RelaySnapshotDocument
+}
+private struct SessionEventEnvelope: Decodable {
+    let events: [SessionEventDocument]
+}
+private struct SessionEventDocument: Decodable {
+    let id: String
+    let kind: SessionEventKind
+    let sessionTitle: String
+    let workspaceName: String
+    let occurredAt: Date
 }
 private struct RelaySnapshotDocument: Decodable { let generatedAt: Date; let tools: [RelayToolDocument] }
 private struct RelayToolDocument: Decodable { let id, name, symbolName: String; let limits: [RelayLimitDocument] }

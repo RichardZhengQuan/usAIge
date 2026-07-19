@@ -8,13 +8,17 @@ then relays only normalized percentages and reset times to paired iPhones.
 
 Open `usAIge-iOS.xcodeproj` in Xcode 26. The project contains:
 
-- A native tab-based iPhone and iPad app with Usage and Connection sections.
+- A native tab-based iPhone and iPad app with Usage, Activities, Connection,
+  and Settings sections.
 - Account-free pairing with an 8-digit, one-use code shown by the Mac.
 - A device-scoped relay token stored in the iOS Keychain.
 - An App Group JSON cache containing quota values only, never tokens.
 - Small, medium, and large widgets backed by the shared cache.
 - Immediate foreground and pull-to-refresh updates plus APNs-assisted,
   best-effort background refresh scheduling.
+- Optional finished-session, error, and permission-request alerts with a
+  locally cached Activities inbox. Selecting an alert opens the inbox and
+  focuses the matching event.
 - Credential-free WatchConnectivity sync to the Watch app and watch-face
   complications.
 
@@ -46,7 +50,10 @@ Push Notifications plus the Remote notifications background mode.
   reset times, and refresh metadata, but never bearer tokens.
 - The relay retains only the latest normalized snapshot until the Mac owner
   disconnects the channel. It receives no provider credentials, browser
-  cookies, prompts, account content, or Codex task state.
+  cookies, prompts, or account content.
+- When session notifications are enabled, the relay retains at most the latest
+  100 status events per Mac: event type, session title, workspace name, and
+  timestamp. Disconnecting the Mac deletes that history with the channel.
 
 ## Apple Watch app and complications
 

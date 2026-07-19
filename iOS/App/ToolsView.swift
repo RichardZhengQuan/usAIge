@@ -118,27 +118,6 @@ private struct MacConnectionDetailView: View {
                 }
 
                 Section {
-                    Toggle(
-                        "Finished, errors, and permission requests",
-                        isOn: Binding(
-                            get: { model.sessionNotificationsEnabled(for: connectionID) },
-                            set: { enabled in
-                                Task {
-                                    await model.setSessionNotificationsEnabled(
-                                        enabled,
-                                        for: connectionID
-                                    )
-                                }
-                            }
-                        )
-                    )
-                } header: {
-                    Text("Session Notifications")
-                } footer: {
-                    Text("Alerts from this Mac appear on iPhone and mirror to Apple Watch when Watch notification mirroring is enabled.")
-                }
-
-                Section {
                     Button("Disconnect This Mac", role: .destructive) {
                         Task {
                             await model.disconnect(connectionID: connectionID)

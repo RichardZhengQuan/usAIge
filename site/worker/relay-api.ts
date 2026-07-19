@@ -10,6 +10,7 @@ type RelayContext = { waitUntil(promise: Promise<unknown>): void };
 type ChannelRow = { id: string; mac_name: string; upload_token_hash: string; snapshot_json: string | null; snapshot_version: number; last_upload_at: string | null };
 type DeviceRow = { id: string; channel_id: string; name: string; read_token_hash: string; apns_token: string | null; apns_environment: string | null; last_push_at: string | null; session_notifications_enabled: number };
 type SessionEvent = { schemaVersion: 1; eventID: string; kind: "finished" | "error" | "permission_needed"; sessionTitle: string; workspaceName: string; occurredAt: string };
+type SessionEventRow = { event_id: string; kind: SessionEvent["kind"]; session_title: string; workspace_name: string; occurred_at: string };
 type RemoteToolRow = { id: string; channel_id: string; name: string; symbol_name: string; website_url: string | null; write_token_hash: string; snapshot_json: string | null; created_at: string; last_upload_at: string | null };
 
 const encoder = new TextEncoder();
@@ -128,8 +129,13 @@ export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: R
       await enforceRateLimit(env.DB, `events:${channelID}`, 240, 60 * 60_000);
       const event = await readJSON(request);
       validateSessionEvent(event);
-      ctx.waitUntil(pushSessionEvent(env, channel, event));
-      return json({ accepted: true }, 202);
+      const subscriber = await env.DB.prepare(
+        "SELECT id FROM relay_devices WHERE channel_id = ? AND session_notifications_enabled = 1 LIMIT 1"
+      ).bind(channelID).first<{ id: string }>();
+      if (!subscriber) return json({ accepted: true, delivered: false }, 202);
+      const inserted = await storeSessionEvent(env.DB, channelID, event);
+      if (inserted) ctx.waitUntil(pushSessionEvent(env, channel, event));
+      return json({ accepted: true, duplicate: !inserted }, 202);
     }
 
     if (request.method === "GET" && tail === "snapshot") {
@@ -140,6 +146,22 @@ export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: R
       const etag = `\"${channel.snapshot_version}\"`;
       if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers: { etag } });
       return json({ schemaVersion: 1, version: channel.snapshot_version, serverReceivedAt: channel.last_upload_at, macName: channel.mac_name, snapshot: JSON.parse(channel.snapshot_json) }, 200, { etag });
+    }
+
+    if (request.method === "GET" && tail === "session-events") {
+      const device = await authorizePhone(request, env.DB, channelID);
+      if (!device) return unauthorized();
+      await env.DB.prepare("UPDATE relay_devices SET last_seen_at = ? WHERE id = ?").bind(new Date().toISOString(), device.id).run();
+      const rows = await env.DB.prepare(
+        "SELECT event_id, kind, session_title, workspace_name, occurred_at FROM relay_session_events WHERE channel_id = ? ORDER BY occurred_at DESC, received_at DESC LIMIT 100"
+      ).bind(channelID).all<SessionEventRow>();
+      return json({ events: rows.results.map(event => ({
+        id: event.event_id,
+        kind: event.kind,
+        sessionTitle: event.session_title,
+        workspaceName: event.workspace_name,
+        occurredAt: event.occurred_at,
+      })) });
     }
 
     if (request.method === "GET" && tail === "devices") {
@@ -231,6 +253,9 @@ async function ensureRelaySchema(db: D1Database) {
         db.prepare("CREATE TABLE IF NOT EXISTS relay_tool_pairings (id TEXT PRIMARY KEY NOT NULL, channel_id TEXT NOT NULL REFERENCES relay_channels(id) ON DELETE CASCADE, code_hash TEXT NOT NULL UNIQUE, expires_at TEXT NOT NULL, claimed_at TEXT, created_at TEXT NOT NULL)"),
         db.prepare("CREATE TABLE IF NOT EXISTS relay_remote_tools (id TEXT PRIMARY KEY NOT NULL, channel_id TEXT NOT NULL REFERENCES relay_channels(id) ON DELETE CASCADE, name TEXT NOT NULL, symbol_name TEXT NOT NULL, website_url TEXT, write_token_hash TEXT NOT NULL UNIQUE, snapshot_json TEXT, created_at TEXT NOT NULL, last_upload_at TEXT)"),
         db.prepare("CREATE INDEX IF NOT EXISTS relay_remote_tools_channel_idx ON relay_remote_tools(channel_id)"),
+        db.prepare("CREATE TABLE IF NOT EXISTS relay_session_events (id TEXT PRIMARY KEY NOT NULL, channel_id TEXT NOT NULL REFERENCES relay_channels(id) ON DELETE CASCADE, event_id TEXT NOT NULL, kind TEXT NOT NULL, session_title TEXT NOT NULL, workspace_name TEXT NOT NULL, occurred_at TEXT NOT NULL, received_at TEXT NOT NULL)"),
+        db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS relay_session_events_channel_event_idx ON relay_session_events(channel_id, event_id)"),
+        db.prepare("CREATE INDEX IF NOT EXISTS relay_session_events_channel_time_idx ON relay_session_events(channel_id, occurred_at DESC)"),
         db.prepare("CREATE TABLE IF NOT EXISTS relay_rate_limits (key TEXT PRIMARY KEY NOT NULL, count INTEGER NOT NULL, window_started_at TEXT NOT NULL)"),
       ]);
       const columns = await db.prepare("PRAGMA table_info(relay_devices)").all<{ name: string }>();
@@ -396,12 +421,12 @@ async function pushSessionEvent(env: RelayEnv, channel: ChannelRow, event: Sessi
       },
       body: JSON.stringify({
         aps: {
-          alert: { title: `${channel.mac_name}: ${copy.title}`, body: copy.body },
+          alert: { title: copy.title, body: copy.body },
           sound: "default",
           category: "USAGE_HUD_SESSION_EVENT",
           "thread-id": channel.id,
         },
-        sessionEvent: { id: event.eventID, kind: event.kind, occurredAt: event.occurredAt },
+        sessionEvent: { id: event.eventID, channelID: channel.id, kind: event.kind, occurredAt: event.occurredAt },
       }),
     });
     if (!response.ok) {
@@ -411,6 +436,17 @@ async function pushSessionEvent(env: RelayEnv, channel: ChannelRow, event: Sessi
       }
     }
   }
+}
+async function storeSessionEvent(db: D1Database, channelID: string, event: SessionEvent) {
+  const receivedAt = new Date().toISOString();
+  const result = await db.prepare(
+    "INSERT OR IGNORE INTO relay_session_events (id, channel_id, event_id, kind, session_title, workspace_name, occurred_at, received_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+  ).bind(`${channelID}:${event.eventID}`, channelID, event.eventID, event.kind, event.sessionTitle, event.workspaceName, event.occurredAt, receivedAt).run();
+  if ((result.meta.changes ?? 0) !== 1) return false;
+  await db.prepare(
+    "DELETE FROM relay_session_events WHERE channel_id = ? AND id NOT IN (SELECT id FROM relay_session_events WHERE channel_id = ? ORDER BY occurred_at DESC, received_at DESC LIMIT 100)"
+  ).bind(channelID, channelID).run();
+  return true;
 }
 function sessionEventCopy(event: SessionEvent) {
   const title = event.kind === "finished" ? "Session Finished"

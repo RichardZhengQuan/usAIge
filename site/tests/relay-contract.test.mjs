@@ -74,6 +74,7 @@ test("accepts only bounded session attention events", () => {
   };
   assert.doesNotThrow(() => relayTestSupport.validateSessionEvent(event));
   assert.equal(relayTestSupport.sessionEventCopy(event).title, "Session Finished");
+  assert.equal(relayTestSupport.sessionEventCopy(event).body, "Ship notification relay · GPTUsage");
 
   assert.throws(() => relayTestSupport.validateSessionEvent({ ...event, kind: "thinking" }));
   assert.throws(() => relayTestSupport.validateSessionEvent({ ...event, prompt: "private" }));

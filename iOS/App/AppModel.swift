@@ -822,6 +822,12 @@ final class AppModel {
     }
 }
 
+struct SessionNotificationNavigationRequest: Equatable {
+    let id = UUID()
+    let channelID: UUID?
+    let eventID: String?
+}
+
 @MainActor
 @Observable
 final class RelayAppModel {
@@ -836,12 +842,16 @@ final class RelayAppModel {
     private(set) var systemErrorMessage: String?
     private(set) var cacheSavedAt: Date?
     private(set) var sessionNotificationConnectionIDs: Set<UUID>
+    private(set) var sessionEvents: [SessionEventRecord] = []
+    private(set) var sessionEventErrorMessage: String?
+    private(set) var sessionNotificationNavigationRequest: SessionNotificationNavigationRequest?
 
     private let connectionStore: RelayConnectionStore
     private let quotaCache: SharedQuotaCache
     private let tokenVault: KeychainTokenVault
     private let client: RelayClient
     private let watchCoordinator: WatchSyncCoordinator
+    private let sessionEventStore: SessionEventStore
     private let defaults: UserDefaults
     private var apnsToken: String?
     private var startupTask: Task<Void, Never>?
@@ -852,12 +862,14 @@ final class RelayAppModel {
         tokenVault: KeychainTokenVault = KeychainTokenVault(service: "com.richardq.usaige.relay"),
         client: RelayClient = RelayClient(),
         watchCoordinator: WatchSyncCoordinator? = nil,
+        sessionEventStore: SessionEventStore = SessionEventStore(),
         defaults: UserDefaults = .standard
     ) {
         self.connectionStore = connectionStore
         self.quotaCache = quotaCache
         self.tokenVault = tokenVault
         self.client = client
+        self.sessionEventStore = sessionEventStore
         self.defaults = defaults
         sessionNotificationConnectionIDs = Set(
             defaults.stringArray(forKey: Self.sessionNotificationConnectionsKey)?
@@ -906,6 +918,14 @@ final class RelayAppModel {
 
     func sessionNotificationsEnabled(for connectionID: UUID) -> Bool {
         sessionNotificationConnectionIDs.contains(connectionID)
+    }
+
+    func openSessionNotifications(channelID: UUID?, eventID: String?) async {
+        sessionNotificationNavigationRequest = SessionNotificationNavigationRequest(
+            channelID: channelID,
+            eventID: eventID
+        )
+        await refreshSessionEvents()
     }
 
     func setSessionNotificationsEnabled(_ enabled: Bool, for connectionID: UUID) async {
@@ -967,6 +987,10 @@ final class RelayAppModel {
                     UserDefaults.standard.removeObject(forKey: "usAIge.relay.serverReceivedAt")
                 }
                 connectionStates = storedStates
+                let connectedIDs = Set(storedStates.map(\.connection.channelID))
+                sessionEvents = try await sessionEventStore.load()
+                    .filter { connectedIDs.contains($0.channelID) }
+                    .sorted { $0.occurredAt > $1.occurredAt }
                 rebuildAggregates()
                 watchCoordinator.publish(watchEnvelope(generatedAt: cache.savedAt))
                 if let apnsToken {
@@ -1033,6 +1057,7 @@ final class RelayAppModel {
         for connection in currentConnections {
             await fetch(connection)
         }
+        await refreshSessionEvents()
         await persistCurrentState()
     }
 
@@ -1042,6 +1067,7 @@ final class RelayAppModel {
         isRefreshing = true
         defer { isRefreshing = false }
         await fetch(connection)
+        await refreshSessionEvents(connectionID: connectionID)
         await persistCurrentState()
     }
 
@@ -1069,6 +1095,47 @@ final class RelayAppModel {
     func handleBackgroundPush() async -> Bool {
         await refreshAll()
         return errorsByConnectionID.isEmpty && systemErrorMessage == nil
+    }
+
+    func refreshSessionEvents(connectionID: UUID? = nil) async {
+        let targetConnections = connections.filter {
+            connectionID == nil || $0.channelID == connectionID
+        }
+        guard !targetConnections.isEmpty else {
+            if connections.isEmpty {
+                sessionEvents = []
+                try? await sessionEventStore.save([])
+            }
+            return
+        }
+
+        var eventsByChannel = Dictionary(grouping: sessionEvents, by: \.channelID)
+        var latestError: String?
+        for connection in targetConnections {
+            do {
+                guard let token = try tokenVault.token(for: connection.deviceID) else {
+                    throw RelayClientError.unauthorized
+                }
+                eventsByChannel[connection.channelID] = try await client.fetchSessionEvents(
+                    connection: connection,
+                    token: token
+                )
+            } catch {
+                latestError = "Notification history could not be refreshed: \(error.localizedDescription)"
+            }
+        }
+
+        let connectedIDs = Set(connections.map(\.channelID))
+        sessionEvents = eventsByChannel
+            .filter { connectedIDs.contains($0.key) }
+            .flatMap(\.value)
+            .sorted { $0.occurredAt > $1.occurredAt }
+        sessionEventErrorMessage = latestError
+        do {
+            try await sessionEventStore.save(sessionEvents)
+        } catch {
+            sessionEventErrorMessage = "Notification history could not be saved: \(error.localizedDescription)"
+        }
     }
 
     func disconnect(connectionID: UUID) async {
@@ -1153,6 +1220,8 @@ final class RelayAppModel {
         guard let removed = state(for: connectionID)?.connection else { return }
         try? tokenVault.deleteToken(for: removed.deviceID)
         connectionStates.removeAll { $0.connection.channelID == connectionID }
+        sessionEvents.removeAll { $0.channelID == connectionID }
+        try? await sessionEventStore.save(sessionEvents)
         sessionNotificationConnectionIDs.remove(connectionID)
         persistSessionNotificationPreferences()
         errorsByConnectionID[connectionID] = nil
