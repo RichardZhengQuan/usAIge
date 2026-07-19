@@ -1,7 +1,7 @@
 import Combine
 import Foundation
 
-enum CodexAgentPhase: String, Equatable, Sendable {
+enum CodexAgentPhase: String, Codable, Equatable, Sendable {
     case idle
     case thinking
     case complete

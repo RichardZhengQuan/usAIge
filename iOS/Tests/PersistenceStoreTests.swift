@@ -60,7 +60,11 @@ final class PersistenceStoreTests: XCTestCase {
             updatedAt: now,
             planType: "Pro",
             windowDurationMinutes: 300,
-            secondaryWindow: nil
+            secondaryWindow: nil,
+            sessionStatus: CodexSessionStatus(
+                phase: .thinking,
+                updatedAt: now.addingTimeInterval(-2)
+            )
         )
         let metadata = RefreshScheduleMetadata(toolID: toolID)
             .recordingSuccess(at: now, refreshIntervalMinutes: 15)

@@ -1,5 +1,23 @@
 import Foundation
 
+public enum CodexSessionPhase: String, Codable, Equatable, Hashable, Sendable {
+    case idle
+    case thinking
+    case complete
+    case needsInput
+    case error
+}
+
+public struct CodexSessionStatus: Codable, Equatable, Hashable, Sendable {
+    public let phase: CodexSessionPhase
+    public let updatedAt: Date
+
+    public init(phase: CodexSessionPhase, updatedAt: Date) {
+        self.phase = phase
+        self.updatedAt = updatedAt
+    }
+}
+
 public struct QuotaWindowSnapshot: Codable, Equatable, Hashable, Sendable {
     public let remainingPercent: Double
     public let resetAt: Date?
@@ -48,6 +66,7 @@ public struct QuotaSnapshot: Codable, Equatable, Hashable, Identifiable, Sendabl
     public let planType: String?
     public let windowDurationMinutes: Int?
     public let secondaryWindow: QuotaWindowSnapshot?
+    public let sessionStatus: CodexSessionStatus?
 
     public init(
         id: String,
@@ -60,7 +79,8 @@ public struct QuotaSnapshot: Codable, Equatable, Hashable, Identifiable, Sendabl
         updatedAt: Date,
         planType: String? = nil,
         windowDurationMinutes: Int? = nil,
-        secondaryWindow: QuotaWindowSnapshot? = nil
+        secondaryWindow: QuotaWindowSnapshot? = nil,
+        sessionStatus: CodexSessionStatus? = nil
     ) {
         self.id = id
         self.limitID = limitID
@@ -73,6 +93,7 @@ public struct QuotaSnapshot: Codable, Equatable, Hashable, Identifiable, Sendabl
         self.planType = planType
         self.windowDurationMinutes = windowDurationMinutes.flatMap { $0 > 0 ? $0 : nil }
         self.secondaryWindow = secondaryWindow
+        self.sessionStatus = sessionStatus
     }
 
     public var usedPercent: Double {
