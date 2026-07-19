@@ -40,6 +40,13 @@ test("server-renders the current usAIge release", async () => {
   assert.doesNotMatch(html, /codex-preview|starter loading skeleton/i);
 });
 
+test("keeps menu hash navigation stable in Safari", async () => {
+  const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+
+  assert.match(styles, /html\s*\{[^}]*scroll-behavior\s*:\s*auto\s*;/i);
+  assert.doesNotMatch(styles, /scroll-behavior\s*:\s*smooth\s*;/i);
+});
+
 test("loads the domain-locked VibeLoft telemetry client", async () => {
   const source = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
   const response = await render();

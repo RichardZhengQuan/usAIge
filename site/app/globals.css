@@ -2,7 +2,9 @@
 
 :root { --ink:#080a09; --paper:#f1f5ef; --muted:#9ba49e; --line:#252a27; --lime:#c9ff56; --cyan:#62f6d5; }
 * { box-sizing:border-box; }
-html { scroll-behavior:smooth; }
+/* Native hash jumps stay stable in Safari; smooth anchor scrolling can oscillate
+   when the destination contains continuously composited status effects. */
+html { scroll-behavior:auto; }
 body { margin:0; background:var(--ink); color:var(--paper); font-family:var(--font-geist-sans),Arial,sans-serif; }
 a { color:inherit; text-decoration:none; }
 button,a { -webkit-tap-highlight-color:transparent; }
