@@ -1,14 +1,16 @@
 import BackgroundTasks
 import OSLog
 import UIKit
+import UserNotifications
 
 @MainActor
-final class AppDelegate: NSObject, UIApplicationDelegate {
+final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         BackgroundRefreshCoordinator.register()
+        UNUserNotificationCenter.current().delegate = self
         application.registerForRemoteNotifications()
         return true
     }
@@ -26,6 +28,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             let succeeded = await BackgroundRefreshCoordinator.handleBackgroundPush()
             completionHandler(succeeded ? .newData : .failed)
         }
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification
+    ) async -> UNNotificationPresentationOptions {
+        [.banner, .list, .sound]
     }
 }
 

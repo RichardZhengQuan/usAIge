@@ -100,6 +100,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
                 self.relaySync.observe(self.settings.ordered(self.store.visibleSnapshots))
             }
         }
+        agentStore.onAttentionEvent = { [weak relaySync] task in
+            relaySync?.sendSessionEvent(for: task)
+        }
         agentStore.start()
         let codexAttentionMonitor = CodexAttentionMonitor { [weak self] in
             self?.agentStore.acknowledgeAttentionStates()

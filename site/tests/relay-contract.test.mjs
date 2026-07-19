@@ -63,6 +63,22 @@ test("accepts paired remote tool uploads without provider credentials", () => {
   assert.throws(() => relayTestSupport.validateRemoteToolSnapshot(upload));
 });
 
+test("accepts only bounded session attention events", () => {
+  const event = {
+    schemaVersion: 1,
+    eventID: "session-1:finished:123",
+    kind: "finished",
+    sessionTitle: "Ship notification relay",
+    workspaceName: "GPTUsage",
+    occurredAt: "2026-07-19T12:00:00Z",
+  };
+  assert.doesNotThrow(() => relayTestSupport.validateSessionEvent(event));
+  assert.equal(relayTestSupport.sessionEventCopy(event).title, "Session Finished");
+
+  assert.throws(() => relayTestSupport.validateSessionEvent({ ...event, kind: "thinking" }));
+  assert.throws(() => relayTestSupport.validateSessionEvent({ ...event, prompt: "private" }));
+});
+
 test("hashes capabilities with SHA-256", async () => {
   assert.equal(
     await relayTestSupport.sha256("usg_mac_example"),

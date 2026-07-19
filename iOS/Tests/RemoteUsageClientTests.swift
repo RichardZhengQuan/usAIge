@@ -98,6 +98,34 @@ final class RemoteUsageClientTests: XCTestCase {
         )
     }
 
+    func testRelayRegistrationIncludesSessionNotificationPreference() async throws {
+        RemoteUsageStubURLProtocol.resetLastRequest()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RemoteUsageStubURLProtocol.self]
+        let relay = RelayClient(session: URLSession(configuration: configuration))
+        let connection = RelayConnection(
+            channelID: UUID(uuidString: "11111111-1111-4111-8111-111111111111")!,
+            deviceID: UUID(uuidString: "22222222-2222-4222-8222-222222222222")!,
+            macName: "Studio Mac"
+        )
+
+        try await relay.registerAPNs(
+            connection: connection,
+            token: "read-token",
+            apnsToken: String(repeating: "a", count: 64),
+            environment: "sandbox",
+            sessionNotificationsEnabled: true
+        )
+
+        let request = try XCTUnwrap(RemoteUsageStubURLProtocol.lastRequest)
+        let body = try XCTUnwrap(RemoteUsageStubURLProtocol.lastRequestBody)
+        let json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: body) as? [String: Any]
+        )
+        XCTAssertEqual(json["sessionNotificationsEnabled"] as? Bool, true)
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer read-token")
+    }
+
     private func client(maximumResponseBytes: Int = 1_048_576) -> RemoteUsageClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [RemoteUsageStubURLProtocol.self]
@@ -117,6 +145,12 @@ final class RemoteUsageClientTests: XCTestCase {
 }
 
 private final class RemoteUsageStubURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let requestRecorder = RelayRequestRecorder()
+
+    static var lastRequest: URLRequest? { requestRecorder.lastRequest }
+    static var lastRequestBody: Data? { requestRecorder.lastRequestBody }
+    static func resetLastRequest() { requestRecorder.reset() }
+
     override class func canInit(with request: URLRequest) -> Bool { true }
 
     override class func canonicalRequest(for request: URLRequest) -> URLRequest {
@@ -127,6 +161,9 @@ private final class RemoteUsageStubURLProtocol: URLProtocol, @unchecked Sendable
         guard let url = request.url else {
             client?.urlProtocol(self, didFailWithError: URLError(.badURL))
             return
+        }
+        if url.path.contains("/api/v1/channels/") {
+            Self.requestRecorder.record(request)
         }
 
         let statusCode: Int
@@ -140,6 +177,8 @@ private final class RemoteUsageStubURLProtocol: URLProtocol, @unchecked Sendable
             statusCode = 200
         case "/redirect":
             statusCode = 302
+        case let path where path.contains("/api/v1/channels/"):
+            statusCode = 200
         default:
             statusCode = 503
         }
@@ -168,4 +207,45 @@ private final class RemoteUsageStubURLProtocol: URLProtocol, @unchecked Sendable
     }
 
     override func stopLoading() {}
+}
+
+private final class RelayRequestRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var request: URLRequest?
+    private var body: Data?
+
+    var lastRequest: URLRequest? {
+        lock.withLock { request }
+    }
+
+    var lastRequestBody: Data? {
+        lock.withLock { body }
+    }
+
+    func record(_ request: URLRequest) {
+        var data = request.httpBody
+        if data == nil, let stream = request.httpBodyStream {
+            stream.open()
+            defer { stream.close() }
+            var bytes = [UInt8](repeating: 0, count: 4_096)
+            var collected = Data()
+            while stream.hasBytesAvailable {
+                let count = stream.read(&bytes, maxLength: bytes.count)
+                if count <= 0 { break }
+                collected.append(contentsOf: bytes.prefix(count))
+            }
+            data = collected
+        }
+        lock.withLock {
+            self.request = request
+            body = data
+        }
+    }
+
+    func reset() {
+        lock.withLock {
+            request = nil
+            body = nil
+        }
+    }
 }

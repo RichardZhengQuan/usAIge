@@ -288,11 +288,14 @@ final class CodexAgentStore: ObservableObject {
     @Published private(set) var targetTask: CodexAgentTask?
     @Published private(set) var lastError: String?
 
+    var onAttentionEvent: (@MainActor (CodexAgentTask) -> Void)?
+
     private let provider: any CodexAgentProviding
     private var monitorTask: Task<Void, Never>?
     private var tasks: [CodexAgentTask] = []
     private var acknowledgements: [String: CodexAgentAcknowledgement] = [:]
     private var lastCodexViewedAt: Date?
+    private var hasLoadedInitialTasks = false
 
     init(provider: any CodexAgentProviding) {
         self.provider = provider
@@ -390,6 +393,14 @@ final class CodexAgentStore: ObservableObject {
     }
 
     private func updateTasks(_ refreshedTasks: [CodexAgentTask]) {
+        let previousTasks = Dictionary(uniqueKeysWithValues: tasks.map { ($0.id, $0) })
+        if hasLoadedInitialTasks {
+            for task in Self.newAttentionTasks(refreshedTasks, previous: previousTasks) {
+                onAttentionEvent?(task)
+            }
+        } else {
+            hasLoadedInitialTasks = true
+        }
         tasks = refreshedTasks
         let tasksByID = Dictionary(uniqueKeysWithValues: refreshedTasks.map { ($0.id, $0) })
         acknowledgements = acknowledgements.filter { taskID, acknowledgement in
@@ -404,6 +415,17 @@ final class CodexAgentStore: ObservableObject {
             )
         }
         publishAggregate()
+    }
+
+    nonisolated static func newAttentionTasks(
+        _ tasks: [CodexAgentTask],
+        previous: [String: CodexAgentTask]
+    ) -> [CodexAgentTask] {
+        tasks.filter { task in
+            guard task.phase.requiresAcknowledgement else { return false }
+            guard let earlier = previous[task.id] else { return true }
+            return task.phase != earlier.phase || task.updatedAt > earlier.updatedAt
+        }
     }
 
     private func publishAggregate() {
