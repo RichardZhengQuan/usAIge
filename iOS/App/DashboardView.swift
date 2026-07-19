@@ -12,13 +12,13 @@ struct DashboardView: View {
                     Text("Open iPhone Sync in usAIge Settings on your Mac, then enter its pairing code in the Connection tab.")
                 }
             } else if model.snapshots.isEmpty, model.isRefreshing {
-                ProgressView("Getting limits from your Mac…")
+                ProgressView("Getting limits from your Macs…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if model.snapshots.isEmpty {
                 ContentUnavailableView {
                     Label("Limits unavailable", systemImage: "wifi.exclamationmark")
                 } description: {
-                    Text(model.errorMessage ?? "Keep usAIge running on your Mac, then try again.")
+                    Text(model.errorMessage ?? "Keep usAIge running on a connected Mac, then try again.")
                 } actions: {
                     Button("Try Again", systemImage: "arrow.clockwise") { Task { await model.refreshAll() } }
                         .buttonStyle(.glassProminent)
@@ -46,13 +46,27 @@ struct DashboardView: View {
                     } icon: { Image(systemName: "clock.badge.exclamationmark").foregroundStyle(.orange) }
                 }
             }
-            ForEach(groupedTools, id: \.id) { tool in
+            ForEach(model.connectionStates, id: \.connection.channelID) { state in
+                let tools = groupedTools(in: state.snapshots)
                 Section {
-                    ForEach(tool.values) { QuotaRow(snapshot: $0) }
+                    if tools.isEmpty {
+                        Label("Waiting for this Mac to upload limits", systemImage: "clock")
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(tools, id: \.id) { tool in
+                        if tools.count > 1 {
+                            Label(tool.name, systemImage: "sparkles")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        ForEach(tool.values) { QuotaRow(snapshot: $0) }
+                    }
                 } header: {
-                    Label(tool.name, systemImage: "sparkles")
+                    Label(state.connection.macName, systemImage: "laptopcomputer")
                 } footer: {
-                    if let updated = tool.values.map(\.updatedAt).min() { Text("Updated \(updated, style: .relative)") }
+                    if let updated = state.serverReceivedAt {
+                        Text("Server updated \(updated, style: .relative)")
+                    }
                 }
             }
         }
@@ -62,11 +76,11 @@ struct DashboardView: View {
         }
     }
 
-    private var groupedTools: [(id: UUID, name: String, values: [QuotaSnapshot])] {
+    private func groupedTools(in snapshots: [QuotaSnapshot]) -> [(id: UUID, name: String, values: [QuotaSnapshot])] {
         var seen: [UUID] = []
-        for snapshot in model.snapshots where !seen.contains(snapshot.toolID) { seen.append(snapshot.toolID) }
+        for snapshot in snapshots where !seen.contains(snapshot.toolID) { seen.append(snapshot.toolID) }
         return seen.map { id in
-            let values = model.snapshots.filter { $0.toolID == id }
+            let values = snapshots.filter { $0.toolID == id }
             return (id, values.first?.toolName ?? "AI Tool", values)
         }
     }

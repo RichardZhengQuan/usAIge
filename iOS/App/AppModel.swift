@@ -824,23 +824,22 @@ final class AppModel {
 @MainActor
 @Observable
 final class RelayAppModel {
-    var connection: RelayConnection?
-    var snapshots: [QuotaSnapshot] = []
+    private(set) var connectionStates: [RelayConnectionState] = []
+    private(set) var snapshots: [QuotaSnapshot] = []
     var isRefreshing = false
     var pairingCode = ""
-    var errorMessage: String?
+    private(set) var pairingErrorMessage: String?
+    private(set) var errorsByConnectionID: [UUID: String] = [:]
+    private(set) var systemErrorMessage: String?
     private(set) var cacheSavedAt: Date?
-    private(set) var serverReceivedAt: Date?
 
     private let connectionStore: RelayConnectionStore
     private let quotaCache: SharedQuotaCache
     private let tokenVault: KeychainTokenVault
     private let client: RelayClient
     private let watchCoordinator: WatchSyncCoordinator
-    private var etag: String?
     private var apnsToken: String?
     private var startupTask: Task<Void, Never>?
-    private static let serverReceivedAtKey = "usAIge.relay.serverReceivedAt"
 
     init(
         connectionStore: RelayConnectionStore = RelayConnectionStore(),
@@ -862,15 +861,36 @@ final class RelayAppModel {
         resolvedWatchCoordinator.activate()
     }
 
-    var isConnected: Bool { connection != nil }
+    var connections: [RelayConnection] { connectionStates.map(\.connection) }
+    var isConnected: Bool { !connectionStates.isEmpty }
     var minimumRefreshIntervalMinutes: Int { 15 }
     var isCacheStale: Bool {
-        guard let cacheSavedAt else { return !snapshots.isEmpty }
-        return Date().timeIntervalSince(cacheSavedAt) > 15 * 60
+        let populatedStates = connectionStates.filter { !$0.snapshots.isEmpty }
+        guard !populatedStates.isEmpty else { return false }
+        return populatedStates.contains { state in
+            guard let savedAt = state.cacheSavedAt else { return true }
+            return Date().timeIntervalSince(savedAt) > 15 * 60
+        }
+    }
+    var errorMessage: String? {
+        systemErrorMessage ?? errorsByConnectionID.values.sorted().first
     }
     var statusDetail: String {
-        if let serverReceivedAt { return "Last received from \(connection?.macName ?? "Mac") \(serverReceivedAt.formatted(.relative(presentation: .named)))." }
-        return "Open the Mac app and refresh again."
+        if errorsByConnectionID.count == 1 { return "One Mac could not be refreshed." }
+        if errorsByConnectionID.count > 1 { return "\(errorsByConnectionID.count) Macs could not be refreshed." }
+        return "Open usAIge on the Mac and refresh again."
+    }
+
+    func state(for connectionID: UUID) -> RelayConnectionState? {
+        connectionStates.first { $0.connection.channelID == connectionID }
+    }
+
+    func snapshots(for connectionID: UUID) -> [QuotaSnapshot] {
+        state(for: connectionID)?.snapshots ?? []
+    }
+
+    func errorMessage(for connectionID: UUID) -> String? {
+        errorsByConnectionID[connectionID]
     }
 
     func start() async {
@@ -878,13 +898,27 @@ final class RelayAppModel {
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                connection = try await connectionStore.load()
+                var storedStates = try await connectionStore.load()
                 let cache = try await quotaCache.load()
-                snapshots = cache.snapshots
-                cacheSavedAt = cache.savedAt
-                serverReceivedAt = UserDefaults.standard.object(forKey: Self.serverReceivedAtKey) as? Date
+                if storedStates.count == 1, storedStates[0].snapshots.isEmpty, !cache.snapshots.isEmpty {
+                    let legacyDate = UserDefaults.standard.object(
+                        forKey: "usAIge.relay.serverReceivedAt"
+                    ) as? Date
+                    storedStates[0] = RelayConnectionState(
+                        connection: storedStates[0].connection,
+                        snapshots: cache.snapshots,
+                        serverReceivedAt: legacyDate,
+                        cacheSavedAt: cache.savedAt
+                    )
+                    try await connectionStore.save(storedStates)
+                    UserDefaults.standard.removeObject(forKey: "usAIge.relay.serverReceivedAt")
+                }
+                connectionStates = storedStates
+                rebuildAggregates()
                 watchCoordinator.publish(watchEnvelope(generatedAt: cache.savedAt))
-            } catch { errorMessage = "Saved connection could not be loaded: \(error.localizedDescription)" }
+            } catch {
+                systemErrorMessage = "Saved connections could not be loaded: \(error.localizedDescription)"
+            }
         }
         startupTask = task
         await task.value
@@ -893,56 +927,70 @@ final class RelayAppModel {
     func pair() async {
         let code = pairingCode
         isRefreshing = true
-        errorMessage = nil
+        pairingErrorMessage = nil
+        systemErrorMessage = nil
         do {
             let result = try await client.claim(code: code, deviceName: UIDevice.current.name)
             try tokenVault.save(result.readToken, for: result.connection.deviceID)
+            let replacedState = state(for: result.connection.channelID)
             do {
-                try await connectionStore.save(result.connection)
+                let updatedStates = connectionStates.filter {
+                    $0.connection.channelID != result.connection.channelID
+                } + [RelayConnectionState(connection: result.connection)]
+                try await connectionStore.save(updatedStates)
+                connectionStates = updatedStates
+                rebuildAggregates()
             } catch {
+                try? await client.disconnect(
+                    connection: result.connection,
+                    token: result.readToken
+                )
                 try? tokenVault.deleteToken(for: result.connection.deviceID)
                 throw error
             }
-            connection = result.connection
+            if let replaced = replacedState?.connection {
+                if let oldToken = try? tokenVault.token(for: replaced.deviceID) {
+                    try? await client.disconnect(connection: replaced, token: oldToken)
+                }
+                try? tokenVault.deleteToken(for: replaced.deviceID)
+            }
             pairingCode = ""
-            if let apnsToken { try? await registerAPNs(apnsToken) }
+            if let apnsToken {
+                try? await registerAPNs(apnsToken, for: result.connection)
+            }
             isRefreshing = false
-            await refreshAll()
+            await refresh(connectionID: result.connection.channelID)
         } catch {
             isRefreshing = false
-            errorMessage = error.localizedDescription
+            pairingErrorMessage = error.localizedDescription
         }
     }
 
     func refreshAll() async {
-        guard let connection else { return }
+        guard !connections.isEmpty else { return }
         guard !isRefreshing else { return }
         isRefreshing = true
         defer { isRefreshing = false }
-        do {
-            guard let token = try tokenVault.token(for: connection.deviceID) else { throw RelayClientError.unauthorized }
-            guard let result = try await client.fetch(connection: connection, token: token, etag: etag) else {
-                errorMessage = nil
-                return
-            }
-            snapshots = result.snapshots
-            serverReceivedAt = result.serverReceivedAt
-            UserDefaults.standard.set(result.serverReceivedAt, forKey: Self.serverReceivedAtKey)
-            etag = result.etag
-            errorMessage = nil
-            try await saveCache()
-        } catch {
-            errorMessage = error.localizedDescription
-            if let relayError = error as? RelayClientError, case .unauthorized = relayError {
-                await clearLocalConnection()
-            }
+        let currentConnections = connections
+        for connection in currentConnections {
+            await fetch(connection)
         }
+        await persistCurrentState()
+    }
+
+    func refresh(connectionID: UUID) async {
+        guard let connection = state(for: connectionID)?.connection else { return }
+        guard !isRefreshing else { return }
+        isRefreshing = true
+        defer { isRefreshing = false }
+        await fetch(connection)
+        await persistCurrentState()
     }
 
     @discardableResult
     func refreshDueTools(forceWhenCacheIsEmpty: Bool = false) async -> Bool {
         if forceWhenCacheIsEmpty || isCacheStale { await refreshAll() }
-        return errorMessage == nil
+        return systemErrorMessage == nil && errorsByConnectionID.isEmpty
     }
 
     func cancelRefresh() {}
@@ -950,24 +998,35 @@ final class RelayAppModel {
     func receiveAPNsToken(_ data: Data, environment: String) async {
         let value = data.map { String(format: "%02x", $0) }.joined()
         apnsToken = value
-        do { try await registerAPNs(value, environment: environment) }
-        catch { errorMessage = "Push updates could not be enabled: \(error.localizedDescription)" }
+        for connection in connections {
+            do {
+                try await registerAPNs(value, environment: environment, for: connection)
+            } catch {
+                errorsByConnectionID[connection.channelID] =
+                    "Push updates could not be enabled: \(error.localizedDescription)"
+            }
+        }
     }
 
     func handleBackgroundPush() async -> Bool {
         await refreshAll()
-        return errorMessage == nil
+        return errorsByConnectionID.isEmpty && systemErrorMessage == nil
     }
 
-    func disconnect() async {
-        if let connection, let token = try? tokenVault.token(for: connection.deviceID) {
+    func disconnect(connectionID: UUID) async {
+        guard let connection = state(for: connectionID)?.connection else { return }
+        if let token = try? tokenVault.token(for: connection.deviceID) {
             try? await client.disconnect(connection: connection, token: token)
         }
-        await clearLocalConnection()
+        await removeLocalConnection(connectionID: connectionID)
     }
 
-    private func registerAPNs(_ value: String, environment: String? = nil) async throws {
-        guard let connection, let token = try tokenVault.token(for: connection.deviceID) else { return }
+    private func registerAPNs(
+        _ value: String,
+        environment: String? = nil,
+        for connection: RelayConnection
+    ) async throws {
+        guard let token = try tokenVault.token(for: connection.deviceID) else { return }
         #if DEBUG
         let resolvedEnvironment = environment ?? "sandbox"
         #else
@@ -976,32 +1035,125 @@ final class RelayAppModel {
         try await client.registerAPNs(connection: connection, token: token, apnsToken: value, environment: resolvedEnvironment)
     }
 
-    private func clearLocalConnection() async {
-        if let connection { try? tokenVault.deleteToken(for: connection.deviceID) }
-        try? await connectionStore.delete()
-        connection = nil
-        snapshots = []
-        etag = nil
-        serverReceivedAt = nil
-        UserDefaults.standard.removeObject(forKey: Self.serverReceivedAtKey)
-        try? await quotaCache.save(.empty)
-        WidgetCenter.shared.reloadTimelines(ofKind: "com.richardq.usaige.limits")
+    private func fetch(_ connection: RelayConnection) async {
+        do {
+            guard let token = try tokenVault.token(for: connection.deviceID) else {
+                throw RelayClientError.unauthorized
+            }
+            let currentETag = state(for: connection.channelID)?.etag
+            guard let result = try await client.fetch(
+                connection: connection,
+                token: token,
+                etag: currentETag
+            ) else {
+                if let index = connectionStates.firstIndex(where: {
+                    $0.connection.channelID == connection.channelID
+                }) {
+                    let current = connectionStates[index]
+                    connectionStates[index] = RelayConnectionState(
+                        connection: current.connection,
+                        snapshots: current.snapshots,
+                        serverReceivedAt: current.serverReceivedAt,
+                        cacheSavedAt: Date(),
+                        etag: current.etag
+                    )
+                    rebuildAggregates()
+                }
+                errorsByConnectionID[connection.channelID] = nil
+                return
+            }
+            guard let index = connectionStates.firstIndex(where: {
+                $0.connection.channelID == connection.channelID
+            }) else { return }
+            connectionStates[index] = RelayConnectionState(
+                connection: connection,
+                snapshots: result.snapshots,
+                serverReceivedAt: result.serverReceivedAt,
+                cacheSavedAt: Date(),
+                etag: result.etag
+            )
+            errorsByConnectionID[connection.channelID] = nil
+            rebuildAggregates()
+        } catch {
+            errorsByConnectionID[connection.channelID] = error.localizedDescription
+            if let relayError = error as? RelayClientError,
+               case .unauthorized = relayError {
+                await removeLocalConnection(connectionID: connection.channelID)
+            }
+        }
     }
 
-    private func saveCache() async throws {
-        let now = Date()
-        let toolIDs = Set(snapshots.map(\.toolID))
-        let metadata = toolIDs.map {
-            RefreshScheduleMetadata(toolID: $0).recordingAttempt(at: now).recordingSuccess(at: now, refreshIntervalMinutes: 15)
+    private func removeLocalConnection(connectionID: UUID) async {
+        guard let removed = state(for: connectionID)?.connection else { return }
+        try? tokenVault.deleteToken(for: removed.deviceID)
+        connectionStates.removeAll { $0.connection.channelID == connectionID }
+        errorsByConnectionID[connectionID] = nil
+        rebuildAggregates()
+        await persistCurrentState()
+    }
+
+    private func persistCurrentState() async {
+        do {
+            try await connectionStore.save(connectionStates)
+            try await saveAggregateCache()
+            systemErrorMessage = nil
+        } catch {
+            systemErrorMessage = "Connections could not be saved: \(error.localizedDescription)"
         }
-        try await quotaCache.save(QuotaCacheState(snapshots: snapshots, refreshMetadata: metadata, savedAt: now))
-        cacheSavedAt = now
+    }
+
+    private func rebuildAggregates() {
+        snapshots = connectionStates.flatMap(\.snapshots)
+        cacheSavedAt = connectionStates.compactMap(\.cacheSavedAt).min()
+    }
+
+    private func saveAggregateCache() async throws {
+        let now = Date()
+        let cachedSnapshots = widgetSnapshots()
+        let metadata = connectionStates.flatMap { state in
+            Set(state.snapshots.map(\.toolID)).map { toolID in
+                let successfulAt = state.cacheSavedAt
+                    ?? state.snapshots.map(\.updatedAt).min()
+                    ?? now
+                let success = RefreshScheduleMetadata(toolID: toolID)
+                    .recordingSuccess(
+                        at: successfulAt,
+                        refreshIntervalMinutes: minimumRefreshIntervalMinutes
+                    )
+                guard errorsByConnectionID[state.connection.channelID] != nil else {
+                    return success
+                }
+                return success.recordingFailure(at: now, retryDelay: 5 * 60)
+            }
+        }
+        try await quotaCache.save(QuotaCacheState(snapshots: cachedSnapshots, refreshMetadata: metadata, savedAt: now))
         WidgetCenter.shared.reloadTimelines(ofKind: "com.richardq.usaige.limits")
         watchCoordinator.publish(watchEnvelope(generatedAt: now))
     }
 
+    private func widgetSnapshots() -> [QuotaSnapshot] {
+        guard connectionStates.count > 1 else { return snapshots }
+        return connectionStates.flatMap { state in
+            state.snapshots.map { snapshot in
+                QuotaSnapshot(
+                    id: snapshot.id,
+                    limitID: snapshot.limitID,
+                    toolID: snapshot.toolID,
+                    toolName: "\(state.connection.macName) · \(snapshot.toolName)",
+                    displayName: snapshot.displayName,
+                    remainingPercent: snapshot.remainingPercent,
+                    resetAt: snapshot.resetAt,
+                    updatedAt: snapshot.updatedAt,
+                    planType: snapshot.planType,
+                    windowDurationMinutes: snapshot.windowDurationMinutes,
+                    secondaryWindow: snapshot.secondaryWindow
+                )
+            }
+        }
+    }
+
     private func watchEnvelope(generatedAt: Date = Date()) -> WatchUsageSnapshotEnvelope {
-        let grouped = Dictionary(grouping: snapshots, by: \.toolID)
+        let grouped = Dictionary(grouping: widgetSnapshots(), by: \.toolID)
         let tools = grouped.compactMap { toolID, values -> WatchToolQuotaSnapshot? in
             guard let first = values.first else { return nil }
             return WatchToolQuotaSnapshot(

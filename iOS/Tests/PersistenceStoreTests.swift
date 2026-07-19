@@ -78,6 +78,65 @@ final class PersistenceStoreTests: XCTestCase {
         XCTAssertEqual(restored.metadata(for: toolID), metadata)
     }
 
+    func testRelayConnectionStoreRoundTripsMultipleMacs() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = RelayConnectionStore(
+            fileURL: directory.appendingPathComponent("relay-connections.json")
+        )
+        let firstToolID = UUID()
+        let firstSnapshot = QuotaSnapshot(
+            id: QuotaSnapshot.stableID(toolID: firstToolID, limitID: "codex"),
+            limitID: "codex",
+            toolID: firstToolID,
+            toolName: "ChatGPT",
+            displayName: "Codex",
+            remainingPercent: 64,
+            resetAt: nil,
+            updatedAt: Date(timeIntervalSince1970: 999)
+        )
+        let first = RelayConnectionState(
+            connection: RelayConnection(
+                channelID: UUID(),
+                deviceID: UUID(),
+                macName: "Studio Mac"
+            ),
+            snapshots: [firstSnapshot],
+            serverReceivedAt: Date(timeIntervalSince1970: 1_000),
+            cacheSavedAt: Date(timeIntervalSince1970: 1_001),
+            etag: "\"7\""
+        )
+        let second = RelayConnectionState(
+            connection: RelayConnection(
+                channelID: UUID(),
+                deviceID: UUID(),
+                macName: "Travel MacBook"
+            )
+        )
+
+        try await store.save([first, second])
+        let restored = try await store.load()
+
+        XCTAssertEqual(restored, [first, second])
+    }
+
+    func testRelayConnectionStoreMigratesOriginalSingleMacDocument() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let fileURL = directory.appendingPathComponent("relay-connection.json")
+        let connection = RelayConnection(
+            channelID: UUID(),
+            deviceID: UUID(),
+            macName: "Original Mac"
+        )
+        try JSONFileStorage.save(connection, to: fileURL)
+
+        let restored = try await RelayConnectionStore(fileURL: fileURL).load()
+
+        XCTAssertEqual(restored, [RelayConnectionState(connection: connection)])
+    }
+
     private func temporaryDirectory() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
