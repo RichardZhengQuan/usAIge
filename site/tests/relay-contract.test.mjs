@@ -159,3 +159,10 @@ test("hashes capabilities with SHA-256", async () => {
     "0e4fb712c07e2b3392b9a875b43744e70d0ef6b543e4378d6b23eeed264a581c",
   );
 });
+
+test("accepts only canonical Watch device UUIDs", () => {
+  assert.equal(relayTestSupport.isUUID("11111111-1111-4111-8111-111111111111"), true);
+  for (const invalid of ["watch", "11111111-1111-1111-1111-111111111111", "../../device"]) {
+    assert.equal(relayTestSupport.isUUID(invalid), false);
+  }
+});

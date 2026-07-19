@@ -70,6 +70,8 @@ targets:
       - path: Shared
       - path: ../iOS/Shared/Watch
       - path: ../iOS/App/Assets.xcassets
+      - path: ../iOS/App/Assets.xcassets/AppIcon.appiconset/AppIcon.png
+        buildPhase: resources
     settings:
       base:
         CODE_SIGN_ENTITLEMENTS: $(SRCROOT)/Config/Watch.entitlements

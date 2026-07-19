@@ -3,6 +3,8 @@ import SwiftUI
 struct WatchUsageView: View {
     @ObservedObject var model: WatchUsageModel
 
+    private let brandGreen = Color(red: 0.70, green: 1, blue: 0.20)
+
     var body: some View {
         NavigationStack {
             Group {
@@ -16,46 +18,52 @@ struct WatchUsageView: View {
                 }
             }
             .navigationTitle("usAIge")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(.large)
         }
+        .onAppear(perform: model.refreshIfNeeded)
     }
 
+    @ViewBuilder
     private func usageList(_ envelope: WatchUsageSnapshotEnvelope) -> some View {
-        let tools = envelope.tools.filter { !$0.limits.isEmpty }
+        let groups = sourceGroups(in: envelope)
 
-        return List {
+        let list = List {
             if model.errorMessage != nil || model.isStale {
                 statusBanner
             }
 
-            ForEach(tools) { tool in
-                let isStale = model.isStale(tool)
+            ForEach(groups) { group in
                 Section {
-                    ForEach(tool.limits) { limit in
-                        NavigationLink {
-                            QuotaDetailView(tool: tool, limit: limit)
-                        } label: {
-                            WatchQuotaRow(tool: tool, limit: limit, isStale: isStale)
+                    ForEach(group.tools) { tool in
+                        if group.tools.count > 1 {
+                            Label(tool.displayName, systemImage: tool.symbolName ?? "sparkles")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
                         }
-                        .buttonStyle(.plain)
-                        .listRowInsets(
-                            EdgeInsets(top: 4, leading: 6, bottom: 4, trailing: 6)
-                        )
-                        .listRowBackground(Color.clear)
+
+                        ForEach(tool.limits) { limit in
+                            NavigationLink {
+                                QuotaDetailView(tool: tool, limit: limit)
+                            } label: {
+                                WatchQuotaRow(
+                                    tool: tool,
+                                    limit: limit,
+                                    isStale: model.isStale(tool)
+                                )
+                            }
+                        }
                     }
                 } header: {
-                    ToolSectionHeader(
-                        tool: tool,
-                        isStale: isStale,
-                        showsRefresh: tool.id == tools.first?.id,
-                        isRefreshing: model.isRefreshing,
-                        refreshStatusColor: toolbarStatusColor,
-                        refreshStatusDescription: toolbarStatusDescription,
-                        onRefresh: model.refresh
-                    )
+                    Label(group.title, systemImage: group.symbolName)
+                } footer: {
+                    if let updatedAt = group.updatedAt {
+                        Text("Updated \(updatedAt, style: .relative)")
+                    }
                 }
             }
         }
+        .refreshable { model.refresh() }
+        list
     }
 
     private var statusBanner: some View {
@@ -69,14 +77,8 @@ struct WatchUsageView: View {
                     : "wifi.slash"
             )
         }
-        .font(.caption2.weight(.semibold))
+        .font(.caption2)
         .foregroundStyle(.orange)
-        .padding(.horizontal, 9)
-        .padding(.vertical, 7)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.11), in: RoundedRectangle(cornerRadius: 12))
-        .listRowInsets(EdgeInsets(top: 2, leading: 6, bottom: 4, trailing: 6))
-        .listRowBackground(Color.clear)
         .accessibilityLabel(
             model.errorMessage
                 ?? "Some limits may be out of date. Showing the latest saved limits."
@@ -106,12 +108,12 @@ struct WatchUsageView: View {
 
             Text("SYNC")
                 .font(.system(.caption2, design: .rounded, weight: .bold))
-                .foregroundStyle(.cyan)
+                .foregroundStyle(brandGreen)
                 .padding(.horizontal, 7)
                 .padding(.vertical, 2)
                 .background(.quaternary, in: Capsule())
 
-            Text("Syncing from iPhone")
+            Text(model.phoneIsReachable ? "Syncing from iPhone" : "Syncing from usAIge")
                 .font(.headline)
                 .multilineTextAlignment(.center)
 
@@ -133,30 +135,31 @@ struct WatchUsageView: View {
                     size: 64
                 ) {
                     Image(
-                        systemName: model.phoneIsReachable
+                        systemName: model.canRefresh
                             ? "iphone.and.arrow.forward"
                             : "iphone.slash"
                     )
                     .font(.system(size: 22, weight: .medium))
                     .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(model.phoneIsReachable ? Color.cyan : Color.secondary)
+                    .foregroundStyle(model.canRefresh ? brandGreen : Color.secondary)
+                    .offset(x: 1)
                 }
 
                 Text("SET UP")
                     .font(.system(.caption2, design: .rounded, weight: .bold))
-                    .foregroundStyle(model.phoneIsReachable ? Color.cyan : Color.secondary)
+                    .foregroundStyle(model.canRefresh ? brandGreen : Color.secondary)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 2)
                     .background(.quaternary, in: Capsule())
 
-                Text(model.phoneIsReachable ? "No Limits Yet" : "iPhone Unavailable")
+                Text(model.canRefresh ? "Limits Unavailable" : "iPhone Unavailable")
                     .font(.headline)
                     .multilineTextAlignment(.center)
 
                 Text(
                     model.errorMessage
-                        ?? (model.phoneIsReachable
-                            ? "Add an AI tool in usAIge on iPhone."
+                        ?? (model.canRefresh
+                            ? "Connect a Mac, then sync with usAIge."
                             : "Open usAIge on your paired iPhone.")
                 )
                 .font(.caption2)
@@ -164,11 +167,14 @@ struct WatchUsageView: View {
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
 
-                Button(model.phoneIsReachable ? "Sync Now" : "Try Again") {
+                Button(model.canRefresh ? "Sync Now" : "Try Again") {
                     model.refresh()
                 }
                 .buttonStyle(.borderedProminent)
+                .tint(brandGreen)
+                .foregroundStyle(.black)
                 .controlSize(.small)
+                .disabled(!model.canRefresh)
             }
             .padding(.horizontal, 13)
             .padding(.vertical, 6)
@@ -177,90 +183,35 @@ struct WatchUsageView: View {
         }
     }
 
-    private var toolbarStatusColor: Color {
-        guard let envelope = model.envelope,
-              envelope.tools.contains(where: { !$0.limits.isEmpty }) else {
-            return model.phoneIsReachable ? .cyan : .gray
+    private func sourceGroups(in envelope: WatchUsageSnapshotEnvelope) -> [WatchSourceGroup] {
+        let tools = envelope.tools.filter { !$0.limits.isEmpty }
+        var order: [String] = []
+        for tool in tools {
+            let key = tool.sourceID ?? "legacy"
+            if !order.contains(key) { order.append(key) }
         }
-        return model.errorMessage != nil || model.isStale ? .orange : .green
-    }
 
-    private var toolbarStatusDescription: String {
-        guard let envelope = model.envelope,
-              envelope.tools.contains(where: { !$0.limits.isEmpty }) else {
-            return model.phoneIsReachable ? "iPhone connected" : "iPhone unavailable"
+        return order.compactMap { key in
+            let groupedTools = tools.filter { ($0.sourceID ?? "legacy") == key }
+            guard let first = groupedTools.first else { return nil }
+            return WatchSourceGroup(
+                id: key,
+                title: first.sourceName
+                    ?? (groupedTools.count == 1 ? first.displayName : "AI Tools"),
+                symbolName: first.sourceName == nil ? "sparkles" : "laptopcomputer",
+                updatedAt: groupedTools.compactMap(\.serverUpdatedAt).max(),
+                tools: groupedTools
+            )
         }
-        return model.errorMessage != nil || model.isStale
-            ? "Showing saved limits"
-            : "Limits are current"
     }
 }
 
-private struct ToolSectionHeader: View {
-    let tool: WatchToolQuotaSnapshot
-    let isStale: Bool
-    let showsRefresh: Bool
-    let isRefreshing: Bool
-    let refreshStatusColor: Color
-    let refreshStatusDescription: String
-    let onRefresh: () -> Void
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 5) {
-            Image(systemName: tool.symbolName ?? "sparkles")
-                .font(.system(size: 11, weight: .semibold))
-                .frame(width: 16, height: 16)
-            Text(tool.displayName)
-                .font(.caption2.weight(.semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.78)
-                .layoutPriority(1)
-            if isStale {
-                Image(systemName: "clock.badge.exclamationmark")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.orange)
-                    .accessibilityLabel("May be out of date")
-            }
-            Spacer(minLength: 4)
-            if showsRefresh {
-                Button(action: onRefresh) {
-                    ZStack(alignment: .topTrailing) {
-                        Group {
-                            if isRefreshing {
-                                ProgressView()
-                                    .tint(.primary)
-                                    .scaleEffect(0.72)
-                            } else {
-                                Image(systemName: "arrow.clockwise")
-                                    .foregroundStyle(.primary)
-                            }
-                        }
-                        .frame(width: 22, height: 22)
-
-                        if !isRefreshing {
-                            Circle()
-                                .fill(refreshStatusColor)
-                                .frame(width: 6, height: 6)
-                                .overlay {
-                                    Circle().stroke(.black.opacity(0.45), lineWidth: 1)
-                                }
-                                .offset(x: 2, y: -2)
-                                .accessibilityHidden(true)
-                        }
-                    }
-                    .frame(width: 36, height: 36)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Refresh all limits")
-                .accessibilityValue(refreshStatusDescription)
-                .disabled(isRefreshing)
-            }
-        }
-        .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
-        .foregroundStyle(.secondary)
-        .textCase(nil)
-    }
+private struct WatchSourceGroup: Identifiable {
+    let id: String
+    let title: String
+    let symbolName: String
+    let updatedAt: Date?
+    let tools: [WatchToolQuotaSnapshot]
 }
 
 private struct WatchQuotaRow: View {
@@ -269,70 +220,43 @@ private struct WatchQuotaRow: View {
     let isStale: Bool
 
     var body: some View {
-        HStack(spacing: 8) {
-            VStack(spacing: 4) {
-                ConcentricQuotaRing(
-                    primaryRemaining: limit.primary.remainingPercent,
-                    secondaryRemaining: limit.secondary?.remainingPercent,
-                    size: 56,
-                    isStale: isStale
-                ) {
-                    Image(systemName: tool.symbolName ?? "sparkles")
-                        .font(.system(size: 20, weight: .medium))
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(.primary)
-                }
-
-                QuotaDurationTags(limit: limit)
-                    .frame(maxWidth: 60)
-            }
-            .frame(width: 60)
-
-            VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
                 Text(limit.displayName)
                     .font(.headline)
                     .lineLimit(1)
                     .minimumScaleFactor(0.82)
+                Spacer(minLength: 4)
 
-                Text("\(Int(limit.effectiveRemainingPercent.rounded()))% remaining")
-                    .font(.caption.weight(.semibold))
+                Text("\(Int(limit.effectiveRemainingPercent.rounded()))%")
+                    .font(.headline.monospacedDigit())
                     .foregroundStyle(constrainingColor)
-                    .monospacedDigit()
                     .lineLimit(1)
-                    .minimumScaleFactor(0.72)
+            }
 
-                WatchQuotaProgressBar(
-                    remainingPercent: limit.constrainingWindow.remainingPercent,
-                    color: constrainingColor
-                )
+            Gauge(value: limit.constrainingWindow.remainingPercent, in: 0...100) {
+                Text("Remaining")
+            }
+            .tint(constrainingColor)
 
+            HStack(spacing: 5) {
+                QuotaDurationTags(limit: limit)
+                Spacer(minLength: 4)
                 if isStale {
-                    Label("Saved data", systemImage: "clock")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                    Label("Saved", systemImage: "clock")
                 } else if let resetAt = limit.constrainingWindow.resetAt {
                     Text("Resets \(resetAt, style: .relative)")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
                 } else {
                     Text("Reset unavailable")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .font(.caption2)
+            .foregroundStyle(.secondary)
         }
-        .padding(8)
-        .frame(maxWidth: .infinity, minHeight: 92)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(.secondary.opacity(0.13), lineWidth: 0.5)
-        }
-        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.vertical, 3)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilitySummary)
     }

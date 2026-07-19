@@ -368,6 +368,39 @@ public struct RelayClient: Sendable {
         }
     }
 
+    public func provisionWatch(
+        connection: RelayConnection,
+        phoneToken: String,
+        watchInstallationID: UUID,
+        deviceName: String = "Apple Watch"
+    ) async throws -> WatchRelayCredential {
+        let watchDeviceID = Self.scopedDeviceUUID(
+            channelID: connection.channelID,
+            installationID: watchInstallationID
+        )
+        var request = authorized(
+            connection: connection,
+            token: phoneToken,
+            path: "channels/\(connection.channelID.uuidString.lowercased())/watch-devices/\(watchDeviceID.uuidString.lowercased())",
+            method: "POST"
+        )
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(WatchProvisionRequest(deviceName: deviceName))
+        let response: WatchProvisionResponse = try await send(request)
+        guard let channelID = UUID(uuidString: response.channelID),
+              let deviceID = UUID(uuidString: response.deviceID),
+              channelID == connection.channelID,
+              deviceID == watchDeviceID else {
+            throw RelayClientError.invalidResponse
+        }
+        return WatchRelayCredential(
+            channelID: channelID,
+            deviceID: deviceID,
+            macName: response.macName,
+            readToken: response.readToken
+        )
+    }
+
     public func disconnect(connection: RelayConnection, token: String) async throws {
         let request = authorized(connection: connection, token: token, path: "channels/\(connection.channelID.uuidString.lowercased())/devices/\(connection.deviceID.uuidString.lowercased())", method: "DELETE")
         let (data, response) = try await session.data(for: request)
@@ -401,6 +434,19 @@ public struct RelayClient: Sendable {
             NSUUID(uuidBytes: bytes.bindMemory(to: UInt8.self).baseAddress!) as UUID
         }
     }
+
+    static func scopedDeviceUUID(channelID: UUID, installationID: UUID) -> UUID {
+        let input = Data(
+            "\(channelID.uuidString.lowercased()):watch:\(installationID.uuidString.lowercased())".utf8
+        )
+        let digest = SHA256.hash(data: input)
+        var bytes = Array(digest.prefix(16))
+        bytes[6] = (bytes[6] & 0x0f) | 0x50
+        bytes[8] = (bytes[8] & 0x3f) | 0x80
+        return bytes.withUnsafeBytes { buffer in
+            NSUUID(uuidBytes: buffer.bindMemory(to: UInt8.self).baseAddress!) as UUID
+        }
+    }
 }
 
 private struct ClaimRequest: Encodable { let code, deviceName: String }
@@ -409,6 +455,8 @@ private struct APNsRequest: Encodable {
     let apnsToken, environment: String
     let sessionNotificationsEnabled: Bool
 }
+private struct WatchProvisionRequest: Encodable { let deviceName: String }
+private struct WatchProvisionResponse: Decodable { let channelID, deviceID, readToken, macName: String }
 private struct ServerError: Decodable { let error: String }
 private struct RelayEnvelope: Decodable {
     let version: Int; let serverReceivedAt: Date; let snapshot: RelaySnapshotDocument

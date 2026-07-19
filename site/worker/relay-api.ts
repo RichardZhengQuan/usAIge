@@ -106,6 +106,32 @@ export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: R
       return json(await createToolPairing(env.DB, channelID, new Date()), 201);
     }
 
+    const watchDeviceMatch = tail.match(/^watch-devices\/([^/]+)$/);
+    if (watchDeviceMatch && request.method === "POST") {
+      const provisioningToken = bearer(request);
+      if (!provisioningToken?.startsWith("usg_ios_")) return unauthorized();
+      const phone = await authorizePhone(request, env.DB, channelID);
+      if (!phone) return unauthorized();
+      const watchDeviceID = watchDeviceMatch[1].toLowerCase();
+      if (!isUUID(watchDeviceID)) return json({ error: "Invalid Watch device identifier." }, 400);
+      const existing = await env.DB.prepare("SELECT channel_id FROM relay_devices WHERE id = ?")
+        .bind(watchDeviceID).first<{ channel_id: string }>();
+      if (existing && existing.channel_id !== channelID) {
+        return json({ error: "That Watch device identifier is already in use." }, 409);
+      }
+      const payload = await readJSON(request) as { deviceName?: string };
+      const deviceName = cleanName(payload.deviceName, "Apple Watch");
+      const readToken = randomToken("usg_watch_");
+      const now = new Date().toISOString();
+      await env.DB.prepare(
+        `INSERT INTO relay_devices (id, channel_id, name, read_token_hash, created_at, last_seen_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET name = excluded.name,
+           read_token_hash = excluded.read_token_hash, last_seen_at = excluded.last_seen_at`
+      ).bind(watchDeviceID, channelID, deviceName, await sha256(readToken), now, now).run();
+      return json({ channelID, deviceID: watchDeviceID, readToken, macName: channel.mac_name }, 201);
+    }
+
     if (request.method === "PUT" && tail === "snapshot") {
       if (!await authorizeMac(request, channel)) return unauthorized();
       const payload = await readJSON(request);
@@ -351,6 +377,7 @@ function validateSessionEvent(value: unknown): asserts value is SessionEvent {
 }
 function isBoundedString(value: unknown, maximum: number): value is string { return typeof value === "string" && value.length > 0 && value.length <= maximum; }
 function isDateString(value: unknown): value is string { return typeof value === "string" && value.length <= 64 && Number.isFinite(Date.parse(value)); }
+function isUUID(value: unknown): value is string { return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value); }
 function hasOnlyKeys(value: object, allowed: string[]) { return Object.keys(value).every(key => allowed.includes(key)); }
 function isWindow(value: unknown) {
   const window = value as { remainingPercent?: unknown; resetAt?: unknown; windowDurationMinutes?: unknown } | null;
@@ -494,4 +521,4 @@ async function providerToken(env: RelayEnv) {
   const value = `${header}.${claims}.${base64url(signature)}`; cachedProviderToken = { value, createdAt: now }; return value;
 }
 
-export const relayTestSupport = { normalizeCode, randomCode, validateSnapshot, validateRemoteToolSnapshot, validateSessionEvent, sessionEventCopy, sessionStatusSignature, sha256 };
+export const relayTestSupport = { normalizeCode, randomCode, validateSnapshot, validateRemoteToolSnapshot, validateSessionEvent, sessionEventCopy, sessionStatusSignature, isUUID, sha256 };

@@ -9,10 +9,20 @@ enum AppGroup {
         if let container = fileManager.containerURL(
             forSecurityApplicationGroupIdentifier: identifier
         ) {
-            return container.appendingPathComponent(snapshotFileName, isDirectory: false)
+            let sharedURL = container.appendingPathComponent(snapshotFileName, isDirectory: false)
+            let legacyURL = fallbackSnapshotURL(fileManager: fileManager)
+            if !fileManager.fileExists(atPath: sharedURL.path),
+               fileManager.fileExists(atPath: legacyURL.path) {
+                try? fileManager.copyItem(at: legacyURL, to: sharedURL)
+            }
+            return sharedURL
         }
 
         // App Group containers are unavailable in previews and unsigned command-line builds.
+        return fallbackSnapshotURL(fileManager: fileManager)
+    }
+
+    private static func fallbackSnapshotURL(fileManager: FileManager) -> URL {
         let fallback = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("usAIgeWatch", isDirectory: true)
         try? fileManager.createDirectory(at: fallback, withIntermediateDirectories: true)

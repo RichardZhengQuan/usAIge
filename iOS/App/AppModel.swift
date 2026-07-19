@@ -881,6 +881,9 @@ final class RelayAppModel {
             await self?.refreshAll()
             return self?.watchEnvelope() ?? WatchUsageSnapshotEnvelope(generatedAt: Date(), tools: [])
         }
+        resolvedWatchCoordinator.provisionHandler = { [weak self] installationID in
+            await self?.provisionWatch(installationID: installationID) ?? []
+        }
         resolvedWatchCoordinator.activate()
     }
 
@@ -1168,6 +1171,28 @@ final class RelayAppModel {
         )
     }
 
+    private func provisionWatch(installationID: UUID) async -> [WatchRelayCredential] {
+        await start()
+        var credentials: [WatchRelayCredential] = []
+        for connection in connections {
+            do {
+                guard let phoneToken = try tokenVault.token(for: connection.deviceID) else {
+                    continue
+                }
+                let credential = try await client.provisionWatch(
+                    connection: connection,
+                    phoneToken: phoneToken,
+                    watchInstallationID: installationID
+                )
+                credentials.append(credential)
+            } catch {
+                errorsByConnectionID[connection.channelID] =
+                    "Apple Watch cellular sync could not be enabled: \(error.localizedDescription)"
+            }
+        }
+        return credentials
+    }
+
     private func fetch(_ connection: RelayConnection) async {
         do {
             guard let token = try tokenVault.token(for: connection.deviceID) else {
@@ -1300,25 +1325,45 @@ final class RelayAppModel {
     }
 
     private func watchEnvelope(generatedAt: Date = Date()) -> WatchUsageSnapshotEnvelope {
-        let grouped = Dictionary(grouping: widgetSnapshots(), by: \.toolID)
-        let tools = grouped.compactMap { toolID, values -> WatchToolQuotaSnapshot? in
-            guard let first = values.first else { return nil }
-            return WatchToolQuotaSnapshot(
-                id: toolID.uuidString.lowercased(),
-                displayName: first.toolName,
-                sourceUpdatedAt: values.map(\.updatedAt).min() ?? generatedAt,
-                receivedAt: generatedAt,
-                limits: values.map { snapshot in
-                    WatchQuotaSnapshot(
-                        id: snapshot.limitID,
-                        displayName: snapshot.displayName,
-                        primary: WatchQuotaWindowSnapshot(remainingPercent: snapshot.remainingPercent, resetAt: snapshot.resetAt, windowDurationSeconds: snapshot.windowDurationMinutes.map { $0 * 60 }),
-                        secondary: snapshot.secondaryWindow.map { WatchQuotaWindowSnapshot(remainingPercent: $0.remainingPercent, resetAt: $0.resetAt, windowDurationSeconds: $0.windowDurationMinutes.map { $0 * 60 }) },
-                        planType: snapshot.planType
-                    )
-                },
-                symbolName: "sparkles"
-            )
+        let tools = connectionStates.flatMap { state -> [WatchToolQuotaSnapshot] in
+            var orderedToolIDs: [UUID] = []
+            for snapshot in state.snapshots where !orderedToolIDs.contains(snapshot.toolID) {
+                orderedToolIDs.append(snapshot.toolID)
+            }
+
+            return orderedToolIDs.compactMap { toolID in
+                let values = state.snapshots.filter { $0.toolID == toolID }
+                guard let first = values.first else { return nil }
+                return WatchToolQuotaSnapshot(
+                    id: "\(state.connection.channelID.uuidString.lowercased()):\(toolID.uuidString.lowercased())",
+                    displayName: first.toolName,
+                    sourceID: state.connection.channelID.uuidString.lowercased(),
+                    sourceName: state.connection.macName,
+                    serverUpdatedAt: state.serverReceivedAt,
+                    sourceUpdatedAt: values.map(\.updatedAt).min() ?? generatedAt,
+                    receivedAt: state.cacheSavedAt ?? generatedAt,
+                    limits: values.map { snapshot in
+                        WatchQuotaSnapshot(
+                            id: snapshot.limitID,
+                            displayName: snapshot.displayName,
+                            primary: WatchQuotaWindowSnapshot(
+                                remainingPercent: snapshot.remainingPercent,
+                                resetAt: snapshot.resetAt,
+                                windowDurationSeconds: snapshot.windowDurationMinutes.map { $0 * 60 }
+                            ),
+                            secondary: snapshot.secondaryWindow.map {
+                                WatchQuotaWindowSnapshot(
+                                    remainingPercent: $0.remainingPercent,
+                                    resetAt: $0.resetAt,
+                                    windowDurationSeconds: $0.windowDurationMinutes.map { $0 * 60 }
+                                )
+                            },
+                            planType: snapshot.planType
+                        )
+                    },
+                    symbolName: "sparkles"
+                )
+            }
         }
         return WatchUsageSnapshotEnvelope(generatedAt: generatedAt, tools: tools)
     }

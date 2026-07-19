@@ -147,6 +147,70 @@ final class QuotaModelTests: XCTestCase {
         )
     }
 
+    func testWatchSnapshotPreservesMacSourceMetadata() throws {
+        let updatedAt = Date(timeIntervalSince1970: 1_784_400_000)
+        let tool = WatchToolQuotaSnapshot(
+            id: "mac:tool",
+            displayName: "Codex",
+            sourceID: "mac",
+            sourceName: "Studio Mac",
+            serverUpdatedAt: updatedAt,
+            sourceUpdatedAt: updatedAt,
+            receivedAt: updatedAt,
+            limits: [
+                WatchQuotaSnapshot(
+                    id: "five-hour",
+                    displayName: "5 hour",
+                    primary: WatchQuotaWindowSnapshot(
+                        remainingPercent: 42,
+                        resetAt: nil,
+                        windowDurationSeconds: 18_000
+                    )
+                )
+            ]
+        )
+
+        let encoded = try WatchUsageSnapshotCodec.encode(
+            WatchUsageSnapshotEnvelope(generatedAt: updatedAt, tools: [tool])
+        )
+        let decoded = try WatchUsageSnapshotCodec.decode(encoded)
+
+        XCTAssertEqual(decoded.tools.first?.sourceID, "mac")
+        XCTAssertEqual(decoded.tools.first?.sourceName, "Studio Mac")
+        XCTAssertEqual(decoded.tools.first?.serverUpdatedAt, updatedAt)
+    }
+
+    func testWatchSnapshotStillDecodesPayloadsWithoutMacMetadata() throws {
+        let data = Data(
+            #"{"generatedAt":"2026-07-19T00:00:00Z","schemaVersion":1,"tools":[{"displayName":"Codex","id":"tool","limits":[],"receivedAt":"2026-07-19T00:00:00Z","sourceUpdatedAt":"2026-07-19T00:00:00Z"}]}"#.utf8
+        )
+
+        let decoded = try WatchUsageSnapshotCodec.decode(data)
+
+        XCTAssertNil(decoded.tools.first?.sourceID)
+        XCTAssertNil(decoded.tools.first?.sourceName)
+        XCTAssertNil(decoded.tools.first?.serverUpdatedAt)
+    }
+
+    func testWatchRelayCredentialsRoundTripSeparatelyFromSnapshots() throws {
+        let credential = WatchRelayCredential(
+            channelID: UUID(uuidString: "11111111-1111-4111-8111-111111111111")!,
+            deviceID: UUID(uuidString: "22222222-2222-5222-8222-222222222222")!,
+            macName: "Studio Mac",
+            readToken: "usg_watch_secret"
+        )
+
+        let decoded = try WatchRelayCredentialCodec.decode(
+            WatchRelayCredentialCodec.encode([credential])
+        )
+
+        XCTAssertEqual(decoded, [credential])
+        let snapshotData = try WatchUsageSnapshotCodec.encode(
+            WatchUsageSnapshotEnvelope(generatedAt: Date(), tools: [])
+        )
+        XCTAssertFalse(String(decoding: snapshotData, as: UTF8.self).contains(credential.readToken))
+    }
+
     private func window(minutes: Int?) -> QuotaWindowSnapshot {
         QuotaWindowSnapshot(
             remainingPercent: 50,

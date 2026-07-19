@@ -196,6 +196,32 @@ final class RemoteUsageClientTests: XCTestCase {
         )
     }
 
+    func testWatchDeviceIdentityIsStableScopedAndRFCCompliant() {
+        let firstMac = UUID(uuidString: "11111111-1111-4111-8111-111111111111")!
+        let secondMac = UUID(uuidString: "22222222-2222-4222-8222-222222222222")!
+        let installation = UUID(uuidString: "33333333-3333-4333-8333-333333333333")!
+
+        let first = RelayClient.scopedDeviceUUID(
+            channelID: firstMac,
+            installationID: installation
+        )
+
+        XCTAssertEqual(
+            first,
+            RelayClient.scopedDeviceUUID(channelID: firstMac, installationID: installation)
+        )
+        XCTAssertNotEqual(
+            first,
+            RelayClient.scopedDeviceUUID(channelID: secondMac, installationID: installation)
+        )
+        XCTAssertNotNil(
+            first.uuidString.range(
+                of: #"^[0-9A-F]{8}-[0-9A-F]{4}-5[0-9A-F]{3}-[89AB][0-9A-F]{3}-[0-9A-F]{12}$"#,
+                options: .regularExpression
+            )
+        )
+    }
+
     private func client(maximumResponseBytes: Int = 1_048_576) -> RemoteUsageClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [RemoteUsageStubURLProtocol.self]
