@@ -9,7 +9,7 @@ then relays only normalized percentages and reset times to paired iPhones.
 Open `usAIge-iOS.xcodeproj` in Xcode 26. The project contains:
 
 - A native tab-based iPhone and iPad app with Usage and Connection sections.
-- Account-free pairing with an 8-character, one-use code shown by the Mac.
+- Account-free pairing with an 8-digit, one-use code shown by the Mac.
 - A device-scoped relay token stored in the iOS Keychain.
 - An App Group JSON cache containing quota values only, never tokens.
 - Small, medium, and large widgets backed by the shared cache.
@@ -136,7 +136,7 @@ The app prefers `rateLimitsByLimitId` and falls back to the legacy single `rateL
 Connect a remote source from **Settings**:
 
 1. Open **Manage AI Tools → Add AI Tool**.
-2. Click **Create Connection** to generate an 8-character, one-use code.
+2. Click **Create Connection** to generate an 8-digit, one-use code.
 3. Copy the connection instructions into Codex, Claude Code, or another compatible adapter. The tool claims the code and stores its revocable upload credential locally.
 4. When the first normalized limit snapshot arrives, usAIge shows the paired tool automatically. Revoke it from the same screen at any time.
 

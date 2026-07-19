@@ -52,7 +52,7 @@ Running a paired simulator scheme also requires matching iOS and watchOS simulat
 ## Pair with a Mac
 
 1. On the Mac, open **usAIge Settings → iPhone & Apple Watch Sync** and create a connection.
-2. Open the iPhone Connection tab and enter the 8-character code.
+2. Open the iPhone Connection tab and enter the 8-digit code.
 3. The iPhone fetches the latest sanitized Mac snapshot and forwards it to Apple Watch.
 
 Tokens never enter the WatchConnectivity payload or App Group snapshot file. The widget extension has no credential access and performs no authenticated network request.

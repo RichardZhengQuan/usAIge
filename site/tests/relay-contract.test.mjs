@@ -19,11 +19,17 @@ const validSnapshot = () => ({
   }],
 });
 
-test("accepts only unambiguous one-use pairing code formats", () => {
-  assert.equal(relayTestSupport.normalizeCode("ABCD2345"), "ABCD2345");
-  assert.equal(relayTestSupport.normalizeCode("ABCD-2345"), "ABCD2345");
-  for (const invalid of ["ABCD!2345", "ABCDO234", "ABCD1234", "ABC2345"]) {
+test("accepts only numeric one-use pairing code formats", () => {
+  assert.equal(relayTestSupport.normalizeCode("01234567"), "01234567");
+  assert.equal(relayTestSupport.normalizeCode("0123-4567"), "01234567");
+  for (const invalid of ["0123!4567", "ABCD2345", "1234567", "123456789"]) {
     assert.throws(() => relayTestSupport.normalizeCode(invalid));
+  }
+});
+
+test("generates 8-digit pairing codes", () => {
+  for (let index = 0; index < 100; index += 1) {
+    assert.match(relayTestSupport.randomCode(), /^\d{8}$/);
   }
 });
 
