@@ -148,6 +148,15 @@ private struct HUDQuotaTile: View {
                 WidgetToolMark(snapshot: snapshot, size: moduleSize * 0.38)
             }
             .frame(width: moduleSize, height: moduleSize)
+            .overlay(alignment: .topTrailing) {
+                if let visibleSessionPhase {
+                    HUDSessionStatusBadge(
+                        phase: visibleSessionPhase,
+                        showsLabel: moduleSize >= 90
+                    )
+                    .offset(x: moduleSize * 0.08, y: -moduleSize * 0.04)
+                }
+            }
 
             HStack(spacing: 4) {
                 HUDWindowTag(
@@ -188,14 +197,48 @@ private struct HUDSessionStatusLight: View {
     var body: some View {
         ZStack {
             Circle()
-                .stroke(phase.color.opacity(0.82), lineWidth: 1.5)
+                .stroke(phase.color.opacity(0.96), lineWidth: 1.5)
                 .frame(width: diameter, height: diameter)
-                .blur(radius: 1)
+                .shadow(color: phase.color.opacity(0.82), radius: 3)
 
             Circle()
-                .stroke(phase.color.opacity(0.34), lineWidth: 7)
+                .stroke(phase.color.opacity(0.56), lineWidth: 7)
                 .frame(width: diameter + 4, height: diameter + 4)
-                .blur(radius: 4)
+                .blur(radius: 3)
+
+            Circle()
+                .stroke(phase.color.opacity(0.24), lineWidth: 11)
+                .frame(width: diameter + 7, height: diameter + 7)
+                .blur(radius: 6)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+private struct HUDSessionStatusBadge: View {
+    let phase: CodexSessionPhase
+    let showsLabel: Bool
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(phase.color)
+                .frame(width: 7, height: 7)
+                .shadow(color: phase.color.opacity(0.85), radius: 3)
+
+            if showsLabel {
+                Text(phase.label)
+                    .font(.system(size: 9, weight: .bold, design: .rounded))
+                    .lineLimit(1)
+            }
+        }
+        .foregroundStyle(phase.color)
+        .padding(.horizontal, showsLabel ? 6 : 4)
+        .frame(height: 18)
+        .background(.regularMaterial, in: Capsule())
+        .overlay {
+            Capsule()
+                .stroke(phase.color.opacity(0.42), lineWidth: 1)
         }
         .accessibilityHidden(true)
     }
