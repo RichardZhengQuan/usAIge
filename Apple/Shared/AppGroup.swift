@@ -5,6 +5,10 @@ enum AppGroup {
     static let snapshotFileName = "usage-snapshot.json"
     static let widgetKind = "com.richardq.usaige.watch.limits"
 
+    static func sharedContainerIsAvailable(fileManager: FileManager = .default) -> Bool {
+        fileManager.containerURL(forSecurityApplicationGroupIdentifier: identifier) != nil
+    }
+
     static func snapshotURL(fileManager: FileManager = .default) -> URL {
         if let container = fileManager.containerURL(
             forSecurityApplicationGroupIdentifier: identifier

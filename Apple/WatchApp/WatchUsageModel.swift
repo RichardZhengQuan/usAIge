@@ -33,6 +33,9 @@ final class WatchUsageModel: NSObject, ObservableObject {
         if envelope != nil {
             WidgetCenter.shared.reloadTimelines(ofKind: AppGroup.widgetKind)
         }
+        if !AppGroup.sharedContainerIsAvailable() {
+            errorMessage = "The complication cache is unavailable. Reinstall a signed usAIge build."
+        }
     }
 
     var isStale: Bool {
@@ -191,7 +194,9 @@ final class WatchUsageModel: NSObject, ObservableObject {
             try cache.save(newEnvelope)
             envelope = newEnvelope
             isRefreshing = false
-            errorMessage = nil
+            errorMessage = AppGroup.sharedContainerIsAvailable()
+                ? nil
+                : "The complication cache is unavailable. Reinstall a signed usAIge build."
             WidgetCenter.shared.reloadTimelines(ofKind: AppGroup.widgetKind)
         } catch {
             isRefreshing = false
