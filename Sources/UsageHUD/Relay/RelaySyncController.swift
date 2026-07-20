@@ -1,7 +1,6 @@
 import AppKit
 import Combine
 import Foundation
-import Security
 
 struct RelayWindowPayload: Codable, Equatable, Sendable {
     let remainingPercent: Double
@@ -217,6 +216,15 @@ final class RelaySyncController: ObservableObject {
         self.defaults = defaults
         self.session = session
         self.credentials = credentials
+
+        // Older ad-hoc-signed builds stored this token in Keychain. Reading that
+        // item from a newer build can display a system password prompt because
+        // every ad-hoc build has a different code identity. Do not touch the old
+        // item; reset the local link and let the user create a prompt-free one.
+        if channelID != nil, (try? credentials.token()) == nil {
+            defaults.removeObject(forKey: Self.channelKey)
+            defaults.removeObject(forKey: Self.macNameKey)
+        }
         status = channelID == nil ? .disconnected : .connected
     }
 
@@ -520,24 +528,45 @@ private struct ErrorResponse: Decodable { let error: String }
 private enum RelaySyncError: LocalizedError { case missingCredential, requestFailed, server(String); var errorDescription: String? { switch self { case .missingCredential: "The Mac relay key is missing. Disconnect and pair again."; case .requestFailed: "The relay request failed."; case let .server(message): message } } }
 
 struct RelayMacCredentialStore: Sendable {
-    private let service = "com.richardq.usaige.relay"
-    private let account = "mac-upload-token"
+    private static let defaultFileURL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/usAIge", isDirectory: true)
+        .appendingPathComponent("relay-upload-token", isDirectory: false)
+
+    private let fileURL: URL
+
+    init(fileURL: URL = Self.defaultFileURL) {
+        self.fileURL = fileURL
+    }
+
     func token() throws -> String? {
-        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account, kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let data = result as? Data, let value = String(data: data, encoding: .utf8) else { throw RelaySyncError.requestFailed }
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return nil }
+        let data = try Data(contentsOf: fileURL)
+        guard let value = String(data: data, encoding: .utf8), !value.isEmpty else {
+            throw RelaySyncError.requestFailed
+        }
         return value
     }
+
     func save(_ value: String) throws {
-        try? delete()
-        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account, kSecValueData as String: Data(value.utf8), kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock]
-        guard SecItemAdd(query as CFDictionary, nil) == errSecSuccess else { throw RelaySyncError.requestFailed }
+        let directory = fileURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: directory.path
+        )
+        try Data(value.utf8).write(to: fileURL, options: .atomic)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: fileURL.path
+        )
     }
+
     func delete() throws {
-        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
-        let status = SecItemDelete(query as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else { throw RelaySyncError.requestFailed }
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
+        try FileManager.default.removeItem(at: fileURL)
     }
 }
