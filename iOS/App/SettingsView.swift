@@ -3,8 +3,30 @@ import UIKit
 import UserNotifications
 
 struct SettingsView: View {
+    @Environment(RelayAppModel.self) private var model
+
     var body: some View {
         Form {
+            Section {
+                LabeledContent("Widget Data") {
+                    Label(
+                        model.isWidgetDataSharingAvailable ? "Ready" : "Unavailable",
+                        systemImage: model.isWidgetDataSharingAvailable
+                            ? "checkmark.circle.fill"
+                            : "exclamationmark.triangle.fill"
+                    )
+                    .foregroundStyle(model.isWidgetDataSharingAvailable ? .green : .orange)
+                }
+            } header: {
+                Text("Home Screen Widget")
+            } footer: {
+                if model.isWidgetDataSharingAvailable {
+                    Text("The app and widget can share the latest saved limits.")
+                } else {
+                    Text("Reinstall a build signed with the same App Group enabled for both the app and UsageWidget targets.")
+                }
+            }
+
             Section {
                 Button {
                     Task { await openNotificationSettings() }

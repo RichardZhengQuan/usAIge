@@ -887,6 +887,7 @@ final class RelayAppModel {
 
     var connections: [RelayConnection] { connectionStates.map(\.connection) }
     var isConnected: Bool { !connectionStates.isEmpty }
+    var isWidgetDataSharingAvailable: Bool { quotaCache.usesAppGroupContainer }
     var minimumRefreshIntervalMinutes: Int { 15 }
     var isCacheStale: Bool {
         let populatedStates = connectionStates.filter { !$0.snapshots.isEmpty }
