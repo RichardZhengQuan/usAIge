@@ -8,6 +8,7 @@ struct HUDSettingsRootView: View {
     @ObservedObject var launchAtLogin: LaunchAtLoginController
     @ObservedObject var updateController: UpdateController
     @ObservedObject var relaySync: RelaySyncController
+    @ObservedObject var navigation: SettingsNavigation
 
     var body: some View {
         HUDSettingsView(
@@ -16,6 +17,7 @@ struct HUDSettingsRootView: View {
             launchAtLogin: launchAtLogin,
             updateController: updateController,
             relaySync: relaySync,
+            navigation: navigation,
             refreshUsage: { await store.refresh() }
         )
     }
@@ -30,9 +32,9 @@ struct HUDSettingsView: View {
     @ObservedObject var launchAtLogin: LaunchAtLoginController
     @ObservedObject var updateController: UpdateController
     @ObservedObject var relaySync: RelaySyncController
+    @ObservedObject var navigation: SettingsNavigation
     let refreshUsage: () async -> Void
     @State private var remoteToolToDelete: RelayRemoteTool?
-    @State private var route: [SettingsDestination] = []
     @State private var isDetectingLocalTools = false
     @State private var remotePromptCopied = false
     @State private var feedbackDraft = FeedbackDraft()
@@ -52,7 +54,7 @@ struct HUDSettingsView: View {
 
     var body: some View {
         Group {
-            if let destination = route.last {
+            if let destination = navigation.route.last {
                 destinationPage(destination)
             } else {
                 settingsPage
@@ -270,7 +272,7 @@ struct HUDSettingsView: View {
                     HStack {
                         Spacer()
                         Button {
-                            route.append(.remoteToolPairing)
+                            navigation.route.append(.remoteToolPairing)
                         } label: {
                             Label("Add AI Tool", systemImage: "plus")
                         }
@@ -614,7 +616,7 @@ struct HUDSettingsView: View {
         destination: SettingsDestination
     ) -> some View {
         Button {
-            route.append(destination)
+            navigation.route.append(destination)
         } label: {
             HStack {
                 Text(title)
@@ -630,8 +632,8 @@ struct HUDSettingsView: View {
     }
 
     private func goBack() {
-        guard !route.isEmpty else { return }
-        route.removeLast()
+        guard !navigation.route.isEmpty else { return }
+        navigation.route.removeLast()
     }
 
     private func orderedSnapshots(for toolID: AIToolID) -> [QuotaSnapshot] {
@@ -749,7 +751,16 @@ struct HUDSettingsView: View {
     }
 }
 
-private enum SettingsDestination: Hashable {
+@MainActor
+final class SettingsNavigation: ObservableObject {
+    @Published var route: [SettingsDestination] = []
+
+    func showMainPage() {
+        route.removeAll()
+    }
+}
+
+enum SettingsDestination: Hashable {
     case aiTools
     case remoteToolPairing
     case iphoneSync
