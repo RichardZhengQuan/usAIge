@@ -231,7 +231,7 @@ import UserNotifications
         AppNotificationRouter.destination(
             categoryIdentifier: UpdateController.notificationCategory,
             actionIdentifier: UNNotificationDefaultActionIdentifier
-        ) == .settings
+        ) == .whatsNew
     )
     #expect(
         AppNotificationRouter.destination(

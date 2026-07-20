@@ -8,6 +8,9 @@ cd "$root"
 
 version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Sources/UsageHUD/Resources/Info.plist)-alpha"
 name="usAIge-$version"
+release_notes_file="$root/Sources/UsageHUD/Resources/ReleaseNotes.json"
+[[ "$(/usr/bin/jq -r '.version' "$release_notes_file")-alpha" == "$version" ]]
+[[ "$(/usr/bin/jq -r '.build' "$release_notes_file")" == "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' Sources/UsageHUD/Resources/Info.plist)" ]]
 dmg="$root/dist/$name.dmg"
 checksum="$dmg.sha256"
 stage="$(mktemp -d "${TMPDIR:-/tmp}/usaige-dmg.XXXXXX")"
@@ -105,14 +108,16 @@ detach_mount
 site_public="$root/site/public"
 if [[ -d "$site_public" ]]; then
     digest="$(shasum -a 256 "$dmg" | awk '{print $1}')"
+    release_notes="$(/usr/bin/jq -c '.releaseNotes' "$release_notes_file")"
     cp "$dmg" "$site_public/$name.dmg"
     cp "$checksum" "$site_public/$name.dmg.sha256"
-    /usr/bin/printf '{\n  "version": "%s",\n  "build": %s,\n  "minimumSystemVersion": "%s",\n  "downloadURL": "https://usaige-macos.richardqz.chatgpt.site/%s.dmg",\n  "sha256": "%s"\n}\n' \
+    /usr/bin/printf '{\n  "version": "%s",\n  "build": %s,\n  "minimumSystemVersion": "%s",\n  "downloadURL": "https://usaige-macos.richardqz.chatgpt.site/%s.dmg",\n  "sha256": "%s",\n  "releaseNotes": %s\n}\n' \
         "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Sources/UsageHUD/Resources/Info.plist)" \
         "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' Sources/UsageHUD/Resources/Info.plist)" \
         "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' Sources/UsageHUD/Resources/Info.plist)" \
         "$name" \
         "$digest" \
+        "$release_notes" \
         > "$site_public/update.json"
 fi
 

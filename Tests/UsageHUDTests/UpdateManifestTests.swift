@@ -28,6 +28,27 @@ import Testing
     #expect(throws: UpdateError.self) { try insecure.validate() }
 }
 
+@Test func updateManifestAcceptsAndValidatesReleaseNotes() throws {
+    let data = Data(#"""
+    {
+      "version":"0.2.2",
+      "build":24,
+      "minimumSystemVersion":"11.0",
+      "downloadURL":"https://example.com/usAIge.dmg",
+      "sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "releaseNotes":{
+        "headline":"A clearer update",
+        "summary":"See what changed before installing.",
+        "highlights":[{"title":"What’s New","detail":"Read the release highlights in the app.","systemImage":"sparkles"}]
+      }
+    }
+    """#.utf8)
+    let manifest = try JSONDecoder().decode(UpdateManifest.self, from: data)
+
+    #expect(manifest.releaseNotes?.highlights.first?.title == "What’s New")
+    #expect(throws: Never.self) { try manifest.validate() }
+}
+
 @Test func updateStatusUsesCheckAndUpToDateCopy() throws {
     #expect(UpdateStatus.idle.primaryButtonTitle == "Check for Updates")
     #expect(UpdateStatus.upToDate.primaryButtonTitle == "Check for Updates")
@@ -65,10 +86,38 @@ import Testing
     #expect(manifest.build == Int(plist["CFBundleVersion"] as? String ?? ""))
     #expect(manifest.minimumSystemVersion == "11.0")
     #expect(manifest.minimumSystemVersion == plist["LSMinimumSystemVersion"] as? String)
+    #expect(manifest.releaseNotes?.highlights.isEmpty == false)
     #expect(
         plist["UpdateManifestURLs"] as? [String]
             == UpdateController.defaultManifestURLs.map(\.absoluteString)
     )
+}
+
+@Test func bundledReleaseNotesMatchThePackagedVersion() throws {
+    let testFile = URL(fileURLWithPath: #filePath)
+    let projectRoot = testFile
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    let plistData = try Data(contentsOf: projectRoot.appendingPathComponent(
+        "Sources/UsageHUD/Resources/Info.plist"
+    ))
+    let plist = try #require(
+        PropertyListSerialization.propertyList(from: plistData, format: nil) as? [String: Any]
+    )
+    let notesData = try Data(contentsOf: projectRoot.appendingPathComponent(
+        "Sources/UsageHUD/Resources/ReleaseNotes.json"
+    ))
+    let document = try JSONDecoder().decode(ReleaseNotesDocument.self, from: notesData)
+    let manifestData = try Data(contentsOf: projectRoot.appendingPathComponent(
+        "site/public/update.json"
+    ))
+    let manifest = try JSONDecoder().decode(UpdateManifest.self, from: manifestData)
+
+    #expect(document.version == plist["CFBundleShortVersionString"] as? String)
+    #expect(document.build == Int(plist["CFBundleVersion"] as? String ?? ""))
+    #expect(document.releaseNotes == manifest.releaseNotes)
+    #expect(throws: Never.self) { try document.releaseNotes.validate() }
 }
 
 @Test func migrationReleaseChecksCurrentAndLegacyUpdateFeeds() {

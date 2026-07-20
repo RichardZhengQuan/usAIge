@@ -181,6 +181,13 @@ struct HUDSettingsView: View {
 
                 HStack(spacing: 10) {
                     Link("About usAIge", destination: Self.websiteURL)
+                    Button("What’s New") {
+                        NSApp.sendAction(
+                            #selector(AppDelegate.showWhatsNewWindow(_:)),
+                            to: nil,
+                            from: nil
+                        )
+                    }
                     Spacer()
                     if isUpdateBusy {
                         ProgressView()
@@ -213,7 +220,9 @@ struct HUDSettingsView: View {
         }
         .formStyle(.grouped)
         .scrollDisabled(true)
-        .padding()
+        .padding(.horizontal)
+        .padding(.top)
+        .padding(.bottom, 28)
     }
 
     private var aiToolsPage: some View {

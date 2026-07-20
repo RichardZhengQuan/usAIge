@@ -279,6 +279,7 @@ enum UsageLimitNotificationRequest {
 enum AppNotificationDestination: Equatable {
     case settings
     case limits
+    case whatsNew
 }
 
 enum AppNotificationRouter {
@@ -295,7 +296,7 @@ enum AppNotificationRouter {
             return .limits
         case UpdateController.notificationCategory:
             guard actionIdentifier == UNNotificationDefaultActionIdentifier else { return nil }
-            return .settings
+            return .whatsNew
         default:
             return nil
         }
