@@ -54,9 +54,10 @@ Open `usAIge-iOS.xcodeproj` in Xcode 26. The project contains:
 - Small, medium, and large widgets backed by the shared cache.
 - Immediate foreground and pull-to-refresh updates plus APNs-assisted,
   best-effort background refresh scheduling.
-- Optional finished-session, error, and permission-request alerts with a
-  locally cached Activities inbox. Selecting an alert opens the inbox and
-  focuses the matching event.
+- Finished-session, error, and permission-request alerts are enabled by default
+  and controlled through iPhone notification permissions. A locally cached
+  Activities inbox remains available, and selecting an alert focuses the
+  matching event.
 - Credential-free WatchConnectivity sync to the Watch app and watch-face
   complications.
 
@@ -89,7 +90,7 @@ Push Notifications plus the Remote notifications background mode.
 - The relay retains only the latest normalized snapshot until the Mac owner
   disconnects the channel. It receives no provider credentials, browser
   cookies, prompts, or account content.
-- When session notifications are enabled, the relay retains at most the latest
+- For session notification delivery, the relay retains at most the latest
   100 status events per Mac: event type, session title, workspace name, and
   timestamp. Disconnecting the Mac deletes that history with the channel.
 

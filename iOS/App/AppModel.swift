@@ -1,7 +1,6 @@
 import Foundation
 import Observation
 import UIKit
-import UserNotifications
 import WidgetKit
 
 @MainActor
@@ -831,8 +830,6 @@ struct SessionNotificationNavigationRequest: Equatable {
 @MainActor
 @Observable
 final class RelayAppModel {
-    private static let sessionNotificationConnectionsKey =
-        "usAIge.relay.sessionNotificationConnections"
     private(set) var connectionStates: [RelayConnectionState] = []
     private(set) var snapshots: [QuotaSnapshot] = []
     var isRefreshing = false
@@ -841,7 +838,6 @@ final class RelayAppModel {
     private(set) var errorsByConnectionID: [UUID: String] = [:]
     private(set) var systemErrorMessage: String?
     private(set) var cacheSavedAt: Date?
-    private(set) var sessionNotificationConnectionIDs: Set<UUID>
     private(set) var sessionEvents: [SessionEventRecord] = []
     private(set) var sessionEventErrorMessage: String?
     private(set) var sessionNotificationNavigationRequest: SessionNotificationNavigationRequest?
@@ -852,7 +848,6 @@ final class RelayAppModel {
     private let client: RelayClient
     private let watchCoordinator: WatchSyncCoordinator
     private let sessionEventStore: SessionEventStore
-    private let defaults: UserDefaults
     private var apnsToken: String?
     private var startupTask: Task<Void, Never>?
 
@@ -862,19 +857,13 @@ final class RelayAppModel {
         tokenVault: KeychainTokenVault = KeychainTokenVault(service: "com.richardq.usaige.relay"),
         client: RelayClient = RelayClient(),
         watchCoordinator: WatchSyncCoordinator? = nil,
-        sessionEventStore: SessionEventStore = SessionEventStore(),
-        defaults: UserDefaults = .standard
+        sessionEventStore: SessionEventStore = SessionEventStore()
     ) {
         self.connectionStore = connectionStore
         self.quotaCache = quotaCache
         self.tokenVault = tokenVault
         self.client = client
         self.sessionEventStore = sessionEventStore
-        self.defaults = defaults
-        sessionNotificationConnectionIDs = Set(
-            defaults.stringArray(forKey: Self.sessionNotificationConnectionsKey)?
-                .compactMap(UUID.init(uuidString:)) ?? []
-        )
         let resolvedWatchCoordinator = watchCoordinator ?? WatchSyncCoordinator()
         self.watchCoordinator = resolvedWatchCoordinator
         resolvedWatchCoordinator.refreshHandler = { [weak self] in
@@ -919,54 +908,12 @@ final class RelayAppModel {
         errorsByConnectionID[connectionID]
     }
 
-    func sessionNotificationsEnabled(for connectionID: UUID) -> Bool {
-        sessionNotificationConnectionIDs.contains(connectionID)
-    }
-
     func openSessionNotifications(channelID: UUID?, eventID: String?) async {
         sessionNotificationNavigationRequest = SessionNotificationNavigationRequest(
             channelID: channelID,
             eventID: eventID
         )
         await refreshSessionEvents()
-    }
-
-    func setSessionNotificationsEnabled(_ enabled: Bool, for connectionID: UUID) async {
-        guard let connection = state(for: connectionID)?.connection else { return }
-        let wasEnabled = sessionNotificationsEnabled(for: connectionID)
-        guard wasEnabled != enabled else { return }
-        if enabled {
-            do {
-                let granted = try await UNUserNotificationCenter.current()
-                    .requestAuthorization(options: [.alert, .sound])
-                guard granted else {
-                    errorsByConnectionID[connectionID] =
-                        "Allow notifications in Settings to receive Mac session updates."
-                    return
-                }
-            } catch {
-                errorsByConnectionID[connectionID] = error.localizedDescription
-                return
-            }
-            sessionNotificationConnectionIDs.insert(connectionID)
-        } else {
-            sessionNotificationConnectionIDs.remove(connectionID)
-        }
-        persistSessionNotificationPreferences()
-        guard let apnsToken else { return }
-        do {
-            try await registerAPNs(apnsToken, for: connection)
-            errorsByConnectionID[connectionID] = nil
-        } catch {
-            if wasEnabled {
-                sessionNotificationConnectionIDs.insert(connectionID)
-            } else {
-                sessionNotificationConnectionIDs.remove(connectionID)
-            }
-            persistSessionNotificationPreferences()
-            errorsByConnectionID[connectionID] =
-                "Notification preference could not be saved: \(error.localizedDescription)"
-        }
     }
 
     func start() async {
@@ -1165,9 +1112,7 @@ final class RelayAppModel {
             token: token,
             apnsToken: value,
             environment: resolvedEnvironment,
-            sessionNotificationsEnabled: sessionNotificationsEnabled(
-                for: connection.channelID
-            )
+            sessionNotificationsEnabled: true
         )
     }
 
@@ -1247,18 +1192,9 @@ final class RelayAppModel {
         connectionStates.removeAll { $0.connection.channelID == connectionID }
         sessionEvents.removeAll { $0.channelID == connectionID }
         try? await sessionEventStore.save(sessionEvents)
-        sessionNotificationConnectionIDs.remove(connectionID)
-        persistSessionNotificationPreferences()
         errorsByConnectionID[connectionID] = nil
         rebuildAggregates()
         await persistCurrentState()
-    }
-
-    private func persistSessionNotificationPreferences() {
-        defaults.set(
-            sessionNotificationConnectionIDs.map(\.uuidString).sorted(),
-            forKey: Self.sessionNotificationConnectionsKey
-        )
     }
 
     private func persistCurrentState() async {
