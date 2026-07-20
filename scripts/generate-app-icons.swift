@@ -15,7 +15,7 @@ guard let sourceImage = NSImage(contentsOf: sourceURL) else {
     fatalError("Could not load \(sourceURL.path)")
 }
 
-func renderPNG(size: Int) throws -> Data {
+func renderMacOSPNG(size: Int) throws -> Data {
     var sourceRect = NSRect(x: 0, y: 0, width: 1024, height: 1024)
     guard let sourceCGImage = sourceImage.cgImage(
         forProposedRect: &sourceRect,
@@ -32,13 +32,33 @@ func renderPNG(size: Int) throws -> Data {
         bitsPerComponent: 8,
         bytesPerRow: size * 4,
         space: CGColorSpaceCreateDeviceRGB(),
-        bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
     ) else {
         throw NSError(domain: "AppIconGenerator", code: 2)
     }
 
+    // Older macOS releases display an ICNS file's alpha silhouette directly
+    // instead of applying the modern rounded app-icon mask. Precompose the
+    // macOS shape so the Dock never falls back to a full opaque square.
+    let scale = CGFloat(size) / 1024
+    let iconRect = CGRect(
+        x: 100 * scale,
+        y: 100 * scale,
+        width: 824 * scale,
+        height: 824 * scale
+    )
+    let iconPath = CGPath(
+        roundedRect: iconRect,
+        cornerWidth: 185 * scale,
+        cornerHeight: 185 * scale,
+        transform: nil
+    )
+
+    context.clear(CGRect(x: 0, y: 0, width: size, height: size))
+    context.addPath(iconPath)
+    context.clip()
     context.interpolationQuality = .high
-    context.draw(sourceCGImage, in: CGRect(x: 0, y: 0, width: size, height: size))
+    context.draw(sourceCGImage, in: iconRect)
 
     guard let renderedImage = context.makeImage() else {
         throw NSError(domain: "AppIconGenerator", code: 3)
@@ -62,7 +82,6 @@ func renderPNG(size: Int) throws -> Data {
 
 let masterPNG = try Data(contentsOf: sourceURL)
 let masterDestinations = [
-    "Sources/UsageHUD/Resources/AppIcon.png",
     "iOS/App/Assets.xcassets/AppIcon.appiconset/AppIcon.png",
     "site/public/app-icon.png",
 ]
@@ -70,6 +89,11 @@ let masterDestinations = [
 for path in masterDestinations {
     try masterPNG.write(to: repositoryRoot.appendingPathComponent(path), options: .atomic)
 }
+
+try renderMacOSPNG(size: 1024).write(
+    to: repositoryRoot.appendingPathComponent("Sources/UsageHUD/Resources/AppIcon.png"),
+    options: .atomic
+)
 
 let iconsetURL = fileManager.temporaryDirectory
     .appendingPathComponent("usAIge-\(UUID().uuidString).iconset", isDirectory: true)
@@ -90,7 +114,7 @@ let iconsetFiles = [
 ]
 
 for (filename, size) in iconsetFiles {
-    try renderPNG(size: size).write(
+    try renderMacOSPNG(size: size).write(
         to: iconsetURL.appendingPathComponent(filename),
         options: .atomic
     )
@@ -110,4 +134,4 @@ guard iconutil.terminationStatus == 0 else {
     throw NSError(domain: "AppIconGenerator", code: Int(iconutil.terminationStatus))
 }
 
-print("Generated macOS, iOS, and website icons from Design/AppIcon.png")
+print("Generated legacy-safe macOS, iOS, and website icons from Design/AppIcon.png")

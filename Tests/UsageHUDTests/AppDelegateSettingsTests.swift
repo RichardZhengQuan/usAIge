@@ -27,6 +27,31 @@ import Testing
     )
 }
 
+@Test func macOSAppIconIncludesTransparentLegacyDockMask() throws {
+    let testFile = URL(fileURLWithPath: #filePath)
+    let iconURL = testFile
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .appendingPathComponent("Sources/UsageHUD/Resources/AppIcon.png")
+    let image = try #require(NSImage(contentsOf: iconURL))
+    var proposedRect = NSRect(origin: .zero, size: image.size)
+    let cgImage = try #require(
+        image.cgImage(forProposedRect: &proposedRect, context: nil, hints: nil)
+    )
+    let dataProvider = try #require(cgImage.dataProvider)
+    let pixelData = try #require(dataProvider.data)
+    let bytes = CFDataGetBytePtr(pixelData)
+    let alphaOffset = cgImage.alphaInfo == .first || cgImage.alphaInfo == .premultipliedFirst
+        ? 0
+        : 3
+
+    #expect(cgImage.alphaInfo != .none)
+    #expect(cgImage.alphaInfo != .noneSkipFirst)
+    #expect(cgImage.alphaInfo != .noneSkipLast)
+    #expect(bytes?[alphaOffset] == 0)
+}
+
 @MainActor
 @Test func showSettingsRequestsTheSwiftUISettingsScene() {
     let delegate = AppDelegate()
