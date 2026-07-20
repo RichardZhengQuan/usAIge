@@ -76,3 +76,18 @@ export const relayRateLimits = sqliteTable("relay_rate_limits", {
   count: integer("count").notNull(),
   windowStartedAt: text("window_started_at").notNull(),
 });
+
+export const appFeedback = sqliteTable("app_feedback", {
+  id: text("id").primaryKey(),
+  content: text("content").notNull(),
+  platform: text("platform").notNull(),
+  systemVersion: text("system_version").notNull(),
+  architecture: text("architecture").notNull(),
+  locale: text("locale").notNull(),
+  language: text("language").notNull(),
+  appVersion: text("app_version").notNull(),
+  appBuild: text("app_build").notNull(),
+  appBundleIdentifier: text("app_bundle_identifier").notNull(),
+  submittedAt: text("submitted_at").notNull(),
+  receivedAt: text("received_at").notNull(),
+}, (table) => ({ receivedAtIndex: index("app_feedback_received_at_idx").on(table.receivedAt) }));

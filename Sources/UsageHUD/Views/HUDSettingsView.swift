@@ -35,6 +35,8 @@ struct HUDSettingsView: View {
     @State private var route: [SettingsDestination] = []
     @State private var isDetectingLocalTools = false
     @State private var remotePromptCopied = false
+    @State private var feedbackDraft = FeedbackDraft()
+    @State private var feedbackState: FeedbackSubmissionState = .idle
 
     private var activeToolIDs: [AIToolID] {
         settings.toolOrder.filter { id in snapshots.contains(where: { $0.toolID == id }) }
@@ -159,6 +161,8 @@ struct HUDSettingsView: View {
             }
 
             Section("More") {
+                pageLink("Send Feedback", destination: .feedback)
+
                 HStack(alignment: .center, spacing: 12) {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Software updates")
@@ -299,6 +303,93 @@ struct HUDSettingsView: View {
             remoteToolPairingPage
         case .iphoneSync:
             iPhoneSyncPage
+        case .feedback:
+            feedbackPage
+        }
+    }
+
+    private var feedbackPage: some View {
+        pageContainer(title: "Send Feedback") {
+            Form {
+                Section("Your Feedback") {
+                    TextEditor(text: $feedbackDraft.content)
+                        .frame(minHeight: 120)
+                        .overlay(alignment: .topLeading) {
+                            if feedbackDraft.content.isEmpty {
+                                Text("What happened, or what would you like us to improve?")
+                                    .foregroundStyle(.tertiary)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 8)
+                                    .allowsHitTesting(false)
+                            }
+                        }
+                        .onChange(of: feedbackDraft.content) { _, value in
+                            feedbackDraft.content = String(value.prefix(FeedbackDraft.contentLimit))
+                            if !value.isEmpty, feedbackState != .submitting {
+                                feedbackState = .idle
+                            }
+                        }
+                    Text("Write one sentence or several. Please don’t include passwords, API keys, or other secrets.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section {
+                    HStack {
+                        feedbackStatus
+                        Spacer()
+                        Button {
+                            submitFeedback()
+                        } label: {
+                            if feedbackState == .submitting {
+                                HStack(spacing: 8) {
+                                    ProgressView().controlSize(.small)
+                                    Text("Sending…")
+                                }
+                            } else {
+                                Label("Send Feedback", systemImage: "paperplane")
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!feedbackDraft.canSubmit || feedbackState == .submitting)
+                    }
+                } footer: {
+                    Text("usAIge sends this message with the platform, system version, architecture, locale, app version/build, and submission time. No account is required.")
+                }
+            }
+            .formStyle(.grouped)
+            .padding(.horizontal)
+        }
+    }
+
+    @ViewBuilder
+    private var feedbackStatus: some View {
+        switch feedbackState {
+        case .idle, .submitting:
+            EmptyView()
+        case .sent:
+            Label("Feedback sent. Thank you!", systemImage: "checkmark.circle.fill")
+                .font(.caption)
+                .foregroundStyle(.green)
+        case let .failed(message):
+            Label(message, systemImage: "exclamationmark.triangle.fill")
+                .font(.caption)
+                .foregroundStyle(.red)
+                .lineLimit(2)
+        }
+    }
+
+    private func submitFeedback() {
+        let submission = FeedbackSubmission(content: feedbackDraft.trimmedContent)
+        feedbackState = .submitting
+        Task {
+            do {
+                _ = try await FeedbackClient().submit(submission)
+                feedbackDraft.content = ""
+                feedbackState = .sent
+            } catch {
+                feedbackState = .failed(error.localizedDescription)
+            }
         }
     }
 
@@ -662,4 +753,12 @@ private enum SettingsDestination: Hashable {
     case aiTools
     case remoteToolPairing
     case iphoneSync
+    case feedback
+}
+
+private enum FeedbackSubmissionState: Equatable {
+    case idle
+    case submitting
+    case sent
+    case failed(String)
 }

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { relayTestSupport } from "../worker/relay-api.ts";
+import { handleRelayRequest, relayTestSupport } from "../worker/relay-api.ts";
 
 const validSnapshot = () => ({
   schemaVersion: 1,
@@ -151,6 +151,79 @@ test("accepts only bounded session attention events", () => {
 
   assert.throws(() => relayTestSupport.validateSessionEvent({ ...event, kind: "thinking" }));
   assert.throws(() => relayTestSupport.validateSessionEvent({ ...event, prompt: "private" }));
+});
+
+test("accepts complete bounded app feedback without an account", () => {
+  const feedback = {
+    schemaVersion: 1,
+    content: "The reset time would be easier to read with a date.",
+    platform: "macOS",
+    systemVersion: "macOS 26.0 (25A123)",
+    architecture: "arm64",
+    locale: "en_SG",
+    language: "en-SG",
+    appVersion: "0.2.1",
+    appBuild: "23",
+    appBundleIdentifier: "com.richardzhengquan.usaige",
+    submittedAt: "2026-07-20T08:00:00Z",
+  };
+  assert.doesNotThrow(() => relayTestSupport.validateFeedback(feedback));
+  assert.throws(() => relayTestSupport.validateFeedback({ ...feedback, content: "   " }));
+  assert.throws(() => relayTestSupport.validateFeedback({ ...feedback, accountToken: "not allowed" }));
+  assert.throws(() => relayTestSupport.validateFeedback({ ...feedback, content: "x".repeat(4_001) }));
+});
+
+test("stores account-free feedback through the public endpoint", async () => {
+  let storedFeedback;
+  const db = {
+    prepare(sql) {
+      const statement = {
+        bindings: [],
+        bind(...bindings) { this.bindings = bindings; return this; },
+        async first() { return null; },
+        async all() {
+          if (sql.startsWith("PRAGMA table_info(relay_devices)")) {
+            return { results: [{ name: "session_notifications_enabled" }] };
+          }
+          return { results: [] };
+        },
+        async run() {
+          if (sql.includes("INSERT INTO app_feedback")) storedFeedback = this.bindings;
+          return { meta: { changes: 1 } };
+        },
+      };
+      return statement;
+    },
+    async batch(statements) {
+      return statements.map(() => ({ success: true }));
+    },
+  };
+  const request = new Request("https://feedback.example/api/v1/feedback", {
+    method: "POST",
+    headers: { "content-type": "application/json", "cf-connecting-ip": "203.0.113.5" },
+    body: JSON.stringify({
+      schemaVersion: 1,
+      content: "  A direct server feedback message.  ",
+      platform: "macOS",
+      systemVersion: "macOS 26.0",
+      architecture: "arm64",
+      locale: "en_SG",
+      language: "en-SG",
+      appVersion: "0.2.1",
+      appBuild: "23",
+      appBundleIdentifier: "com.richardzhengquan.usaige",
+      submittedAt: "2026-07-20T08:00:00Z",
+    }),
+  });
+
+  const response = await handleRelayRequest(request, { DB: db }, { waitUntil() {} });
+  assert.equal(response.status, 201);
+  const receipt = await response.json();
+  assert.match(receipt.id, /^[0-9a-f-]{36}$/);
+  assert.equal(storedFeedback[1], "A direct server feedback message.");
+  assert.equal(storedFeedback[2], "macOS");
+  assert.equal(storedFeedback[7], "0.2.1");
+  assert.equal(storedFeedback[8], "23");
 });
 
 test("hashes capabilities with SHA-256", async () => {

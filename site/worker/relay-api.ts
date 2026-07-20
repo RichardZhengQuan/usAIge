@@ -12,6 +12,7 @@ type DeviceRow = { id: string; channel_id: string; name: string; read_token_hash
 type SessionEvent = { schemaVersion: 1; eventID: string; kind: "finished" | "error" | "permission_needed"; sessionTitle: string; workspaceName: string; occurredAt: string };
 type SessionEventRow = { event_id: string; kind: SessionEvent["kind"]; session_title: string; workspace_name: string; occurred_at: string };
 type RemoteToolRow = { id: string; channel_id: string; name: string; symbol_name: string; website_url: string | null; write_token_hash: string; snapshot_json: string | null; created_at: string; last_upload_at: string | null };
+type FeedbackSubmission = { schemaVersion: 1; content: string; platform: string; systemVersion: string; architecture: string; locale: string; language: string; appVersion: string; appBuild: string; appBundleIdentifier: string; submittedAt: string };
 
 const encoder = new TextEncoder();
 const pairingAlphabet = "0123456789";
@@ -28,6 +29,27 @@ export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: R
 
   try {
     await ensureRelaySchema(env.DB);
+    if (request.method === "POST" && url.pathname === "/api/v1/feedback") {
+      const address = clientAddress(request);
+      await enforceRateLimit(env.DB, `feedback-hour:${address}`, 10, 60 * 60_000);
+      await enforceRateLimit(env.DB, `feedback-day:${address}`, 30, 24 * 60 * 60_000);
+      const payload = await readJSON(request);
+      validateFeedback(payload);
+      const feedback = payload as FeedbackSubmission;
+      const id = crypto.randomUUID();
+      const receivedAt = new Date().toISOString();
+      await env.DB.prepare(
+        `INSERT INTO app_feedback (id, content, platform, system_version, architecture, locale,
+         language, app_version, app_build, app_bundle_identifier, submitted_at, received_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        id, feedback.content.trim(), feedback.platform, feedback.systemVersion,
+        feedback.architecture, feedback.locale, feedback.language, feedback.appVersion,
+        feedback.appBuild, feedback.appBundleIdentifier, feedback.submittedAt, receivedAt
+      ).run();
+      return json({ id, receivedAt }, 201);
+    }
+
     if (request.method === "POST" && url.pathname === "/api/v1/channels") {
       await enforceRateLimit(env.DB, `create:${clientAddress(request)}`, 10, 60 * 60_000);
       const payload = await readJSON(request) as { macName?: string };
@@ -285,6 +307,8 @@ async function ensureRelaySchema(db: D1Database) {
         db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS relay_session_events_channel_event_idx ON relay_session_events(channel_id, event_id)"),
         db.prepare("CREATE INDEX IF NOT EXISTS relay_session_events_channel_time_idx ON relay_session_events(channel_id, occurred_at DESC)"),
         db.prepare("CREATE TABLE IF NOT EXISTS relay_rate_limits (key TEXT PRIMARY KEY NOT NULL, count INTEGER NOT NULL, window_started_at TEXT NOT NULL)"),
+        db.prepare("CREATE TABLE IF NOT EXISTS app_feedback (id TEXT PRIMARY KEY NOT NULL, content TEXT NOT NULL, platform TEXT NOT NULL, system_version TEXT NOT NULL, architecture TEXT NOT NULL, locale TEXT NOT NULL, language TEXT NOT NULL, app_version TEXT NOT NULL, app_build TEXT NOT NULL, app_bundle_identifier TEXT NOT NULL, submitted_at TEXT NOT NULL, received_at TEXT NOT NULL)"),
+        db.prepare("CREATE INDEX IF NOT EXISTS app_feedback_received_at_idx ON app_feedback(received_at DESC)"),
       ]);
       const columns = await db.prepare("PRAGMA table_info(relay_devices)").all<{ name: string }>();
       if (!columns.results.some(column => column.name === "session_notifications_enabled")) {
@@ -325,6 +349,20 @@ function validateSnapshot(value: unknown): asserts value is Record<string, unkno
         throw new RelayError("Invalid limit snapshot.", 400);
       }
     }
+  }
+}
+
+function validateFeedback(value: unknown): asserts value is FeedbackSubmission {
+  const feedback = value as Partial<FeedbackSubmission> | null;
+  const keys = ["schemaVersion", "content", "platform", "systemVersion", "architecture", "locale", "language", "appVersion", "appBuild", "appBundleIdentifier", "submittedAt"];
+  if (!feedback || !hasOnlyKeys(feedback, keys) || feedback.schemaVersion !== 1
+    || !isBoundedString(feedback.content, 4_000) || feedback.content.trim().length === 0
+    || !isBoundedString(feedback.platform, 64) || !isBoundedString(feedback.systemVersion, 256)
+    || !isBoundedString(feedback.architecture, 64) || !isBoundedString(feedback.locale, 128)
+    || !isBoundedString(feedback.language, 128) || !isBoundedString(feedback.appVersion, 64)
+    || !isBoundedString(feedback.appBuild, 64) || !isBoundedString(feedback.appBundleIdentifier, 256)
+    || !isDateString(feedback.submittedAt)) {
+    throw new RelayError("Invalid feedback schema.", 400);
   }
 }
 function sessionStatusSignature(value: unknown) {
@@ -521,4 +559,4 @@ async function providerToken(env: RelayEnv) {
   const value = `${header}.${claims}.${base64url(signature)}`; cachedProviderToken = { value, createdAt: now }; return value;
 }
 
-export const relayTestSupport = { normalizeCode, randomCode, validateSnapshot, validateRemoteToolSnapshot, validateSessionEvent, sessionEventCopy, sessionStatusSignature, isUUID, sha256 };
+export const relayTestSupport = { normalizeCode, randomCode, validateSnapshot, validateRemoteToolSnapshot, validateSessionEvent, validateFeedback, sessionEventCopy, sessionStatusSignature, isUUID, sha256 };

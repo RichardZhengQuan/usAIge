@@ -107,6 +107,9 @@ struct LegacyHUDSettingsRootView: View {
     @ObservedObject var launchAtLogin: LaunchAtLoginController
     @ObservedObject var updateController: UpdateController
     @ObservedObject var relaySync: RelaySyncController
+    @State private var feedbackDraft = FeedbackDraft()
+    @State private var isSendingFeedback = false
+    @State private var feedbackStatusMessage: String?
 
     var body: some View {
         ScrollView {
@@ -165,6 +168,23 @@ struct LegacyHUDSettingsRootView: View {
                 .disabled(!updateController.canPerformPrimaryAction)
 
                 Divider()
+                Text("Send Feedback").font(.headline)
+                TextEditor(text: $feedbackDraft.content)
+                    .frame(height: 80)
+                Text("Your message is sent with basic system and app details. No account is required.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                if let feedbackStatusMessage {
+                    Text(feedbackStatusMessage)
+                        .font(.caption)
+                        .foregroundColor(feedbackStatusMessage == "Feedback sent. Thank you!" ? .green : .red)
+                }
+                Button(isSendingFeedback ? "Sending…" : "Send Feedback") {
+                    submitFeedback()
+                }
+                .disabled(!feedbackDraft.canSubmit || isSendingFeedback)
+
+                Divider()
                 Text("Visible limits").font(.headline)
                 if store.visibleSnapshots.isEmpty {
                     Text("No usage limits available.").foregroundColor(.secondary)
@@ -198,6 +218,22 @@ struct LegacyHUDSettingsRootView: View {
 
     private var launchAtLoginBinding: Binding<Bool> {
         Binding(get: { launchAtLogin.isEnabled }, set: { launchAtLogin.setEnabled($0) })
+    }
+
+    private func submitFeedback() {
+        let submission = FeedbackSubmission(content: feedbackDraft.trimmedContent)
+        isSendingFeedback = true
+        feedbackStatusMessage = nil
+        Task {
+            do {
+                _ = try await FeedbackClient().submit(submission)
+                feedbackDraft.content = ""
+                feedbackStatusMessage = "Feedback sent. Thank you!"
+            } catch {
+                feedbackStatusMessage = error.localizedDescription
+            }
+            isSendingFeedback = false
+        }
     }
 
     private func visibilityBinding(for id: String) -> Binding<Bool> {

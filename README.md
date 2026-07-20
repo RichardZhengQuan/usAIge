@@ -243,6 +243,7 @@ Use the gear button on the panel to open native macOS Settings. Available prefer
 - Panel opacity and scale.
 - Optional automatic launch when you log in to your Mac.
 - Automatic update checks, local new-version notifications, and one-click in-app updates.
+- A native, account-free feedback form that records the message and basic app/system context on the usAIge server.
 - Local usage-limit notifications at each new 5% used boundary.
 - Always-visible behavior while usAIge is running, including after sleep and wake.
 
@@ -267,6 +268,7 @@ When a quota resets, the new window starts its own notification cycle. Selecting
 - The Mac relay credential is stored in an owner-only local application-support file. Each remote tool keeps its own write credential outside usAIge.
 - No screen pixels are captured or inspected.
 - Preferences contain visual settings, bucket identifiers, and display positions; they do not contain remote-tool bearer tokens.
+- Feedback is sent only when you press **Send Feedback** and contains the message plus the disclosed app/system context.
 - Unsupported or malformed quota buckets are omitted rather than guessed.
 
 ## Visibility
