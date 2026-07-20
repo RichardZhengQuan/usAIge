@@ -57,6 +57,87 @@ enum UsagePalette {
     }
 }
 
+extension WatchSessionPhase {
+    var statusColor: Color {
+        switch self {
+        case .idle, .unknown: .clear
+        case .thinking: Color(red: 0.18, green: 0.52, blue: 1.00)
+        case .complete: Color(red: 0.18, green: 0.88, blue: 0.45)
+        case .needsInput: Color(red: 1.00, green: 0.68, blue: 0.12)
+        case .error: Color(red: 1.00, green: 0.20, blue: 0.47)
+        }
+    }
+}
+
+struct WatchSessionStatusDot: View {
+    let phase: WatchSessionPhase
+
+    var body: some View {
+        Circle()
+            .fill(phase.statusColor)
+            .frame(width: 7, height: 7)
+            .shadow(color: phase.statusColor.opacity(0.75), radius: 2)
+            .accessibilityHidden(true)
+    }
+}
+
+struct WatchSessionStatusLight: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let phase: WatchSessionPhase
+    let diameter: CGFloat
+    var allowsAnimation = true
+    @State private var isExpanded = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(phase.statusColor.opacity(0.72), lineWidth: 1)
+                .frame(width: diameter, height: diameter)
+                .blur(radius: 1)
+
+            Circle()
+                .stroke(phase.statusColor.opacity(0.48), lineWidth: isExpanded ? 6 : 2)
+                .frame(
+                    width: diameter + (isExpanded ? 6 : 2),
+                    height: diameter + (isExpanded ? 6 : 2)
+                )
+                .blur(radius: isExpanded ? 3.3 : 1.1)
+        }
+        .frame(width: diameter + 10, height: diameter + 10)
+        .onAppear(perform: updateAnimation)
+        .onChange(of: phase) { _, _ in updateAnimation() }
+        .onChange(of: reduceMotion) { _, _ in updateAnimation() }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private func updateAnimation() {
+        isExpanded = false
+        guard phase.showsLight, allowsAnimation, !reduceMotion else { return }
+        withAnimation(.easeInOut(duration: 0.825).repeatForever(autoreverses: true)) {
+            isExpanded = true
+        }
+    }
+}
+
+struct WatchSessionStatusBadge: View {
+    let status: WatchSessionStatus
+
+    var body: some View {
+        HStack(spacing: 4) {
+            WatchSessionStatusDot(phase: status.phase)
+            Text(status.phase.label)
+                .foregroundStyle(status.phase.statusColor)
+        }
+        .font(.caption2.weight(.semibold))
+        .lineLimit(1)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            "Codex session \(status.phase.label), updated \(status.updatedAt.formatted(.relative(presentation: .named)))"
+        )
+    }
+}
+
 struct ConcentricQuotaRing<Center: View>: View {
     let primaryRemaining: Double
     let secondaryRemaining: Double?

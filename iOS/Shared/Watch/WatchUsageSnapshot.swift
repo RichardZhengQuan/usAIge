@@ -1,5 +1,47 @@
 import Foundation
 
+public enum WatchSessionPhase: String, Codable, Equatable, Hashable, Sendable {
+    case idle
+    case thinking
+    case complete
+    case needsInput
+    case error
+    case unknown
+
+    public var label: String {
+        switch self {
+        case .idle: "Idle"
+        case .thinking: "Thinking"
+        case .complete: "Complete"
+        case .needsInput: "Needs input"
+        case .error: "Error"
+        case .unknown: "Unknown"
+        }
+    }
+
+    public var showsLight: Bool {
+        switch self {
+        case .thinking, .complete, .needsInput, .error: true
+        case .idle, .unknown: false
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let value = try decoder.singleValueContainer().decode(String.self)
+        self = Self(rawValue: value) ?? .unknown
+    }
+}
+
+public struct WatchSessionStatus: Codable, Equatable, Hashable, Sendable {
+    public let phase: WatchSessionPhase
+    public let updatedAt: Date
+
+    public init(phase: WatchSessionPhase, updatedAt: Date) {
+        self.phase = phase
+        self.updatedAt = updatedAt
+    }
+}
+
 public struct WatchQuotaWindowSnapshot: Codable, Hashable, Sendable {
     public let usedPercent: Double
     public let remainingPercent: Double
@@ -47,6 +89,7 @@ public struct WatchToolQuotaSnapshot: Codable, Hashable, Identifiable, Sendable 
     public let sourceUpdatedAt: Date
     public let receivedAt: Date
     public let limits: [WatchQuotaSnapshot]
+    public let sessionStatus: WatchSessionStatus?
     public let symbolName: String?
 
     public init(
@@ -58,6 +101,7 @@ public struct WatchToolQuotaSnapshot: Codable, Hashable, Identifiable, Sendable 
         sourceUpdatedAt: Date,
         receivedAt: Date,
         limits: [WatchQuotaSnapshot],
+        sessionStatus: WatchSessionStatus? = nil,
         symbolName: String? = nil
     ) {
         self.id = id
@@ -68,6 +112,7 @@ public struct WatchToolQuotaSnapshot: Codable, Hashable, Identifiable, Sendable 
         self.sourceUpdatedAt = sourceUpdatedAt
         self.receivedAt = receivedAt
         self.limits = limits
+        self.sessionStatus = sessionStatus
         self.symbolName = symbolName
     }
 }

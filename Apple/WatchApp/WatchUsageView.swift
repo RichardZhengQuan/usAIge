@@ -234,6 +234,12 @@ private struct WatchQuotaRow: View {
                     .lineLimit(1)
             }
 
+            if !isStale,
+               let status = tool.sessionStatus,
+               status.phase.showsLight {
+                WatchSessionStatusBadge(status: status)
+            }
+
             Gauge(value: limit.constrainingWindow.remainingPercent, in: 0...100) {
                 Text("Remaining")
             }
@@ -274,6 +280,11 @@ private struct WatchQuotaRow: View {
         var value = "\(tool.displayName), \(limit.displayName), \(windowSummary(limit.primary, fallback: "primary limit"))"
         if let secondary = limit.secondary {
             value += ", \(windowSummary(secondary, fallback: "secondary limit"))"
+        }
+        if !isStale,
+           let status = tool.sessionStatus,
+           status.phase.showsLight {
+            value += ", Codex session \(status.phase.label)"
         }
         if isStale { value += ", showing saved data" }
         return value
@@ -376,19 +387,31 @@ private struct QuotaDetailView: View {
 
     private var detailHero: some View {
         VStack(spacing: 6) {
-            ConcentricQuotaRing(
-                primaryRemaining: limit.primary.remainingPercent,
-                secondaryRemaining: limit.secondary?.remainingPercent,
-                size: 84,
-                isStale: isStale
-            ) {
-                Image(systemName: tool.symbolName ?? "sparkles")
-                    .font(.system(size: 29, weight: .medium))
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(.primary)
+            ZStack {
+                if showsSessionLight, let status = tool.sessionStatus {
+                    WatchSessionStatusLight(phase: status.phase, diameter: 82)
+                }
+
+                ConcentricQuotaRing(
+                    primaryRemaining: limit.primary.remainingPercent,
+                    secondaryRemaining: limit.secondary?.remainingPercent,
+                    size: 84,
+                    isStale: isStale
+                ) {
+                    Image(systemName: tool.symbolName ?? "sparkles")
+                        .font(.system(size: 29, weight: .medium))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(.primary)
+                }
             }
 
             QuotaDurationTags(limit: limit)
+
+            if !isStale,
+               let status = tool.sessionStatus,
+               status.phase.showsLight {
+                WatchSessionStatusBadge(status: status)
+            }
 
             Text(tool.displayName)
                 .font(.headline)
@@ -439,6 +462,16 @@ private struct QuotaDetailView: View {
 
     private var isStale: Bool {
         Date().timeIntervalSince(tool.sourceUpdatedAt) > 30 * 60
+    }
+
+    private var showsSessionLight: Bool {
+        guard !isStale,
+              tool.sessionStatus?.phase.showsLight == true
+        else { return false }
+        return WatchQuotaSeverity(remainingPercent: limit.primary.remainingPercent) != .critical
+            && limit.secondary.map {
+                WatchQuotaSeverity(remainingPercent: $0.remainingPercent) != .critical
+            } != false
     }
 }
 

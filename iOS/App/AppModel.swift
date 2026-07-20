@@ -731,6 +731,14 @@ final class AppModel {
         let grouped = Dictionary(grouping: snapshots) { $0.toolID }
         let tools = enabledTools.compactMap { tool -> WatchToolQuotaSnapshot? in
             let toolSnapshots = grouped[tool.id] ?? []
+            let sessionStatus = toolSnapshots.compactMap(\.sessionStatus).max {
+                $0.updatedAt < $1.updatedAt
+            }.map {
+                WatchSessionStatus(
+                    phase: WatchSessionPhase(rawValue: $0.phase.rawValue) ?? .unknown,
+                    updatedAt: $0.updatedAt
+                )
+            }
             let limits = toolSnapshots.map { snapshot in
                 WatchQuotaSnapshot(
                     id: snapshot.limitID,
@@ -757,6 +765,7 @@ final class AppModel {
                 sourceUpdatedAt: toolSnapshots.map(\.updatedAt).min() ?? generatedAt,
                 receivedAt: generatedAt,
                 limits: limits,
+                sessionStatus: sessionStatus,
                 symbolName: tool.symbolName
             )
         }
@@ -1270,6 +1279,14 @@ final class RelayAppModel {
             return orderedToolIDs.compactMap { toolID in
                 let values = state.snapshots.filter { $0.toolID == toolID }
                 guard let first = values.first else { return nil }
+                let sessionStatus = values.compactMap(\.sessionStatus).max {
+                    $0.updatedAt < $1.updatedAt
+                }.map {
+                    WatchSessionStatus(
+                        phase: WatchSessionPhase(rawValue: $0.phase.rawValue) ?? .unknown,
+                        updatedAt: $0.updatedAt
+                    )
+                }
                 return WatchToolQuotaSnapshot(
                     id: "\(state.connection.channelID.uuidString.lowercased()):\(toolID.uuidString.lowercased())",
                     displayName: first.toolName,
@@ -1297,6 +1314,7 @@ final class RelayAppModel {
                             planType: snapshot.planType
                         )
                     },
+                    sessionStatus: sessionStatus,
                     symbolName: "sparkles"
                 )
             }

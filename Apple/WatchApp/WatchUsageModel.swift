@@ -62,6 +62,13 @@ final class WatchUsageModel: NSObject, ObservableObject {
 
     private func refreshFromPhone(_ session: WCSession) {
         isRefreshing = true
+        sendRefreshMessage(session)
+    }
+
+    // WatchConnectivity invokes reply and error handlers on its own operation queue.
+    // Create the closures outside MainActor isolation so Swift 6 does not enforce the
+    // main executor before the handlers can explicitly hop back to it.
+    private nonisolated func sendRefreshMessage(_ session: WCSession) {
         session.sendMessage(
             [WatchMessageKey.command: WatchMessageKey.refresh],
             replyHandler: { [weak self] reply in
@@ -124,6 +131,13 @@ final class WatchUsageModel: NSObject, ObservableObject {
               session.activationState == .activated,
               session.isReachable else { return }
         isProvisioning = true
+        sendProvisionMessage(session, installationID: installationID)
+    }
+
+    private nonisolated func sendProvisionMessage(
+        _ session: WCSession,
+        installationID: UUID
+    ) {
         session.sendMessage(
             [
                 WatchMessageKey.command: WatchMessageKey.provisionCellular,
@@ -366,6 +380,9 @@ private struct WatchRelayClient: Sendable {
                         planType: limit.planType
                     )
                 },
+                sessionStatus: tool.sessionStatus.map {
+                    WatchSessionStatus(phase: $0.phase, updatedAt: $0.updatedAt)
+                },
                 symbolName: tool.symbolName
             )
         }
@@ -407,6 +424,12 @@ private struct WatchRelayToolDocument: Decodable {
     let name: String
     let symbolName: String
     let limits: [WatchRelayLimitDocument]
+    let sessionStatus: WatchRelaySessionStatusDocument?
+}
+
+private struct WatchRelaySessionStatusDocument: Decodable {
+    let phase: WatchSessionPhase
+    let updatedAt: Date
 }
 
 private struct WatchRelayLimitDocument: Decodable {

@@ -21,7 +21,7 @@ struct DashboardView: View {
                     Text(model.errorMessage ?? "Keep usAIge running on a connected Mac, then try again.")
                 } actions: {
                     Button("Try Again", systemImage: "arrow.clockwise") { Task { await model.refreshAll() } }
-                        .buttonStyle(.glassProminent)
+                        .usaigeProminentButtonStyle()
                 }
             } else {
                 quotaList
@@ -75,7 +75,12 @@ struct DashboardView: View {
         }
         .refreshable { await model.refreshAll() }
         .overlay(alignment: .top) {
-            if model.isRefreshing { ProgressView().padding(10).glassEffect(.regular, in: .circle).padding(.top, 8) }
+            if model.isRefreshing {
+                ProgressView()
+                    .padding(10)
+                    .usaigeRefreshSurface()
+                    .padding(.top, 8)
+            }
         }
     }
 
@@ -85,6 +90,35 @@ struct DashboardView: View {
         return seen.map { id in
             let values = snapshots.filter { $0.toolID == id }
             return (id, values.first?.toolName ?? "AI Tool", values)
+        }
+    }
+}
+
+extension View {
+    @ViewBuilder
+    func usaigeProminentButtonStyle() -> some View {
+        if #available(iOS 26.0, *) {
+            buttonStyle(.glassProminent)
+        } else {
+            buttonStyle(.borderedProminent)
+        }
+    }
+
+    @ViewBuilder
+    func usaigeGlassButtonStyle() -> some View {
+        if #available(iOS 26.0, *) {
+            buttonStyle(.glass)
+        } else {
+            buttonStyle(.bordered)
+        }
+    }
+
+    @ViewBuilder
+    func usaigeRefreshSurface() -> some View {
+        if #available(iOS 26.0, *) {
+            glassEffect(.regular, in: .circle)
+        } else {
+            background(.regularMaterial, in: Circle())
         }
     }
 }

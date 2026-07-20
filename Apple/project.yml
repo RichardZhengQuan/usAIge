@@ -4,7 +4,7 @@ options:
   bundleIdPrefix: com.richardq.usaige
   createIntermediateGroups: true
   deploymentTarget:
-    iOS: "26.0"
+    iOS: "18.0"
     watchOS: "10.0"
   groupSortPosition: top
 
@@ -24,7 +24,7 @@ targets:
   usAIge-iOS:
     type: application
     platform: iOS
-    deploymentTarget: "26.0"
+    deploymentTarget: "18.0"
     sources:
       - path: ../iOS/App
       - path: ../iOS/Shared
@@ -47,7 +47,7 @@ targets:
   UsageWidget:
     type: app-extension
     platform: iOS
-    deploymentTarget: "26.0"
+    deploymentTarget: "18.0"
     sources:
       - path: ../iOS/Widget
       - path: ../iOS/Shared
