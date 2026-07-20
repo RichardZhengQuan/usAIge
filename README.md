@@ -264,7 +264,7 @@ When a quota resets, the new window starts its own notification cycle. Selecting
 
 - No browser cookies or web pages are read.
 - No OpenAI credentials are copied or stored by usAIge.
-- The Mac relay credential is stored in macOS Keychain. Each remote tool keeps its own write credential outside usAIge.
+- The Mac relay credential is stored in an owner-only local application-support file. Each remote tool keeps its own write credential outside usAIge.
 - No screen pixels are captured or inspected.
 - Preferences contain visual settings, bucket identifiers, and display positions; they do not contain remote-tool bearer tokens.
 - Unsupported or malformed quota buckets are omitted rather than guessed.

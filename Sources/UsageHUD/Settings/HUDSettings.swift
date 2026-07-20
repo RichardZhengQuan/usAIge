@@ -1,7 +1,6 @@
 import CoreGraphics
 import Combine
 import Foundation
-import Security
 
 struct HUDPosition: Codable, Equatable, Sendable {
     var x: Double
@@ -106,7 +105,6 @@ final class HUDSettings: ObservableObject {
             }
             if decoded.version < 7 {
                 let legacyRemoteIDs = Set(payload.remoteTools.map(\.id))
-                Self.deleteLegacyRemoteCredentials(for: legacyRemoteIDs)
                 payload.remoteTools = []
                 payload.toolOrder.removeAll { legacyRemoteIDs.contains($0) }
                 payload.hiddenToolIDs.subtract(legacyRemoteIDs)
@@ -278,17 +276,6 @@ final class HUDSettings: ObservableObject {
         }
         return snapshots.max { lhs, rhs in
             return lhs.displayName.compare(rhs.displayName, options: .numeric) == .orderedAscending
-        }
-    }
-
-    private static func deleteLegacyRemoteCredentials(for ids: Set<AIToolID>) {
-        for id in ids {
-            let query: [String: Any] = [
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: "com.richardqz.usaige.remote-tools",
-                kSecAttrAccount as String: id.rawValue,
-            ]
-            _ = SecItemDelete(query as CFDictionary)
         }
     }
 

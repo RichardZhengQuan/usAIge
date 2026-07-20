@@ -2,6 +2,45 @@ import Foundation
 import Testing
 @testable import UsageHUD
 
+@Test func relayCredentialStoreUsesOwnerOnlyLocalFile() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let fileURL = directory.appendingPathComponent("relay-upload-token")
+    let store = RelayMacCredentialStore(fileURL: fileURL)
+
+    #expect(try store.token() == nil)
+    try store.save("relay-secret")
+
+    #expect(try store.token() == "relay-secret")
+    let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+    #expect(attributes[.posixPermissions] as? Int == 0o600)
+
+    try store.delete()
+    #expect(try store.token() == nil)
+}
+
+@MainActor
+@Test func relayControllerResetsLegacyLinkWithoutReadingKeychain() throws {
+    let suiteName = "RelaySyncTests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    defaults.set("legacy-channel", forKey: "usageHUD.relay.channelID")
+    defaults.set("My Mac", forKey: "usageHUD.relay.macName")
+    let missingFile = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        .appendingPathComponent("relay-upload-token")
+
+    let controller = RelaySyncController(
+        defaults: defaults,
+        credentials: RelayMacCredentialStore(fileURL: missingFile)
+    )
+
+    #expect(!controller.isLinked)
+    #expect(controller.status == .disconnected)
+    #expect(defaults.string(forKey: "usageHUD.relay.channelID") == nil)
+}
+
 @Test func relaySnapshotContainsOnlyVisibleNormalizedQuotaData() throws {
     var snapshot = Fixtures.codexSnapshot
     snapshot.toolName = "Codex"
