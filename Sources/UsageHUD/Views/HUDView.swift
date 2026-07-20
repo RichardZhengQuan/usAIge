@@ -409,25 +409,37 @@ struct HUDView: View {
 struct HUDGlassSurface: View {
     let severity: QuotaSeverity
     let isActive: Bool
+    var showsCriticalOutline = false
 
     var body: some View {
-        if #available(macOS 26.0, *) {
-            let tint = severity.color
-                .mix(with: .white, by: 0.45)
-                .opacity(0.02)
-            let glass = isActive
-                ? Glass.clear.tint(tint).interactive()
-                : Glass.identity
+        ZStack {
+            if #available(macOS 26.0, *) {
+                let tint = severity.color
+                    .mix(with: .white, by: 0.45)
+                    .opacity(0.02)
+                let glass = isActive
+                    ? Glass.clear.tint(tint).interactive()
+                    : Glass.identity
 
-            Color.clear
-                .glassEffect(
-                    glass,
-                    in: .rect(cornerRadius: 18)
-                )
-        } else {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .opacity(isActive ? 1 : 0)
+                Color.clear
+                    .glassEffect(
+                        glass,
+                        in: .rect(cornerRadius: 18)
+                    )
+            } else {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .opacity(isActive ? 1 : 0)
+            }
+
+            if isActive && showsCriticalOutline && severity.showsScaryGlow {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(Color.red.opacity(0.92), lineWidth: 2)
+                    .shadow(color: .red.opacity(0.9), radius: 7)
+                    .shadow(color: .red.opacity(0.55), radius: 16)
+                    .accessibilityHidden(true)
+                    .allowsHitTesting(false)
+            }
         }
     }
 }

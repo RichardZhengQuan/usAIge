@@ -59,10 +59,13 @@ private struct PopoverGlassStrengthTuner: NSViewRepresentable {
             let borderLayer = (existingCriticalLayer as? CAShapeLayer) ?? CAShapeLayer()
             borderLayer.name = Self.criticalBorderLayerName
             borderLayer.frame = popoverFrame.bounds
-            borderLayer.path = Self.popoverOutlinePath(in: popoverFrame.bounds)
+            borderLayer.path = Self.popoverOutlinePath(
+                bodyRect: convert(bounds, to: popoverFrame),
+                in: popoverFrame.bounds
+            )
             borderLayer.fillColor = NSColor.clear.cgColor
-            borderLayer.strokeColor = NSColor.systemRed.withAlphaComponent(0.86).cgColor
-            borderLayer.lineWidth = 1.5
+            borderLayer.strokeColor = NSColor.systemRed.cgColor
+            borderLayer.lineWidth = 2.25
             borderLayer.lineJoin = .round
             borderLayer.shadowColor = NSColor.systemRed.cgColor
             borderLayer.shadowOpacity = 0.55
@@ -77,17 +80,16 @@ private struct PopoverGlassStrengthTuner: NSViewRepresentable {
             }
         }
 
-        private static func popoverOutlinePath(in bounds: CGRect) -> CGPath {
-            let inset: CGFloat = 1
-            let arrowWidth: CGFloat = 13
+        private static func popoverOutlinePath(bodyRect: CGRect, in bounds: CGRect) -> CGPath {
+            let outline = bodyRect.insetBy(dx: 1, dy: 1)
             let arrowHalfHeight: CGFloat = 11
             let radius: CGFloat = 18
-            let minX = bounds.minX + inset
-            let minY = bounds.minY + inset
-            let maxY = bounds.maxY - inset
-            let bodyMaxX = bounds.maxX - arrowWidth
-            let tipX = bounds.maxX - inset
-            let midY = bounds.midY
+            let minX = outline.minX
+            let minY = outline.minY
+            let maxY = outline.maxY
+            let bodyMaxX = outline.maxX
+            let tipX = bounds.maxX - 1
+            let midY = outline.midY
             let path = CGMutablePath()
 
             path.move(to: CGPoint(x: minX + radius, y: minY))
@@ -501,7 +503,11 @@ struct QuotaRowView: View {
         .padding(14)
         .frame(width: 260)
         .presentationBackground {
-            HUDGlassSurface(severity: detailSeverity, isActive: true)
+            HUDGlassSurface(
+                severity: detailSeverity,
+                isActive: true,
+                showsCriticalOutline: hasCriticalSeverity
+            )
         }
         .background {
             PopoverGlassStrengthTuner(
