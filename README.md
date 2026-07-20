@@ -4,6 +4,13 @@ usAIge has native clients for macOS, iPhone, iPad, and Apple Watch. The Mac is
 the trusted limit collector: it reads local Codex and paired remote tools,
 then relays only normalized percentages and reset times to paired iPhones.
 
+## Roadmap
+
+Product development follows three stages: establish the macOS MVP, extend the
+experience to iPhone and Apple Watch, and then expand support for additional AI
+tools. See [`docs/roadmap.md`](docs/roadmap.md) for the scope and boundaries of
+each stage.
+
 ## Built with Codex and GPT-5.6
 
 Codex powered by GPT-5.6 was the primary engineering collaborator used to turn
