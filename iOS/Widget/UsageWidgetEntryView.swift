@@ -85,11 +85,6 @@ private enum WidgetQuotaStatus {
     case current
     case stale(Date)
 
-    var isStale: Bool {
-        if case .stale = self { return true }
-        return false
-    }
-
     var accessibilityDescription: String {
         switch self {
         case .current:
@@ -153,7 +148,6 @@ private struct HUDQuotaTile: View {
                 WidgetToolMark(snapshot: snapshot, size: moduleSize * 0.38)
             }
             .frame(width: moduleSize, height: moduleSize)
-            .opacity(status.isStale ? 0.58 : 1)
 
             HStack(spacing: 4) {
                 HUDWindowTag(
