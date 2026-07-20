@@ -10,7 +10,8 @@ struct LegacyHUDView: View {
     let openSettings: () -> Void
     let resizePanel: (CGSize) -> Void
 
-    private var snapshots: [QuotaSnapshot] { settings.ordered(store.visibleSnapshots) }
+    private var availableSnapshots: [QuotaSnapshot] { store.visibleSnapshots }
+    private var snapshots: [QuotaSnapshot] { settings.ordered(availableSnapshots) }
     private var desiredSize: CGSize {
         snapshots.isEmpty
             ? HUDMetrics.messageSize
@@ -45,7 +46,7 @@ struct LegacyHUDView: View {
         .opacity(settings.opacity)
         .scaleEffect(settings.scale)
         .onAppear {
-            settings.registerBuckets(snapshots)
+            settings.registerBuckets(availableSnapshots)
             resizePanel(HUDMetrics.scaledSize(desiredSize, scale: settings.scale))
         }
     }

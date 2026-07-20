@@ -15,11 +15,15 @@ struct HUDView: View {
     @State private var detailHoveredSnapshotIDs: Set<String> = []
     @State private var refreshRotation = 0.0
 
-    private var snapshots: [QuotaSnapshot] {
+    private var availableSnapshots: [QuotaSnapshot] {
         switch store.state {
-        case let .current(values), let .stale(values, _): settings.ordered(values)
+        case let .current(values), let .stale(values, _): values
         default: []
         }
+    }
+
+    private var snapshots: [QuotaSnapshot] {
+        settings.ordered(availableSnapshots)
     }
 
     private var desiredSize: CGSize {
@@ -107,8 +111,8 @@ struct HUDView: View {
             )
             .scaleEffect(settings.scale)
             .frame(width: scaledSize.width, height: scaledSize.height)
-            .task(id: snapshots.map(\.id)) {
-                settings.registerBuckets(snapshots)
+            .task(id: availableSnapshots.map(\.id)) {
+                settings.registerBuckets(availableSnapshots)
             }
             .onAppear { resizePanel(scaledSize) }
             .onChange(of: scaledSize) { _, size in resizePanel(size) }

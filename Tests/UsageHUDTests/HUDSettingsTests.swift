@@ -135,16 +135,60 @@ import Testing
 }
 
 @MainActor
-@Test func defaultsToNewestNamedChatGPTBucketWhileKeepingLegacyBucketAvailable() {
+@Test func defaultsToPrimaryCodexBucketWhileKeepingNamedBucketAvailable() {
     let settings = HUDSettings(defaults: isolatedDefaults())
     let legacy = quota(id: "codex", displayName: "Codex")
     let newest = quota(id: "codex_bengalfox", displayName: "GPT-5.3-Codex-Spark")
 
     settings.registerBuckets([legacy, newest])
 
-    #expect(settings.ordered([legacy, newest]).map(\.id) == [newest.id])
-    settings.hiddenBucketIDs.remove(legacy.id)
+    #expect(settings.ordered([legacy, newest]).map(\.id) == [legacy.id])
+    settings.hiddenBucketIDs.remove(newest.id)
     #expect(settings.ordered([legacy, newest]).map(\.id) == [legacy.id, newest.id])
+}
+
+@MainActor
+@Test func migratesNamedModelDefaultToPrimaryCodexBucket() throws {
+    let defaults = isolatedDefaults()
+    let existingSettings: [String: Any] = [
+        "version": 7,
+        "bucketOrder": ["codex", "codex_bengalfox"],
+        "hiddenBucketIDs": ["codex"],
+        "didApplyLatestBucketDefault": true,
+    ]
+    defaults.set(
+        try JSONSerialization.data(withJSONObject: existingSettings),
+        forKey: "usageHUD.settings.v1"
+    )
+    let settings = HUDSettings(defaults: defaults)
+    let primary = quota(id: "codex", displayName: "Codex")
+    let named = quota(id: "codex_bengalfox", displayName: "GPT-5.3-Codex-Spark")
+
+    settings.registerBuckets([primary, named])
+
+    #expect(settings.ordered([primary, named]).map(\.id) == [primary.id])
+}
+
+@MainActor
+@Test func preservesVersionSevenCustomBucketVisibility() throws {
+    let defaults = isolatedDefaults()
+    let existingSettings: [String: Any] = [
+        "version": 7,
+        "bucketOrder": ["codex", "codex_bengalfox"],
+        "hiddenBucketIDs": [],
+        "didApplyLatestBucketDefault": true,
+    ]
+    defaults.set(
+        try JSONSerialization.data(withJSONObject: existingSettings),
+        forKey: "usageHUD.settings.v1"
+    )
+    let settings = HUDSettings(defaults: defaults)
+    let primary = quota(id: "codex", displayName: "Codex")
+    let named = quota(id: "codex_bengalfox", displayName: "GPT-5.3-Codex-Spark")
+
+    settings.registerBuckets([primary, named])
+
+    #expect(settings.ordered([primary, named]).map(\.id) == [primary.id, named.id])
 }
 
 @MainActor

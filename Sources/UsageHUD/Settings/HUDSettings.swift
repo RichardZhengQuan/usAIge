@@ -27,7 +27,7 @@ final class HUDSettings: ObservableObject {
     }
 
     private struct Payload: Codable, Equatable {
-        var version = 7
+        var version = 8
         var bucketOrder: [String] = []
         var hiddenBucketIDs: Set<String> = []
         var toolOrder: [AIToolID] = AIToolID.builtInIDs
@@ -37,6 +37,7 @@ final class HUDSettings: ObservableObject {
         var showsResetCredits = true
         var usageAlertIntervalPercent = HUDSettings.defaultUsageAlertIntervalPercent
         var didApplyLatestBucketDefault = false
+        var didApplyPrimaryBucketDefault = false
         var positions: [String: HUDPosition] = [:]
         var remoteTools: [LegacyRemoteTool] = []
 
@@ -46,6 +47,7 @@ final class HUDSettings: ObservableObject {
             case showsResetCredits
             case usageAlertIntervalPercent
             case didApplyLatestBucketDefault
+            case didApplyPrimaryBucketDefault
             case remoteTools
         }
 
@@ -72,6 +74,10 @@ final class HUDSettings: ObservableObject {
                 Bool.self,
                 forKey: .didApplyLatestBucketDefault
             ) ?? false
+            didApplyPrimaryBucketDefault = try values.decodeIfPresent(
+                Bool.self,
+                forKey: .didApplyPrimaryBucketDefault
+            ) ?? false
             positions = try values.decodeIfPresent([String: HUDPosition].self, forKey: .positions) ?? [:]
             remoteTools = try values.decodeIfPresent([LegacyRemoteTool].self, forKey: .remoteTools) ?? []
         }
@@ -85,11 +91,18 @@ final class HUDSettings: ObservableObject {
         self.defaults = defaults
         if let data = defaults.data(forKey: Self.storageKey),
            let decoded = try? JSONDecoder().decode(Payload.self, from: data),
-           (1...7).contains(decoded.version) {
+           (1...8).contains(decoded.version) {
             payload = decoded
             if decoded.version < 5 {
                 // Updating users keep their existing bucket visibility exactly as configured.
-                payload.didApplyLatestBucketDefault = true
+                payload.didApplyPrimaryBucketDefault = true
+            } else if decoded.version < 8 {
+                // Migrate the exact versions 5–7 automatic choice without overriding
+                // users who subsequently chose Codex or enabled both buckets.
+                payload.didApplyPrimaryBucketDefault = !(
+                    payload.didApplyLatestBucketDefault
+                        && payload.hiddenBucketIDs.contains("codex")
+                )
             }
             if decoded.version < 7 {
                 let legacyRemoteIDs = Set(payload.remoteTools.map(\.id))
@@ -104,7 +117,7 @@ final class HUDSettings: ObservableObject {
                     !legacyRemoteIDs.contains { id.hasPrefix("\($0.rawValue):") }
                 }
             }
-            payload.version = 7
+            payload.version = 8
         } else {
             payload = Payload()
         }
@@ -226,15 +239,15 @@ final class HUDSettings: ObservableObject {
             payload.toolOrder.append(contentsOf: toolAdditions)
         }
 
-        if !payload.didApplyLatestBucketDefault {
+        if !payload.didApplyPrimaryBucketDefault {
             let chatGPTBuckets = snapshots.filter { $0.toolID == .chatGPT }
             if chatGPTBuckets.count > 1,
-               let newest = Self.newestDefaultBucket(in: chatGPTBuckets) {
+               let preferred = Self.preferredDefaultBucket(in: chatGPTBuckets) {
                 payload.hiddenBucketIDs.formUnion(
-                    chatGPTBuckets.lazy.map(\.id).filter { $0 != newest.id }
+                    chatGPTBuckets.lazy.map(\.id).filter { $0 != preferred.id }
                 )
-                payload.hiddenBucketIDs.remove(newest.id)
-                payload.didApplyLatestBucketDefault = true
+                payload.hiddenBucketIDs.remove(preferred.id)
+                payload.didApplyPrimaryBucketDefault = true
                 changed = true
             }
         }
@@ -259,13 +272,11 @@ final class HUDSettings: ObservableObject {
         return values.filter { seen.insert($0).inserted }
     }
 
-    private static func newestDefaultBucket(in snapshots: [QuotaSnapshot]) -> QuotaSnapshot? {
-        snapshots.max { lhs, rhs in
-            let lhsIsNamedModel = lhs.id != "codex"
-            let rhsIsNamedModel = rhs.id != "codex"
-            if lhsIsNamedModel != rhsIsNamedModel {
-                return !lhsIsNamedModel && rhsIsNamedModel
-            }
+    private static func preferredDefaultBucket(in snapshots: [QuotaSnapshot]) -> QuotaSnapshot? {
+        if let primary = snapshots.first(where: { $0.id == "codex" }) {
+            return primary
+        }
+        return snapshots.max { lhs, rhs in
             return lhs.displayName.compare(rhs.displayName, options: .numeric) == .orderedAscending
         }
     }
