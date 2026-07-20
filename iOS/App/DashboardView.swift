@@ -27,7 +27,7 @@ struct DashboardView: View {
                 quotaList
             }
         }
-        .navigationTitle("AI Usage")
+        .navigationTitle("usAIge")
         .toolbarTitleDisplayMode(.inlineLarge)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
