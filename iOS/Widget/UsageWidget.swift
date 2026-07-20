@@ -12,26 +12,33 @@ struct WidgetQuotaEntity: AppEntity {
 
     var displayRepresentation: DisplayRepresentation {
         DisplayRepresentation(
-            title: "\(toolName)",
-            subtitle: "\(limitName)"
+            // WidgetKit's configuration sheet does not consistently show an
+            // entity subtitle. Keep the actual limit in the primary label so
+            // multiple limits from the same tool are always distinguishable.
+            title: "\(limitName) — \(toolName)",
+            subtitle: "\(toolName)"
         )
     }
 }
 
 struct WidgetQuotaEntityQuery: EntityQuery {
-    private let cache = SharedQuotaCache()
+    // AppIntent entity queries run in a short-lived system process. Keep this
+    // read bounded and resolve a transient cache error as an empty result so
+    // WidgetKit's configuration picker always finishes loading.
+    private let cacheURL = SharedQuotaCache().storageURL
 
     func entities(for identifiers: [WidgetQuotaEntity.ID]) async throws -> [WidgetQuotaEntity] {
         let identifiers = Set(identifiers)
-        return try await availableEntities().filter { identifiers.contains($0.id) }
+        return availableEntities().filter { identifiers.contains($0.id) }
     }
 
     func suggestedEntities() async throws -> [WidgetQuotaEntity] {
-        try await availableEntities()
+        availableEntities()
     }
 
-    private func availableEntities() async throws -> [WidgetQuotaEntity] {
-        try await cache.load().snapshots
+    private func availableEntities() -> [WidgetQuotaEntity] {
+        let cacheState = (try? JSONFileStorage.load(QuotaCacheState.self, from: cacheURL)) ?? .empty
+        return cacheState.snapshots
             .sorted(by: QuotaTimelineProvider.areInDisplayOrder)
             .map {
                 WidgetQuotaEntity(
@@ -49,16 +56,16 @@ struct UsageWidgetConfigurationIntent: WidgetConfigurationIntent {
         "Choose which AI limits appear in this widget and their order."
     )
 
-    @Parameter(title: "Limit")
+    @Parameter(title: "First limit")
     var firstLimit: WidgetQuotaEntity?
 
-    @Parameter(title: "Second")
+    @Parameter(title: "Second limit")
     var secondLimit: WidgetQuotaEntity?
 
-    @Parameter(title: "Third")
+    @Parameter(title: "Third limit")
     var thirdLimit: WidgetQuotaEntity?
 
-    @Parameter(title: "Fourth")
+    @Parameter(title: "Fourth limit")
     var fourthLimit: WidgetQuotaEntity?
 
     static var parameterSummary: some ParameterSummary {
