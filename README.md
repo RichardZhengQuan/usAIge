@@ -4,6 +4,37 @@ usAIge has native clients for macOS, iPhone, iPad, and Apple Watch. The Mac is
 the trusted limit collector: it reads local Codex and paired remote tools,
 then relays only normalized percentages and reset times to paired iPhones.
 
+## Built with Codex and GPT-5.6
+
+Codex powered by GPT-5.6 was the primary engineering collaborator used to turn
+usAIge from a product idea into a working multi-platform system. The human
+owner set the product direction, privacy boundaries, and final UX decisions;
+Codex and GPT-5.6 helped execute and verify the implementation across the
+Swift, SwiftUI, AppKit, WidgetKit, WatchConnectivity, and relay-server codebases.
+
+In practice, Codex and GPT-5.6 were used to:
+
+- Explore the repository, translate product requirements into implementation
+  plans, and make coordinated changes across macOS, iOS, iPadOS, watchOS,
+  widgets, and the web relay.
+- Build the local Codex app-server JSON-RPC integration, including account and
+  rate-limit reads, live `account/rateLimits/updated` events, multi-window quota
+  normalization, reconnect behavior, and privacy-safe error handling.
+- Design and implement the account-free Mac-to-iPhone pairing flow, revocable
+  device credentials, normalized snapshot relay, session-status notifications,
+  widgets, WatchConnectivity sync, and Apple Watch complications.
+- Iterate on native Apple UX from feedback: the floating macOS usage rail,
+  Settings flows, quota severity states, connection guidance, iPhone activity
+  views, widgets, and Watch layouts.
+- Generate and expand automated tests, diagnose build and concurrency failures,
+  review diffs for regressions, package releases, and verify behavior with
+  command-line builds and simulator/device-oriented checks.
+
+This was not a one-shot code generation exercise. Development used an iterative
+agentic loop: inspect the existing architecture, implement a focused change,
+run the relevant tests and builds, review the result, fix failures, and repeat.
+The commit and pull-request history preserves that progression.
+
 ## iOS app and widget
 
 Open `usAIge-iOS.xcodeproj` in Xcode 26. The project contains:
