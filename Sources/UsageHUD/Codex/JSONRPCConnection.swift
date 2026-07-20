@@ -190,16 +190,22 @@ actor ProcessLineTransport: LineTransport {
         readerTask = Task.detached {
             var buffer = Data()
             while !Task.isCancelled {
-                let data = handle.availableData
-                if data.isEmpty { break }
-                buffer.append(data)
-                while let newline = buffer.firstIndex(of: 0x0A) {
-                    let frame = buffer[..<newline]
-                    buffer.removeSubrange(...newline)
-                    if let line = String(data: frame, encoding: .utf8), !line.isEmpty {
-                        continuation.yield(line)
+                // FileHandle returns autoreleased NSData. This detached task has no
+                // run-loop pool, so drain one explicitly after every pipe read.
+                let receivedChunk = autoreleasepool {
+                    let data = handle.availableData
+                    guard !data.isEmpty else { return false }
+                    buffer.append(data)
+                    while let newline = buffer.firstIndex(of: 0x0A) {
+                        let frame = buffer[..<newline]
+                        buffer.removeSubrange(...newline)
+                        if let line = String(data: frame, encoding: .utf8), !line.isEmpty {
+                            continuation.yield(line)
+                        }
                     }
+                    return true
                 }
+                if !receivedChunk { break }
             }
             continuation.finish()
         }
