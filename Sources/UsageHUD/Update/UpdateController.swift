@@ -14,6 +14,7 @@ struct UpdateManifest: Codable, Equatable, Sendable {
     let minimumSystemVersion: String
     let downloadURL: URL
     let sha256: String
+    var releaseNotes: ReleaseNotes? = nil
 
     func isNewer(thanBuild currentBuild: Int) -> Bool {
         build > currentBuild
@@ -29,11 +30,57 @@ struct UpdateManifest: Codable, Equatable, Sendable {
               normalizedHash.allSatisfy({ $0.isHexDigit }) else {
             throw UpdateError.invalidManifest
         }
+        try releaseNotes?.validate()
     }
 
     static func newest(in manifests: [UpdateManifest]) -> UpdateManifest? {
         manifests.max(by: { $0.build < $1.build })
     }
+}
+
+struct ReleaseHighlight: Codable, Equatable, Sendable, Identifiable {
+    let title: String
+    let detail: String
+    let systemImage: String
+
+    var id: String { title }
+}
+
+struct ReleaseNotes: Codable, Equatable, Sendable {
+    let headline: String
+    let summary: String
+    let highlights: [ReleaseHighlight]
+
+    func validate() throws {
+        guard !headline.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              headline.count <= 100,
+              !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              summary.count <= 300,
+              highlights.count <= 8,
+              highlights.allSatisfy({
+                  !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                      && $0.title.count <= 100
+                      && !$0.detail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                      && $0.detail.count <= 300
+                      && !$0.systemImage.isEmpty
+                      && $0.systemImage.count <= 80
+              }) else {
+            throw UpdateError.invalidManifest
+        }
+    }
+}
+
+struct ReleaseNotesDocument: Codable, Equatable, Sendable {
+    let version: String
+    let build: Int
+    let releaseNotes: ReleaseNotes
+}
+
+struct WhatsNewPresentation: Equatable, Sendable {
+    let version: String
+    let build: Int
+    let releaseNotes: ReleaseNotes
+    let isAvailableUpdate: Bool
 }
 
 enum UpdateStatus: Equatable {
@@ -93,7 +140,10 @@ final class UpdateController: ObservableObject {
     private let session: URLSession
     private let userDefaults: UserDefaults
     private let installer: UpdateInstaller
+    private let bundledReleaseNotes: ReleaseNotesDocument?
     private var pollingTask: Task<Void, Never>?
+
+    private static let pendingManifestKey = "update.pendingWhatsNewManifest.v1"
 
     var availableUpdate: UpdateManifest? {
         guard case let .available(manifest) = status else { return nil }
@@ -101,6 +151,49 @@ final class UpdateController: ObservableObject {
     }
 
     var canInstallUpdate: Bool { availableUpdate != nil }
+
+    var whatsNewPresentation: WhatsNewPresentation {
+        if let manifest = availableUpdate, let releaseNotes = manifest.releaseNotes {
+            return WhatsNewPresentation(
+                version: manifest.version,
+                build: manifest.build,
+                releaseNotes: releaseNotes,
+                isAvailableUpdate: true
+            )
+        }
+        if let pending = pendingManifest, pending.build == currentBuild,
+           let releaseNotes = pending.releaseNotes {
+            return WhatsNewPresentation(
+                version: pending.version,
+                build: pending.build,
+                releaseNotes: releaseNotes,
+                isAvailableUpdate: false
+            )
+        }
+        if let bundledReleaseNotes, bundledReleaseNotes.build == currentBuild {
+            return WhatsNewPresentation(
+                version: bundledReleaseNotes.version,
+                build: bundledReleaseNotes.build,
+                releaseNotes: bundledReleaseNotes.releaseNotes,
+                isAvailableUpdate: false
+            )
+        }
+        return WhatsNewPresentation(
+            version: currentVersion,
+            build: currentBuild,
+            releaseNotes: ReleaseNotes(
+                headline: "You’re up to date",
+                summary: "You’re using the latest installed version of usAIge.",
+                highlights: []
+            ),
+            isAvailableUpdate: false
+        )
+    }
+
+    var shouldPresentWhatsNewAfterLaunch: Bool {
+        guard let pending = pendingManifest else { return false }
+        return pending.build == currentBuild && pending.releaseNotes != nil
+    }
 
     var currentVersionText: String {
         currentBuild > 0 ? "\(currentVersion) (\(currentBuild))" : currentVersion
@@ -150,6 +243,7 @@ final class UpdateController: ObservableObject {
             ?? "Unknown"
         currentBuild = Int(bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "") ?? 0
         applicationURL = bundle.bundleURL
+        bundledReleaseNotes = Self.loadBundledReleaseNotes(from: bundle)
         self.session = session
         self.userDefaults = userDefaults
         self.installer = installer
@@ -236,6 +330,10 @@ final class UpdateController: ObservableObject {
                 manifest: manifest,
                 currentApplicationURL: applicationURL
             )
+            if manifest.releaseNotes != nil,
+               let data = try? JSONEncoder().encode(manifest) {
+                userDefaults.set(data, forKey: Self.pendingManifestKey)
+            }
             isReplacementPrepared = true
             NSApplication.shared.terminate(nil)
         } catch {
@@ -249,6 +347,24 @@ final class UpdateController: ObservableObject {
         } else {
             await checkForUpdates()
         }
+    }
+
+    func markWhatsNewPresented() {
+        guard pendingManifest?.build == currentBuild else { return }
+        userDefaults.removeObject(forKey: Self.pendingManifestKey)
+    }
+
+    private var pendingManifest: UpdateManifest? {
+        guard let data = userDefaults.data(forKey: Self.pendingManifestKey) else { return nil }
+        return try? JSONDecoder().decode(UpdateManifest.self, from: data)
+    }
+
+    private static func loadBundledReleaseNotes(from bundle: Bundle) -> ReleaseNotesDocument? {
+        guard let url = bundle.url(forResource: "ReleaseNotes", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let document = try? JSONDecoder().decode(ReleaseNotesDocument.self, from: data),
+              (try? document.releaseNotes.validate()) != nil else { return nil }
+        return document
     }
 
     private func notifyIfNeeded(for manifest: UpdateManifest) async {

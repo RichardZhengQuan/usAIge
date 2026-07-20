@@ -162,6 +162,13 @@ struct LegacyHUDSettingsRootView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                 Text(updateController.statusText).font(.caption)
+                Button("What’s New") {
+                    NSApp.sendAction(
+                        #selector(AppDelegate.showWhatsNewWindow(_:)),
+                        to: nil,
+                        from: nil
+                    )
+                }
                 Button(updateController.primaryButtonTitle) {
                     Task { await updateController.performPrimaryAction() }
                 }

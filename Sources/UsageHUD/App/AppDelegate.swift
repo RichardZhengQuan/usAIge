@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     let relaySync: RelaySyncController
     let settingsNavigation: SettingsNavigation
     private var panel: HUDPanel?
+    private var whatsNewWindowController: WhatsNewWindowController?
     private var codexAttentionMonitor: CodexAttentionMonitor?
     var settingsSceneOpener: @MainActor () -> Void = SettingsScenePresenter.open
     private var isTerminationPending = false
@@ -57,6 +58,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        DispatchQueue.main.async { [weak self] in
+            self?.installWhatsNewMenuItem()
+        }
         let notificationCenter = UNUserNotificationCenter.current()
         notificationCenter.delegate = self
         notificationCenter.setNotificationCategories(AppNotificationCategories.all)
@@ -118,6 +122,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         codexAttentionMonitor.start()
         self.codexAttentionMonitor = codexAttentionMonitor
         updateController.start()
+        if updateController.shouldPresentWhatsNewAfterLaunch
+            || ProcessInfo.processInfo.arguments.contains("--show-whats-new") {
+            showWhatsNew()
+        }
     }
 
     func applicationShouldHandleReopen(
@@ -177,6 +185,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         launchAtLogin.refresh()
         settingsNavigation.showMainPage()
         settingsSceneOpener()
+    }
+
+    func showWhatsNew() {
+        let controller: WhatsNewWindowController
+        if let whatsNewWindowController {
+            controller = whatsNewWindowController
+        } else {
+            controller = WhatsNewWindowController(updateController: updateController)
+            whatsNewWindowController = controller
+        }
+        updateController.markWhatsNewPresented()
+        controller.present()
+    }
+
+    @objc func showWhatsNewWindow(_ sender: Any?) {
+        showWhatsNew()
+    }
+
+    private func installWhatsNewMenuItem() {
+        guard let appMenu = NSApp.mainMenu?.items.first?.submenu,
+        !appMenu.items.contains(where: { $0.action == #selector(showWhatsNewWindow(_:)) }) else {
+            return
+        }
+        let item = NSMenuItem(
+            title: "What’s New in usAIge",
+            action: #selector(showWhatsNewWindow(_:)),
+            keyEquivalent: ""
+        )
+        item.target = self
+        appMenu.insertItem(item, at: min(1, appMenu.items.count))
     }
 
     func showLimits() {
@@ -254,6 +292,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
                 self?.showSettings()
             case .limits:
                 self?.showLimits()
+            case .whatsNew:
+                self?.showWhatsNew()
             }
         }
     }
