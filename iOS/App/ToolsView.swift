@@ -84,7 +84,7 @@ private struct MacPairingSection: View {
                     }
                 }
             }
-            .buttonStyle(.glassProminent)
+            .usaigeProminentButtonStyle()
             .frame(maxWidth: .infinity)
             .disabled(model.pairingCode.count != 8 || model.isRefreshing)
             if let error = model.pairingErrorMessage {

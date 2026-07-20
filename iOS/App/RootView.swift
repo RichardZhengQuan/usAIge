@@ -66,7 +66,7 @@ private struct SessionNotificationListView: View {
                         Task { await model.refreshSessionEvents() }
                     }
                     .labelStyle(.iconOnly)
-                    .buttonStyle(.glass)
+                    .usaigeGlassButtonStyle()
                     .controlSize(.large)
                     .disabled(model.isRefreshing)
                     .accessibilityLabel("Refresh Activities")

@@ -167,7 +167,8 @@ final class QuotaModelTests: XCTestCase {
                         windowDurationSeconds: 18_000
                     )
                 )
-            ]
+            ],
+            sessionStatus: WatchSessionStatus(phase: .needsInput, updatedAt: updatedAt)
         )
 
         let encoded = try WatchUsageSnapshotCodec.encode(
@@ -178,6 +179,8 @@ final class QuotaModelTests: XCTestCase {
         XCTAssertEqual(decoded.tools.first?.sourceID, "mac")
         XCTAssertEqual(decoded.tools.first?.sourceName, "Studio Mac")
         XCTAssertEqual(decoded.tools.first?.serverUpdatedAt, updatedAt)
+        XCTAssertEqual(decoded.tools.first?.sessionStatus?.phase, .needsInput)
+        XCTAssertEqual(decoded.tools.first?.sessionStatus?.updatedAt, updatedAt)
     }
 
     func testWatchSnapshotStillDecodesPayloadsWithoutMacMetadata() throws {
@@ -190,6 +193,18 @@ final class QuotaModelTests: XCTestCase {
         XCTAssertNil(decoded.tools.first?.sourceID)
         XCTAssertNil(decoded.tools.first?.sourceName)
         XCTAssertNil(decoded.tools.first?.serverUpdatedAt)
+        XCTAssertNil(decoded.tools.first?.sessionStatus)
+    }
+
+    func testWatchSnapshotTreatsFutureSessionPhasesAsUnknown() throws {
+        let data = Data(
+            #"{"generatedAt":"2026-07-19T00:00:00Z","schemaVersion":1,"tools":[{"displayName":"Codex","id":"tool","limits":[],"receivedAt":"2026-07-19T00:00:00Z","sessionStatus":{"phase":"reviewing","updatedAt":"2026-07-19T00:00:00Z"},"sourceUpdatedAt":"2026-07-19T00:00:00Z"}]}"#.utf8
+        )
+
+        let decoded = try WatchUsageSnapshotCodec.decode(data)
+
+        XCTAssertEqual(decoded.tools.first?.sessionStatus?.phase, .unknown)
+        XCTAssertFalse(decoded.tools.first?.sessionStatus?.phase.showsLight ?? true)
     }
 
     func testWatchRelayCredentialsRoundTripSeparatelyFromSnapshots() throws {

@@ -125,6 +125,15 @@ struct UsageComplicationView: View {
             GeometryReader { geometry in
                 let size = min(geometry.size.width, geometry.size.height)
                 ZStack(alignment: .bottomTrailing) {
+                    if showsSessionLight(selected),
+                       let status = selected.tool.sessionStatus {
+                        WatchSessionStatusLight(
+                            phase: status.phase,
+                            diameter: size * 0.84,
+                            allowsAnimation: false
+                        )
+                    }
+
                     ConcentricQuotaRing(
                         primaryRemaining: selected.limit.primary.remainingPercent,
                         secondaryRemaining: selected.limit.secondary?.remainingPercent,
@@ -183,6 +192,10 @@ struct UsageComplicationView: View {
                         Text(selected.tool.sourceName ?? selected.tool.displayName)
                             .font(.caption.weight(.semibold))
                             .lineLimit(1)
+                        if showsLiveSessionStatus(selected),
+                           let status = selected.tool.sessionStatus {
+                            WatchSessionStatusDot(phase: status.phase)
+                        }
                     }
 
                     Text(
@@ -248,8 +261,14 @@ struct UsageComplicationView: View {
     }
 
     private func inlineSummary(_ selected: SelectedLimit) -> some View {
-        Label(
-            "\(selected.scopeName) · \(selected.durationTag) \(Int(selected.remainingPercent.rounded()))%",
+        let sessionLabel: String
+        if showsLiveSessionStatus(selected), let status = selected.tool.sessionStatus {
+            sessionLabel = " · \(status.phase.label)"
+        } else {
+            sessionLabel = ""
+        }
+        return Label(
+            "\(selected.scopeName)\(sessionLabel) · \(selected.durationTag) \(Int(selected.remainingPercent.rounded()))%",
             systemImage: entry.selectedLimitIsStale
                 ? "clock.badge.exclamationmark"
                 : (selected.tool.symbolName ?? "hourglass")
@@ -265,13 +284,18 @@ struct UsageComplicationView: View {
                 .textCase(nil)
                 .widgetCurvesContent()
                 .widgetLabel {
-                    ProgressView(
-                        value: UsagePalette.arcFraction(
-                            remainingPercent: selected.remainingPercent
+                    if showsLiveSessionStatus(selected),
+                       let status = selected.tool.sessionStatus {
+                        Text(status.phase.label)
+                    } else {
+                        ProgressView(
+                            value: UsagePalette.arcFraction(
+                                remainingPercent: selected.remainingPercent
+                            )
                         )
-                    )
+                    }
                 }
-                .tint(entry.selectedLimitIsStale ? .orange : selected.color)
+                .tint(cornerTint(selected))
                 .opacity(entry.selectedLimitIsStale ? 0.62 : 1)
         } else {
             usAIgeCurvedLabel
@@ -297,8 +321,32 @@ struct UsageComplicationView: View {
             return "No AI usage limits. Set up usAIge on iPhone."
         }
         var text = "\(selected.scopeName), \(selected.limit.displayName), \(selected.durationTag), \(Int(selected.remainingPercent.rounded())) percent remaining"
+        if showsLiveSessionStatus(selected),
+           let status = selected.tool.sessionStatus {
+            text += ", Codex session \(status.phase.label)"
+        }
         if entry.selectedLimitIsStale { text += ", data may be stale" }
         return text
+    }
+
+    private func showsLiveSessionStatus(_ selected: SelectedLimit) -> Bool {
+        !entry.selectedLimitIsStale && selected.tool.sessionStatus?.phase.showsLight == true
+    }
+
+    private func showsSessionLight(_ selected: SelectedLimit) -> Bool {
+        guard showsLiveSessionStatus(selected) else { return false }
+        return WatchQuotaSeverity(remainingPercent: selected.limit.primary.remainingPercent) != .critical
+            && selected.limit.secondary.map {
+                WatchQuotaSeverity(remainingPercent: $0.remainingPercent) != .critical
+            } != false
+    }
+
+    private func cornerTint(_ selected: SelectedLimit) -> Color {
+        if entry.selectedLimitIsStale { return .orange }
+        if showsLiveSessionStatus(selected), let status = selected.tool.sessionStatus {
+            return status.phase.statusColor
+        }
+        return selected.color
     }
 }
 
@@ -351,6 +399,7 @@ private extension WatchUsageSnapshotEnvelope {
                             planType: "team"
                         ),
                     ],
+                    sessionStatus: WatchSessionStatus(phase: .thinking, updatedAt: now),
                     symbolName: "brain.head.profile"
                 ),
             ]

@@ -57,6 +57,7 @@
 		E904EA0A96B1EA7B1FFFFD40 /* ToolConfigurationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2642C857CDF8F5D8C179C585 /* ToolConfigurationStore.swift */; };
 		F077DD8321F3DE53F5124B87 /* ToolConfigurationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2642C857CDF8F5D8C179C585 /* ToolConfigurationStore.swift */; };
 		F09D926A788A42D5E77D8227 /* KeychainTokenVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A6891CA0C866A84F1802B5A /* KeychainTokenVault.swift */; };
+		F1E2D3C4B5A6978877665545 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A6978877665544 /* SettingsView.swift */; };
 		F6233B9011E34B36F2DA2F5E /* JSONFileStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = E88FF0BC3A39736F30433687 /* JSONFileStorage.swift */; };
 		F72548760296B82EF40E4256 /* RemoteUsageClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BB1D76EE9A1B7EDFDD128B5 /* RemoteUsageClient.swift */; };
 		FFB30A67BDCAA81A98766757 /* WatchSnapshotFileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E8587899BEB827DA8F42181 /* WatchSnapshotFileStore.swift */; };
@@ -160,6 +161,7 @@
 		CFCB83ACE67932543D3877F1 /* UsageComplication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageComplication.swift; sourceTree = "<group>"; };
 		D1C0A7E20260719000000002 /* AppIcon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Assets.xcassets/AppIcon.appiconset/AppIcon.png; sourceTree = "<group>"; };
 		E88FF0BC3A39736F30433687 /* JSONFileStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONFileStorage.swift; sourceTree = "<group>"; };
+		F1E2D3C4B5A6978877665544 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		FC9F126328C84F7B6F676D5A /* ToolsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -273,6 +275,7 @@
 				792F98F89080B773709D785F /* EditToolView.swift */,
 				B8AB3EAD0D261E2D01C7B0D2 /* QuotaRow.swift */,
 				263191A755BAA8B44965A7A0 /* RootView.swift */,
+				F1E2D3C4B5A6978877665544 /* SettingsView.swift */,
 				A6D2F233B8124A74B215B297 /* ToolDetailView.swift */,
 				FC9F126328C84F7B6F676D5A /* ToolsView.swift */,
 				748D7F8E8764CF75E137E7AD /* UsAIgeIOSApp.swift */,
@@ -483,6 +486,7 @@
 				207B708E0A733CFC8F77692E /* RemoteToolConfiguration.swift in Sources */,
 				F72548760296B82EF40E4256 /* RemoteUsageClient.swift in Sources */,
 				9547C8AA7D4171543426EAC0 /* RootView.swift in Sources */,
+				F1E2D3C4B5A6978877665545 /* SettingsView.swift in Sources */,
 				C2D8CBE498521A7A12A9EA85 /* SharedQuotaCache.swift in Sources */,
 				F077DD8321F3DE53F5124B87 /* ToolConfigurationStore.swift in Sources */,
 				6CB2D634C81FEB35F80C86A0 /* ToolDetailView.swift in Sources */,
@@ -571,7 +575,7 @@
 				CODE_SIGN_ENTITLEMENTS = "$(SRCROOT)/../iOS/Configuration/usAIge-iOS.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				INFOPLIST_FILE = "$(SRCROOT)/../iOS/Configuration/usAIge-iOS-Info.plist";
-				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -589,7 +593,7 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_ENTITLEMENTS = "$(SRCROOT)/../iOS/Configuration/UsageWidget.entitlements";
 				INFOPLIST_FILE = "$(SRCROOT)/../iOS/Configuration/UsageWidget-Info.plist";
-				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -656,7 +660,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MARKETING_VERSION = 0.2.1;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
@@ -736,7 +740,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MARKETING_VERSION = 0.2.1;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
@@ -754,7 +758,7 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_ENTITLEMENTS = "$(SRCROOT)/../iOS/Configuration/UsageWidget.entitlements";
 				INFOPLIST_FILE = "$(SRCROOT)/../iOS/Configuration/UsageWidget-Info.plist";
-				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -776,7 +780,7 @@
 				CODE_SIGN_ENTITLEMENTS = "$(SRCROOT)/../iOS/Configuration/usAIge-iOS.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				INFOPLIST_FILE = "$(SRCROOT)/../iOS/Configuration/usAIge-iOS-Info.plist";
-				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
