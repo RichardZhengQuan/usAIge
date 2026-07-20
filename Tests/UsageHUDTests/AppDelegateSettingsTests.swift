@@ -57,10 +57,12 @@ import Testing
     let delegate = AppDelegate()
     var openCount = 0
     delegate.settingsSceneOpener = { openCount += 1 }
+    delegate.settingsNavigation.route = [.aiTools, .remoteToolPairing]
 
     delegate.showSettings()
 
     #expect(openCount == 1)
+    #expect(delegate.settingsNavigation.route.isEmpty)
 }
 
 @MainActor

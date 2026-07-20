@@ -13,7 +13,8 @@ struct UsAIgeApp: App {
                         store: appDelegate.store,
                         launchAtLogin: appDelegate.launchAtLogin,
                         updateController: appDelegate.updateController,
-                        relaySync: appDelegate.relaySync
+                        relaySync: appDelegate.relaySync,
+                        navigation: appDelegate.settingsNavigation
                     )
                 } else {
                     LegacyHUDSettingsRootView(

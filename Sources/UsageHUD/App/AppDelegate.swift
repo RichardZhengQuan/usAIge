@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     let updateController: UpdateController
     let usageLimitNotifications: UsageLimitNotificationController
     let relaySync: RelaySyncController
+    let settingsNavigation: SettingsNavigation
     private var panel: HUDPanel?
     private var codexAttentionMonitor: CodexAttentionMonitor?
     var settingsSceneOpener: @MainActor () -> Void = SettingsScenePresenter.open
@@ -26,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         settings = configuredSettings
         let configuredRelaySync = RelaySyncController()
         relaySync = configuredRelaySync
+        settingsNavigation = SettingsNavigation()
         let localProvider: any CodexUsageProviding
         let agentProvider: any CodexAgentProviding
         if let executable = CodexExecutableResolver.resolve() {
@@ -173,6 +175,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
 
     func showSettings() {
         launchAtLogin.refresh()
+        settingsNavigation.showMainPage()
         settingsSceneOpener()
     }
 
