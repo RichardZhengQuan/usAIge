@@ -10,8 +10,9 @@ options:
 
 settings:
   base:
+    CODE_SIGN_STYLE: Automatic
     CURRENT_PROJECT_VERSION: 1
-    DEVELOPMENT_TEAM: B68TWP5679
+    DEVELOPMENT_TEAM: Q66R79SK5A
     MARKETING_VERSION: 0.2.1
     SWIFT_VERSION: 6.0
   configs:
@@ -43,6 +44,10 @@ targets:
     dependencies:
       - target: UsageWidget
       - target: usAIgeWatch
+    attributes:
+      SystemCapabilities:
+        com.apple.ApplicationGroups.iOS:
+          enabled: 1
 
   UsageWidget:
     type: app-extension
@@ -60,6 +65,10 @@ targets:
         PRODUCT_NAME: UsageWidget
         SKIP_INSTALL: true
         TARGETED_DEVICE_FAMILY: "1,2"
+    attributes:
+      SystemCapabilities:
+        com.apple.ApplicationGroups.iOS:
+          enabled: 1
 
   usAIgeWatch:
     type: application
@@ -82,6 +91,10 @@ targets:
         TARGETED_DEVICE_FAMILY: 4
     dependencies:
       - target: usAIgeWatchWidget
+    attributes:
+      SystemCapabilities:
+        com.apple.ApplicationGroups.iOS:
+          enabled: 1
 
   usAIgeWatchWidget:
     type: app-extension
@@ -100,6 +113,10 @@ targets:
         PRODUCT_NAME: usAIge Watch Widget
         SKIP_INSTALL: true
         TARGETED_DEVICE_FAMILY: 4
+    attributes:
+      SystemCapabilities:
+        com.apple.ApplicationGroups.iOS:
+          enabled: 1
 
 schemes:
   usAIge-iOS:
