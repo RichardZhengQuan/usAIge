@@ -78,6 +78,65 @@ final class QuotaModelTests: XCTestCase {
         )
     }
 
+    func testWidgetLimitSelectionFiltersAutomaticAndDuplicateIDs() {
+        XCTAssertEqual(
+            WidgetLimitSelection.explicitIDs(
+                from: [
+                    WidgetLimitSelection.automaticID,
+                    "limit-b",
+                    "limit-b",
+                    nil,
+                    "limit-a",
+                ]
+            ),
+            ["limit-b", "limit-a"]
+        )
+    }
+
+    func testWidgetLimitSelectionPreservesChoiceAndRecoversFromStaleIDs() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let toolID = UUID()
+        let snapshots = [
+            QuotaSnapshot(
+                id: "limit-a",
+                limitID: "a",
+                toolID: toolID,
+                toolName: "Tool",
+                displayName: "A",
+                remainingPercent: 70,
+                resetAt: nil,
+                updatedAt: now
+            ),
+            QuotaSnapshot(
+                id: "limit-b",
+                limitID: "b",
+                toolID: toolID,
+                toolName: "Tool",
+                displayName: "B",
+                remainingPercent: 20,
+                resetAt: nil,
+                updatedAt: now
+            ),
+        ]
+
+        XCTAssertEqual(
+            WidgetLimitSelection.resolve(
+                selectedIDs: ["limit-a", "limit-b"],
+                from: snapshots,
+                maximumCount: 2
+            ).map(\.id),
+            ["limit-a", "limit-b"]
+        )
+        XCTAssertEqual(
+            WidgetLimitSelection.resolve(
+                selectedIDs: ["removed-limit"],
+                from: snapshots,
+                maximumCount: 1
+            ).map(\.id),
+            ["limit-b"]
+        )
+    }
+
     func testResetCreditSummaryNormalizesCountAndPreservesExpiration() {
         let expiration = Date(timeIntervalSince1970: 1_800_950_400)
         let snapshot = QuotaSnapshot(
