@@ -160,13 +160,12 @@ actor ProcessLineTransport: LineTransport {
     private var input: Pipe?
     private var output: Pipe?
     private var readerTask: Task<Void, Never>?
-    private let lineStream: AsyncStream<String>
-    private let lineContinuation: AsyncStream<String>.Continuation
+    private var lineStream: AsyncStream<String>?
+    private var lineContinuation: AsyncStream<String>.Continuation?
 
     init(executableURL: URL, arguments: [String] = ["app-server"]) {
         self.executableURL = executableURL
         self.arguments = arguments
-        (lineStream, lineContinuation) = AsyncStream.makeStream(of: String.self)
     }
 
     func start() async throws {
@@ -181,12 +180,15 @@ actor ProcessLineTransport: LineTransport {
         process.standardOutput = output
         process.standardError = error
         try process.run()
+        let streamPair = AsyncStream.makeStream(of: String.self)
         self.process = process
         self.input = input
         self.output = output
+        lineStream = streamPair.stream
+        lineContinuation = streamPair.continuation
 
         let handle = output.fileHandleForReading
-        let continuation = lineContinuation
+        let continuation = streamPair.continuation
         readerTask = Task.detached {
             var buffer = Data()
             while !Task.isCancelled {
@@ -217,7 +219,7 @@ actor ProcessLineTransport: LineTransport {
     }
 
     func lines() async -> AsyncStream<String> {
-        lineStream
+        lineStream ?? AsyncStream { $0.finish() }
     }
 
     func stop() async {
@@ -229,6 +231,8 @@ actor ProcessLineTransport: LineTransport {
         process = nil
         input = nil
         output = nil
-        lineContinuation.finish()
+        lineContinuation?.finish()
+        lineStream = nil
+        lineContinuation = nil
     }
 }

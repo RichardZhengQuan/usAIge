@@ -1,23 +1,8 @@
 {
-  "version": "0.2.2",
-  "build": 24,
+  "version": "0.2.3",
+  "build": 25,
   "minimumSystemVersion": "11.0",
-  "downloadURL": "https://usaige-macos.richardqz.chatgpt.site/usAIge-0.2.2-alpha.dmg",
-  "sha256": "1a373066e367d9503e14323fea24d8b2317eff79408b2ebda2005e2d1c466c38",
-  "releaseNotes": {
-    "headline": "Lighter, steadier background monitoring",
-    "summary": "Version 0.2.2 reduces long-running memory growth while keeping live Codex usage and session updates immediate.",
-    "highlights": [
-      {
-        "title": "Lower memory use",
-        "detail": "Codex pipe-read buffers are released promptly, keeping usAIge lean during long monitoring sessions.",
-        "systemImage": "memorychip"
-      },
-      {
-        "title": "Live updates stay immediate",
-        "detail": "Usage limits and Codex session status continue to update from live events without slower polling.",
-        "systemImage": "bolt.horizontal.circle"
-      }
-    ]
-  }
+  "downloadURL": "https://usaige-macos.richardqz.chatgpt.site/usAIge-0.2.3-alpha.dmg",
+  "sha256": "4161b0140579410c33676aa22adc0b73319bd9984df8bd1daab43e3d917469dd",
+  "releaseNotes": {"headline":"Quota updates recover automatically","summary":"Version 0.2.3 keeps Codex limits current after a reset or temporary app-server disconnect.","highlights":[{"title":"No more frozen 100%","detail":"Quota polling now reconnects automatically instead of leaving a reset limit stuck at 100% while sessions continue updating.","systemImage":"arrow.triangle.2.circlepath"},{"title":"Live events resume","detail":"After reconnecting, usAIge subscribes to Codex limit events again and continues its five-second refresh fallback.","systemImage":"bolt.horizontal.circle"}]}
 }

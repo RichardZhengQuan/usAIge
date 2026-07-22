@@ -54,6 +54,21 @@ import Testing
     #expect(await rpc.requestedMethods == ["initialize", "account/read"])
 }
 
+@Test func reconnectsAfterCodexAppServerDisconnects() async throws {
+    let rpc = ReconnectingRPC()
+    let provider = CodexUsageProvider(rpc: rpc)
+
+    let result = try await provider.refresh()
+
+    #expect(result.snapshots.map(\.remainingPercent) == [90])
+    #expect(await rpc.startCount == 2)
+    #expect(await rpc.stopCount == 1)
+    #expect(await rpc.requestedMethods == [
+        "initialize", "account/read",
+        "initialize", "account/read", "account/rateLimits/read",
+    ])
+}
+
 private actor ScriptedRPC: RPCRequesting {
     private let responses: [String: JSONValue]
     private(set) var requestedMethods: [String] = []
@@ -84,4 +99,43 @@ private actor ScriptedRPC: RPCRequesting {
 
 private enum TestRPCError: Error {
     case noResponse
+}
+
+private actor ReconnectingRPC: RPCRequesting {
+    private(set) var startCount = 0
+    private(set) var stopCount = 0
+    private(set) var requestedMethods: [String] = []
+    private var shouldDisconnect = true
+
+    func start() async throws {
+        startCount += 1
+    }
+
+    func request(method: String, params: JSONValue) async throws -> JSONValue {
+        requestedMethods.append(method)
+        if method == "account/read", shouldDisconnect {
+            shouldDisconnect = false
+            throw JSONRPCError.disconnected
+        }
+        switch method {
+        case "initialize":
+            return .object([:])
+        case "account/read":
+            return .object(["account": .object(["type": .string("chatgpt")])])
+        case "account/rateLimits/read":
+            return Fixtures.singleBucketRateLimits
+        default:
+            throw TestRPCError.noResponse
+        }
+    }
+
+    func notify(method: String, params: JSONValue) async throws {}
+
+    func notifications() async -> AsyncStream<JSONRPCNotification> {
+        AsyncStream { $0.finish() }
+    }
+
+    func stop() async {
+        stopCount += 1
+    }
 }

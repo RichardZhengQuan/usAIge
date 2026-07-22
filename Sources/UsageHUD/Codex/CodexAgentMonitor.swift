@@ -109,7 +109,7 @@ actor CodexAgentProvider: CodexAgentProviding {
             "clientInfo": .object([
                 "name": .string("usaige-agent-monitor"),
                 "title": .string("usAIge Agent Monitor"),
-                "version": .string("0.2.2"),
+                "version": .string("0.2.3"),
             ]),
         ]))
         try await rpc.notify(method: "initialized", params: .object([:]))
