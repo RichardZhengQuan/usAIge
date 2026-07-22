@@ -72,16 +72,23 @@ func mapsRemainingPercentageToVisibleRingFraction(input: (Double, Double)) {
     #expect(AgentBreathingMotion.minimumThickness == 2)
     #expect(AgentBreathingMotion.midpointThickness == 4)
     #expect(AgentBreathingMotion.maximumThickness == 6)
-    #expect(AgentBreathingMotion.opacity(for: 2) == 0.68)
-    #expect(AgentBreathingMotion.opacity(for: 4) == 0.84)
-    #expect(AgentBreathingMotion.opacity(for: 6) == 1.00)
-    #expect(AgentBreathingMotion.outwardDiameter(baseDiameter: 46, thickness: 2) == 48)
-    #expect(AgentBreathingMotion.outwardDiameter(baseDiameter: 46, thickness: 6) == 52)
+    #expect(AgentBreathingMotion.opacity(for: 2) == 0.52)
+    #expect(AgentBreathingMotion.opacity(for: 4) == 0.66)
+    #expect(AgentBreathingMotion.opacity(for: 6) == 0.80)
 
-    let innerRadiusAtMinimum = (48.0 - 2.0) / 2.0
-    let innerRadiusAtMaximum = (52.0 - 6.0) / 2.0
-    #expect(innerRadiusAtMinimum == 23)
-    #expect(innerRadiusAtMaximum == 23)
+    let breathingDiameter = AgentBreathingMotion.baseDiameter(
+        outsideQuotaRing: 46,
+        quotaLineWidth: 4
+    )
+    #expect(breathingDiameter == 53)
+    #expect(AgentBreathingMotion.outwardDiameter(baseDiameter: breathingDiameter, thickness: 2) == 55)
+    #expect(AgentBreathingMotion.outwardDiameter(baseDiameter: breathingDiameter, thickness: 6) == 59)
+
+    let quotaOuterRadius = (46.0 + 4.0) / 2.0
+    let innerRadiusAtMinimum = (55.0 - 2.0) / 2.0
+    let innerRadiusAtMaximum = (59.0 - 6.0) / 2.0
+    #expect(abs(innerRadiusAtMinimum - quotaOuterRadius - AgentBreathingMotion.quotaRingGap) < 0.001)
+    #expect(abs(innerRadiusAtMaximum - quotaOuterRadius - AgentBreathingMotion.quotaRingGap) < 0.001)
 }
 
 @Test func sizesHUDToVisibleRowsWithoutLeavingBlankSpace() {

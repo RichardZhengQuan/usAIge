@@ -184,10 +184,18 @@ enum AgentBreathingMotion {
     static let minimumThickness: CGFloat = 2
     static let midpointThickness: CGFloat = 4
     static let maximumThickness: CGFloat = 6
+    static let quotaRingGap: CGFloat = 1.5
     static let keyframeDuration: TimeInterval = 0.825
-    static let minimumOpacity = 0.68
-    static let midpointOpacity = 0.84
-    static let maximumOpacity = 1.00
+    static let minimumOpacity = 0.52
+    static let midpointOpacity = 0.66
+    static let maximumOpacity = 0.80
+
+    static func baseDiameter(
+        outsideQuotaRing quotaDiameter: CGFloat,
+        quotaLineWidth: CGFloat
+    ) -> CGFloat {
+        quotaDiameter + quotaLineWidth + (quotaRingGap * 2)
+    }
 
     static func outwardDiameter(baseDiameter: CGFloat, thickness: CGFloat) -> CGFloat {
         baseDiameter + thickness
@@ -351,7 +359,10 @@ struct QuotaRowView: View {
             if agentPhase.showsLight && !hasCriticalSeverity {
                 AgentStatusRingLight(
                     phase: agentPhase,
-                    diameter: snapshot.secondaryWindow == nil ? 46 : 58,
+                    diameter: AgentBreathingMotion.baseDiameter(
+                        outsideQuotaRing: snapshot.secondaryWindow == nil ? 46 : 58,
+                        quotaLineWidth: snapshot.secondaryWindow == nil ? 4 : 3
+                    ),
                     isHovered: isHovered
                 )
             }
@@ -575,7 +586,7 @@ private struct AgentStatusRingLight: View {
             ZStack {
                 Circle()
                     .stroke(
-                        lightColor.opacity((isHovered ? 0.88 : 0.74) * opacity),
+                        lightColor.opacity((isHovered ? 0.70 : 0.54) * opacity),
                         lineWidth: 1
                     )
                     .frame(width: diameter, height: diameter)
@@ -583,7 +594,7 @@ private struct AgentStatusRingLight: View {
 
                 Circle()
                     .stroke(
-                        lightColor.opacity((isHovered ? 0.60 : 0.48) * opacity),
+                        lightColor.opacity((isHovered ? 0.42 : 0.30) * opacity),
                         lineWidth: thickness
                     )
                     .frame(
@@ -596,7 +607,7 @@ private struct AgentStatusRingLight: View {
                             thickness: thickness
                         )
                     )
-                    .blur(radius: thickness * 0.55)
+                    .blur(radius: thickness * 0.48)
             }
         } keyframes: { _ in
             LinearKeyframe(
