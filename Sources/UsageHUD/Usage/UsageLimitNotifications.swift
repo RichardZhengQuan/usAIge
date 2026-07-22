@@ -6,12 +6,18 @@ enum UsageLimitWindowKind: String, Equatable, Sendable {
     case secondary
 }
 
+enum UsageLimitNotificationKind: String, Equatable, Sendable {
+    case threshold
+    case reset
+}
+
 struct UsageLimitThresholdEvent: Equatable, Sendable {
     let toolID: AIToolID
     let bucketID: String
     let displayName: String
     let windowKind: UsageLimitWindowKind
     let windowTag: String
+    let notificationKind: UsageLimitNotificationKind
     let thresholdPercent: Int
     let usedPercent: Double
     let remainingPercent: Double
@@ -136,11 +142,24 @@ struct UsageLimitThresholdTracker {
                 resetAt: resetAt,
                 pendingReset: false
             )
+            if remaining.rounded() == 100 {
+                return makeEvent(
+                    key: key,
+                    snapshot: snapshot,
+                    windowTag: windowTag,
+                    notificationKind: .reset,
+                    thresholdPercent: 0,
+                    usedPercent: used,
+                    remainingPercent: remaining,
+                    resetAt: resetAt
+                )
+            }
             guard band > 0 else { return nil }
             return makeEvent(
                 key: key,
                 snapshot: snapshot,
                 windowTag: windowTag,
+                notificationKind: .threshold,
                 thresholdPercent: band * stepPercent,
                 usedPercent: used,
                 remainingPercent: remaining,
@@ -173,6 +192,7 @@ struct UsageLimitThresholdTracker {
             key: key,
             snapshot: snapshot,
             windowTag: windowTag,
+            notificationKind: .threshold,
             thresholdPercent: band * stepPercent,
             usedPercent: used,
             remainingPercent: remaining,
@@ -195,6 +215,7 @@ struct UsageLimitThresholdTracker {
         key: WindowKey,
         snapshot: QuotaSnapshot,
         windowTag: String,
+        notificationKind: UsageLimitNotificationKind,
         thresholdPercent: Int,
         usedPercent: Double,
         remainingPercent: Double,
@@ -206,6 +227,7 @@ struct UsageLimitThresholdTracker {
             displayName: snapshot.displayName,
             windowKind: key.windowKind,
             windowTag: windowTag,
+            notificationKind: notificationKind,
             thresholdPercent: thresholdPercent,
             usedPercent: usedPercent,
             remainingPercent: remainingPercent,
@@ -251,8 +273,14 @@ enum UsageLimitNotificationRequest {
         let tool = AIToolDescriptor.descriptor(for: event.toolID)
         let remaining = Int(event.remainingPercent.rounded())
         let content = UNMutableNotificationContent()
-        content.title = "\(tool.name) \(event.displayName): \(remaining)% remaining"
-        content.body = "\(event.windowTag) usage reached \(event.thresholdPercent)%. Open usAIge to see the reset time."
+        switch event.notificationKind {
+        case .threshold:
+            content.title = "\(tool.name) \(event.displayName): \(remaining)% remaining"
+            content.body = "\(event.windowTag) usage reached \(event.thresholdPercent)%. Open usAIge to see the reset time."
+        case .reset:
+            content.title = "\(tool.name) \(event.displayName): 100% available again"
+            content.body = "\(event.windowTag) usage has reset. Your full limit is available."
+        }
         content.sound = .default
         content.categoryIdentifier = UsageLimitNotifications.categoryIdentifier
         content.threadIdentifier = "usaige-limit-\(event.toolID.rawValue)-\(event.bucketID)"
@@ -260,16 +288,20 @@ enum UsageLimitNotificationRequest {
             "toolID": event.toolID.rawValue,
             "bucketID": event.bucketID,
             "windowKind": event.windowKind.rawValue,
+            "notificationKind": event.notificationKind.rawValue,
             "thresholdPercent": event.thresholdPercent,
         ]
 
         let cycle = Int(event.resetAt?.timeIntervalSince1970 ?? 0)
+        let eventToken = event.notificationKind == .reset
+            ? "reset-100"
+            : String(event.thresholdPercent)
         let identifier = [
             "usaige-limit",
             event.toolID.rawValue,
             event.bucketID,
             event.windowKind.rawValue,
-            String(event.thresholdPercent),
+            eventToken,
             String(cycle),
         ].joined(separator: "-")
         return UNNotificationRequest(identifier: identifier, content: content, trigger: nil)

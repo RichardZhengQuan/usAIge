@@ -70,6 +70,33 @@ import UserNotifications
     )
 }
 
+@Test func usageLimitTrackerNotifiesOnceWhenTheLimitResetsToOneHundredPercent() throws {
+    var tracker = UsageLimitThresholdTracker(stepPercent: 5)
+    let firstReset = Date(timeIntervalSince1970: 1_800_003_600)
+    let nextReset = Date(timeIntervalSince1970: 1_800_021_600)
+
+    #expect(tracker.events(for: [snapshot(usedPercent: 51, resetAt: firstReset)]).isEmpty)
+    let event = try #require(
+        tracker.events(for: [snapshot(usedPercent: 0, resetAt: nextReset)]).only
+    )
+
+    #expect(event.notificationKind == .reset)
+    #expect(event.remainingPercent == 100)
+    #expect(tracker.events(for: [snapshot(usedPercent: 0, resetAt: nextReset)]).isEmpty)
+}
+
+@Test func usageLimitTrackerNotifiesAboutAFullResetWithoutAResetDate() throws {
+    var tracker = UsageLimitThresholdTracker(stepPercent: 5)
+
+    #expect(tracker.events(for: [snapshot(usedPercent: 51, resetAt: nil)]).isEmpty)
+    let event = try #require(
+        tracker.events(for: [snapshot(usedPercent: 0, resetAt: nil)]).only
+    )
+
+    #expect(event.notificationKind == .reset)
+    #expect(event.remainingPercent == 100)
+}
+
 @Test func usageLimitTrackerDoesNotRepeatAfterADownwardCorrection() {
     var tracker = UsageLimitThresholdTracker(stepPercent: 5)
     let resetAt = Date(timeIntervalSince1970: 1_800_003_600)
@@ -193,6 +220,23 @@ import UserNotifications
     #expect(request.content.sound != nil)
     #expect(request.content.userInfo["bucketID"] as? String == "codex")
     #expect(request.content.userInfo["thresholdPercent"] as? Int == 25)
+}
+
+@Test func usageLimitNotificationRequestCelebratesAFullReset() throws {
+    var tracker = UsageLimitThresholdTracker(stepPercent: 5)
+    let firstReset = Date(timeIntervalSince1970: 1_800_003_600)
+    let nextReset = Date(timeIntervalSince1970: 1_800_021_600)
+    #expect(tracker.events(for: [snapshot(usedPercent: 51, resetAt: firstReset)]).isEmpty)
+    let event = try #require(
+        tracker.events(for: [snapshot(usedPercent: 0, resetAt: nextReset)]).only
+    )
+
+    let request = UsageLimitNotificationRequest.make(for: event)
+
+    #expect(request.identifier.contains("chatGPT-codex-primary-reset-100"))
+    #expect(request.content.title == "ChatGPT Codex 5-hour: 100% available again")
+    #expect(request.content.body == "5H usage has reset. Your full limit is available.")
+    #expect(request.content.userInfo["notificationKind"] as? String == "reset")
 }
 
 @Test func usageLimitNotificationCategoryProvidesAForegroundViewAction() throws {
