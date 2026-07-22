@@ -18,7 +18,7 @@ struct HUDPosition: Codable, Equatable, Sendable {
 final class HUDSettings: ObservableObject {
     static let scaleRange: ClosedRange<Double> = 0.5...2.5
     static let opacityRange: ClosedRange<Double> = 0.1...1.0
-    nonisolated static let usageAlertIntervalOptions = Array(stride(from: 5, through: 100, by: 5))
+    nonisolated static let usageAlertIntervalOptions = [5, 10, 20, 50]
     nonisolated static let defaultUsageAlertIntervalPercent = 10
 
     private struct LegacyRemoteTool: Codable, Equatable {
