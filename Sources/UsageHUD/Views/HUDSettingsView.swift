@@ -172,11 +172,18 @@ struct HUDSettingsView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    Spacer()
+                    .layoutPriority(1)
+                    Spacer(minLength: 8)
+                    if isUpdateBusy {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
                     Text(updateController.statusText)
                         .font(.caption)
                         .foregroundStyle(isUpdateError ? Color.red : Color.secondary)
                         .lineLimit(1)
+                        .truncationMode(.tail)
+                    updateButton
                 }
 
                 HStack(spacing: 10) {
@@ -189,29 +196,6 @@ struct HUDSettingsView: View {
                         )
                     }
                     Spacer()
-                    if isUpdateBusy {
-                        ProgressView()
-                            .controlSize(.small)
-                    }
-                    ZStack(alignment: .topTrailing) {
-                        Button(updateController.primaryButtonTitle) {
-                            Task { await updateController.performPrimaryAction() }
-                        }
-                        .disabled(!updateController.canPerformPrimaryAction)
-
-                        if updateController.canInstallUpdate {
-                            Circle()
-                                .fill(.red)
-                                .frame(width: 8, height: 8)
-                                .offset(x: 4, y: -3)
-                                .accessibilityHidden(true)
-                        }
-                    }
-                    .accessibilityValue(
-                        updateController.canInstallUpdate
-                            ? "New version available"
-                            : updateController.statusText
-                    )
                     Button("Quit usAIge") {
                         NSApplication.shared.terminate(nil)
                     }
@@ -219,10 +203,33 @@ struct HUDSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .scrollDisabled(true)
         .padding(.horizontal)
         .padding(.top)
         .padding(.bottom, 28)
+    }
+
+    private var updateButton: some View {
+        ZStack(alignment: .topTrailing) {
+            Button(updateController.primaryButtonTitle) {
+                Task { await updateController.performPrimaryAction() }
+            }
+            .disabled(!updateController.canPerformPrimaryAction)
+
+            if updateController.canInstallUpdate {
+                Circle()
+                    .fill(.red)
+                    .frame(width: 8, height: 8)
+                    .offset(x: 4, y: -3)
+                    .accessibilityHidden(true)
+            }
+        }
+        .fixedSize()
+        .layoutPriority(2)
+        .accessibilityValue(
+            updateController.canInstallUpdate
+                ? "New version available"
+                : updateController.statusText
+        )
     }
 
     private var aiToolsPage: some View {
