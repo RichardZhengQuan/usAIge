@@ -63,6 +63,25 @@ import Testing
     await connection.stop()
 }
 
+@Test func processTransportCreatesAFreshStreamAfterRestart() async throws {
+    let transport = ProcessLineTransport(
+        executableURL: URL(fileURLWithPath: "/bin/cat"),
+        arguments: []
+    )
+
+    try await transport.start()
+    var firstLines = await transport.lines().makeAsyncIterator()
+    try await transport.write("first")
+    #expect(await firstLines.next() == "first")
+    await transport.stop()
+
+    try await transport.start()
+    var secondLines = await transport.lines().makeAsyncIterator()
+    try await transport.write("second")
+    #expect(await secondLines.next() == "second")
+    await transport.stop()
+}
+
 private actor TestLineTransport: LineTransport {
     private var continuation: AsyncStream<String>.Continuation?
     private var written: [String] = []

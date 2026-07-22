@@ -50,6 +50,19 @@ actor CodexUsageProvider: CodexUsageProviding {
     }
 
     func refresh() async throws -> AccountUsageResult {
+        do {
+            return try await performRefresh()
+        } catch JSONRPCError.disconnected {
+            // The Codex app-server can restart independently of usAIge. Reset the
+            // transport and initialize a fresh process so one dropped connection
+            // cannot leave quota polling permanently stale.
+            await rpc.stop()
+            initialized = false
+            return try await performRefresh()
+        }
+    }
+
+    private func performRefresh() async throws -> AccountUsageResult {
         try await initializeIfNeeded()
         let account = try await rpc.request(method: "account/read", params: .object([
             "refreshToken": .bool(false),
@@ -72,11 +85,16 @@ actor CodexUsageProvider: CodexUsageProviding {
         let rpc = self.rpc
         return AsyncStream { continuation in
             let task = Task {
-                let notifications = await rpc.notifications()
-                for await notification in notifications {
-                    guard notification.method == "account/rateLimits/updated" else { continue }
-                    let updated = self.mergeUpdate(notification.params)
-                    continuation.yield(updated)
+                while !Task.isCancelled {
+                    let notifications = await rpc.notifications()
+                    for await notification in notifications {
+                        guard !Task.isCancelled else { break }
+                        guard notification.method == "account/rateLimits/updated" else { continue }
+                        let updated = self.mergeUpdate(notification.params)
+                        continuation.yield(updated)
+                    }
+                    guard !Task.isCancelled else { break }
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
                 }
                 continuation.finish()
             }
@@ -97,7 +115,7 @@ actor CodexUsageProvider: CodexUsageProviding {
             "clientInfo": .object([
                 "name": .string("usaige"),
                 "title": .string("usAIge"),
-                "version": .string("0.2.2"),
+                "version": .string("0.2.3"),
             ]),
         ]))
         try await rpc.notify(method: "initialized", params: .object([:]))

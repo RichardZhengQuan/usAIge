@@ -3,8 +3,8 @@ import { SectionLink } from "./section-link";
 const basePath = "/project/usaige";
 const assetUrl = (path: string) => `${basePath}/${path}`;
 const releaseBaseUrl = "https://usaige-macos.richardqz.chatgpt.site";
-const downloadUrl = `${releaseBaseUrl}/usAIge-0.2.2-alpha.dmg`;
-const checksumUrl = `${releaseBaseUrl}/usAIge-0.2.2-alpha.dmg.sha256`;
+const downloadUrl = `${releaseBaseUrl}/usAIge-0.2.3-alpha.dmg`;
+const checksumUrl = `${releaseBaseUrl}/usAIge-0.2.3-alpha.dmg.sha256`;
 
 const statusColors = [
   { key: "error", label: "Error", color: "#ff5284", detail: "Always wins" },
@@ -40,7 +40,7 @@ export default function Home() {
 
       <section className="hero shell" id="top">
         <div className="hero__copy">
-          <p className="eyebrow"><span /> v0.2.2 · Native macOS utility</p>
+          <p className="eyebrow"><span /> v0.2.3 · Native macOS utility</p>
           <h1>Your AI work,<br /><em>still breathing.</em></h1>
           <p className="hero__lede">
             usAIge keeps usage limits and Codex task health in one quiet floating rail. One glance tells you whether agents are running, finished, waiting, or broken.
@@ -48,7 +48,7 @@ export default function Home() {
           <div className="hero__actions">
             <a className="button button--primary" href={downloadUrl} download>
               <span className="button__icon" aria-hidden="true">↓</span>
-              <span><strong>Download for macOS</strong><small>v0.2.2 alpha · macOS 11+ · Apple silicon</small></span>
+              <span><strong>Download for macOS</strong><small>v0.2.3 alpha · macOS 11+ · Apple silicon</small></span>
             </a>
             <SectionLink className="text-link" targetId="agent-status">See the status system <span aria-hidden="true">→</span></SectionLink>
           </div>
@@ -166,7 +166,7 @@ export default function Home() {
         <div className="install__cta">
           <a className="button button--primary" href={downloadUrl} download>
             <span className="button__icon" aria-hidden="true">↓</span>
-            <span><strong>Download usAIge</strong><small>v0.2.2 alpha · macOS 11 or later · Apple silicon</small></span>
+            <span><strong>Download usAIge</strong><small>v0.2.3 alpha · macOS 11 or later · Apple silicon</small></span>
           </a>
           <a className="checksum" href={checksumUrl} download>SHA-256 checksum</a>
         </div>
@@ -175,7 +175,7 @@ export default function Home() {
       <footer className="footer shell">
         <SectionLink className="brand" targetId="top"><img src={assetUrl("app-icon.png")} alt="" /><span>us<span>AI</span>ge</span></SectionLink>
         <p>Built for people who would rather make things than monitor dashboards.</p>
-        <span>v0.2.2 public alpha · 2026</span>
+        <span>v0.2.3 public alpha · 2026</span>
       </footer>
     </main>
   );
