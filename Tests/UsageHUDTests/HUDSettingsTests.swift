@@ -50,12 +50,30 @@ import Testing
     let defaults = isolatedDefaults()
     var settings: HUDSettings? = HUDSettings(defaults: defaults)
 
+    #expect(HUDSettings.usageAlertIntervalOptions == [5, 10, 20, 50])
     #expect(settings?.usageAlertIntervalPercent == 10)
-    settings?.usageAlertIntervalPercent = 15
+    settings?.usageAlertIntervalPercent = 20
     settings = nil
 
     let restored = HUDSettings(defaults: defaults)
-    #expect(restored.usageAlertIntervalPercent == 15)
+    #expect(restored.usageAlertIntervalPercent == 20)
+}
+
+@MainActor
+@Test func resetsUnsupportedPersistedUsageAlertIntervalToDefault() throws {
+    let defaults = isolatedDefaults()
+    let existingSettings: [String: Any] = [
+        "version": 8,
+        "usageAlertIntervalPercent": 15,
+    ]
+    defaults.set(
+        try JSONSerialization.data(withJSONObject: existingSettings),
+        forKey: "usageHUD.settings.v1"
+    )
+
+    let restored = HUDSettings(defaults: defaults)
+
+    #expect(restored.usageAlertIntervalPercent == 10)
 }
 
 @MainActor
