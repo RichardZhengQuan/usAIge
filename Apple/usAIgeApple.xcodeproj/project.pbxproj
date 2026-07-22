@@ -52,12 +52,14 @@
 		C61B6436546AAD7DBCB8C3DD /* usAIgeWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 6E9251A6797046D9F323514C /* usAIgeWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		C996B81962852006BC3A0516 /* WatchUsageSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 272534A177E9E323D5B934EA /* WatchUsageSnapshot.swift */; };
 		D147D4AAACCF89B73E659917 /* usAIgeWatchWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB4888B646262C0A1D9AB091 /* usAIgeWatchWidgetBundle.swift */; };
+		D25A4D2CBAC44CB4807DF4B0 /* WidgetLimitSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8E10F6ED27A4C378E99B841 /* WidgetLimitSelection.swift */; };
 		D7456839ADAEFA3EFA7387F8 /* AppGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E6844339736DE677D45D067 /* AppGroup.swift */; };
 		E4E20551C708DD4454429E48 /* UsageWidgetEntryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71F38CCFD95322DFBF5B3130 /* UsageWidgetEntryView.swift */; };
 		E904EA0A96B1EA7B1FFFFD40 /* ToolConfigurationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2642C857CDF8F5D8C179C585 /* ToolConfigurationStore.swift */; };
 		F077DD8321F3DE53F5124B87 /* ToolConfigurationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2642C857CDF8F5D8C179C585 /* ToolConfigurationStore.swift */; };
 		F09D926A788A42D5E77D8227 /* KeychainTokenVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A6891CA0C866A84F1802B5A /* KeychainTokenVault.swift */; };
 		F1E2D3C4B5A6978877665545 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A6978877665544 /* SettingsView.swift */; };
+		F2FF7DBEB6FA47B3A8CE7781 /* WidgetLimitSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8E10F6ED27A4C378E99B841 /* WidgetLimitSelection.swift */; };
 		F6233B9011E34B36F2DA2F5E /* JSONFileStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = E88FF0BC3A39736F30433687 /* JSONFileStorage.swift */; };
 		F72548760296B82EF40E4256 /* RemoteUsageClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BB1D76EE9A1B7EDFDD128B5 /* RemoteUsageClient.swift */; };
 		FFB30A67BDCAA81A98766757 /* WatchSnapshotFileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E8587899BEB827DA8F42181 /* WatchSnapshotFileStore.swift */; };
@@ -160,6 +162,7 @@
 		BB4888B646262C0A1D9AB091 /* usAIgeWatchWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = usAIgeWatchWidgetBundle.swift; sourceTree = "<group>"; };
 		CFCB83ACE67932543D3877F1 /* UsageComplication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageComplication.swift; sourceTree = "<group>"; };
 		D1C0A7E20260719000000002 /* AppIcon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Assets.xcassets/AppIcon.appiconset/AppIcon.png; sourceTree = "<group>"; };
+		E8E10F6ED27A4C378E99B841 /* WidgetLimitSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetLimitSelection.swift; sourceTree = "<group>"; };
 		E88FF0BC3A39736F30433687 /* JSONFileStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONFileStorage.swift; sourceTree = "<group>"; };
 		F1E2D3C4B5A6978877665544 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		FC9F126328C84F7B6F676D5A /* ToolsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolsView.swift; sourceTree = "<group>"; };
@@ -290,6 +293,7 @@
 				158D248D5A3A52AFFBBD6153 /* QuotaSnapshot.swift */,
 				9A320A032CF1CA5A368FC44E /* RefreshScheduleMetadata.swift */,
 				A412FD303E4CBBAEA67C0926 /* RemoteToolConfiguration.swift */,
+				E8E10F6ED27A4C378E99B841 /* WidgetLimitSelection.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -528,6 +532,7 @@
 				A9C9B0CECD7974F67332DF7E /* UsAIgeIOSApp.swift in Sources */,
 				BC642E16510A77BBF069CECD /* WatchSyncCoordinator.swift in Sources */,
 				C996B81962852006BC3A0516 /* WatchUsageSnapshot.swift in Sources */,
+				D25A4D2CBAC44CB4807DF4B0 /* WidgetLimitSelection.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -548,6 +553,7 @@
 				3CD1ECBCAD9EE41A926B6D20 /* UsageWidget.swift in Sources */,
 				E4E20551C708DD4454429E48 /* UsageWidgetEntryView.swift in Sources */,
 				A81A9E3EDE5E115343D04FEA /* WatchUsageSnapshot.swift in Sources */,
+				F2FF7DBEB6FA47B3A8CE7781 /* WidgetLimitSelection.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -676,7 +682,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = Q66R79SK5A;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -763,7 +769,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = Q66R79SK5A;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;

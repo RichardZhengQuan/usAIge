@@ -24,7 +24,7 @@ struct QuotaTimelineEntry: TimelineEntry, Sendable {
 
 struct QuotaTimelineProvider: AppIntentTimelineProvider {
     typealias Entry = QuotaTimelineEntry
-    typealias Intent = UsageWidgetConfigurationIntent
+    typealias Intent = UsageWidgetConfigurationIntentV2
 
     /// WidgetKit treats this as a request, not a guaranteed refresh deadline.
     static let requestedRefreshInterval: TimeInterval = 15 * 60
@@ -36,14 +36,14 @@ struct QuotaTimelineProvider: AppIntentTimelineProvider {
     }
 
     func snapshot(
-        for configuration: UsageWidgetConfigurationIntent,
+        for configuration: UsageWidgetConfigurationIntentV2,
         in context: Context
     ) async -> QuotaTimelineEntry {
         await entry(at: .now, configuration: configuration, family: context.family)
     }
 
     func timeline(
-        for configuration: UsageWidgetConfigurationIntent,
+        for configuration: UsageWidgetConfigurationIntentV2,
         in context: Context
     ) async -> Timeline<QuotaTimelineEntry> {
         let now = Date()
@@ -79,7 +79,7 @@ struct QuotaTimelineProvider: AppIntentTimelineProvider {
 
     private func entry(
         at date: Date,
-        configuration: UsageWidgetConfigurationIntent,
+        configuration: UsageWidgetConfigurationIntentV2,
         family: WidgetFamily
     ) async -> QuotaTimelineEntry {
         do {
@@ -144,37 +144,18 @@ struct QuotaTimelineProvider: AppIntentTimelineProvider {
 
     private func selectedSnapshots(
         from snapshots: [QuotaSnapshot],
-        configuration: UsageWidgetConfigurationIntent,
+        configuration: UsageWidgetConfigurationIntentV2,
         family: WidgetFamily
     ) -> [QuotaSnapshot] {
-        let orderedSnapshots = snapshots.sorted(by: Self.areInDisplayOrder)
         let maximumCount = family == .systemSmall ? 1 : 4
-        let selectedIDs = Array(configuration.selectedLimitIDs.prefix(maximumCount))
-
-        guard !selectedIDs.isEmpty else {
-            return Array(orderedSnapshots.prefix(maximumCount))
-        }
-
-        let snapshotsByID = Dictionary(uniqueKeysWithValues: snapshots.map { ($0.id, $0) })
-        return selectedIDs.compactMap { snapshotsByID[$0] }
+        return WidgetLimitSelection.resolve(
+            selectedIDs: configuration.selectedLimitIDs,
+            from: snapshots,
+            maximumCount: maximumCount
+        )
     }
 
     static func areInDisplayOrder(_ left: QuotaSnapshot, _ right: QuotaSnapshot) -> Bool {
-        let leftRemaining = min(
-            left.remainingPercent,
-            left.secondaryWindow?.remainingPercent ?? 100
-        )
-        let rightRemaining = min(
-            right.remainingPercent,
-            right.secondaryWindow?.remainingPercent ?? 100
-        )
-
-        if leftRemaining != rightRemaining {
-            return leftRemaining < rightRemaining
-        }
-        if left.toolName != right.toolName {
-            return left.toolName.localizedCaseInsensitiveCompare(right.toolName) == .orderedAscending
-        }
-        return left.displayName.localizedCaseInsensitiveCompare(right.displayName) == .orderedAscending
+        WidgetLimitSelection.areInDisplayOrder(left, right)
     }
 }
