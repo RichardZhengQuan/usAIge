@@ -77,7 +77,7 @@ struct HUDSettingsView: View {
     }
 
     private var settingsPage: some View {
-        Form {
+        settingsForm(topPadding: 16) {
             Section("General") {
                 Toggle(
                     "Open usAIge at login",
@@ -206,10 +206,6 @@ struct HUDSettingsView: View {
                 }
             }
         }
-        .formStyle(.grouped)
-        .padding(.horizontal)
-        .padding(.top)
-        .padding(.bottom, 28)
         .task {
             await updateController.checkForUpdates()
         }
@@ -241,7 +237,7 @@ struct HUDSettingsView: View {
 
     private var aiToolsPage: some View {
         pageContainer(title: "AI Tools") {
-            Form {
+            settingsForm {
                 Section("Local AI Tools") {
                     if activeLocalToolIDs.isEmpty {
                         Text("No local tools detected.")
@@ -314,8 +310,6 @@ struct HUDSettingsView: View {
                     }
                 }
             }
-            .formStyle(.grouped)
-            .padding(.horizontal)
         }
     }
 
@@ -335,7 +329,7 @@ struct HUDSettingsView: View {
 
     private var feedbackPage: some View {
         pageContainer(title: "Send Feedback") {
-            Form {
+            settingsForm {
                 Section("Your Feedback") {
                     TextEditor(text: $feedbackDraft.content)
                         .frame(minHeight: 120)
@@ -382,8 +376,6 @@ struct HUDSettingsView: View {
                     Text("usAIge sends this message with the platform, system version, architecture, locale, app version/build, and submission time. No account is required.")
                 }
             }
-            .formStyle(.grouped)
-            .padding(.horizontal)
         }
     }
 
@@ -420,7 +412,7 @@ struct HUDSettingsView: View {
 
     private var iPhoneSyncPage: some View {
         pageContainer(title: "iPhone & Apple Watch Sync") {
-            Form {
+            settingsForm {
                 Section("Connection") {
                     if relaySync.isLinked {
                         LabeledContent("Mac", value: relaySync.macName)
@@ -477,14 +469,12 @@ struct HUDSettingsView: View {
                     }
                 }
             }
-            .formStyle(.grouped)
-            .padding(.horizontal)
         }
     }
 
     private var remoteToolPairingPage: some View {
         pageContainer(title: "Connect AI Tool") {
-            Form {
+            settingsForm {
                 Section("Connection") {
                     if relaySync.remoteTools.isEmpty {
                         ContentUnavailableView(
@@ -585,9 +575,23 @@ struct HUDSettingsView: View {
                     .foregroundStyle(.secondary)
                 }
             }
-            .formStyle(.grouped)
-            .padding(.horizontal)
             .task { _ = try? await relaySync.refreshRemoteTools() }
+        }
+    }
+
+    private func settingsForm<Content: View>(
+        topPadding: CGFloat = 0,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        ScrollView {
+            Form {
+                content()
+            }
+            .formStyle(.grouped)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal)
+            .padding(.top, topPadding)
+            .padding(.bottom, 28)
         }
     }
 
