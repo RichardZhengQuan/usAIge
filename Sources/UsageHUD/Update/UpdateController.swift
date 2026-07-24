@@ -129,6 +129,8 @@ final class UpdateController: ObservableObject {
         string: "https://pmrichq.com/project/usaige/update.json"
     )!
     nonisolated static let defaultManifestURLs = [currentManifestURL, legacyManifestURL]
+    nonisolated static let automaticCheckIntervalNanoseconds: UInt64 =
+        30 * 60 * 1_000_000_000
 
     @Published private(set) var status: UpdateStatus = .idle
     @Published private(set) var isReplacementPrepared = false
@@ -260,7 +262,7 @@ final class UpdateController: ObservableObject {
             while !Task.isCancelled {
                 await self?.checkForUpdates()
                 do {
-                    try await Task.sleep(nanoseconds: 6 * 60 * 60 * 1_000_000_000)
+                    try await Task.sleep(nanoseconds: Self.automaticCheckIntervalNanoseconds)
                 } catch {
                     return
                 }
@@ -275,7 +277,7 @@ final class UpdateController: ObservableObject {
 
     func checkForUpdates() async {
         switch status {
-        case .downloading, .preparing:
+        case .checking, .downloading, .preparing:
             return
         default:
             break
@@ -306,7 +308,7 @@ final class UpdateController: ObservableObject {
     }
 
     private func loadManifest(from url: URL) async throws -> UpdateManifest {
-        let (data, response) = try await session.data(from: url)
+        let (data, response) = try await session.data(for: Self.manifestRequest(for: url))
         guard let httpResponse = response as? HTTPURLResponse,
               httpResponse.statusCode == 200 else {
             throw UpdateError.feedUnavailable
@@ -314,6 +316,17 @@ final class UpdateController: ObservableObject {
         let manifest = try JSONDecoder().decode(UpdateManifest.self, from: data)
         try manifest.validate()
         return manifest
+    }
+
+    nonisolated static func manifestRequest(for url: URL) -> URLRequest {
+        var request = URLRequest(
+            url: url,
+            cachePolicy: .reloadIgnoringLocalCacheData,
+            timeoutInterval: 30
+        )
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        request.setValue("no-cache", forHTTPHeaderField: "Pragma")
+        return request
     }
 
     func installAvailableUpdate() async {

@@ -129,6 +129,23 @@ import Testing
     #expect(UpdateController.legacyManifestURL.host == "pmrichq.com")
 }
 
+@Test func updateManifestRequestsBypassCachedReleaseData() throws {
+    let url = try #require(URL(string: "https://example.com/update.json"))
+    let request = UpdateController.manifestRequest(for: url)
+
+    #expect(request.cachePolicy == .reloadIgnoringLocalCacheData)
+    #expect(request.timeoutInterval == 30)
+    #expect(request.value(forHTTPHeaderField: "Cache-Control") == "no-cache")
+    #expect(request.value(forHTTPHeaderField: "Pragma") == "no-cache")
+}
+
+@Test func updateChecksRepeatWithinThirtyMinutes() {
+    #expect(
+        UpdateController.automaticCheckIntervalNanoseconds
+            == UInt64(30 * 60 * 1_000_000_000)
+    )
+}
+
 @Test func migrationReleaseChoosesTheNewestValidFeed() throws {
     let current = UpdateManifest(
         version: "0.2.1",
