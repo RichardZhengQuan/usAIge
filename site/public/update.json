@@ -1,8 +1,8 @@
 {
-  "version": "0.2.5",
-  "build": 27,
+  "version": "0.2.6",
+  "build": 28,
   "minimumSystemVersion": "11.0",
-  "downloadURL": "https://usaige-macos.richardqz.chatgpt.site/usAIge-0.2.5-alpha.dmg",
-  "sha256": "bb9b3c192c98a20fe46b25d9488bac1e7ef2367a7d85f338d71f4fa43c443117",
-  "releaseNotes": {"headline":"Update alerts arrive sooner","summary":"Version 0.2.5 checks for a fresh release when Settings opens and every 30 minutes while usAIge is running.","highlights":[{"title":"Fresh every time","detail":"Update checks bypass cached manifests, so a newly published build no longer looks like the installed version.","systemImage":"arrow.triangle.2.circlepath"},{"title":"Check without waiting","detail":"Opening Settings performs an immediate check, and the manual update control remains visible in the Software updates row.","systemImage":"bell.badge"}]}
+  "downloadURL": "https://usaige-macos.richardqz.chatgpt.site/usAIge-0.2.6-alpha.dmg",
+  "sha256": "0bede674bc01280e61bfab7f7893bd451c0ac21800d6d66deea1f8446965a2d5",
+  "releaseNotes": {"headline":"Every setting stays within reach","summary":"Version 0.2.6 makes every Settings page scroll so controls remain reachable in the fixed-size window.","highlights":[{"title":"Reach every control","detail":"Scroll through Settings to reach updates, About, What’s New, and Quit even when the window is compact.","systemImage":"scroll"},{"title":"Consistent detail pages","detail":"AI Tools, iPhone Sync, feedback, and pairing pages now share the same reliable scrolling behavior.","systemImage":"gearshape.2"}]}
 }

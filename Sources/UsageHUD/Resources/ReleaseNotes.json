@@ -1,19 +1,19 @@
 {
-  "version": "0.2.5",
-  "build": 27,
+  "version": "0.2.6",
+  "build": 28,
   "releaseNotes": {
-    "headline": "Update alerts arrive sooner",
-    "summary": "Version 0.2.5 checks for a fresh release when Settings opens and every 30 minutes while usAIge is running.",
+    "headline": "Every setting stays within reach",
+    "summary": "Version 0.2.6 makes every Settings page scroll so controls remain reachable in the fixed-size window.",
     "highlights": [
       {
-        "title": "Fresh every time",
-        "detail": "Update checks bypass cached manifests, so a newly published build no longer looks like the installed version.",
-        "systemImage": "arrow.triangle.2.circlepath"
+        "title": "Reach every control",
+        "detail": "Scroll through Settings to reach updates, About, What’s New, and Quit even when the window is compact.",
+        "systemImage": "scroll"
       },
       {
-        "title": "Check without waiting",
-        "detail": "Opening Settings performs an immediate check, and the manual update control remains visible in the Software updates row.",
-        "systemImage": "bell.badge"
+        "title": "Consistent detail pages",
+        "detail": "AI Tools, iPhone Sync, feedback, and pairing pages now share the same reliable scrolling behavior.",
+        "systemImage": "gearshape.2"
       }
     ]
   }
