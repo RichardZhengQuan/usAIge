@@ -36,6 +36,11 @@ actor CodexUsageProvider: CodexUsageProviding {
         let earliestExpiration: Date?
     }
 
+    private struct UpdateMergeResult {
+        let snapshots: [QuotaSnapshot]
+        let requiresAuthoritativeRefresh: Bool
+    }
+
     private let rpc: any RPCRequesting
     private let now: @Sendable () -> Date
     private var initialized = false
@@ -90,8 +95,13 @@ actor CodexUsageProvider: CodexUsageProviding {
                     for await notification in notifications {
                         guard !Task.isCancelled else { break }
                         guard notification.method == "account/rateLimits/updated" else { continue }
-                        let updated = self.mergeUpdate(notification.params)
-                        continuation.yield(updated)
+                        let merged = self.mergeUpdate(notification.params)
+                        if merged.requiresAuthoritativeRefresh,
+                           let refreshed = try? await self.refresh() {
+                            continuation.yield(refreshed.snapshots)
+                        } else {
+                            continuation.yield(merged.snapshots)
+                        }
                     }
                     guard !Task.isCancelled else { break }
                     try? await Task.sleep(nanoseconds: 1_000_000_000)
@@ -115,22 +125,33 @@ actor CodexUsageProvider: CodexUsageProviding {
             "clientInfo": .object([
                 "name": .string("usaige"),
                 "title": .string("usAIge"),
-                "version": .string("0.2.3"),
+                "version": .string("0.2.4"),
             ]),
         ]))
         try await rpc.notify(method: "initialized", params: .object([:]))
         initialized = true
     }
 
-    private func mergeUpdate(_ params: JSONValue) -> [QuotaSnapshot] {
+    private func mergeUpdate(_ params: JSONValue) -> UpdateMergeResult {
         let wrapped: JSONValue
-        if params["rateLimits"] != nil || params["rateLimitsByLimitId"] != nil {
+        if params["rateLimits"] != nil
+            || params["rateLimitsByLimitId"] != nil
+            || params["rateLimitResetCredits"] != nil {
             wrapped = params
         } else {
             wrapped = .object(["rateLimits": params])
         }
+        let previousAvailableResetCount = snapshotsByID.values
+            .compactMap(\.availableResetCount)
+            .first
         let resetCredits = Self.resetCreditSummary(in: wrapped)
         let updates = Self.decodeSnapshots(from: wrapped, updatedAt: now())
+        let resetCreditWasConsumed: Bool
+        if let previousAvailableResetCount, let resetCredits {
+            resetCreditWasConsumed = resetCredits.availableCount < previousAvailableResetCount
+        } else {
+            resetCreditWasConsumed = false
+        }
         for var snapshot in updates {
             if let resetCredits {
                 snapshot.availableResetCount = resetCredits.availableCount
@@ -149,7 +170,10 @@ actor CodexUsageProvider: CodexUsageProviding {
                 snapshotsByID[id]?.resetCreditExpiresAt = resetCredits.earliestExpiration
             }
         }
-        return snapshotsByID.values.sorted { $0.id < $1.id }
+        return UpdateMergeResult(
+            snapshots: snapshotsByID.values.sorted { $0.id < $1.id },
+            requiresAuthoritativeRefresh: updates.isEmpty || resetCreditWasConsumed
+        )
     }
 
     private static func decodeSnapshots(from response: JSONValue, updatedAt: Date) -> [QuotaSnapshot] {

@@ -49,7 +49,7 @@ import UserNotifications
     #expect(events.map(\.thresholdPercent) == [5, 10])
 }
 
-@Test func usageLimitTrackerStartsAQuietBaselineAfterAReset() {
+@Test func usageLimitTrackerNotifiesThenStartsANewThresholdBaselineAfterAReset() {
     var tracker = UsageLimitThresholdTracker(stepPercent: 5)
     let firstReset = Date(timeIntervalSince1970: 1_800_003_600)
     let nextReset = Date(timeIntervalSince1970: 1_800_021_600)
@@ -62,7 +62,8 @@ import UserNotifications
             .map(\.thresholdPercent) == [50]
     )
     #expect(
-        tracker.events(for: [snapshot(usedPercent: 2, resetAt: nextReset)]).isEmpty
+        tracker.events(for: [snapshot(usedPercent: 2, resetAt: nextReset)])
+            .map(\.notificationKind) == [.reset]
     )
     #expect(
         tracker.events(for: [snapshot(usedPercent: 6, resetAt: nextReset)])
@@ -123,16 +124,18 @@ import UserNotifications
     #expect(tracker.events(for: [snapshot(usedPercent: 5.1, resetAt: resetAt)]).isEmpty)
 }
 
-@Test func usageLimitTrackerReportsTheLatestBoundarySeenAfterAConfirmedReset() {
+@Test func usageLimitTrackerReportsAResetEvenWhenSomeNewLimitWasAlreadyUsed() throws {
     var tracker = UsageLimitThresholdTracker(stepPercent: 5)
     let firstReset = Date(timeIntervalSince1970: 1_800_003_600)
     let nextReset = Date(timeIntervalSince1970: 1_800_021_600)
 
     #expect(tracker.events(for: [snapshot(usedPercent: 95, resetAt: firstReset)]).isEmpty)
-    #expect(
-        tracker.events(for: [snapshot(usedPercent: 7, resetAt: nextReset)])
-            .map(\.thresholdPercent) == [5]
+    let event = try #require(
+        tracker.events(for: [snapshot(usedPercent: 7, resetAt: nextReset)]).only
     )
+
+    #expect(event.notificationKind == .reset)
+    #expect(event.remainingPercent == 93)
 }
 
 @Test func usageLimitTrackerHandlesUsageAndResetDateArrivingInSeparateUpdates() {
@@ -146,7 +149,10 @@ import UserNotifications
             .map(\.thresholdPercent) == [50]
     )
     #expect(tracker.events(for: [snapshot(usedPercent: 2, resetAt: firstReset)]).isEmpty)
-    #expect(tracker.events(for: [snapshot(usedPercent: 2, resetAt: nextReset)]).isEmpty)
+    #expect(
+        tracker.events(for: [snapshot(usedPercent: 2, resetAt: nextReset)])
+            .map(\.notificationKind) == [.reset]
+    )
     #expect(
         tracker.events(for: [snapshot(usedPercent: 6, resetAt: nextReset)])
             .map(\.thresholdPercent) == [5]
@@ -161,7 +167,10 @@ import UserNotifications
         tracker.events(for: [snapshot(usedPercent: 51, resetAt: nil)])
             .map(\.thresholdPercent) == [50]
     )
-    #expect(tracker.events(for: [snapshot(usedPercent: 2, resetAt: nil)]).isEmpty)
+    #expect(
+        tracker.events(for: [snapshot(usedPercent: 2, resetAt: nil)])
+            .map(\.notificationKind) == [.reset]
+    )
     #expect(
         tracker.events(for: [snapshot(usedPercent: 6, resetAt: nil)])
             .map(\.thresholdPercent) == [5]
@@ -185,6 +194,30 @@ import UserNotifications
     #expect(
         tracker.events(for: [snapshot(usedPercent: 26, resetAt: correctedReset)]).isEmpty
     )
+}
+
+@Test func usageLimitTrackerRecognizesAConsumedResetCreditBeforeTheQuotaRefreshArrives() throws {
+    var tracker = UsageLimitThresholdTracker(stepPercent: 5)
+    let resetAt = Date(timeIntervalSince1970: 1_800_003_600)
+
+    #expect(
+        tracker.events(for: [
+            snapshot(usedPercent: 95, resetAt: resetAt, availableResetCount: 1),
+        ]).isEmpty
+    )
+    #expect(
+        tracker.events(for: [
+            snapshot(usedPercent: 95, resetAt: resetAt, availableResetCount: 0),
+        ]).isEmpty
+    )
+    let event = try #require(
+        tracker.events(for: [
+            snapshot(usedPercent: 1, resetAt: resetAt, availableResetCount: 0),
+        ]).only
+    )
+
+    #expect(event.notificationKind == .reset)
+    #expect(event.remainingPercent == 99)
 }
 
 @Test func usageLimitTrackerReportsOneHundredPercentOnlyOnce() {
@@ -222,7 +255,7 @@ import UserNotifications
     #expect(request.content.userInfo["thresholdPercent"] as? Int == 25)
 }
 
-@Test func usageLimitNotificationRequestCelebratesAFullReset() throws {
+@Test func usageLimitNotificationRequestDescribesAFullReset() throws {
     var tracker = UsageLimitThresholdTracker(stepPercent: 5)
     let firstReset = Date(timeIntervalSince1970: 1_800_003_600)
     let nextReset = Date(timeIntervalSince1970: 1_800_021_600)
@@ -234,8 +267,8 @@ import UserNotifications
     let request = UsageLimitNotificationRequest.make(for: event)
 
     #expect(request.identifier.contains("chatGPT-codex-primary-reset-100"))
-    #expect(request.content.title == "ChatGPT Codex 5-hour: 100% available again")
-    #expect(request.content.body == "5H usage has reset. Your full limit is available.")
+    #expect(request.content.title == "ChatGPT Codex 5-hour: limit reset")
+    #expect(request.content.body == "5H usage has reset. 100% is available now.")
     #expect(request.content.userInfo["notificationKind"] as? String == "reset")
 }
 
@@ -294,9 +327,10 @@ import UserNotifications
 private func snapshot(
     usedPercent: Double,
     secondaryUsedPercent: Double? = nil,
-    resetAt: Date? = Date(timeIntervalSince1970: 1_800_003_600)
+    resetAt: Date? = Date(timeIntervalSince1970: 1_800_003_600),
+    availableResetCount: Int? = nil
 ) -> QuotaSnapshot {
-    QuotaSnapshot(
+    var snapshot = QuotaSnapshot(
         id: "codex",
         displayName: "Codex 5-hour",
         usedPercent: usedPercent,
@@ -314,6 +348,8 @@ private func snapshot(
             )
         }
     )
+    snapshot.availableResetCount = availableResetCount
+    return snapshot
 }
 
 private extension Array {

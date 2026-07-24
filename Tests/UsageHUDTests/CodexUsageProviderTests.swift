@@ -69,6 +69,31 @@ import Testing
     ])
 }
 
+@Test func refreshesAuthoritativeLimitsAfterAPartialResetCreditUpdate() async throws {
+    let rpc = ResetCreditUpdateRPC(rateLimitResponses: [
+        resetCreditLimits(usedPercent: 95, availableResetCount: 1),
+        resetCreditLimits(usedPercent: 1, availableResetCount: 0),
+    ])
+    let provider = CodexUsageProvider(
+        rpc: rpc,
+        now: { Date(timeIntervalSince1970: 1_800_000_000) }
+    )
+
+    let initial = try await provider.refresh()
+    #expect(initial.snapshots.first?.remainingPercent == 5)
+    #expect(initial.snapshots.first?.availableResetCount == 1)
+
+    let updates = await provider.updates()
+    var iterator = updates.makeAsyncIterator()
+    await rpc.sendResetCreditUsed()
+    let synchronized = await iterator.next()
+
+    #expect(synchronized?.first?.remainingPercent == 99)
+    #expect(synchronized?.first?.availableResetCount == 0)
+    #expect(await rpc.rateLimitReadCount == 2)
+    await provider.stop()
+}
+
 private actor ScriptedRPC: RPCRequesting {
     private let responses: [String: JSONValue]
     private(set) var requestedMethods: [String] = []
@@ -138,4 +163,78 @@ private actor ReconnectingRPC: RPCRequesting {
     func stop() async {
         stopCount += 1
     }
+}
+
+private actor ResetCreditUpdateRPC: RPCRequesting {
+    private var rateLimitResponses: [JSONValue]
+    private let notificationStream: AsyncStream<JSONRPCNotification>
+    private let notificationContinuation: AsyncStream<JSONRPCNotification>.Continuation
+    private(set) var rateLimitReadCount = 0
+
+    init(rateLimitResponses: [JSONValue]) {
+        self.rateLimitResponses = rateLimitResponses
+        let streamPair = AsyncStream.makeStream(of: JSONRPCNotification.self)
+        notificationStream = streamPair.stream
+        notificationContinuation = streamPair.continuation
+    }
+
+    func start() async throws {}
+
+    func request(method: String, params: JSONValue) async throws -> JSONValue {
+        switch method {
+        case "initialize":
+            return .object([:])
+        case "account/read":
+            return .object(["account": .object(["type": .string("chatgpt")])])
+        case "account/rateLimits/read":
+            rateLimitReadCount += 1
+            guard !rateLimitResponses.isEmpty else { throw TestRPCError.noResponse }
+            return rateLimitResponses.removeFirst()
+        default:
+            throw TestRPCError.noResponse
+        }
+    }
+
+    func notify(method: String, params: JSONValue) async throws {}
+
+    func notifications() async -> AsyncStream<JSONRPCNotification> {
+        notificationStream
+    }
+
+    func sendResetCreditUsed() {
+        notificationContinuation.yield(JSONRPCNotification(
+            method: "account/rateLimits/updated",
+            params: .object([
+                "rateLimitResetCredits": .object([
+                    "availableCount": .number(0),
+                    "credits": .array([]),
+                ]),
+            ])
+        ))
+    }
+
+    func stop() async {
+        notificationContinuation.finish()
+    }
+}
+
+private func resetCreditLimits(
+    usedPercent: Double,
+    availableResetCount: Int
+) -> JSONValue {
+    .object([
+        "rateLimits": .object([
+            "limitId": .string("codex"),
+            "limitName": .string("Codex weekly"),
+            "primary": .object([
+                "usedPercent": .number(usedPercent),
+                "windowDurationMins": .number(10_080),
+                "resetsAt": .number(1_800_604_800),
+            ]),
+        ]),
+        "rateLimitResetCredits": .object([
+            "availableCount": .number(Double(availableResetCount)),
+            "credits": .array([]),
+        ]),
+    ])
 }
