@@ -173,17 +173,21 @@ struct HUDSettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                     .layoutPriority(1)
-                    Spacer(minLength: 8)
-                    if isUpdateBusy {
-                        ProgressView()
-                            .controlSize(.small)
+                    Spacer(minLength: 12)
+                    VStack(alignment: .trailing, spacing: 6) {
+                        HStack(spacing: 6) {
+                            if isUpdateBusy {
+                                ProgressView()
+                                    .controlSize(.small)
+                            }
+                            Text(updateController.statusText)
+                                .font(.caption)
+                                .foregroundStyle(isUpdateError ? Color.red : Color.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
+                        updateButton
                     }
-                    Text(updateController.statusText)
-                        .font(.caption)
-                        .foregroundStyle(isUpdateError ? Color.red : Color.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    updateButton
                 }
 
                 HStack(spacing: 10) {
@@ -206,6 +210,9 @@ struct HUDSettingsView: View {
         .padding(.horizontal)
         .padding(.top)
         .padding(.bottom, 28)
+        .task {
+            await updateController.checkForUpdates()
+        }
     }
 
     private var updateButton: some View {

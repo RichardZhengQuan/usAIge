@@ -1,8 +1,8 @@
 {
-  "version": "0.2.4",
-  "build": 26,
+  "version": "0.2.5",
+  "build": 27,
   "minimumSystemVersion": "11.0",
-  "downloadURL": "https://usaige-macos.richardqz.chatgpt.site/usAIge-0.2.4-alpha.dmg",
-  "sha256": "f78e5f08977a70520ed89e41d9f393f80c8be382c34f360a169c591a1a7070d4",
-  "releaseNotes": {"headline":"Reset limits sync and notify","summary":"Version 0.2.4 refreshes Codex limits after a reset credit and tells you when a new limit is available.","highlights":[{"title":"Reset credits stay current","detail":"When a reset-credit event is incomplete, usAIge immediately reads the authoritative limit instead of keeping an exhausted cached value.","systemImage":"arrow.triangle.2.circlepath"},{"title":"Know when the limit resets","detail":"A notification now confirms the new cycle and shows the actual percentage available, even if a little of the reset limit was already used.","systemImage":"bell.badge"}]}
+  "downloadURL": "https://usaige-macos.richardqz.chatgpt.site/usAIge-0.2.5-alpha.dmg",
+  "sha256": "bb9b3c192c98a20fe46b25d9488bac1e7ef2367a7d85f338d71f4fa43c443117",
+  "releaseNotes": {"headline":"Update alerts arrive sooner","summary":"Version 0.2.5 checks for a fresh release when Settings opens and every 30 minutes while usAIge is running.","highlights":[{"title":"Fresh every time","detail":"Update checks bypass cached manifests, so a newly published build no longer looks like the installed version.","systemImage":"arrow.triangle.2.circlepath"},{"title":"Check without waiting","detail":"Opening Settings performs an immediate check, and the manual update control remains visible in the Software updates row.","systemImage":"bell.badge"}]}
 }
