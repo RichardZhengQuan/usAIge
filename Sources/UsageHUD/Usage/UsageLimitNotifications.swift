@@ -38,7 +38,9 @@ struct UsageLimitThresholdTracker {
         let band: Int
         let highWaterBand: Int
         let resetAt: Date?
+        let availableResetCount: Int?
         let pendingReset: Bool
+        let pendingResetCredit: Bool
     }
 
     private var observations: [WindowKey: Observation] = [:]
@@ -115,7 +117,9 @@ struct UsageLimitThresholdTracker {
                 band: band,
                 highWaterBand: band,
                 resetAt: resetAt,
-                pendingReset: false
+                availableResetCount: snapshot.availableResetCount,
+                pendingReset: false,
+                pendingResetCredit: false
             )
             return nil
         }
@@ -132,7 +136,19 @@ struct UsageLimitThresholdTracker {
             && (usageDrop >= Double(stepPercent) || (band == 0 && usageDrop >= 1))
         let confirmedByResetDate = (fellToLowerBand || previous.pendingReset)
             && resetDateAdvanced
-        let isNewCycle = confirmedByRollover || confirmedByResetDate
+        let resetCreditCountDecreased: Bool
+        let resetCreditCountIncreased: Bool
+        if let previousCount = previous.availableResetCount,
+           let currentCount = snapshot.availableResetCount {
+            resetCreditCountDecreased = currentCount < previousCount
+            resetCreditCountIncreased = currentCount > previousCount
+        } else {
+            resetCreditCountDecreased = false
+            resetCreditCountIncreased = false
+        }
+        let confirmedByResetCredit = fellToLowerBand
+            && (resetCreditCountDecreased || previous.pendingResetCredit)
+        let isNewCycle = confirmedByRollover || confirmedByResetDate || confirmedByResetCredit
 
         if isNewCycle {
             observations[key] = Observation(
@@ -140,27 +156,16 @@ struct UsageLimitThresholdTracker {
                 band: band,
                 highWaterBand: band,
                 resetAt: resetAt,
-                pendingReset: false
+                availableResetCount: snapshot.availableResetCount,
+                pendingReset: false,
+                pendingResetCredit: false
             )
-            if remaining.rounded() == 100 {
-                return makeEvent(
-                    key: key,
-                    snapshot: snapshot,
-                    windowTag: windowTag,
-                    notificationKind: .reset,
-                    thresholdPercent: 0,
-                    usedPercent: used,
-                    remainingPercent: remaining,
-                    resetAt: resetAt
-                )
-            }
-            guard band > 0 else { return nil }
             return makeEvent(
                 key: key,
                 snapshot: snapshot,
                 windowTag: windowTag,
-                notificationKind: .threshold,
-                thresholdPercent: band * stepPercent,
+                notificationKind: .reset,
+                thresholdPercent: 0,
                 usedPercent: used,
                 remainingPercent: remaining,
                 resetAt: resetAt
@@ -176,12 +181,22 @@ struct UsageLimitThresholdTracker {
         } else {
             pendingReset = previous.pendingReset
         }
+        let pendingResetCredit: Bool
+        if resetCreditCountIncreased {
+            pendingResetCredit = false
+        } else if resetCreditCountDecreased {
+            pendingResetCredit = true
+        } else {
+            pendingResetCredit = previous.pendingResetCredit
+        }
         observations[key] = Observation(
             usedPercent: used,
             band: band,
             highWaterBand: highWaterBand,
             resetAt: resetAt,
-            pendingReset: pendingReset
+            availableResetCount: snapshot.availableResetCount,
+            pendingReset: pendingReset,
+            pendingResetCredit: pendingResetCredit
         )
 
         guard !fellToLowerBand,
@@ -278,8 +293,8 @@ enum UsageLimitNotificationRequest {
             content.title = "\(tool.name) \(event.displayName): \(remaining)% remaining"
             content.body = "\(event.windowTag) usage reached \(event.thresholdPercent)%. Open usAIge to see the reset time."
         case .reset:
-            content.title = "\(tool.name) \(event.displayName): 100% available again"
-            content.body = "\(event.windowTag) usage has reset. Your full limit is available."
+            content.title = "\(tool.name) \(event.displayName): limit reset"
+            content.body = "\(event.windowTag) usage has reset. \(remaining)% is available now."
         }
         content.sound = .default
         content.categoryIdentifier = UsageLimitNotifications.categoryIdentifier

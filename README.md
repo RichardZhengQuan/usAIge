@@ -147,7 +147,7 @@ The packaged application includes the custom usAIge icon in Finder, the Dock, Sp
 
 ## Install the public alpha
 
-Download `usAIge-0.2.3-alpha.dmg` and its checksum from the website. Open the disk image, then drag `usAIge.app` onto the Applications shortcut.
+Download `usAIge-0.2.4-alpha.dmg` and its checksum from the website. Open the disk image, then drag `usAIge.app` onto the Applications shortcut.
 
 This alpha is ad-hoc signed and is not notarized because the project does not yet have a Developer ID Application certificate. On first launch:
 
@@ -161,7 +161,7 @@ To build and verify the installer locally:
 
 ```bash
 scripts/package-dmg.sh
-(cd dist && shasum -a 256 -c usAIge-0.2.3-alpha.dmg.sha256)
+(cd dist && shasum -a 256 -c usAIge-0.2.4-alpha.dmg.sha256)
 ```
 
 ## Usage data

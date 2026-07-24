@@ -1,8 +1,8 @@
 {
-  "version": "0.2.3",
-  "build": 25,
+  "version": "0.2.4",
+  "build": 26,
   "minimumSystemVersion": "11.0",
-  "downloadURL": "https://usaige-macos.richardqz.chatgpt.site/usAIge-0.2.3-alpha.dmg",
-  "sha256": "4161b0140579410c33676aa22adc0b73319bd9984df8bd1daab43e3d917469dd",
-  "releaseNotes": {"headline":"Quota updates recover automatically","summary":"Version 0.2.3 keeps Codex limits current after a reset or temporary app-server disconnect.","highlights":[{"title":"No more frozen 100%","detail":"Quota polling now reconnects automatically instead of leaving a reset limit stuck at 100% while sessions continue updating.","systemImage":"arrow.triangle.2.circlepath"},{"title":"Live events resume","detail":"After reconnecting, usAIge subscribes to Codex limit events again and continues its five-second refresh fallback.","systemImage":"bolt.horizontal.circle"}]}
+  "downloadURL": "https://usaige-macos.richardqz.chatgpt.site/usAIge-0.2.4-alpha.dmg",
+  "sha256": "f78e5f08977a70520ed89e41d9f393f80c8be382c34f360a169c591a1a7070d4",
+  "releaseNotes": {"headline":"Reset limits sync and notify","summary":"Version 0.2.4 refreshes Codex limits after a reset credit and tells you when a new limit is available.","highlights":[{"title":"Reset credits stay current","detail":"When a reset-credit event is incomplete, usAIge immediately reads the authoritative limit instead of keeping an exhausted cached value.","systemImage":"arrow.triangle.2.circlepath"},{"title":"Know when the limit resets","detail":"A notification now confirms the new cycle and shows the actual percentage available, even if a little of the reset limit was already used.","systemImage":"bell.badge"}]}
 }
