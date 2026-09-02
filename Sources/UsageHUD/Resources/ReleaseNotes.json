@@ -1,24 +1,24 @@
 {
-  "version": "0.2.10",
-  "build": 32,
+  "version": "0.2.11",
+  "build": 33,
   "releaseNotes": {
-    "headline": "Sign in to Claude from Settings",
-    "summary": "Version 0.2.10 adds a Claude sign-in button to Manage AI Tools and shows every supported local tool on one page without scrolling.",
+    "headline": "The rail shows every tool",
+    "summary": "Version 0.2.11 lets the floating rail grow to show all of your AI tools at once instead of scrolling.",
     "highlights": [
       {
+        "title": "No more scrolling rail",
+        "detail": "The rail sizes itself to every visible row, up to your display’s height at the current scale, so Codex, Claude, Cursor, and Grok Build all stay in view.",
+        "systemImage": "rectangle.expand.vertical"
+      },
+      {
         "title": "Sign in to Claude in place",
-        "detail": "Sign In on the Claude row runs Claude Code’s own login, opens the sign-in page, and takes the code you paste back. Your plan limits appear right after.",
+        "detail": "Sign In on the Claude row in Manage AI Tools runs Claude Code’s own login and takes the code you paste back.",
         "systemImage": "person.badge.key"
       },
       {
         "title": "Every local tool at a glance",
-        "detail": "ChatGPT, Claude, Cursor, and Grok Build each get one row with their state, a rail switch, and their limits behind a disclosure.",
+        "detail": "Manage AI Tools lists ChatGPT, Claude, Cursor, and Grok Build on one page with their state, a rail switch, and their limits behind a disclosure.",
         "systemImage": "list.bullet.rectangle"
-      },
-      {
-        "title": "Straight answers",
-        "detail": "When Claude Code bills an API key through a helper, the row says there are no plan limits yet and offers the sign-in instead.",
-        "systemImage": "info.circle"
       }
     ]
   }
