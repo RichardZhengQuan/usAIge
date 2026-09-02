@@ -49,8 +49,8 @@ struct LocalToolGuidance: Identifiable, Sendable {
         LocalToolGuidance(
             id: .claude,
             source: "Claude Code sign-in on this Mac",
-            signInHint: "Run `claude` in Terminal and sign in.",
-            expiredHint: "Sign-in expired. Run `claude` in Terminal to refresh it."
+            signInHint: "Use Sign In, or run `claude auth login` in Terminal.",
+            expiredHint: "Sign-in expired. Use Sign In, or run `claude` in Terminal to refresh it."
         ),
         LocalToolGuidance(
             id: .cursor,
@@ -78,7 +78,7 @@ struct LocalToolGuidance: Identifiable, Sendable {
             Presentation(text: "Off. Turn on to read the Claude Code sign-in; macOS asks once per build.", isProblem: false)
         case .apiKeyOnly:
             Presentation(
-                text: "Claude Code here uses an API key helper, so there are no plan limits to show. Run `claude login` with a Claude plan to see them.",
+                text: "No Claude plan sign-in yet (Claude Code uses an API key helper here). Sign in to show plan limits.",
                 isProblem: false
             )
         case .connected: Presentation(text: "Connected · \(source)", isProblem: false)

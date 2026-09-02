@@ -42,13 +42,11 @@ struct HUDSettingsView: View {
     @State private var remotePromptCopied = false
     @State private var feedbackDraft = FeedbackDraft()
     @State private var feedbackState: FeedbackSubmissionState = .idle
+    @StateObject private var claudeSignIn = ClaudeSignInSession()
+    @State private var expandedToolIDs: Set<AIToolID> = []
 
     private var activeToolIDs: [AIToolID] {
         settings.toolOrder.filter { id in snapshots.contains(where: { $0.toolID == id }) }
-    }
-
-    private var activeLocalToolIDs: [AIToolID] {
-        activeToolIDs.filter { AIToolID.builtInIDs.contains($0) }
     }
 
     private var activeRemoteToolIDs: [AIToolID] {
@@ -238,22 +236,20 @@ struct HUDSettingsView: View {
         )
     }
 
+    /// One compact list: every supported local tool on its own row with its
+    /// state and controls, limits behind a disclosure, so the page fits
+    /// without scrolling. Remote tools follow with their limits in place.
     private var aiToolsPage: some View {
         pageContainer(title: "AI Tools") {
             settingsForm {
-                Section("Local AI Tools") {
-                    if activeLocalToolIDs.isEmpty {
-                        Text("No local tools detected.")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(activeLocalToolIDs, id: \.self) { id in
-                            toolRow(for: id)
-                            ForEach(orderedSnapshots(for: id)) { snapshot in
-                                usageTypeRow(snapshot)
-                            }
-                        }
+                Section {
+                    ForEach(LocalToolGuidance.supported) { guidance in
+                        localToolStatusRow(guidance)
                     }
                     HStack {
+                        Text("Sign-ins stay on this Mac; only limits are read.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                         Spacer()
                         Button {
                             Task {
@@ -275,26 +271,25 @@ struct HUDSettingsView: View {
                         .disabled(isDetectingLocalTools)
                         .accessibilityHint("Scans again for supported local AI tools")
                     }
-                }
-
-                Section {
-                    ForEach(LocalToolGuidance.supported) { guidance in
-                        localToolStatusRow(guidance)
-                    }
                 } header: {
-                    Text("Supported Local Tools")
-                } footer: {
-                    Text("usAIge reads each tool’s existing sign-in on this Mac only to ask that provider for your current limits. Sign-in tokens stay in memory and are never stored or relayed.")
+                    Text("Local AI Tools")
                 }
 
                 Section("Remote AI Tools") {
-                    if relaySync.remoteTools.isEmpty {
+                    if relaySync.remoteTools.isEmpty && activeRemoteToolIDs.isEmpty {
                         Text("No remote tools connected.")
                             .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(relaySync.remoteTools) { tool in
-                            remoteToolRow(tool)
+                    }
+                    ForEach(relaySync.remoteTools) { tool in
+                        remoteToolRow(tool)
+                        if expandedToolIDs.contains(tool.toolID) {
+                            ForEach(orderedSnapshots(for: tool.toolID)) { snapshot in
+                                usageTypeRow(snapshot)
+                            }
                         }
+                    }
+                    ForEach(activeRemoteToolIDs.filter { id in !relaySync.remoteTools.contains { $0.toolID == id } }, id: \.self) { id in
+                        toolRow(for: id)
                     }
                     if let relayErrorMessage {
                         Text(relayErrorMessage)
@@ -309,17 +304,6 @@ struct HUDSettingsView: View {
                             Label("Add AI Tool", systemImage: "plus")
                         }
                         .accessibilityHint("Creates a one-time code for pairing a remote AI tool")
-                    }
-                }
-
-                if !activeRemoteToolIDs.isEmpty {
-                    Section("Displayed Remote Limits") {
-                        ForEach(activeRemoteToolIDs, id: \.self) { id in
-                            toolRow(for: id)
-                            ForEach(orderedSnapshots(for: id)) { snapshot in
-                                usageTypeRow(snapshot)
-                            }
-                        }
                     }
                 }
             }
@@ -706,35 +690,168 @@ struct HUDSettingsView: View {
 
     private func localToolStatusRow(_ guidance: LocalToolGuidance) -> some View {
         let tool = AIToolDescriptor.descriptor(for: guidance.id)
-        let presentation = guidance.presentation(for: localToolStatus(for: guidance.id))
-        return HStack(spacing: 10) {
-            AIToolIcon(tool: tool, size: 26)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(tool.name)
-                Text(presentation.text)
-                    .font(.caption)
-                    .foregroundStyle(presentation.isProblem ? Color.orange : Color.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
-            if guidance.id == .claude {
-                Toggle(
-                    "Read Claude Code sign-in",
-                    isOn: Binding(
-                        get: { settings.readsClaudeSignIn },
-                        set: { enabled in
-                            settings.readsClaudeSignIn = enabled
-                            Task { await refreshUsage() }
-                        }
+        let status = localToolStatus(for: guidance.id)
+        let presentation = guidance.presentation(for: status)
+        let buckets = orderedSnapshots(for: guidance.id)
+        let isExpanded = expandedToolIDs.contains(guidance.id)
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                AIToolIcon(tool: tool, size: 24)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(tool.name)
+                    Text(presentation.text)
+                        .font(.caption)
+                        .foregroundStyle(presentation.isProblem ? Color.orange : Color.secondary)
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                if guidance.id == .claude {
+                    if Self.offersClaudeSignIn(status: status), !claudeSignIn.isActive {
+                        Button("Sign In…") { claudeSignIn.start() }
+                            .controlSize(.small)
+                            .accessibilityHint("Runs Claude Code's own sign-in and opens the Claude sign-in page")
+                    }
+                    Toggle(
+                        "Read Claude Code sign-in",
+                        isOn: Binding(
+                            get: { settings.readsClaudeSignIn },
+                            set: { enabled in
+                                settings.readsClaudeSignIn = enabled
+                                Task { await refreshUsage() }
+                            }
+                        )
                     )
-                )
-                .labelsHidden()
-                .accessibilityLabel("Read Claude Code sign-in")
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityLabel("Read Claude Code sign-in")
+                    .help("Read the Claude Code sign-in from Keychain")
+                }
+                if !buckets.isEmpty {
+                    Toggle(
+                        "Show \(tool.name)",
+                        isOn: Binding(
+                            get: { !settings.hiddenToolIDs.contains(guidance.id) },
+                            set: { visible in
+                                if visible { settings.hiddenToolIDs.remove(guidance.id) }
+                                else { settings.hiddenToolIDs.insert(guidance.id) }
+                            }
+                        )
+                    )
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityLabel("Show \(tool.name) in the rail")
+                    .help("Show \(tool.name) in the rail")
+                    Button {
+                        if isExpanded { expandedToolIDs.remove(guidance.id) } else { expandedToolIDs.insert(guidance.id) }
+                    } label: {
+                        HStack(spacing: 3) {
+                            Text("\(buckets.count) \(buckets.count == 1 ? "limit" : "limits")")
+                                .font(.caption2)
+                            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                                .font(.caption2)
+                        }
+                        .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel(isExpanded ? "Hide \(tool.name) limits" : "Show \(tool.name) limits")
+                }
+            }
+            .accessibilityElement(children: .contain)
+
+            if isExpanded {
+                ForEach(buckets) { snapshot in
+                    usageTypeRow(snapshot)
+                }
+                .padding(.leading, 34)
+            }
+
+            if guidance.id == .claude {
+                claudeSignInPanel
             }
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(tool.name)
-        .accessibilityValue(presentation.text)
+        .onAppear {
+            claudeSignIn.onSucceeded = {
+                settings.readsClaudeSignIn = true
+                Task { await refreshUsage() }
+            }
+        }
+    }
+
+    /// The sign-in button is useful whenever no Claude plan sign-in is
+    /// readable yet; a connected or rate-limited tool doesn't need it.
+    static func offersClaudeSignIn(status: LocalToolStatus) -> Bool {
+        switch status {
+        case .connected, .rateLimited, .unknown: false
+        default: true
+        }
+    }
+
+    @ViewBuilder
+    private var claudeSignInPanel: some View {
+        switch claudeSignIn.state {
+        case .idle:
+            EmptyView()
+        case .starting:
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Starting Claude Code's sign-in…").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button("Cancel") { claudeSignIn.cancel() }.controlSize(.small)
+            }
+        case .waitingForCode:
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Approve the sign-in in your browser, then paste the code it shows here.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 8) {
+                    TextField("Paste the code", text: $claudeSignIn.code)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { claudeSignIn.submit() }
+                    Button("Continue") { claudeSignIn.submit() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(claudeSignIn.code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                HStack(spacing: 12) {
+                    Button("Open sign-in page again") { claudeSignIn.openSignInPage() }.buttonStyle(.link)
+                    Button("Cancel") { claudeSignIn.cancel() }.buttonStyle(.link)
+                }
+                .font(.caption)
+            }
+        case .submitting:
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Finishing the sign-in…").font(.caption).foregroundStyle(.secondary)
+            }
+        case .succeeded:
+            HStack(spacing: 8) {
+                Label("Signed in. macOS may ask once to let usAIge read the sign-in.", systemImage: "checkmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.green)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                Button("Done") { claudeSignIn.reset() }.controlSize(.small)
+            }
+        case let .failed(message):
+            HStack(spacing: 8) {
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .lineLimit(3)
+                Spacer()
+                Button("Try Again") { claudeSignIn.reset(); claudeSignIn.start() }.controlSize(.small)
+            }
+        case .unavailable:
+            HStack(spacing: 8) {
+                Text("Claude Code isn’t installed. Install it, run `claude` once, then try again.")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                Button("Dismiss") { claudeSignIn.reset() }.controlSize(.small)
+            }
+        }
     }
 
     private func localToolStatus(for id: AIToolID) -> LocalToolStatus {
@@ -745,7 +862,9 @@ struct HUDSettingsView: View {
     }
 
     private func remoteToolRow(_ tool: RelayRemoteTool) -> some View {
-        HStack(spacing: 10) {
+        let buckets = orderedSnapshots(for: tool.toolID)
+        let isExpanded = expandedToolIDs.contains(tool.toolID)
+        return HStack(spacing: 10) {
             Image(systemName: tool.symbolName)
                 .frame(width: 24)
             VStack(alignment: .leading, spacing: 2) {
@@ -755,6 +874,32 @@ struct HUDSettingsView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
+            if !buckets.isEmpty {
+                Toggle(
+                    "Show \(tool.name)",
+                    isOn: Binding(
+                        get: { !settings.hiddenToolIDs.contains(tool.toolID) },
+                        set: { visible in
+                            if visible { settings.hiddenToolIDs.remove(tool.toolID) }
+                            else { settings.hiddenToolIDs.insert(tool.toolID) }
+                        }
+                    )
+                )
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityLabel("Show \(tool.name) in the rail")
+                Button {
+                    if isExpanded { expandedToolIDs.remove(tool.toolID) } else { expandedToolIDs.insert(tool.toolID) }
+                } label: {
+                    HStack(spacing: 3) {
+                        Text("\(buckets.count) \(buckets.count == 1 ? "limit" : "limits")").font(.caption2)
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down").font(.caption2)
+                    }
+                    .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel(isExpanded ? "Hide \(tool.name) limits" : "Show \(tool.name) limits")
+            }
             Button(role: .destructive) {
                 remoteToolToDelete = tool
             } label: {

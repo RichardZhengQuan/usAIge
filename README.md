@@ -218,7 +218,12 @@ after an update; choosing Always Allow covers the current build.
 
 If Claude Code is configured with an `apiKeyHelper`, it bills an API key
 rather than a Claude plan, so there are no plan limits to read; Manage AI Tools
-says so instead of showing a Claude row.
+says so instead of showing a Claude row. **Sign In** on that row runs Claude
+Code's own `claude auth login --claudeai`, opens the Claude sign-in page, and
+takes the code you paste back; Claude Code stores the resulting plan sign-in
+in its Keychain item and usAIge only reads it. Claude Code keeps using the
+`apiKeyHelper` for its own requests, so adding the plan sign-in changes
+nothing about how the CLI works.
 
 Grok Build's sign-in is a six-hour token that only its CLI renews. When it has
 expired, usAIge runs `grok models` without a terminal so the CLI refreshes its
