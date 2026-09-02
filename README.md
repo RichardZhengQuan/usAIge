@@ -295,8 +295,8 @@ Contract details:
 
 Use the gear button on the panel to open native macOS Settings. Available preferences include:
 
-- Active AI tool visibility.
-- Quota visibility and vertical ordering.
+- Active AI tool visibility, and the rail order of tools by dragging them in **Manage AI Tools**.
+- Quota visibility and vertical ordering within a tool.
 - Connecting remote AI tools with one-time pairing codes and per-tool revocation.
 - Panel opacity and scale.
 - Optional automatic launch when you log in to your Mac.

@@ -197,18 +197,22 @@ final class HUDSettings: ObservableObject {
         set { payload.readsClaudeSignIn = newValue; persist() }
     }
 
+    /// Rail order: tools in the user's tool order, and within a tool the
+    /// bucket order. Tools and buckets the user has not ordered yet go last.
     func ordered(_ snapshots: [QuotaSnapshot]) -> [QuotaSnapshot] {
-        let order = Dictionary(uniqueKeysWithValues: Self.stableUnique(bucketOrder).enumerated().map { ($1, $0) })
+        let toolRank = Dictionary(uniqueKeysWithValues: Self.stableUnique(toolOrder).enumerated().map { ($1, $0) })
+        let bucketRank = Dictionary(uniqueKeysWithValues: Self.stableUnique(bucketOrder).enumerated().map { ($1, $0) })
+        func key(_ snapshot: QuotaSnapshot) -> (Int, String, Int, String) {
+            (
+                toolRank[snapshot.toolID] ?? Int.max,
+                toolRank[snapshot.toolID] == nil ? snapshot.toolID.rawValue : "",
+                bucketRank[snapshot.id] ?? Int.max,
+                bucketRank[snapshot.id] == nil ? snapshot.id : ""
+            )
+        }
         return snapshots
             .filter { !hiddenBucketIDs.contains($0.id) && !hiddenToolIDs.contains($0.toolID) }
-            .sorted { lhs, rhs in
-                switch (order[lhs.id], order[rhs.id]) {
-                case let (left?, right?): left < right
-                case (_?, nil): true
-                case (nil, _?): false
-                case (nil, nil): lhs.id < rhs.id
-                }
-            }
+            .sorted { key($0) < key($1) }
     }
 
     var visibleTools: [AIToolDescriptor] {
@@ -238,6 +242,33 @@ final class HUDSettings: ObservableObject {
         guard destination != index else { return }
         order.swapAt(index, destination)
         bucketOrder = order
+    }
+
+    /// Moves a bucket up or down among its own tool's buckets, leaving every
+    /// other tool's buckets where they are in the global order.
+    func moveBucket(_ id: String, by offset: Int, among siblings: [String]) {
+        let order = bucketOrder
+        let rank = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($1, $0) })
+        var group = siblings.filter { rank[$0] != nil }.sorted { rank[$0]! < rank[$1]! }
+        guard let index = group.firstIndex(of: id) else { return }
+        let destination = min(max(0, index + offset), group.count - 1)
+        guard destination != index else { return }
+        group.swapAt(index, destination)
+        let slots = group.compactMap { rank[$0] }.sorted()
+        var updated = order
+        for (slot, bucket) in zip(slots, group) { updated[slot] = bucket }
+        bucketOrder = updated
+    }
+
+    /// Drag-and-drop reordering: moves `id` into `target`'s slot, shifting
+    /// the tools in between, so the drop lands exactly where the row was
+    /// released.
+    func moveTool(_ id: AIToolID, to target: AIToolID) {
+        guard id != target else { return }
+        var order = toolOrder
+        guard let from = order.firstIndex(of: id), let to = order.firstIndex(of: target) else { return }
+        order.move(fromOffsets: IndexSet(integer: from), toOffset: to > from ? to + 1 : to)
+        toolOrder = order
     }
 
     func moveTool(_ id: AIToolID, by offset: Int) {
