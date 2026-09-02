@@ -181,6 +181,7 @@ struct AIToolIcon: View {
     }
 
     private var monochromeImage: NSImage? {
+        if let bundled = BundledToolMark.image(for: tool.id) { return bundled }
         let candidates = Self.templateIconCandidates(for: tool.id)
         guard !candidates.isEmpty,
               let applicationURL = AIToolLauncher.applicationURL(for: tool) else { return nil }
