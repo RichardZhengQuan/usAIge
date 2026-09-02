@@ -15,7 +15,16 @@ struct LegacyHUDView: View {
     private var desiredSize: CGSize {
         snapshots.isEmpty
             ? HUDMetrics.messageSize
-            : CGSize(width: HUDMetrics.railWidth, height: HUDMetrics.railHeight(rowCount: snapshots.count))
+            : CGSize(
+                width: HUDMetrics.railWidth,
+                height: HUDMetrics.railHeight(
+                    rowCount: snapshots.count,
+                    maximumHeight: HUDMetrics.maximumRailHeight(
+                        visibleHeight: NSScreen.main?.visibleFrame.height ?? 900,
+                        scale: settings.scale
+                    )
+                )
+            )
     }
 
     var body: some View {
