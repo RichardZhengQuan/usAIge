@@ -1,8 +1,8 @@
 {
-  "version": "0.2.8",
-  "build": 30,
+  "version": "0.2.9",
+  "build": 31,
   "minimumSystemVersion": "11.0",
-  "downloadURL": "https://usaige-macos.richardqz.chatgpt.site/usAIge-0.2.8-alpha.dmg",
-  "sha256": "42d1e422275229ccac55da5bfa7e0ad27fa5cf54866d4bd03cc77ebdb4525989",
-  "releaseNotes": {"headline":"Claude, Cursor, and Grok Build, built in","summary":"Version 0.2.8 shows Claude Code, Cursor, and Grok Build limits beside Codex, each with its own logo, and reads the Claude sign-in only when you turn it on.","highlights":[{"title":"Claude Code limits, on your terms","detail":"Turn on Read Claude Code sign-in under Manage AI Tools to see your session and weekly windows. Off by default, so nothing asks for Keychain access unless you want Claude.","systemImage":"brain.head.profile"},{"title":"Cursor and Grok Build limits","detail":"Cursor’s plan usage per model pool and Grok Build’s included credits, each with its reset date, read from the sign-ins already on your Mac.","systemImage":"cursorarrow.rays"},{"title":"Every tool wears its own mark","detail":"Claude, Cursor, Grok Build, and Gemini rows show their logos in the rail, Settings, and the detail popover, matching the ChatGPT mark.","systemImage":"seal"}]}
+  "downloadURL": "https://usaige-macos.richardqz.chatgpt.site/usAIge-0.2.9-alpha.dmg",
+  "sha256": "df92efa77f872fbb5522be9ed188f0094cd530c8a878143ee7f4af0f336fa543",
+  "releaseNotes": {"headline":"Real logos, and Grok Build stays signed in","summary":"Version 0.2.9 shows the official Claude, Cursor, and Grok Build marks, keeps Grok Build's sign-in fresh, and explains API-key Claude Code setups.","highlights":[{"title":"The official marks","detail":"Claude, Cursor, and Grok Build rows now use the vendors’ own logos, tinted to match the rail in light and dark mode.","systemImage":"seal"},{"title":"Grok Build keeps working","detail":"When Grok Build’s six-hour sign-in expires, usAIge asks the Grok CLI to renew it instead of dropping the row.","systemImage":"arrow.clockwise"},{"title":"Clearer Claude status","detail":"If Claude Code bills an API key through a helper, Manage AI Tools says there are no plan limits to show and how to sign in with a plan.","systemImage":"info.circle"}]}
 }
