@@ -16,6 +16,24 @@ import Testing
     #expect(AIToolIcon.templateIconCandidates(for: .grok).isEmpty)
 }
 
+@Test func bundledToolMarksShipForClaudeCursorAndGrok() throws {
+    let repoRoot = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    let marks = repoRoot.appendingPathComponent("Sources/UsageHUD/Resources/ToolMarks")
+    let environment = [BundledToolMark.environmentKey: marks.path]
+
+    for id in [AIToolID.claude, .cursor, .grok] {
+        let url = try #require(BundledToolMark.url(for: id, environment: environment))
+        let image = try #require(NSImage(contentsOf: url))
+        #expect(image.size.width > 0 && image.size.height > 0)
+    }
+    #expect(BundledToolMark.fileName(for: .chatGPT) == nil)
+    #expect(BundledToolMark.url(for: .claude, environment: [:], bundle: Bundle(for: LocalToolTestAnchor.self)) == nil)
+    #expect(BundledToolMark.searchDirectories(environment: environment, bundle: .main).first?.path == marks.path)
+}
+
+private final class LocalToolTestAnchor {}
+
 /// Opt-in: renders every tool icon to PNG for a visual check.
 ///   USAIGE_RENDER_ICONS=/path/to/dir swift test --filter rendersBrandMarks
 @MainActor
