@@ -308,3 +308,39 @@ private func quota(id: String, displayName: String? = nil, toolID: AIToolID = .c
 
     #expect(HUDSettings(defaults: defaults).readsClaudeSignIn == true)
 }
+
+@MainActor
+@Test func railOrderFollowsTheToolOrderThenTheBucketOrder() {
+    let settings = HUDSettings(defaults: isolatedDefaults())
+    let codex = quota(id: "codex", displayName: "Codex")
+    let cursor = quota(id: "cursor", displayName: "Cursor models", toolID: .cursor)
+    let cursorOther = quota(id: "cursor_other", displayName: "Other models", toolID: .cursor)
+    let grok = quota(id: "grok", displayName: "Weekly credits", toolID: .grok)
+    // Buckets arrive interleaved; the rail still groups them by tool.
+    settings.registerBuckets([cursorOther, grok, codex, cursor])
+
+    #expect(settings.ordered([cursorOther, grok, codex, cursor]).map(\.id) == ["codex", "cursor_other", "cursor", "grok"])
+
+    settings.moveTool(.grok, to: .chatGPT)
+    #expect(settings.toolOrder.first == .grok)
+    #expect(settings.ordered([cursorOther, grok, codex, cursor]).map(\.id) == ["grok", "codex", "cursor_other", "cursor"])
+
+    settings.moveTool(.chatGPT, to: .cursor)
+    #expect(settings.ordered([cursorOther, grok, codex, cursor]).map(\.id) == ["grok", "cursor_other", "cursor", "codex"])
+    settings.moveBucket("cursor", by: -1, among: ["cursor_other", "cursor"])
+    #expect(settings.ordered([cursorOther, grok, codex, cursor]).map(\.id) == ["grok", "cursor", "cursor_other", "codex"])
+    // Other tools' buckets keep their slots in the global order.
+    #expect(settings.bucketOrder == ["cursor", "grok", "codex", "cursor_other"])
+}
+
+@MainActor
+@Test func draggedToolOrderPersists() {
+    let defaults = isolatedDefaults()
+    var settings: HUDSettings? = HUDSettings(defaults: defaults)
+    settings?.moveTool(.cursor, to: .chatGPT)
+    let moved = settings?.toolOrder
+    settings = nil
+
+    #expect(moved?.prefix(2) == [.cursor, .chatGPT])
+    #expect(HUDSettings(defaults: defaults).toolOrder == moved)
+}

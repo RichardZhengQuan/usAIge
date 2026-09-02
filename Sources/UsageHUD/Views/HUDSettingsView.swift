@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 @available(macOS 14.0, *)
 struct HUDSettingsRootView: View {
@@ -44,6 +45,18 @@ struct HUDSettingsView: View {
     @State private var feedbackState: FeedbackSubmissionState = .idle
     @StateObject private var claudeSignIn = ClaudeSignInSession()
     @State private var expandedToolIDs: Set<AIToolID> = []
+    @State private var draggedToolID: AIToolID?
+
+    /// The supported local tools in the user's rail order.
+    private var localGuidances: [LocalToolGuidance] {
+        let ordered = settings.toolOrder.compactMap { id in LocalToolGuidance.supported.first { $0.id == id } }
+        return ordered + LocalToolGuidance.supported.filter { guidance in !ordered.contains { $0.id == guidance.id } }
+    }
+
+    private var orderedRemoteTools: [RelayRemoteTool] {
+        let rank = Dictionary(uniqueKeysWithValues: settings.toolOrder.enumerated().map { ($1, $0) })
+        return relaySync.remoteTools.sorted { (rank[$0.toolID] ?? Int.max, $0.name) < (rank[$1.toolID] ?? Int.max, $1.name) }
+    }
 
     private var activeToolIDs: [AIToolID] {
         settings.toolOrder.filter { id in snapshots.contains(where: { $0.toolID == id }) }
@@ -243,11 +256,14 @@ struct HUDSettingsView: View {
         pageContainer(title: "AI Tools") {
             settingsForm {
                 Section {
-                    ForEach(LocalToolGuidance.supported) { guidance in
+                    ForEach(localGuidances) { guidance in
                         localToolStatusRow(guidance)
+                            .reorderable(guidance.id, dragged: $draggedToolID) { moved, target in
+                                settings.moveTool(moved, to: target)
+                            }
                     }
                     HStack {
-                        Text("Sign-ins stay on this Mac; only limits are read.")
+                        Text("Drag tools to set their order in the rail. Sign-ins stay on this Mac.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Spacer()
@@ -280,8 +296,11 @@ struct HUDSettingsView: View {
                         Text("No remote tools connected.")
                             .foregroundStyle(.secondary)
                     }
-                    ForEach(relaySync.remoteTools) { tool in
+                    ForEach(orderedRemoteTools) { tool in
                         remoteToolRow(tool)
+                            .reorderable(tool.toolID, dragged: $draggedToolID) { moved, target in
+                                settings.moveTool(moved, to: target)
+                            }
                         if expandedToolIDs.contains(tool.toolID) {
                             ForEach(orderedSnapshots(for: tool.toolID)) { snapshot in
                                 usageTypeRow(snapshot)
@@ -937,8 +956,12 @@ struct HUDSettingsView: View {
             )
             Spacer()
             orderButtons(
-                moveUp: { settings.moveBucket(snapshot.id, by: -1) },
-                moveDown: { settings.moveBucket(snapshot.id, by: 1) },
+                moveUp: {
+                    settings.moveBucket(snapshot.id, by: -1, among: orderedSnapshots(for: snapshot.toolID).map(\.id))
+                },
+                moveDown: {
+                    settings.moveBucket(snapshot.id, by: 1, among: orderedSnapshots(for: snapshot.toolID).map(\.id))
+                },
                 label: snapshot.displayName
             )
         }
@@ -997,4 +1020,50 @@ private enum FeedbackSubmissionState: Equatable {
     case submitting
     case sent
     case failed(String)
+}
+
+/// Drag-and-drop reordering for tool rows: the row being dragged carries its
+/// tool id, and each row moves the dragged tool into its own slot as the
+/// pointer passes over it, so the order updates live and persists on drop.
+private struct ToolReorderDropDelegate: DropDelegate {
+    let target: AIToolID
+    @Binding var dragged: AIToolID?
+    let move: (AIToolID, AIToolID) -> Void
+
+    func dropEntered(info: DropInfo) {
+        guard let dragged, dragged != target else { return }
+        move(dragged, target)
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        dragged = nil
+        return true
+    }
+
+    func dropExited(info: DropInfo) {}
+}
+
+extension View {
+    /// Makes a tool row draggable and a drop target for other tool rows.
+    func reorderable(
+        _ id: AIToolID,
+        dragged: Binding<AIToolID?>,
+        move: @escaping (AIToolID, AIToolID) -> Void
+    ) -> some View {
+        self
+            .contentShape(Rectangle())
+            .onDrag {
+                dragged.wrappedValue = id
+                return NSItemProvider(object: id.rawValue as NSString)
+            }
+            .onDrop(
+                of: [UTType.plainText],
+                delegate: ToolReorderDropDelegate(target: id, dragged: dragged, move: move)
+            )
+            .opacity(dragged.wrappedValue == id ? 0.55 : 1)
+    }
 }
