@@ -1,19 +1,24 @@
 {
-  "version": "0.2.6",
-  "build": 28,
+  "version": "0.2.7",
+  "build": 29,
   "releaseNotes": {
-    "headline": "Every setting stays within reach",
-    "summary": "Version 0.2.6 makes every Settings page scroll so controls remain reachable in the fixed-size window.",
+    "headline": "Claude, Cursor, and Grok Build, built in",
+    "summary": "Version 0.2.7 reads the Claude Code, Cursor, and Grok Build sign-ins already on your Mac and shows their live limits beside Codex.",
     "highlights": [
       {
-        "title": "Reach every control",
-        "detail": "Scroll through Settings to reach updates, About, What’s New, and Quit even when the window is compact.",
-        "systemImage": "scroll"
+        "title": "Claude Code limits",
+        "detail": "Your 5-hour session and weekly windows on one ring, with Opus, Sonnet, and extra-usage buckets available in Settings.",
+        "systemImage": "brain.head.profile"
       },
       {
-        "title": "Consistent detail pages",
-        "detail": "AI Tools, iPhone Sync, feedback, and pairing pages now share the same reliable scrolling behavior.",
-        "systemImage": "gearshape.2"
+        "title": "Cursor and Grok Build limits",
+        "detail": "Cursor’s plan usage per model pool and Grok Build’s included credits, each with its reset date.",
+        "systemImage": "cursorarrow.rays"
+      },
+      {
+        "title": "Connection status",
+        "detail": "Manage AI Tools shows each supported tool’s sign-in state and what to do when one is expired or missing.",
+        "systemImage": "checkmark.shield"
       }
     ]
   }
