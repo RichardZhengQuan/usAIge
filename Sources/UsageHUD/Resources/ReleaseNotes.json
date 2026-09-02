@@ -1,24 +1,24 @@
 {
-  "version": "0.2.7",
-  "build": 29,
+  "version": "0.2.8",
+  "build": 30,
   "releaseNotes": {
     "headline": "Claude, Cursor, and Grok Build, built in",
-    "summary": "Version 0.2.7 reads the Claude Code, Cursor, and Grok Build sign-ins already on your Mac and shows their live limits beside Codex.",
+    "summary": "Version 0.2.8 shows Claude Code, Cursor, and Grok Build limits beside Codex, each with its own logo, and reads the Claude sign-in only when you turn it on.",
     "highlights": [
       {
-        "title": "Claude Code limits",
-        "detail": "Your 5-hour session and weekly windows on one ring, with Opus, Sonnet, and extra-usage buckets available in Settings.",
+        "title": "Claude Code limits, on your terms",
+        "detail": "Turn on Read Claude Code sign-in under Manage AI Tools to see your session and weekly windows. Off by default, so nothing asks for Keychain access unless you want Claude.",
         "systemImage": "brain.head.profile"
       },
       {
         "title": "Cursor and Grok Build limits",
-        "detail": "Cursor’s plan usage per model pool and Grok Build’s included credits, each with its reset date.",
+        "detail": "Cursor’s plan usage per model pool and Grok Build’s included credits, each with its reset date, read from the sign-ins already on your Mac.",
         "systemImage": "cursorarrow.rays"
       },
       {
-        "title": "Connection status",
-        "detail": "Manage AI Tools shows each supported tool’s sign-in state and what to do when one is expired or missing.",
-        "systemImage": "checkmark.shield"
+        "title": "Every tool wears its own mark",
+        "detail": "Claude, Cursor, Grok Build, and Gemini rows show their logos in the rail, Settings, and the detail popover, matching the ChatGPT mark.",
+        "systemImage": "seal"
       }
     ]
   }
