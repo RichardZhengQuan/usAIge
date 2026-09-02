@@ -12,9 +12,13 @@ struct ClaudeCredentials: Equatable, Sendable {
     let rateLimitTier: String?
 
     static func parse(_ data: Data) throws -> ClaudeCredentials {
-        guard let root = JSONValue.parse(data),
-              let oauth = root["claudeAiOauth"]?.objectValue else {
+        guard let root = JSONValue.parse(data), root.objectValue != nil else {
             throw LocalToolUsageError.invalidResponse
+        }
+        // The Keychain item also carries MCP server OAuth state; only a
+        // `claudeAiOauth` entry is a Claude plan sign-in.
+        guard let oauth = root["claudeAiOauth"]?.objectValue else {
+            throw LocalToolUsageError.notSignedIn
         }
         let token = oauth["accessToken"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !token.isEmpty else { throw LocalToolUsageError.notSignedIn }
@@ -74,7 +78,7 @@ struct ClaudeCodeCredentialStore: ClaudeCredentialSource {
         switch status {
         case errSecSuccess:
             guard let data = item as? Data, !data.isEmpty else { return nil }
-            return try ClaudeCredentials.parse(data)
+            return try Self.credentials(from: data)
         case errSecItemNotFound:
             break
         case errSecAuthFailed, errSecUserCanceled, errSecInteractionNotAllowed:
@@ -85,7 +89,26 @@ struct ClaudeCodeCredentialStore: ClaudeCredentialSource {
 
         guard FileManager.default.fileExists(atPath: credentialsFileURL.path) else { return nil }
         let data = try Data(contentsOf: credentialsFileURL)
-        return try ClaudeCredentials.parse(data)
+        return try Self.credentials(from: data)
+    }
+
+    private static func credentials(from data: Data) throws -> ClaudeCredentials? {
+        do { return try ClaudeCredentials.parse(data) }
+        catch LocalToolUsageError.notSignedIn { return nil }
+    }
+}
+
+/// Reads Claude Code's own settings to explain a missing sign-in: a
+/// configured `apiKeyHelper` means Claude Code bills an API key here, and
+/// there is no plan quota for usAIge to show.
+enum ClaudeCodeConfiguration {
+    static func usesAPIKeyHelper(
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> Bool {
+        let settings = homeDirectory.appendingPathComponent(".claude").appendingPathComponent("settings.json")
+        guard let data = FileManager.default.contents(atPath: settings.path),
+              let helper = JSONValue.parse(data)?["apiKeyHelper"]?.stringValue else { return false }
+        return !helper.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 
@@ -159,6 +182,7 @@ actor ClaudeUsageProvider: CodexUsageProviding {
     private let statusRegistry: LocalToolStatusRegistry?
     private let userAgentVersion: @Sendable () -> String
     private let isEnabled: @Sendable () async -> Bool
+    private let usesAPIKeyHelper: @Sendable () -> Bool
     private let now: @Sendable () -> Date
     private var cachedUserAgent: String?
 
@@ -170,6 +194,7 @@ actor ClaudeUsageProvider: CodexUsageProviding {
         statusRegistry: LocalToolStatusRegistry? = nil,
         userAgentVersion: @escaping @Sendable () -> String = { ClaudeCodeVersion.resolve() },
         isEnabled: @escaping @Sendable () async -> Bool = { true },
+        usesAPIKeyHelper: @escaping @Sendable () -> Bool = { ClaudeCodeConfiguration.usesAPIKeyHelper() },
         now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.credentials = credentials
@@ -177,6 +202,7 @@ actor ClaudeUsageProvider: CodexUsageProviding {
         self.statusRegistry = statusRegistry
         self.userAgentVersion = userAgentVersion
         self.isEnabled = isEnabled
+        self.usesAPIKeyHelper = usesAPIKeyHelper
         self.now = now
     }
 
@@ -187,7 +213,11 @@ actor ClaudeUsageProvider: CodexUsageProviding {
         }
         do {
             let result = try await performRefresh()
-            await report(result == .signedOut ? .signedOut : .connected)
+            if result == .signedOut {
+                await report(usesAPIKeyHelper() ? .apiKeyOnly : .signedOut)
+            } else {
+                await report(.connected)
+            }
             return result
         } catch {
             await report(LocalToolStatus(error: error))

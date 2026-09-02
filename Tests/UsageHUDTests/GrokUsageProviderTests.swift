@@ -179,3 +179,97 @@ private let subscriptionsJSON = #"{"subscriptions":[{"tier":"SUBSCRIPTION_TIER_S
 
     #expect(try await provider.refresh() == .authenticated([]))
 }
+
+private func expiredCredential() -> GrokCredential {
+    GrokCredential(token: "stale", email: nil, expiresAt: Date(timeIntervalSince1970: 1_780_000_000))
+}
+
+@Test func grokAsksTheCLIToRenewAnExpiredSignInThenReadsTheFreshOne() async throws {
+    let source = MutableGrokCredentialSource([expiredCredential()])
+    let renewals = TestClockBox(Date(timeIntervalSince1970: 0))
+    let config = ProtoTestBuilder.creditsConfig(usedPercent: 5, start: 1_780_272_000, end: 1_780_876_800)
+    let http = ScriptedUsageHTTPClient(responses: [
+        GrokUsageProvider.creditsConfigURL.absoluteString: .init(body: Data(ProtoTestBuilder.creditsFrame(config: config))),
+        GrokUsageProvider.subscriptionsURL.absoluteString: .init(json: subscriptionsJSON),
+    ])
+    let provider = GrokUsageProvider(
+        credentials: source,
+        http: http,
+        refreshSignIn: {
+            renewals.now = renewals.now.addingTimeInterval(1)
+            source.replace(with: [liveCredential(token: "renewed")])
+            return true
+        },
+        now: { testNow }
+    )
+
+    let snapshots = try await provider.refresh().snapshots
+
+    #expect(snapshots.map(\.id) == ["grok"])
+    #expect(renewals.now == Date(timeIntervalSince1970: 1))
+    #expect(await http.header("Authorization", ofRequestTo: GrokUsageProvider.creditsConfigURL) == "Bearer renewed")
+}
+
+@Test func grokRenewalIsThrottledWhenTheCLICannotHelp() async throws {
+    let clock = TestClockBox(testNow)
+    let renewals = TestClockBox(Date(timeIntervalSince1970: 0))
+    let provider = GrokUsageProvider(
+        credentials: StaticGrokCredentialSource(credentials: [expiredCredential()]),
+        http: ScriptedUsageHTTPClient(responses: [:]),
+        refreshSignIn: {
+            renewals.now = renewals.now.addingTimeInterval(1)
+            return false
+        },
+        signInRefreshInterval: 600,
+        now: { clock.now }
+    )
+
+    await #expect(throws: LocalToolUsageError.credentialExpired) { try await provider.refresh() }
+    clock.now.addTimeInterval(120)
+    await #expect(throws: LocalToolUsageError.credentialExpired) { try await provider.refresh() }
+    #expect(renewals.now == Date(timeIntervalSince1970: 1))
+
+    clock.now.addTimeInterval(600)
+    await #expect(throws: LocalToolUsageError.credentialExpired) { try await provider.refresh() }
+    #expect(renewals.now == Date(timeIntervalSince1970: 2))
+}
+
+@Test func grokRetriesOnceAfterTheServerRejectsACurrentLookingToken() async throws {
+    let source = MutableGrokCredentialSource([liveCredential(token: "rejected")])
+    let config = ProtoTestBuilder.creditsConfig(usedPercent: 40, start: 1_780_272_000, end: 1_782_864_000)
+    let http = ScriptedUsageHTTPClient(sequences: [
+        GrokUsageProvider.creditsConfigURL.absoluteString: [.init(status: 401), .init(body: Data(ProtoTestBuilder.creditsFrame(config: config)))],
+        GrokUsageProvider.taskUsageURL.absoluteString: [.init(status: 401)],
+        GrokUsageProvider.subscriptionsURL.absoluteString: [.init(status: 401), .init(json: subscriptionsJSON)],
+    ])
+    let provider = GrokUsageProvider(
+        credentials: source,
+        http: http,
+        refreshSignIn: {
+            source.replace(with: [liveCredential(token: "renewed")])
+            return true
+        },
+        now: { testNow }
+    )
+
+    let snapshots = try await provider.refresh().snapshots
+
+    #expect(snapshots.first?.displayName == "Monthly credits")
+    #expect(snapshots.first?.planType == "Super Grok Pro")
+    let authorizations = await http.requests.compactMap { $0.value(forHTTPHeaderField: "Authorization") }
+    #expect(authorizations.first == "Bearer rejected")
+    #expect(authorizations.last == "Bearer renewed")
+}
+
+@Test func grokCLIIsFoundUnderGrokHomeFirst() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("usaige-grok-cli-\(UUID().uuidString)")
+    let bin = root.appendingPathComponent("bin")
+    try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+    let binary = bin.appendingPathComponent("grok")
+    try Data("#!/bin/sh\n".utf8).write(to: binary)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binary.path)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    #expect(GrokBuildCLI.executableURL(environment: ["GROK_HOME": root.path, "HOME": "/nonexistent", "PATH": ""]) == binary)
+    #expect(GrokBuildCLI.executableURL(environment: ["HOME": "/nonexistent", "PATH": ""]) == nil)
+}

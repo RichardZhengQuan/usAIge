@@ -45,8 +45,11 @@ private let testNow = Date(timeIntervalSince1970: 1_800_000_000)
     #expect(throws: LocalToolUsageError.notSignedIn) {
         _ = try ClaudeCredentials.parse(Data(#"{"claudeAiOauth":{"accessToken":"  "}}"#.utf8))
     }
-    #expect(throws: LocalToolUsageError.invalidResponse) {
+    #expect(throws: LocalToolUsageError.notSignedIn) {
         _ = try ClaudeCredentials.parse(Data("{}".utf8))
+    }
+    #expect(throws: LocalToolUsageError.invalidResponse) {
+        _ = try ClaudeCredentials.parse(Data("not json".utf8))
     }
 }
 
@@ -99,6 +102,7 @@ private let testNow = Date(timeIntervalSince1970: 1_800_000_000)
         credentials: StaticClaudeCredentialSource(credentials: nil),
         http: http,
         statusRegistry: registry,
+        usesAPIKeyHelper: { false },
         now: { testNow }
     )
 
@@ -224,4 +228,35 @@ private struct RecordingCredentialSource: ClaudeCredentialSource {
     #expect(touched.now == Date(timeIntervalSince1970: 0))
     #expect(await http.requests.isEmpty)
     #expect(await registry.status(for: .claude) == .disabled)
+}
+
+@Test func claudeKeychainBlobWithoutAPlanSignInMeansSignedOut() async throws {
+    let mcpOnly = #"{"mcpOAuth":{"plugin:x|abc":{"serverName":"x","accessToken":""}}}"#
+    #expect(throws: LocalToolUsageError.notSignedIn) {
+        _ = try ClaudeCredentials.parse(Data(mcpOnly.utf8))
+    }
+
+    let registry = await LocalToolStatusRegistry()
+    let provider = ClaudeUsageProvider(
+        credentials: StaticClaudeCredentialSource(credentials: nil),
+        http: ScriptedUsageHTTPClient(responses: [:]),
+        statusRegistry: registry,
+        usesAPIKeyHelper: { true },
+        now: { testNow }
+    )
+    #expect(try await provider.refresh() == .signedOut)
+    #expect(await registry.status(for: .claude) == .apiKeyOnly)
+}
+
+@Test func claudeCodeAPIKeyHelperIsDetectedFromSettings() throws {
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("usaige-claude-home-\(UUID().uuidString)")
+    let dir = home.appendingPathComponent(".claude")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: home) }
+
+    #expect(!ClaudeCodeConfiguration.usesAPIKeyHelper(homeDirectory: home))
+    try Data(#"{"apiKeyHelper":"/usr/local/bin/helper"}"#.utf8).write(to: dir.appendingPathComponent("settings.json"))
+    #expect(ClaudeCodeConfiguration.usesAPIKeyHelper(homeDirectory: home))
+    try Data(#"{"apiKeyHelper":"  "}"#.utf8).write(to: dir.appendingPathComponent("settings.json"))
+    #expect(!ClaudeCodeConfiguration.usesAPIKeyHelper(homeDirectory: home))
 }

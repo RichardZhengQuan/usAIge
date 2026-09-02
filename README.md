@@ -216,6 +216,15 @@ the sign-in immediately and macOS asks whether to allow it. Releases are
 ad-hoc signed, so macOS treats each new build as a new app and asks again
 after an update; choosing Always Allow covers the current build.
 
+If Claude Code is configured with an `apiKeyHelper`, it bills an API key
+rather than a Claude plan, so there are no plan limits to read; Manage AI Tools
+says so instead of showing a Claude row.
+
+Grok Build's sign-in is a six-hour token that only its CLI renews. When it has
+expired, usAIge runs `grok models` without a terminal so the CLI refreshes its
+own auth file, at most once every ten minutes, and never touches the refresh
+token itself.
+
 Claude reports several weekly buckets. The rail shows **All models** by
 default and keeps the others available under **Manage AI Tools**, mirroring
 how the Codex buckets are handled.
