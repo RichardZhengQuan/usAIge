@@ -36,6 +36,7 @@ enum LocalToolUsageError: LocalizedError, Equatable, Sendable {
 /// silently disappearing from the rail.
 enum LocalToolStatus: Equatable, Sendable {
     case unknown
+    case disabled
     case connected
     case notInstalled
     case signedOut
@@ -361,7 +362,11 @@ actor ThrottledUsageProvider: ThrottledUsageProviding {
             case .authenticated: interval = minimumInterval
             }
             nextAutomaticRefresh = completedAt.addingTimeInterval(interval)
-            nextManualRefresh = completedAt.addingTimeInterval(min(manualMinimumInterval, interval))
+            // A signed-out or disabled check costs nothing, so a manual refresh
+            // (Detect, or turning a tool on) may retry it immediately.
+            nextManualRefresh = result == .signedOut
+                ? completedAt
+                : completedAt.addingTimeInterval(min(manualMinimumInterval, interval))
         case let .failure(error):
             lastError = error
             let interval: TimeInterval

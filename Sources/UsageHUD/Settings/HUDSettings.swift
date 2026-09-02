@@ -35,6 +35,7 @@ final class HUDSettings: ObservableObject {
         var opacity = 0.92
         var showsResetCredits = true
         var usageAlertIntervalPercent = HUDSettings.defaultUsageAlertIntervalPercent
+        var readsClaudeSignIn = false
         var didApplyLatestBucketDefault = false
         var didApplyPrimaryBucketDefault = false
         var primaryBucketDefaultToolIDs: Set<AIToolID> = []
@@ -46,6 +47,7 @@ final class HUDSettings: ObservableObject {
             case scale, opacity, positions
             case showsResetCredits
             case usageAlertIntervalPercent
+            case readsClaudeSignIn
             case didApplyLatestBucketDefault
             case didApplyPrimaryBucketDefault
             case primaryBucketDefaultToolIDs
@@ -71,6 +73,7 @@ final class HUDSettings: ObservableObject {
                 Int.self,
                 forKey: .usageAlertIntervalPercent
             ) ?? HUDSettings.defaultUsageAlertIntervalPercent
+            readsClaudeSignIn = try values.decodeIfPresent(Bool.self, forKey: .readsClaudeSignIn) ?? false
             didApplyLatestBucketDefault = try values.decodeIfPresent(
                 Bool.self,
                 forKey: .didApplyLatestBucketDefault
@@ -185,6 +188,13 @@ final class HUDSettings: ObservableObject {
             payload.usageAlertIntervalPercent = newValue
             persist()
         }
+    }
+
+    /// Off by default: reading the Claude Code sign-in shows a macOS Keychain
+    /// prompt, which Codex-only users should never see.
+    var readsClaudeSignIn: Bool {
+        get { payload.readsClaudeSignIn }
+        set { payload.readsClaudeSignIn = newValue; persist() }
     }
 
     func ordered(_ snapshots: [QuotaSnapshot]) -> [QuotaSnapshot] {

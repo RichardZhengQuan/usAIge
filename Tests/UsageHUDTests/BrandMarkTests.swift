@@ -28,6 +28,7 @@ func rendersBrandMarksToPNG() throws {
         for (variant, view) in [
             ("icon", AnyView(AIToolIcon(tool: .descriptor(for: id), size: 64).padding(8).background(Color.white))),
             ("mark", AnyView(BrandMarkView(toolID: id).frame(width: 64, height: 64).padding(8).foregroundColor(.black).background(Color.white))),
+            ("dark", AnyView(AIToolIcon(tool: .descriptor(for: id), size: 64).padding(8).background(Color.black).environment(\.colorScheme, .dark))),
         ] {
             let renderer = ImageRenderer(content: view)
             renderer.scale = 2

@@ -199,3 +199,29 @@ private let testNow = Date(timeIntervalSince1970: 1_800_000_000)
     #expect(ClaudeCodeVersion.resolve(environment: ["HOME": root.path, "PATH": ""]) == "2.1.212")
     #expect(ClaudeCodeVersion.resolve(environment: ["HOME": "/nonexistent", "PATH": ""]) == ClaudeCodeVersion.fallback)
 }
+
+private struct RecordingCredentialSource: ClaudeCredentialSource {
+    let box: TestClockBox // reused as a Sendable mutable flag holder
+    func load() throws -> ClaudeCredentials? {
+        box.now = Date(timeIntervalSince1970: 1)
+        return liveCredentials()
+    }
+}
+
+@Test func claudeStaysInertUntilEnabledAndNeverTouchesTheKeychain() async throws {
+    let touched = TestClockBox(Date(timeIntervalSince1970: 0))
+    let http = ScriptedUsageHTTPClient(responses: [:])
+    let registry = await LocalToolStatusRegistry()
+    let provider = ClaudeUsageProvider(
+        credentials: RecordingCredentialSource(box: touched),
+        http: http,
+        statusRegistry: registry,
+        isEnabled: { false },
+        now: { testNow }
+    )
+
+    #expect(try await provider.refresh() == .signedOut)
+    #expect(touched.now == Date(timeIntervalSince1970: 0))
+    #expect(await http.requests.isEmpty)
+    #expect(await registry.status(for: .claude) == .disabled)
+}

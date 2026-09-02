@@ -717,6 +717,20 @@ struct HUDSettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
+            if guidance.id == .claude {
+                Toggle(
+                    "Read Claude Code sign-in",
+                    isOn: Binding(
+                        get: { settings.readsClaudeSignIn },
+                        set: { enabled in
+                            settings.readsClaudeSignIn = enabled
+                            Task { await refreshUsage() }
+                        }
+                    )
+                )
+                .labelsHidden()
+                .accessibilityLabel("Read Claude Code sign-in")
+            }
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(tool.name)

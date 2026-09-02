@@ -123,7 +123,7 @@ While idle, the panel surface is fully transparent and every visible control is 
 - macOS 11 or later on an Apple-silicon Mac.
 - Swift 6.2 and Xcode 26 for source builds.
 - For local Codex limits: the ChatGPT or Codex macOS app, or a `codex` executable on `PATH`, with an existing Codex-managed ChatGPT sign-in.
-- For Claude limits: Claude Code signed in on this Mac (run `claude` once). usAIge reads the sign-in Claude Code keeps in the login Keychain; macOS asks once whether to allow that.
+- For Claude limits: Claude Code signed in on this Mac (run `claude` once), and **Read Claude Code sign-in** turned on under **Manage AI Tools**. It is off by default because reading that sign-in from the login Keychain shows a macOS prompt.
 - For Cursor limits: the Cursor app installed and signed in on this Mac.
 - For Grok Build limits: the Grok Build CLI signed in with `grok login`.
 - For remote limits: a compatible adapter that can claim a one-time usAIge pairing code and upload normalized limits.
@@ -209,6 +209,12 @@ The endpoints are the ones each vendor's own client uses; they are not
 publicly documented contracts, so a provider change can pause a tool until
 usAIge is updated. When that happens the rail keeps the last accepted values
 and marks them stale rather than inventing numbers.
+
+Claude is off until you turn on **Read Claude Code sign-in** under **Manage AI
+Tools**, so Codex-only users never see a Keychain prompt. Turning it on reads
+the sign-in immediately and macOS asks whether to allow it. Releases are
+ad-hoc signed, so macOS treats each new build as a new app and asks again
+after an update; choosing Always Allow covers the current build.
 
 Claude reports several weekly buckets. The rail shows **All models** by
 default and keeps the others available under **Manage AI Tools**, mirroring
@@ -328,8 +334,8 @@ Start the ChatGPT or Codex app, confirm that it is signed in, then press the ref
 
 Open **Settings → Manage AI Tools**. The **Supported Local Tools** list shows
 each tool's state and the fix: sign in to the tool, run `claude` or
-`grok login` to refresh an expired sign-in, or allow the one-time Keychain
-prompt for the Claude Code sign-in and press **Detect**. Anthropic rate limits
+`grok login` to refresh an expired sign-in, or turn on **Read Claude Code
+sign-in** and allow the Keychain prompt. Anthropic rate limits
 its usage endpoint; when that happens usAIge keeps the last values and retries
 later instead of polling harder.
 
