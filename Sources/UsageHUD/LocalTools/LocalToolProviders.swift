@@ -76,6 +76,11 @@ struct LocalToolGuidance: Identifiable, Sendable {
         case .unknown: Presentation(text: "Checking…", isProblem: false)
         case .disabled:
             Presentation(text: "Off. Turn on to read the Claude Code sign-in; macOS asks once per build.", isProblem: false)
+        case .apiKeyOnly:
+            Presentation(
+                text: "Claude Code here uses an API key helper, so there are no plan limits to show. Run `claude login` with a Claude plan to see them.",
+                isProblem: false
+            )
         case .connected: Presentation(text: "Connected · \(source)", isProblem: false)
         case .notInstalled: Presentation(text: "Not installed.", isProblem: false)
         case .signedOut: Presentation(text: "Not connected. \(signInHint)", isProblem: false)

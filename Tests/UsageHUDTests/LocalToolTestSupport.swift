@@ -167,3 +167,26 @@ enum ProtoTestBuilder {
         return config
     }
 }
+
+/// A Grok credential source whose contents a test can swap, standing in for
+/// the auth file the CLI rewrites when it renews the sign-in.
+final class MutableGrokCredentialSource: GrokCredentialSource, @unchecked Sendable {
+    private let lock = NSLock()
+    private var credentials: [GrokCredential]
+
+    init(_ credentials: [GrokCredential]) {
+        self.credentials = credentials
+    }
+
+    func replace(with credentials: [GrokCredential]) {
+        lock.lock()
+        self.credentials = credentials
+        lock.unlock()
+    }
+
+    func load() throws -> [GrokCredential] {
+        lock.lock()
+        defer { lock.unlock() }
+        return credentials
+    }
+}

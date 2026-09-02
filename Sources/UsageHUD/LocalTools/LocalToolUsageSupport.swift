@@ -37,6 +37,7 @@ enum LocalToolUsageError: LocalizedError, Equatable, Sendable {
 enum LocalToolStatus: Equatable, Sendable {
     case unknown
     case disabled
+    case apiKeyOnly
     case connected
     case notInstalled
     case signedOut
@@ -414,7 +415,7 @@ actor ThrottledUsageProvider: ThrottledUsageProviding {
     }
 }
 
-private final class ResumeOnce<Value: Sendable>: @unchecked Sendable {
+final class ResumeOnce<Value: Sendable>: @unchecked Sendable {
     private let lock = NSLock()
     private var continuation: CheckedContinuation<Value, Never>?
 

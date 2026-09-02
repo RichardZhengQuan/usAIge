@@ -46,6 +46,7 @@ import Testing
     #expect(guidance.presentation(for: .credentialExpired).isProblem)
     #expect(guidance.presentation(for: .connected).text.hasPrefix("Connected"))
     #expect(guidance.presentation(for: .disabled).text.hasPrefix("Off."))
+    #expect(guidance.presentation(for: .apiKeyOnly).text.contains("API key helper"))
     #expect(!guidance.presentation(for: .disabled).isProblem)
     #expect(LocalToolGuidance.supported.map(\.id) == [.chatGPT, .claude, .cursor, .grok])
 }

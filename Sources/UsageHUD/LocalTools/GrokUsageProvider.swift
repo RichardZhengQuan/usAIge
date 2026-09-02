@@ -58,6 +58,66 @@ struct GrokBuildAuthFile: GrokCredentialSource {
     }
 }
 
+/// Grok Build's sign-in is a six-hour token that only the CLI renews. Running
+/// `grok models` without a terminal makes the CLI refresh its own auth file,
+/// so usAIge asks it to do that when the token is stale instead of touching
+/// the refresh token itself.
+enum GrokBuildCLI {
+    static func executableURL(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        fileManager: FileManager = .default
+    ) -> URL? {
+        var candidates: [String] = []
+        if let grokHome = environment["GROK_HOME"], !grokHome.isEmpty {
+            candidates.append("\(grokHome)/bin/grok")
+        }
+        if let home = environment["HOME"], !home.isEmpty {
+            candidates.append("\(home)/.grok/bin/grok")
+        }
+        for directory in environment["PATH"]?.split(separator: ":") ?? [] {
+            candidates.append("\(directory)/grok")
+        }
+        return candidates.first(where: { fileManager.isExecutableFile(atPath: $0) }).map { URL(fileURLWithPath: $0) }
+    }
+
+    /// Returns true when the CLI ran to completion; the caller re-reads the
+    /// auth file to see whether the sign-in is fresh now.
+    static func refreshSignIn(timeout: TimeInterval = 30) async -> Bool {
+        guard let executable = executableURL() else { return false }
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = ["models"]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        var environment = ProcessInfo.processInfo.environment
+        environment["TERM"] = "dumb"
+        environment["NO_COLOR"] = "1"
+        process.environment = environment
+        let box = ProcessBox(process)
+        return await withCheckedContinuation { continuation in
+            let resumer = ResumeOnce<Bool>(continuation)
+            process.terminationHandler = { _ in resumer.resume(true) }
+            do {
+                try process.run()
+            } catch {
+                resumer.resume(false)
+                return
+            }
+            Task.detached {
+                try? await Task.sleep(nanoseconds: UInt64(max(1, timeout) * 1_000_000_000))
+                if box.process.isRunning { box.process.terminate() }
+                resumer.resume(false)
+            }
+        }
+    }
+
+    private final class ProcessBox: @unchecked Sendable {
+        let process: Process
+        init(_ process: Process) { self.process = process }
+    }
+}
+
 actor GrokUsageProvider: CodexUsageProviding {
     static let creditsConfigURL = URL(
         string: "https://grok.com/grok_api_v2.GrokBuildBilling/GetGrokCreditsConfig"
@@ -69,17 +129,24 @@ actor GrokUsageProvider: CodexUsageProviding {
     private let credentials: any GrokCredentialSource
     private let http: any UsageHTTPClient
     private let statusRegistry: LocalToolStatusRegistry?
+    private let refreshSignIn: @Sendable () async -> Bool
+    private let signInRefreshInterval: TimeInterval
     private let now: @Sendable () -> Date
+    private var lastSignInRefreshAttempt: Date?
 
     init(
         credentials: any GrokCredentialSource = GrokBuildAuthFile(),
         http: any UsageHTTPClient = URLSessionUsageHTTPClient(),
         statusRegistry: LocalToolStatusRegistry? = nil,
+        refreshSignIn: @escaping @Sendable () async -> Bool = { await GrokBuildCLI.refreshSignIn() },
+        signInRefreshInterval: TimeInterval = 600,
         now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.credentials = credentials
         self.http = http
         self.statusRegistry = statusRegistry
+        self.refreshSignIn = refreshSignIn
+        self.signInRefreshInterval = signInRefreshInterval
         self.now = now
     }
 
@@ -101,21 +168,55 @@ actor GrokUsageProvider: CodexUsageProviding {
     func stop() async {}
 
     private func performRefresh() async throws -> AccountUsageResult {
-        let candidates = try credentials.load()
+        var candidates = try credentials.load()
         guard !candidates.isEmpty else { return .signedOut }
+        if candidates.allSatisfy(isExpired), await renewSignInIfAllowed() {
+            candidates = try credentials.load()
+            guard !candidates.isEmpty else { return .signedOut }
+        }
         var firstError: Error?
         for credential in candidates {
-            if let expiresAt = credential.expiresAt, now() >= expiresAt {
+            if isExpired(credential) {
                 firstError = firstError ?? LocalToolUsageError.credentialExpired
                 continue
             }
             do {
                 return .authenticated(try await fetchUsage(with: credential))
+            } catch LocalToolUsageError.credentialExpired {
+                // The server rejected a token that looked current: let the CLI
+                // renew it once, then retry with whatever it wrote.
+                if await renewSignInIfAllowed(),
+                   let renewed = try credentials.load().first(where: { !isExpired($0) }) {
+                    do {
+                        return .authenticated(try await fetchUsage(with: renewed))
+                    } catch {
+                        firstError = firstError ?? error
+                    }
+                } else {
+                    firstError = firstError ?? LocalToolUsageError.credentialExpired
+                }
             } catch {
                 firstError = firstError ?? error
             }
         }
         throw firstError ?? LocalToolUsageError.invalidResponse
+    }
+
+    private func isExpired(_ credential: GrokCredential) -> Bool {
+        guard let expiresAt = credential.expiresAt else { return false }
+        return now() >= expiresAt
+    }
+
+    /// At most one CLI renewal per `signInRefreshInterval`, so a broken
+    /// sign-in cannot make usAIge relaunch the CLI on every poll.
+    private func renewSignInIfAllowed() async -> Bool {
+        let current = now()
+        if let lastSignInRefreshAttempt,
+           current.timeIntervalSince(lastSignInRefreshAttempt) < signInRefreshInterval {
+            return false
+        }
+        lastSignInRefreshAttempt = current
+        return await refreshSignIn()
     }
 
     /// Billing gRPC first (percent of the included credits plus the period
