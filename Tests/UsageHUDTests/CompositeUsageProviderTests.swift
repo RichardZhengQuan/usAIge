@@ -76,6 +76,88 @@ import Testing
     #expect(await remote.refreshCount == 2)
 }
 
+@Test func throttledSourcesMergeAndKeepTheirCacheOnFailure() async throws {
+    let claude = Fixtures.codexSnapshot.withToolIdentity(.claude, id: "claude")
+    let cursor = Fixtures.codexSnapshot.withToolIdentity(.cursor, id: "cursor")
+    let localProvider = SequencedUsageProvider(results: [
+        .success(.authenticated([Fixtures.codexSnapshot])),
+        .success(.authenticated([Fixtures.codexSnapshot])),
+    ])
+    let claudeProvider = SequencedUsageProvider(results: [
+        .success(.authenticated([claude])),
+        .failure(LocalToolUsageError.rateLimited),
+    ])
+    let cursorProvider = SequencedUsageProvider(results: [
+        .success(.signedOut),
+        .success(.authenticated([cursor])),
+    ])
+    let remoteProvider = SequencedUsageProvider(results: [
+        .failure(RemoteUsageError.noSources),
+        .failure(RemoteUsageError.noSources),
+    ])
+    let provider = CompositeUsageProvider(
+        local: localProvider,
+        throttled: [claudeProvider, cursorProvider],
+        remote: remoteProvider
+    )
+
+    let first = try await provider.refresh()
+    #expect(first.snapshots.map(\.id) == ["codex", "claude"])
+
+    let second = try await provider.refresh()
+    #expect(second.snapshots.map(\.id) == ["codex", "claude", "cursor"])
+}
+
+@Test func everySourceSignedOutReportsSignedOut() async throws {
+    let local = SequencedUsageProvider(results: [.success(.signedOut)])
+    let claude = SequencedUsageProvider(results: [.success(.signedOut)])
+    let remote = SequencedUsageProvider(results: [.failure(RemoteUsageError.noSources)])
+    let provider = CompositeUsageProvider(local: local, throttled: [claude], remote: remote)
+
+    #expect(try await provider.refresh() == .signedOut)
+}
+
+@Test func throttledSourceCarriesTheRailWhenCodexIsMissing() async throws {
+    let claude = Fixtures.codexSnapshot.withToolIdentity(.claude, id: "claude")
+    let local = SequencedUsageProvider(results: [.failure(LocalToolTestError.offline)])
+    let claudeProvider = SequencedUsageProvider(results: [.success(.authenticated([claude]))])
+    let remote = SequencedUsageProvider(results: [.failure(RemoteUsageError.noSources)])
+    let provider = CompositeUsageProvider(local: local, throttled: [claudeProvider], remote: remote)
+
+    let result = try await provider.refresh()
+
+    #expect(result.snapshots.map(\.id) == ["claude"])
+}
+
+@Test func manualRefreshAsksThrottledProvidersForAManualRefresh() async throws {
+    let claude = Fixtures.codexSnapshot.withToolIdentity(.claude, id: "claude")
+    let base = ScriptedUsageProvider(result: .authenticated([claude]))
+    let clock = TestClockBox(Date(timeIntervalSince1970: 1_800_000_000))
+    let throttled = ThrottledUsageProvider(
+        base: base,
+        minimumInterval: 300,
+        manualMinimumInterval: 30,
+        now: { clock.now }
+    )
+    let local = ScriptedUsageProvider(result: .authenticated([Fixtures.codexSnapshot]))
+    let remote = SequencedUsageProvider(results: [.failure(RemoteUsageError.noSources)])
+    let provider = CompositeUsageProvider(
+        local: local,
+        throttled: [throttled],
+        remote: remote,
+        remoteRefreshInterval: 60,
+        now: { clock.now }
+    )
+
+    _ = try await provider.refresh()
+    clock.now.addTimeInterval(61)
+    _ = try await provider.refreshAutomatically()
+    #expect(await base.refreshCount == 1)
+
+    _ = try await provider.refresh()
+    #expect(await base.refreshCount == 2)
+}
+
 private actor SequencedUsageProvider: CodexUsageProviding {
     private var results: [Result<AccountUsageResult, Error>]
 
@@ -124,6 +206,21 @@ private final class CompositeTestClock: @unchecked Sendable {
 }
 
 private extension QuotaSnapshot {
+    func withToolIdentity(_ toolID: AIToolID, id: String) -> Self {
+        QuotaSnapshot(
+            id: id,
+            toolID: toolID,
+            displayName: displayName,
+            usedPercent: usedPercent,
+            remainingPercent: remainingPercent,
+            resetAt: resetAt,
+            windowDurationMinutes: windowDurationMinutes,
+            planType: planType,
+            updatedAt: updatedAt,
+            secondaryWindow: secondaryWindow
+        )
+    }
+
     func withRemoteIdentity() -> Self {
         var copy = self
         copy.toolID = AIToolID(rawValue: "remote")

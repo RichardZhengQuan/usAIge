@@ -8,6 +8,7 @@ struct HUDSettingsRootView: View {
     @ObservedObject var launchAtLogin: LaunchAtLoginController
     @ObservedObject var updateController: UpdateController
     @ObservedObject var relaySync: RelaySyncController
+    @ObservedObject var localToolStatus: LocalToolStatusRegistry
     @ObservedObject var navigation: SettingsNavigation
 
     var body: some View {
@@ -17,6 +18,7 @@ struct HUDSettingsRootView: View {
             launchAtLogin: launchAtLogin,
             updateController: updateController,
             relaySync: relaySync,
+            localToolStatus: localToolStatus,
             navigation: navigation,
             refreshUsage: { await store.refresh() }
         )
@@ -32,6 +34,7 @@ struct HUDSettingsView: View {
     @ObservedObject var launchAtLogin: LaunchAtLoginController
     @ObservedObject var updateController: UpdateController
     @ObservedObject var relaySync: RelaySyncController
+    @ObservedObject var localToolStatus: LocalToolStatusRegistry
     @ObservedObject var navigation: SettingsNavigation
     let refreshUsage: () async -> Void
     @State private var remoteToolToDelete: RelayRemoteTool?
@@ -272,6 +275,16 @@ struct HUDSettingsView: View {
                         .disabled(isDetectingLocalTools)
                         .accessibilityHint("Scans again for supported local AI tools")
                     }
+                }
+
+                Section {
+                    ForEach(LocalToolGuidance.supported) { guidance in
+                        localToolStatusRow(guidance)
+                    }
+                } header: {
+                    Text("Supported Local Tools")
+                } footer: {
+                    Text("usAIge reads each tool’s existing sign-in on this Mac only to ask that provider for your current limits. Sign-in tokens stay in memory and are never stored or relayed.")
                 }
 
                 Section("Remote AI Tools") {
@@ -689,6 +702,32 @@ struct HUDSettingsView: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    private func localToolStatusRow(_ guidance: LocalToolGuidance) -> some View {
+        let tool = AIToolDescriptor.descriptor(for: guidance.id)
+        let presentation = guidance.presentation(for: localToolStatus(for: guidance.id))
+        return HStack(spacing: 10) {
+            AIToolIcon(tool: tool, size: 26)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(tool.name)
+                Text(presentation.text)
+                    .font(.caption)
+                    .foregroundStyle(presentation.isProblem ? Color.orange : Color.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(tool.name)
+        .accessibilityValue(presentation.text)
+    }
+
+    private func localToolStatus(for id: AIToolID) -> LocalToolStatus {
+        if id == .chatGPT {
+            return snapshots.contains(where: { $0.toolID == .chatGPT }) ? .connected : .signedOut
+        }
+        return localToolStatus.status(for: id)
     }
 
     private func remoteToolRow(_ tool: RelayRemoteTool) -> some View {
