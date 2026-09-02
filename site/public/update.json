@@ -1,8 +1,8 @@
 {
-  "version": "0.2.11",
-  "build": 33,
+  "version": "0.2.12",
+  "build": 34,
   "minimumSystemVersion": "11.0",
-  "downloadURL": "https://usaige-macos.richardqz.chatgpt.site/usAIge-0.2.11-alpha.dmg",
-  "sha256": "aa3727d155924938cef3615009ba5534ec6b6fb67d928d976278eda7e1451c83",
-  "releaseNotes": {"headline":"The rail shows every tool","summary":"Version 0.2.11 lets the floating rail grow to show all of your AI tools at once instead of scrolling.","highlights":[{"title":"No more scrolling rail","detail":"The rail sizes itself to every visible row, up to your display’s height at the current scale, so Codex, Claude, Cursor, and Grok Build all stay in view.","systemImage":"rectangle.expand.vertical"},{"title":"Sign in to Claude in place","detail":"Sign In on the Claude row in Manage AI Tools runs Claude Code’s own login and takes the code you paste back.","systemImage":"person.badge.key"},{"title":"Every local tool at a glance","detail":"Manage AI Tools lists ChatGPT, Claude, Cursor, and Grok Build on one page with their state, a rail switch, and their limits behind a disclosure.","systemImage":"list.bullet.rectangle"}]}
+  "downloadURL": "https://usaige-macos.richardqz.chatgpt.site/usAIge-0.2.12-alpha.dmg",
+  "sha256": "13518fe5ff41680657a9fc175b8d9a0475b7abb89ff144d0222185fe02ba8d61",
+  "releaseNotes": {"headline":"Arrange your tools by dragging","summary":"Version 0.2.12 lets you drag AI tools into the order you want in the rail, and keeps each tool’s rings together.","highlights":[{"title":"Drag to reorder","detail":"In Manage AI Tools, drag a tool row up or down and release it where you want it. The rail follows that order right away and remembers it.","systemImage":"arrow.up.arrow.down"},{"title":"Tools stay grouped","detail":"A tool’s rings now sit together in the rail, and the up/down buttons reorder limits within that tool.","systemImage":"rectangle.3.group"},{"title":"The rail shows every tool","detail":"The rail grows to fit all of your tools instead of scrolling, up to your display’s height at the current scale.","systemImage":"rectangle.expand.vertical"}]}
 }
