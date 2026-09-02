@@ -169,11 +169,22 @@ struct AIToolIcon: View {
     var showsContrastHalo = false
     var contrastHaloColor: Color?
 
+    /// Monochrome template icons shipped inside the installed apps, in
+    /// preference order. These are the vendors' own marks, so they win over
+    /// the built-in vector marks whenever the app is present.
+    nonisolated static func templateIconCandidates(for id: AIToolID) -> [String] {
+        switch id {
+        case .chatGPT: ["chatgptTemplate@2x.png", "chatgptTemplate.png"]
+        case .claude: ["TrayIconTemplate@2x.png", "TrayIconTemplate.png"]
+        default: []
+        }
+    }
+
     private var monochromeImage: NSImage? {
-        guard tool.id == .chatGPT,
+        let candidates = Self.templateIconCandidates(for: tool.id)
+        guard !candidates.isEmpty,
               let applicationURL = AIToolLauncher.applicationURL(for: tool) else { return nil }
         let resources = applicationURL.appendingPathComponent("Contents/Resources")
-        let candidates = ["chatgptTemplate@2x.png", "chatgptTemplate.png"]
         for name in candidates {
             let url = resources.appendingPathComponent(name)
             if let image = NSImage(contentsOf: url) {
@@ -191,6 +202,10 @@ struct AIToolIcon: View {
                     .resizable()
                     .interpolation(.high)
                     .renderingMode(.template)
+                    .foregroundColor(.primary)
+            } else if BrandMark.hasMark(for: tool.id) {
+                BrandMarkView(toolID: tool.id)
+                    .padding(size * 0.1)
                     .foregroundColor(.primary)
             } else {
                 Image(systemName: tool.systemImage)
