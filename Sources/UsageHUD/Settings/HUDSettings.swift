@@ -26,7 +26,7 @@ final class HUDSettings: ObservableObject {
     }
 
     private struct Payload: Codable, Equatable {
-        var version = 8
+        var version = 9
         var bucketOrder: [String] = []
         var hiddenBucketIDs: Set<String> = []
         var toolOrder: [AIToolID] = AIToolID.builtInIDs
@@ -37,6 +37,7 @@ final class HUDSettings: ObservableObject {
         var usageAlertIntervalPercent = HUDSettings.defaultUsageAlertIntervalPercent
         var didApplyLatestBucketDefault = false
         var didApplyPrimaryBucketDefault = false
+        var primaryBucketDefaultToolIDs: Set<AIToolID> = []
         var positions: [String: HUDPosition] = [:]
         var remoteTools: [LegacyRemoteTool] = []
 
@@ -47,6 +48,7 @@ final class HUDSettings: ObservableObject {
             case usageAlertIntervalPercent
             case didApplyLatestBucketDefault
             case didApplyPrimaryBucketDefault
+            case primaryBucketDefaultToolIDs
             case remoteTools
         }
 
@@ -77,6 +79,10 @@ final class HUDSettings: ObservableObject {
                 Bool.self,
                 forKey: .didApplyPrimaryBucketDefault
             ) ?? false
+            primaryBucketDefaultToolIDs = try values.decodeIfPresent(
+                Set<AIToolID>.self,
+                forKey: .primaryBucketDefaultToolIDs
+            ) ?? []
             positions = try values.decodeIfPresent([String: HUDPosition].self, forKey: .positions) ?? [:]
             remoteTools = try values.decodeIfPresent([LegacyRemoteTool].self, forKey: .remoteTools) ?? []
         }
@@ -90,7 +96,7 @@ final class HUDSettings: ObservableObject {
         self.defaults = defaults
         if let data = defaults.data(forKey: Self.storageKey),
            let decoded = try? JSONDecoder().decode(Payload.self, from: data),
-           (1...8).contains(decoded.version) {
+           (1...9).contains(decoded.version) {
             payload = decoded
             if decoded.version < 5 {
                 // Updating users keep their existing bucket visibility exactly as configured.
@@ -115,7 +121,15 @@ final class HUDSettings: ObservableObject {
                     !legacyRemoteIDs.contains { id.hasPrefix("\($0.rawValue):") }
                 }
             }
-            payload.version = 8
+            if decoded.version < 9 {
+                // The single Codex flag becomes a per-tool record so other
+                // multi-bucket tools get the same one-time default.
+                if payload.didApplyPrimaryBucketDefault {
+                    payload.primaryBucketDefaultToolIDs.insert(.chatGPT)
+                }
+            }
+            payload.didApplyPrimaryBucketDefault = payload.primaryBucketDefaultToolIDs.contains(.chatGPT)
+            payload.version = 9
         } else {
             payload = Payload()
         }
@@ -237,17 +251,21 @@ final class HUDSettings: ObservableObject {
             payload.toolOrder.append(contentsOf: toolAdditions)
         }
 
-        if !payload.didApplyPrimaryBucketDefault {
-            let chatGPTBuckets = snapshots.filter { $0.toolID == .chatGPT }
-            if chatGPTBuckets.count > 1,
-               let preferred = Self.preferredDefaultBucket(in: chatGPTBuckets) {
-                payload.hiddenBucketIDs.formUnion(
-                    chatGPTBuckets.lazy.map(\.id).filter { $0 != preferred.id }
-                )
-                payload.hiddenBucketIDs.remove(preferred.id)
-                payload.didApplyPrimaryBucketDefault = true
-                changed = true
-            }
+        for rule in Self.primaryBucketDefaults
+        where !payload.primaryBucketDefaultToolIDs.contains(rule.tool) {
+            let toolBuckets = snapshots.filter { $0.toolID == rule.tool }
+            guard toolBuckets.count > 1,
+                  let preferred = Self.preferredDefaultBucket(
+                    in: toolBuckets,
+                    preferredID: rule.bucketID
+                  ) else { continue }
+            payload.hiddenBucketIDs.formUnion(
+                toolBuckets.lazy.map(\.id).filter { $0 != preferred.id }
+            )
+            payload.hiddenBucketIDs.remove(preferred.id)
+            payload.primaryBucketDefaultToolIDs.insert(rule.tool)
+            payload.didApplyPrimaryBucketDefault = payload.primaryBucketDefaultToolIDs.contains(.chatGPT)
+            changed = true
         }
 
         guard changed else { return }
@@ -270,8 +288,20 @@ final class HUDSettings: ObservableObject {
         return values.filter { seen.insert($0).inserted }
     }
 
-    private static func preferredDefaultBucket(in snapshots: [QuotaSnapshot]) -> QuotaSnapshot? {
-        if let primary = snapshots.first(where: { $0.id == "codex" }) {
+    /// Tools whose providers report several buckets. On first sight the rail
+    /// shows only the headline bucket; every other one stays available in
+    /// Settings. Cursor and Grok Build report at most a couple of buckets and
+    /// keep them all visible.
+    nonisolated static let primaryBucketDefaults: [(tool: AIToolID, bucketID: String)] = [
+        (.chatGPT, "codex"),
+        (.claude, "claude"),
+    ]
+
+    private static func preferredDefaultBucket(
+        in snapshots: [QuotaSnapshot],
+        preferredID: String
+    ) -> QuotaSnapshot? {
+        if let primary = snapshots.first(where: { $0.id == preferredID }) {
             return primary
         }
         return snapshots.max { lhs, rhs in

@@ -1,8 +1,10 @@
 # usAIge
 
 usAIge has native clients for macOS, iPhone, iPad, and Apple Watch. The Mac is
-the trusted limit collector: it reads local Codex and paired remote tools,
-then relays only normalized percentages and reset times to paired iPhones.
+the trusted limit collector: it reads the local Codex app-server, the Claude
+Code, Cursor, and Grok Build sign-ins already on the Mac, and paired remote
+tools, then relays only normalized percentages and reset times to paired
+iPhones.
 
 ## Roadmap
 
@@ -108,7 +110,7 @@ families, sync behavior, and device signing are documented in
 
 ## macOS app
 
-usAIge is a native macOS floating AI usage rail. It shows real usage limits from the local Codex app-server and from remote AI tools you explicitly configure. When a limit has two windows, the inner ring shows its primary window and the outer ring shows its secondary window.
+usAIge is a native macOS floating AI usage rail. It shows real usage limits from the local Codex app-server, from the Claude Code, Cursor, and Grok Build sign-ins already on this Mac, and from remote AI tools you explicitly configure. When a limit has two windows, the inner ring shows its primary window and the outer ring shows its secondary window.
 
 macOS can notify you whenever a primary or secondary usage window crosses a new 5% used boundary. Selecting the notification brings the live limits rail forward.
 
@@ -121,6 +123,9 @@ While idle, the panel surface is fully transparent and every visible control is 
 - macOS 11 or later on an Apple-silicon Mac.
 - Swift 6.2 and Xcode 26 for source builds.
 - For local Codex limits: the ChatGPT or Codex macOS app, or a `codex` executable on `PATH`, with an existing Codex-managed ChatGPT sign-in.
+- For Claude limits: Claude Code signed in on this Mac (run `claude` once). usAIge reads the sign-in Claude Code keeps in the login Keychain; macOS asks once whether to allow that.
+- For Cursor limits: the Cursor app installed and signed in on this Mac.
+- For Grok Build limits: the Grok Build CLI signed in with `grok login`.
 - For remote limits: a compatible adapter that can claim a one-time usAIge pairing code and upload normalized limits.
 
 usAIge uses the bundled Codex executable from the ChatGPT/Codex application when available. It does not implement a second account login.
@@ -176,6 +181,38 @@ usAIge starts `codex app-server` locally and uses its documented JSON-RPC method
 - `account/rateLimits/updated` for live changes.
 
 The app prefers `rateLimitsByLimitId` and falls back to the legacy single `rateLimits` bucket. It reads both the primary and secondary windows for each bucket and never estimates a missing limit.
+
+### Local Claude Code, Cursor, and Grok Build
+
+These three tools are read directly by the Mac app. Each provider reads the
+sign-in its own client already stores on this Mac, holds it in memory for a
+single request to that provider's account usage endpoint, and keeps only the
+normalized percentages and reset times. usAIge never writes, logs, or relays
+a token, and it never refreshes or rotates one; when a sign-in expires, the
+rail keeps the last values and **Settings → Manage AI Tools** says which tool
+to open.
+
+| Tool | Sign-in read | Usage source | Buckets |
+| --- | --- | --- | --- |
+| Claude Code | Keychain item `Claude Code-credentials` (or `~/.claude/.credentials.json`) | `api.anthropic.com/api/oauth/usage`, the request Claude Code itself makes for `/usage` | **All models** (5-hour session inner ring, 7-day outer ring), plus Opus, Sonnet, OAuth apps, extra usage, and any further weekly window the account reports |
+| Cursor | `cursorAuth/accessToken` in Cursor's own state store | `api2.cursor.sh` `DashboardService/GetCurrentPeriodUsage`, the request the editor makes for Plan & Usage | **Cursor models** and **Other models** for the current billing cycle, or the blended included-usage percentage when the split is not reported |
+| Grok Build | `~/.grok/auth.json` (or `$GROK_HOME/auth.json`) | `grok.com` credits configuration and task usage, the requests Grok Build makes for its own usage view | Included credits for the current cycle, plus task limits when the account reports them |
+
+Polling is deliberately slow because these are account endpoints rather than
+a local server: Claude every 5 minutes, Cursor and Grok Build every 2 minutes,
+with automatic back-off after any failure and a longer pause after an HTTP
+429. A manual refresh may run sooner but never faster than a per-tool floor. A
+source that is waiting on something, such as the first Keychain prompt for
+the Claude sign-in, never holds up the others; the rail keeps showing the
+last known values and picks up the answer on the next cycle.
+The endpoints are the ones each vendor's own client uses; they are not
+publicly documented contracts, so a provider change can pause a tool until
+usAIge is updated. When that happens the rail keeps the last accepted values
+and marks them stale rather than inventing numbers.
+
+Claude reports several weekly buckets. The rail shows **All models** by
+default and keeps the others available under **Manage AI Tools**, mirroring
+how the Codex buckets are handled.
 
 ### Remote AI tools
 
@@ -250,7 +287,7 @@ Use the gear button on the panel to open native macOS Settings. Available prefer
 
 Drag the panel by its background. Its safe position is stored separately for each display. If a display disappears, the panel is clamped onto an available screen the next time it is positioned.
 
-The built-in OpenAI/Codex source reads its local app-server. Additional tools appear only after a paired adapter uploads valid normalized usage data; usAIge does not scrape provider websites or invent missing values.
+The built-in Codex, Claude Code, Cursor, and Grok Build sources read sign-ins already on this Mac; **Manage AI Tools** shows each one's connection state. Other tools appear only after a paired adapter uploads valid normalized usage data; usAIge does not scrape provider websites or invent missing values.
 
 ## Updates
 
@@ -265,7 +302,7 @@ When a quota resets, the new window starts its own notification cycle. Selecting
 ## macOS privacy
 
 - No browser cookies or web pages are read.
-- No OpenAI credentials are copied or stored by usAIge.
+- No provider credentials are copied or stored by usAIge. The Claude Code, Cursor, and Grok Build sign-ins already on this Mac are read into memory only to request each provider's current limits, and are never written to disk, logged, refreshed, or relayed.
 - The Mac relay credential is stored in an owner-only local application-support file. Each remote tool keeps its own write credential outside usAIge.
 - No screen pixels are captured or inspected.
 - Preferences contain visual settings, bucket identifiers, and display positions; they do not contain remote-tool bearer tokens.
@@ -287,6 +324,15 @@ Start the ChatGPT or Codex app, confirm that it is signed in, then press the ref
 - `/opt/homebrew/bin/codex`
 - `/usr/local/bin/codex`
 
+### Claude, Cursor, or Grok Build is missing from the rail
+
+Open **Settings → Manage AI Tools**. The **Supported Local Tools** list shows
+each tool's state and the fix: sign in to the tool, run `claude` or
+`grok login` to refresh an expired sign-in, or allow the one-time Keychain
+prompt for the Claude Code sign-in and press **Detect**. Anthropic rate limits
+its usage endpoint; when that happens usAIge keeps the last values and retries
+later instead of polling harder.
+
 ### Stale values
 
 When the local app-server or network disconnects, usAIge dims the last successful values and retries with bounded backoff. Press refresh after connectivity returns for an immediate attempt.
@@ -305,7 +351,15 @@ scripts/package-dmg.sh
 codesign --verify --deep --strict 'dist/usAIge.app'
 ```
 
-The automated suite covers quota normalization, JSON-RPC framing, account/rate-limit parsing, one-time remote pairing payloads, state recovery, countdowns, notification thresholds and routing, settings persistence, panel geometry, and severity thresholds.
+The automated suite covers quota normalization, JSON-RPC framing, account/rate-limit parsing, Claude Code, Cursor, and Grok Build decoding and throttling, one-time remote pairing payloads, state recovery, countdowns, notification thresholds and routing, settings persistence, panel geometry, and severity thresholds.
+
+Opt-in smoke tests exercise the real sign-ins on this Mac and print only normalized limits:
+
+```bash
+USAIGE_LIVE_LOCAL_TOOLS=1 swift test --filter LiveLocalTools
+```
+
+Add `USAIGE_LIVE_CLAUDE=1` to include Claude; reading its Keychain item shows a macOS access prompt the first time.
 
 ## TODO
 

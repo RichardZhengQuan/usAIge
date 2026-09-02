@@ -40,6 +40,10 @@ model.
   usAIge.
 - Do not scrape provider websites, reuse browser sessions, or invent values a
   provider does not expose.
+- Read tools that already keep a sign-in on the Mac directly from the macOS
+  app when the vendor's own client exposes machine-readable limits. Claude
+  Code, Cursor, and Grok Build are read this way; the paired-adapter model
+  remains the path for everything else.
 
 The product sequence is therefore: **macOS MVP -> iPhone and Apple Watch ->
 more AI tools**.

@@ -141,7 +141,7 @@ struct HUDView: View {
         case .signedOut:
             messageView(
                 title: "Connect",
-                detail: "Open Codex to connect",
+                detail: UsageState.connectGuidance,
                 symbol: "network.slash",
                 actionTitle: "Open Codex",
                 usesPrimaryAction: true,

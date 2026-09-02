@@ -12,7 +12,8 @@ struct AIToolID: RawRepresentable, Hashable, Codable, Identifiable, Sendable {
     static let claude = Self(rawValue: "claude")
     static let gemini = Self(rawValue: "gemini")
     static let cursor = Self(rawValue: "cursor")
-    static let builtInIDs: [Self] = [.chatGPT, .claude, .gemini, .cursor]
+    static let grok = Self(rawValue: "grok")
+    static let builtInIDs: [Self] = [.chatGPT, .claude, .gemini, .cursor, .grok]
 
     init(from decoder: Decoder) throws {
         rawValue = try decoder.singleValueContainer().decode(String.self)
@@ -59,6 +60,13 @@ struct AIToolDescriptor: Identifiable, Equatable, Sendable {
             systemImage: "cursorarrow.rays",
             bundleIdentifiers: ["com.todesktop.230313mzl4w4u92"],
             webURL: URL(string: "https://cursor.com")
+        ),
+        Self(
+            id: .grok,
+            name: "Grok Build",
+            systemImage: "line.diagonal",
+            bundleIdentifiers: ["ai.x.grok"],
+            webURL: URL(string: "https://grok.com")
         ),
     ]
 

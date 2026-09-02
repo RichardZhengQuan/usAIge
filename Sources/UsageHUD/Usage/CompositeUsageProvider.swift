@@ -1,28 +1,43 @@
 import Foundation
 
+/// Merges every usage source into one result:
+///
+/// - `local` is the Codex app-server, refreshed on every automatic tick.
+/// - `throttled` sources are the built-in local tool providers (Claude Code,
+///   Cursor, Grok Build). They talk to provider account endpoints, so they
+///   are polled on the remote cadence and each one throttles itself further.
+/// - `remote` is the relay of paired adapters.
+///
+/// A failing source keeps its last successful result so one provider outage
+/// never blanks the rail for the others.
 actor CompositeUsageProvider: AutomaticUsageProviding {
     private let local: any CodexUsageProviding
+    private let throttled: [any CodexUsageProviding]
     private let remote: any CodexUsageProviding
     private let remoteRefreshInterval: TimeInterval
     private let now: @Sendable () -> Date
     private var localResult: AccountUsageResult?
+    private var throttledResults: [AccountUsageResult?]
     private var remoteResult: AccountUsageResult?
     private var lastRemoteRefresh: Date?
 
     init(
         local: any CodexUsageProviding,
+        throttled: [any CodexUsageProviding] = [],
         remote: any CodexUsageProviding,
         remoteRefreshInterval: TimeInterval = 60,
         now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.local = local
+        self.throttled = throttled
         self.remote = remote
         self.remoteRefreshInterval = remoteRefreshInterval
         self.now = now
+        throttledResults = Array(repeating: nil, count: throttled.count)
     }
 
     func refresh() async throws -> AccountUsageResult {
-        try await refreshAllSources()
+        try await refreshAllSources(manual: true)
     }
 
     func refreshAutomatically() async throws -> AccountUsageResult {
@@ -31,37 +46,70 @@ actor CompositeUsageProvider: AutomaticUsageProviding {
            current.timeIntervalSince(lastRemoteRefresh) < remoteRefreshInterval {
             return try await refreshLocalSource()
         }
-        return try await refreshAllSources(at: current)
+        return try await refreshAllSources(at: current, manual: false)
     }
 
-    private func refreshAllSources(at refreshDate: Date? = nil) async throws -> AccountUsageResult {
+    private func refreshAllSources(at refreshDate: Date? = nil, manual: Bool) async throws -> AccountUsageResult {
         lastRemoteRefresh = refreshDate ?? now()
-        async let localResult = capture { try await self.local.refresh() }
-        async let remoteResult = capture { try await self.remote.refresh() }
-        let outcomes = await (localResult, remoteResult)
+        async let localOutcome = capture { try await self.local.refresh() }
+        async let remoteOutcome = capture { try await self.remote.refresh() }
+        async let throttledOutcomes = refreshThrottledSources(manual: manual)
+        let outcomes = await (localOutcome, throttledOutcomes, remoteOutcome)
         var succeeded = false
         var firstError: Error?
 
         switch outcomes.0 {
         case let .success(result):
             succeeded = true
-            self.localResult = result
+            localResult = result
         case let .failure(error):
             firstError = error
         }
-        switch outcomes.1 {
+        for (index, outcome) in outcomes.1.enumerated() {
+            switch outcome {
+            case let .success(result):
+                succeeded = true
+                throttledResults[index] = result
+            case let .failure(error):
+                firstError = firstError ?? error
+            }
+        }
+        switch outcomes.2 {
         case let .success(result):
             succeeded = true
-            self.remoteResult = result
+            remoteResult = result
         case let .failure(error):
             if case RemoteUsageError.noSources = error {
-                self.remoteResult = nil
+                remoteResult = nil
             }
             firstError = firstError ?? error
         }
 
         if succeeded, let result = combinedResult() { return result }
         throw firstError ?? RemoteUsageError.invalidResponse
+    }
+
+    private func refreshThrottledSources(manual: Bool) async -> [Result<AccountUsageResult, Error>] {
+        guard !throttled.isEmpty else { return [] }
+        let providers = throttled
+        return await withTaskGroup(of: (Int, Result<AccountUsageResult, Error>).self) { group in
+            for (index, provider) in providers.enumerated() {
+                group.addTask {
+                    let outcome = await capture {
+                        if manual, let throttledProvider = provider as? any ThrottledUsageProviding {
+                            return try await throttledProvider.refresh(manual: true)
+                        }
+                        return try await provider.refresh()
+                    }
+                    return (index, outcome)
+                }
+            }
+            var results: [Result<AccountUsageResult, Error>?] = Array(repeating: nil, count: providers.count)
+            for await (index, outcome) in group {
+                results[index] = outcome
+            }
+            return results.map { $0 ?? .failure(RemoteUsageError.invalidResponse) }
+        }
     }
 
     private func refreshLocalSource() async throws -> AccountUsageResult {
@@ -92,8 +140,10 @@ actor CompositeUsageProvider: AutomaticUsageProviding {
 
     func stop() async {
         await local.stop()
+        for provider in throttled { await provider.stop() }
         await remote.stop()
         localResult = nil
+        throttledResults = Array(repeating: nil, count: throttled.count)
         remoteResult = nil
         lastRemoteRefresh = nil
     }
@@ -104,7 +154,7 @@ actor CompositeUsageProvider: AutomaticUsageProviding {
     }
 
     private func combinedResult() -> AccountUsageResult? {
-        let results = [localResult, remoteResult].compactMap { $0 }
+        let results = ([localResult] + throttledResults + [remoteResult]).compactMap { $0 }
         guard !results.isEmpty else { return nil }
         var snapshots: [QuotaSnapshot] = []
         var isAuthenticated = false

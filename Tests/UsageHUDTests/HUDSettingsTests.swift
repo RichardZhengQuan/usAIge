@@ -231,6 +231,51 @@ import Testing
 }
 
 @MainActor
+@Test func claudeDefaultsToItsHeadlineBucketWhileCursorShowsEveryBucket() {
+    let settings = HUDSettings(defaults: isolatedDefaults())
+    let claude = quota(id: "claude", displayName: "All models", toolID: .claude)
+    let opus = quota(id: "claude_opus", displayName: "Opus", toolID: .claude)
+    let cursor = quota(id: "cursor", displayName: "Cursor models", toolID: .cursor)
+    let cursorOther = quota(id: "cursor_other", displayName: "Other models", toolID: .cursor)
+
+    settings.registerBuckets([claude, opus, cursor, cursorOther])
+
+    #expect(settings.ordered([claude, opus, cursor, cursorOther]).map(\.id) == ["claude", "cursor", "cursor_other"])
+    #expect(settings.visibleTools.map(\.id).contains(.grok))
+    settings.hiddenBucketIDs.remove("claude_opus")
+    settings.registerBuckets([claude, opus])
+    #expect(settings.ordered([claude, opus]).map(\.id) == ["claude", "claude_opus"])
+}
+
+@MainActor
+@Test func migratesTheCodexBucketDefaultFlagToPerToolRecords() throws {
+    let defaults = isolatedDefaults()
+    let existingSettings: [String: Any] = [
+        "version": 8,
+        "bucketOrder": ["codex", "codex_bengalfox"],
+        "hiddenBucketIDs": [],
+        "didApplyPrimaryBucketDefault": true,
+    ]
+    defaults.set(
+        try JSONSerialization.data(withJSONObject: existingSettings),
+        forKey: "usageHUD.settings.v1"
+    )
+    var settings: HUDSettings? = HUDSettings(defaults: defaults)
+    let codex = quota(id: "codex", displayName: "Codex")
+    let named = quota(id: "codex_bengalfox", displayName: "GPT-5.3-Codex-Spark")
+    let claude = quota(id: "claude", displayName: "All models", toolID: .claude)
+    let sonnet = quota(id: "claude_sonnet", displayName: "Sonnet", toolID: .claude)
+
+    settings?.registerBuckets([codex, named, claude, sonnet])
+
+    #expect(settings?.ordered([codex, named, claude, sonnet]).map(\.id) == ["codex", "codex_bengalfox", "claude"])
+    settings = nil
+    let restored = HUDSettings(defaults: defaults)
+    restored.registerBuckets([codex, named, claude, sonnet])
+    #expect(restored.ordered([codex, named, claude, sonnet]).map(\.id) == ["codex", "codex_bengalfox", "claude"])
+}
+
+@MainActor
 private func isolatedDefaults() -> UserDefaults {
     let suite = "UsageHUDTests.\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suite)!
@@ -238,9 +283,10 @@ private func isolatedDefaults() -> UserDefaults {
     return defaults
 }
 
-private func quota(id: String, displayName: String? = nil) -> QuotaSnapshot {
+private func quota(id: String, displayName: String? = nil, toolID: AIToolID = .chatGPT) -> QuotaSnapshot {
     QuotaSnapshot(
         id: id,
+        toolID: toolID,
         displayName: displayName ?? id,
         usedPercent: 0,
         remainingPercent: 100,

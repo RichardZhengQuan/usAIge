@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     let usageLimitNotifications: UsageLimitNotificationController
     let relaySync: RelaySyncController
     let settingsNavigation: SettingsNavigation
+    let localToolStatus: LocalToolStatusRegistry
     private var panel: HUDPanel?
     private var whatsNewWindowController: WhatsNewWindowController?
     private var codexAttentionMonitor: CodexAttentionMonitor?
@@ -29,6 +30,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         let configuredRelaySync = RelaySyncController()
         relaySync = configuredRelaySync
         settingsNavigation = SettingsNavigation()
+        let configuredLocalToolStatus = LocalToolStatusRegistry()
+        localToolStatus = configuredLocalToolStatus
         let localProvider: any CodexUsageProviding
         let agentProvider: any CodexAgentProviding
         if let executable = CodexExecutableResolver.resolve() {
@@ -47,6 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         }
         store = UsageStore(provider: CompositeUsageProvider(
             local: localProvider,
+            throttled: LocalToolProviders.make(statusRegistry: configuredLocalToolStatus),
             remote: remoteProvider
         ))
         agentStore = CodexAgentStore(provider: agentProvider)

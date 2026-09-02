@@ -134,7 +134,7 @@ final class UsageStore: ObservableObject {
         } catch {
             let previous = snapshots(in: state)
             if previous.isEmpty {
-                state = .unavailable(message: "Open Codex to connect")
+                state = .unavailable(message: UsageState.connectGuidance)
             } else {
                 state = .stale(previous, since: now())
             }

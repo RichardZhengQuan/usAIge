@@ -14,6 +14,7 @@ struct UsAIgeApp: App {
                         launchAtLogin: appDelegate.launchAtLogin,
                         updateController: appDelegate.updateController,
                         relaySync: appDelegate.relaySync,
+                        localToolStatus: appDelegate.localToolStatus,
                         navigation: appDelegate.settingsNavigation
                     )
                 } else {
