@@ -1,23 +1,23 @@
 {
-  "version": "0.2.9",
-  "build": 31,
+  "version": "0.2.10",
+  "build": 32,
   "releaseNotes": {
-    "headline": "Real logos, and Grok Build stays signed in",
-    "summary": "Version 0.2.9 shows the official Claude, Cursor, and Grok Build marks, keeps Grok Build's sign-in fresh, and explains API-key Claude Code setups.",
+    "headline": "Sign in to Claude from Settings",
+    "summary": "Version 0.2.10 adds a Claude sign-in button to Manage AI Tools and shows every supported local tool on one page without scrolling.",
     "highlights": [
       {
-        "title": "The official marks",
-        "detail": "Claude, Cursor, and Grok Build rows now use the vendors’ own logos, tinted to match the rail in light and dark mode.",
-        "systemImage": "seal"
+        "title": "Sign in to Claude in place",
+        "detail": "Sign In on the Claude row runs Claude Code’s own login, opens the sign-in page, and takes the code you paste back. Your plan limits appear right after.",
+        "systemImage": "person.badge.key"
       },
       {
-        "title": "Grok Build keeps working",
-        "detail": "When Grok Build’s six-hour sign-in expires, usAIge asks the Grok CLI to renew it instead of dropping the row.",
-        "systemImage": "arrow.clockwise"
+        "title": "Every local tool at a glance",
+        "detail": "ChatGPT, Claude, Cursor, and Grok Build each get one row with their state, a rail switch, and their limits behind a disclosure.",
+        "systemImage": "list.bullet.rectangle"
       },
       {
-        "title": "Clearer Claude status",
-        "detail": "If Claude Code bills an API key through a helper, Manage AI Tools says there are no plan limits to show and how to sign in with a plan.",
+        "title": "Straight answers",
+        "detail": "When Claude Code bills an API key through a helper, the row says there are no plan limits yet and offers the sign-in instead.",
         "systemImage": "info.circle"
       }
     ]
