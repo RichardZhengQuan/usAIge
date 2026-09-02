@@ -6,10 +6,13 @@ import Foundation
 /// two-minute floor. A manual refresh may go sooner, but never faster than
 /// the manual floor, so hovering the rail cannot hammer a provider.
 enum LocalToolProviders {
-    static func make(statusRegistry: LocalToolStatusRegistry) -> [any CodexUsageProviding] {
+    static func make(
+        statusRegistry: LocalToolStatusRegistry,
+        readsClaudeSignIn: @escaping @Sendable () async -> Bool
+    ) -> [any CodexUsageProviding] {
         [
             ThrottledUsageProvider(
-                base: ClaudeUsageProvider(statusRegistry: statusRegistry),
+                base: ClaudeUsageProvider(statusRegistry: statusRegistry, isEnabled: readsClaudeSignIn),
                 minimumInterval: 300,
                 manualMinimumInterval: 60,
                 rateLimitedInterval: 900
@@ -71,6 +74,8 @@ struct LocalToolGuidance: Identifiable, Sendable {
     func presentation(for status: LocalToolStatus) -> Presentation {
         switch status {
         case .unknown: Presentation(text: "Checking…", isProblem: false)
+        case .disabled:
+            Presentation(text: "Off. Turn on to read the Claude Code sign-in; macOS asks once per build.", isProblem: false)
         case .connected: Presentation(text: "Connected · \(source)", isProblem: false)
         case .notInstalled: Presentation(text: "Not installed.", isProblem: false)
         case .signedOut: Presentation(text: "Not connected. \(signInHint)", isProblem: false)

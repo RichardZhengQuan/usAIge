@@ -216,3 +216,22 @@ private actor SlowUsageProvider: CodexUsageProviding {
     #expect(manual.snapshots.first?.remainingPercent == 90)
     #expect(await base.refreshCount == 2)
 }
+
+@Test func aSignedOutResultAllowsAnImmediateManualRetry() async throws {
+    let clock = TestClockBox(Date(timeIntervalSince1970: 1_800_000_000))
+    let base = ScriptedUsageProvider(results: [
+        .success(.signedOut),
+        .success(.authenticated([claudeSnapshot(remaining: 70)])),
+    ])
+    let provider = ThrottledUsageProvider(
+        base: base,
+        minimumInterval: 300,
+        manualMinimumInterval: 60,
+        now: { clock.now }
+    )
+
+    #expect(try await provider.refresh() == .signedOut)
+    // Turning the tool on triggers a manual refresh right away.
+    #expect(try await provider.refresh(manual: true).snapshots.count == 1)
+    #expect(await base.refreshCount == 2)
+}

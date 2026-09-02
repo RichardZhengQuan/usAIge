@@ -50,7 +50,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         }
         store = UsageStore(provider: CompositeUsageProvider(
             local: localProvider,
-            throttled: LocalToolProviders.make(statusRegistry: configuredLocalToolStatus),
+            throttled: LocalToolProviders.make(
+                statusRegistry: configuredLocalToolStatus,
+                readsClaudeSignIn: { await MainActor.run { configuredSettings.readsClaudeSignIn } }
+            ),
             remote: remoteProvider
         ))
         agentStore = CodexAgentStore(provider: agentProvider)

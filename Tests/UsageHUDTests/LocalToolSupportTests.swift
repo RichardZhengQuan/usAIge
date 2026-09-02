@@ -45,6 +45,8 @@ import Testing
     let guidance = LocalToolGuidance.supported.first { $0.id == .claude }!
     #expect(guidance.presentation(for: .credentialExpired).isProblem)
     #expect(guidance.presentation(for: .connected).text.hasPrefix("Connected"))
+    #expect(guidance.presentation(for: .disabled).text.hasPrefix("Off."))
+    #expect(!guidance.presentation(for: .disabled).isProblem)
     #expect(LocalToolGuidance.supported.map(\.id) == [.chatGPT, .claude, .cursor, .grok])
 }
 

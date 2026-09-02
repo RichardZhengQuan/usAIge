@@ -296,3 +296,15 @@ private func quota(id: String, displayName: String? = nil, toolID: AIToolID = .c
         updatedAt: .distantPast
     )
 }
+
+@MainActor
+@Test func readingTheClaudeSignInIsOffByDefaultAndPersistsWhenEnabled() {
+    let defaults = isolatedDefaults()
+    var settings: HUDSettings? = HUDSettings(defaults: defaults)
+
+    #expect(settings?.readsClaudeSignIn == false)
+    settings?.readsClaudeSignIn = true
+    settings = nil
+
+    #expect(HUDSettings(defaults: defaults).readsClaudeSignIn == true)
+}

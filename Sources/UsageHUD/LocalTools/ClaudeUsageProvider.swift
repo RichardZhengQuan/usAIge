@@ -158,24 +158,33 @@ actor ClaudeUsageProvider: CodexUsageProviding {
     private let http: any UsageHTTPClient
     private let statusRegistry: LocalToolStatusRegistry?
     private let userAgentVersion: @Sendable () -> String
+    private let isEnabled: @Sendable () async -> Bool
     private let now: @Sendable () -> Date
     private var cachedUserAgent: String?
 
+    /// Reading the Claude Code sign-in shows a macOS Keychain prompt, so the
+    /// provider stays inert until the user turns Claude on in Settings.
     init(
         credentials: any ClaudeCredentialSource = ClaudeCodeCredentialStore(),
         http: any UsageHTTPClient = URLSessionUsageHTTPClient(),
         statusRegistry: LocalToolStatusRegistry? = nil,
         userAgentVersion: @escaping @Sendable () -> String = { ClaudeCodeVersion.resolve() },
+        isEnabled: @escaping @Sendable () async -> Bool = { true },
         now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.credentials = credentials
         self.http = http
         self.statusRegistry = statusRegistry
         self.userAgentVersion = userAgentVersion
+        self.isEnabled = isEnabled
         self.now = now
     }
 
     func refresh() async throws -> AccountUsageResult {
+        guard await isEnabled() else {
+            await report(.disabled)
+            return .signedOut
+        }
         do {
             let result = try await performRefresh()
             await report(result == .signedOut ? .signedOut : .connected)
