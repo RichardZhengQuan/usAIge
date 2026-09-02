@@ -96,6 +96,13 @@ func mapsRemainingPercentageToVisibleRingFraction(input: (Double, Double)) {
     #expect(HUDMetrics.railHeight(rowCount: 1) == 149)
     #expect(HUDMetrics.railHeight(rowCount: 2) == 243)
     #expect(HUDMetrics.railHeight(rowCount: 8) == 450)
+    // Five tools no longer scroll when the display has room for them.
+    #expect(HUDMetrics.railHeight(rowCount: 5, maximumHeight: 900) == 525)
+    #expect(HUDMetrics.railHeight(rowCount: 8, maximumHeight: 900) == 807)
+    #expect(HUDMetrics.railHeight(rowCount: 8, maximumHeight: 600) == 600)
+    #expect(HUDMetrics.maximumRailHeight(visibleHeight: 932, scale: 1) == 900)
+    #expect(HUDMetrics.maximumRailHeight(visibleHeight: 932, scale: 2) == 450)
+    #expect(HUDMetrics.maximumRailHeight(visibleHeight: 100, scale: 1) == 120)
     #expect(HUDMetrics.messageSize == CGSize(width: 84, height: 120))
     #expect(HUDMetrics.railWidth == 84)
 }

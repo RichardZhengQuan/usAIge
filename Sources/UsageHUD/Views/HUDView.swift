@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 @available(macOS 14.0, *)
@@ -26,10 +27,21 @@ struct HUDView: View {
         settings.ordered(availableSnapshots)
     }
 
+    /// The rail grows to show every visible tool; only when the display is
+    /// too short for them all does it fall back to scrolling.
     private var desiredSize: CGSize {
         switch store.state {
         case .current, .stale:
-            CGSize(width: HUDMetrics.railWidth, height: HUDMetrics.railHeight(rowCount: snapshots.count))
+            CGSize(
+                width: HUDMetrics.railWidth,
+                height: HUDMetrics.railHeight(
+                    rowCount: snapshots.count,
+                    maximumHeight: HUDMetrics.maximumRailHeight(
+                        visibleHeight: NSScreen.main?.visibleFrame.height ?? 900,
+                        scale: settings.scale
+                    )
+                )
+            )
         default:
             HUDMetrics.messageSize
         }
@@ -451,10 +463,20 @@ enum HUDMetrics {
     static let quotaRowHeight: CGFloat = 84
     static let hoveredGlassOpacity = 1.0
 
-    static func railHeight(rowCount: Int) -> CGFloat {
+    static let defaultMaximumRailHeight: CGFloat = 450
+    static let screenInset: CGFloat = 32
+
+    static func railHeight(rowCount: Int, maximumHeight: CGFloat = defaultMaximumRailHeight) -> CGFloat {
         let rowsHeight = CGFloat(rowCount) * quotaRowHeight
         let gapsHeight = CGFloat(max(0, rowCount - 1)) * itemSpacing
-        return min(450, max(120, 65 + rowsHeight + gapsHeight))
+        return min(max(120, maximumHeight), max(120, 65 + rowsHeight + gapsHeight))
+    }
+
+    /// The tallest unscaled rail that still fits the display once the user's
+    /// scale is applied, leaving a margin above and below.
+    static func maximumRailHeight(visibleHeight: CGFloat, scale: Double) -> CGFloat {
+        let usable = (visibleHeight - screenInset) / CGFloat(max(scale, 0.1))
+        return max(120, usable)
     }
 
     static func scaledSize(_ size: CGSize, scale: Double) -> CGSize {
