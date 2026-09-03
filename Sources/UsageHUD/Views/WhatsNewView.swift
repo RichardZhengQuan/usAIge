@@ -95,6 +95,10 @@ struct WhatsNewView: View {
 
 @MainActor
 final class WhatsNewWindowController: NSWindowController, NSWindowDelegate {
+    /// Marks the window so the Settings opener never mistakes it for the
+    /// Settings window.
+    static let windowIdentifier = NSUserInterfaceItemIdentifier("usAIge.whatsNew")
+
     init(updateController: UpdateController) {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 560, height: 600),
@@ -103,6 +107,7 @@ final class WhatsNewWindowController: NSWindowController, NSWindowDelegate {
             defer: false
         )
         window.title = "What’s New in usAIge"
+        window.identifier = Self.windowIdentifier
         window.minSize = NSSize(width: 520, height: 520)
         window.setFrameAutosaveName("WhatsNewWindow")
         super.init(window: window)

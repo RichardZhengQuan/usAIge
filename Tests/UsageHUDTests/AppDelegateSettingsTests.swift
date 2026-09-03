@@ -80,3 +80,36 @@ import Testing
     #expect(handled == true)
     #expect(openCount == 1)
 }
+
+@MainActor
+@Test func openingSettingsNeverBringsBackTheWhatsNewWindow() {
+    let whatsNew = WhatsNewWindowController(updateController: UpdateController()).window!
+    let settings = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: 520, height: 580),
+        styleMask: [.titled, .closable],
+        backing: .buffered,
+        defer: false
+    )
+    settings.title = "usAIge Settings"
+    let panel = NSPanel(
+        contentRect: NSRect(x: 0, y: 0, width: 84, height: 120),
+        styleMask: [.titled, .nonactivatingPanel],
+        backing: .buffered,
+        defer: false
+    )
+
+    #expect(!SettingsScenePresenter.isSettingsWindow(whatsNew))
+    #expect(!SettingsScenePresenter.isSettingsWindow(panel))
+    #expect(SettingsScenePresenter.isSettingsWindow(settings))
+    // What's New listed first, as it is once it has been shown, must lose.
+    #expect(SettingsScenePresenter.settingsWindow(in: [whatsNew, panel, settings]) === settings)
+    #expect(SettingsScenePresenter.settingsWindow(in: [whatsNew, panel]) == nil)
+
+    let untitledSettings = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: 520, height: 580),
+        styleMask: [.titled],
+        backing: .buffered,
+        defer: false
+    )
+    #expect(SettingsScenePresenter.settingsWindow(in: [whatsNew, untitledSettings]) === untitledSettings)
+}
