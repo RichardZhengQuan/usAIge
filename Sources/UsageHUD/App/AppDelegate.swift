@@ -379,7 +379,7 @@ enum SettingsScenePresenter {
     private static func focusSettingsWindowWhenReady() {
         Task { @MainActor in
             for _ in 0..<12 {
-                if let window = NSApp.windows.first(where: isSettingsWindow) {
+                if let window = settingsWindow(in: NSApp.windows) {
                     NSApp.activate(ignoringOtherApps: true)
                     window.makeKeyAndOrderFront(nil)
                     return
@@ -389,8 +389,24 @@ enum SettingsScenePresenter {
         }
     }
 
-    private static func isSettingsWindow(_ window: NSWindow) -> Bool {
-        !(window is NSPanel) && window.styleMask.contains(.titled)
+    /// The SwiftUI Settings window, never the What's New window: both are
+    /// titled, non-panel windows, and What's New stays alive after it is
+    /// closed, so a loose match used to bring it back on every Settings open.
+    static func settingsWindow(in windows: [NSWindow]) -> NSWindow? {
+        let candidates = windows.filter(isSettingsWindow)
+        return candidates.first(where: looksLikeSettingsScene) ?? candidates.first
+    }
+
+    static func isSettingsWindow(_ window: NSWindow) -> Bool {
+        !(window is NSPanel)
+            && window.styleMask.contains(.titled)
+            && window.identifier != WhatsNewWindowController.windowIdentifier
+    }
+
+    private static func looksLikeSettingsScene(_ window: NSWindow) -> Bool {
+        let identifier = window.identifier?.rawValue ?? ""
+        return identifier.localizedCaseInsensitiveContains("settings")
+            || window.title.localizedCaseInsensitiveContains("settings")
     }
 
     static func settingsMenuItem(in mainMenu: NSMenu?) -> NSMenuItem? {
