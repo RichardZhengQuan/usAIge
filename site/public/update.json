@@ -1,8 +1,8 @@
 {
-  "version": "0.2.12",
-  "build": 34,
+  "version": "0.2.13",
+  "build": 35,
   "minimumSystemVersion": "11.0",
-  "downloadURL": "https://usaige-macos.richardqz.chatgpt.site/usAIge-0.2.12-alpha.dmg",
-  "sha256": "13518fe5ff41680657a9fc175b8d9a0475b7abb89ff144d0222185fe02ba8d61",
-  "releaseNotes": {"headline":"Arrange your tools by dragging","summary":"Version 0.2.12 lets you drag AI tools into the order you want in the rail, and keeps each tool’s rings together.","highlights":[{"title":"Drag to reorder","detail":"In Manage AI Tools, drag a tool row up or down and release it where you want it. The rail follows that order right away and remembers it.","systemImage":"arrow.up.arrow.down"},{"title":"Tools stay grouped","detail":"A tool’s rings now sit together in the rail, and the up/down buttons reorder limits within that tool.","systemImage":"rectangle.3.group"},{"title":"The rail shows every tool","detail":"The rail grows to fit all of your tools instead of scrolling, up to your display’s height at the current scale.","systemImage":"rectangle.expand.vertical"}]}
+  "downloadURL": "https://usaige-macos.richardqz.chatgpt.site/usAIge-0.2.13-alpha.dmg",
+  "sha256": "a1d2b4a53e1329e4f0fbc669336fba8b595245ab50907efeae9c7c1a5cae9318",
+  "releaseNotes": {"headline":"What’s New shows once","summary":"Version 0.2.13 stops the What’s New window from reappearing every time you open Settings.","highlights":[{"title":"Settings opens Settings","detail":"Opening Settings no longer brings back the What’s New window once you have seen it; it stays available from the usAIge menu.","systemImage":"gearshape"},{"title":"Drag tools into order","detail":"Drag tool rows in Manage AI Tools to set their order in the rail; a tool’s limits stay grouped together.","systemImage":"arrow.up.arrow.down"},{"title":"The rail shows every tool","detail":"The floating rail grows to fit all of your tools instead of scrolling.","systemImage":"rectangle.expand.vertical"}]}
 }
