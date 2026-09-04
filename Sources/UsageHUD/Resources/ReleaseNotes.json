@@ -1,24 +1,24 @@
 {
-  "version": "0.2.13",
-  "build": 35,
+  "version": "0.2.14",
+  "build": 36,
   "releaseNotes": {
-    "headline": "What’s New shows once",
-    "summary": "Version 0.2.13 stops the What’s New window from reappearing every time you open Settings.",
+    "headline": "Every tool’s ring breathes",
+    "summary": "Version 0.2.14 lights the rail for Claude Code, Cursor, and Grok Build sessions, signs its updates, and keeps Magnet on the right display.",
     "highlights": [
       {
-        "title": "Settings opens Settings",
-        "detail": "Opening Settings no longer brings back the What’s New window once you have seen it; it stays available from the usAIge menu.",
-        "systemImage": "gearshape"
+        "title": "Session lights for every tool",
+        "detail": "Each ring breathes while that tool has an agent working, turns green when a session finishes, amber when it is waiting on you, and pink on an error. Paired iPhones and the Watch show the same status.",
+        "systemImage": "waveform.path.ecg"
       },
       {
-        "title": "Drag tools into order",
-        "detail": "Drag tool rows in Manage AI Tools to set their order in the rail; a tool’s limits stay grouped together.",
-        "systemImage": "arrow.up.arrow.down"
+        "title": "Signed updates",
+        "detail": "Update manifests now carry a signature from the release key, so the app only installs builds that were published by usAIge.",
+        "systemImage": "checkmark.seal"
       },
       {
-        "title": "The rail shows every tool",
-        "detail": "The floating rail grows to fit all of your tools instead of scrolling.",
-        "systemImage": "rectangle.expand.vertical"
+        "title": "Magnet remembers its display",
+        "detail": "A docked rail comes back on the edge you chose, even beside a second display or after one is unplugged, and a cancelled drag no longer leaves a tool row dimmed.",
+        "systemImage": "rectangle.on.rectangle"
       }
     ]
   }
