@@ -110,6 +110,14 @@ final class WatchUsageModel: NSObject, ObservableObject {
             guard let self else { return }
             let result = await directClient.fetch(credentials: credentials)
             await MainActor.run {
+                if !result.revokedChannelIDs.isEmpty {
+                    // The iPhone unpaired or re-paired this Mac. Drop the
+                    // rejected credential so every later sync stops
+                    // presenting it, the way the iPhone client does.
+                    let remaining = credentials.filter { !result.revokedChannelIDs.contains($0.channelID) }
+                    try? self.credentialStore.save(remaining)
+                    self.hasCellularCredentials = !remaining.isEmpty
+                }
                 guard !result.successfulChannelIDs.isEmpty else {
                     self.isRefreshing = false
                     self.errorMessage = result.errorMessage ?? "The usAIge server could not be reached."
@@ -318,6 +326,8 @@ private enum WatchRelayCredentialStoreError: Error {
 private struct WatchDirectSyncResult: Sendable {
     let tools: [WatchToolQuotaSnapshot]
     let successfulChannelIDs: Set<UUID>
+    /// Channels whose credential the relay rejected outright.
+    let revokedChannelIDs: Set<UUID>
     let failedCount: Int
     let errorMessage: String?
 }
@@ -340,6 +350,7 @@ private struct WatchRelayClient: Sendable {
     func fetch(credentials: [WatchRelayCredential]) async -> WatchDirectSyncResult {
         var tools: [WatchToolQuotaSnapshot] = []
         var successes: Set<UUID> = []
+        var revoked: Set<UUID> = []
         var failures = 0
         var lastError: String?
         for credential in credentials {
@@ -349,11 +360,15 @@ private struct WatchRelayClient: Sendable {
             } catch {
                 failures += 1
                 lastError = error.localizedDescription
+                if case WatchRelayClientError.unauthorized = error {
+                    revoked.insert(credential.channelID)
+                }
             }
         }
         return WatchDirectSyncResult(
             tools: tools,
             successfulChannelIDs: successes,
+            revokedChannelIDs: revoked,
             failedCount: failures,
             errorMessage: lastError
         )
@@ -370,7 +385,9 @@ private struct WatchRelayClient: Sendable {
         // extension's memory budget is far too small to buffer an arbitrary
         // response.
         let (bytes, response) = try await session.bytes(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+        guard let http = response as? HTTPURLResponse else { throw WatchRelayClientError.requestFailed }
+        if http.statusCode == 401 { throw WatchRelayClientError.unauthorized }
+        guard (200..<300).contains(http.statusCode),
               http.expectedContentLength <= Int64(Self.maximumResponseBytes) else {
             throw WatchRelayClientError.requestFailed
         }
@@ -425,7 +442,13 @@ private final class WatchRelaySessionDelegate: NSObject,
 
 private enum WatchRelayClientError: LocalizedError {
     case requestFailed
-    var errorDescription: String? { "The usAIge server could not be reached." }
+    case unauthorized
+    var errorDescription: String? {
+        switch self {
+        case .requestFailed: "The usAIge server could not be reached."
+        case .unauthorized: "This Mac was unpaired. Open usAIge on the iPhone to pair again."
+        }
+    }
 }
 
 private struct WatchRelayEnvelope: Decodable {

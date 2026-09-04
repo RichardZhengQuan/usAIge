@@ -26,9 +26,12 @@ struct UpdateManifest: Codable, Equatable, Sendable {
     }
 
     /// The fields the signature covers. Release notes are display-only and
-    /// stay outside it so wording fixes do not require re-signing.
+    /// stay outside it so wording fixes do not require re-signing. The
+    /// download URL stays outside it too: the SHA-256 already pins the exact
+    /// disk image, and the legacy site export rewrites the URL for its host
+    /// after signing.
     var signedPayload: Data {
-        Data("usaige-update-v1\n\(version)\n\(build)\n\(sha256.lowercased())\n\(downloadURL.absoluteString)\n".utf8)
+        Data("usaige-update-v2\n\(version)\n\(build)\n\(sha256.lowercased())\n".utf8)
     }
 
     func verifySignature(publicKey: Curve25519.Signing.PublicKey) throws {
@@ -40,6 +43,12 @@ struct UpdateManifest: Codable, Equatable, Sendable {
 
     func validate() throws {
         guard build > 0 else { throw UpdateError.invalidManifest }
+        // The version names the downloaded file, so keep it to plain
+        // version characters.
+        guard (1...40).contains(version.count),
+              version.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "_") }) else {
+            throw UpdateError.invalidManifest
+        }
         guard downloadURL.scheme?.lowercased() == "https" else {
             throw UpdateError.invalidManifest
         }
@@ -59,13 +68,14 @@ struct UpdateManifest: Codable, Equatable, Sendable {
 /// The release signing key usAIge trusts. The private half lives only on the
 /// release machine (`scripts/generate-update-signing-key.swift` creates it in
 /// `~/.config/usaige/`); `scripts/sign-update-manifest.swift` signs
-/// `update.json` during packaging. While `pinnedPublicKey` is nil the app
-/// falls back to transport security plus the SHA-256 in the manifest, which
-/// is only as strong as the host serving both.
+/// `update.json` during packaging, and `package-dmg.sh` runs it whenever the
+/// key is present. With the key pinned, an unsigned or mis-signed manifest is
+/// rejected, so a compromised download host cannot point the app at another
+/// build.
 enum UpdateSigning {
     /// Base64 raw representation of the Ed25519 public key. Set this to the
     /// value printed by `generate-update-signing-key.swift`.
-    static let pinnedPublicKeyBase64: String? = nil
+    static let pinnedPublicKeyBase64: String? = "Mp8K2b/i/tH4c0x20DFPwKW+7zVr2thm+JWqSstjBis="
 
     static var pinnedPublicKey: Curve25519.Signing.PublicKey? {
         guard let pinnedPublicKeyBase64, let data = Data(base64Encoded: pinnedPublicKeyBase64) else { return nil }

@@ -280,7 +280,7 @@ private struct WatchQuotaRow: View {
         if !isStale,
            let status = tool.sessionStatus,
            status.phase.showsLight {
-            value += ", Codex session \(status.phase.label)"
+            value += ", session \(status.phase.label)"
         }
         if isStale { value += ", showing saved data" }
         return value

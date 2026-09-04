@@ -61,7 +61,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
             ),
             remote: remoteProvider
         ))
-        agentStore = CodexAgentStore(provider: agentProvider)
+        // Every rail row gets a session light: Codex through its app-server,
+        // Claude Code, Cursor, and Grok Build through the files they keep.
+        agentStore = CodexAgentStore(sources: [
+            .init(toolID: .chatGPT, provider: agentProvider),
+            .init(toolID: .claude, provider: ClaudeCodeAgentProvider()),
+            .init(toolID: .cursor, provider: CursorAgentProvider()),
+            .init(toolID: .grok, provider: GrokBuildAgentProvider()),
+        ])
         launchAtLogin = LaunchAtLoginController()
         updateController = UpdateController()
         usageLimitNotifications = UsageLimitNotificationController()
@@ -149,14 +156,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         agentStore.onAttentionEvent = { [weak relaySync] task in
             relaySync?.sendSessionEvent(for: task)
         }
-        relayAgentObserver = agentStore.$phase
+        relayAgentObserver = agentStore.$aggregatesByTool
+            .map { aggregates in aggregates.mapValues(\.phase) }
             .removeDuplicates()
-            .sink { [weak relaySync] phase in
-                relaySync?.observeCodexSession(phase)
+            .sink { [weak relaySync] phases in
+                for (toolID, phase) in phases {
+                    relaySync?.observeSession(phase, for: toolID)
+                }
             }
         agentStore.start()
-        let codexAttentionMonitor = CodexAttentionMonitor { [weak self] in
-            self?.agentStore.acknowledgeAttentionStates()
+        let codexAttentionMonitor = CodexAttentionMonitor { [weak self] toolID in
+            self?.agentStore.acknowledgeAttentionStates(for: toolID)
         }
         codexAttentionMonitor.start()
         self.codexAttentionMonitor = codexAttentionMonitor
@@ -371,17 +381,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
 }
 
 @MainActor
+/// Bringing a tool's own app to the front counts as seeing its attention
+/// states, so the rail light for that tool settles.
 private final class CodexAttentionMonitor {
-    private static let bundleIdentifiers: Set<String> = [
-        "com.openai.codex",
-        "com.openai.chat",
-    ]
+    private static let toolsByBundleIdentifier: [String: AIToolID] = {
+        var tools: [String: AIToolID] = [:]
+        for descriptor in AIToolDescriptor.all {
+            for bundleIdentifier in descriptor.bundleIdentifiers { tools[bundleIdentifier] = descriptor.id }
+        }
+        tools["com.openai.codex"] = .chatGPT
+        tools["com.openai.chat"] = .chatGPT
+        return tools
+    }()
 
-    private let acknowledge: () -> Void
+    private let acknowledge: (AIToolID) -> Void
     private var activationObserver: NSObjectProtocol?
     private var clickMonitor: Any?
 
-    init(acknowledge: @escaping () -> Void) {
+    init(acknowledge: @escaping (AIToolID) -> Void) {
         self.acknowledge = acknowledge
     }
 
@@ -420,9 +437,9 @@ private final class CodexAttentionMonitor {
 
     private func acknowledgeIfCodex(_ application: NSRunningApplication) {
         guard let bundleIdentifier = application.bundleIdentifier,
-              Self.bundleIdentifiers.contains(bundleIdentifier)
+              let toolID = Self.toolsByBundleIdentifier[bundleIdentifier]
         else { return }
-        acknowledge()
+        acknowledge(toolID)
     }
 }
 

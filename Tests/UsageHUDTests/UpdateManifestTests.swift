@@ -29,6 +29,32 @@ import Testing
     #expect(throws: UpdateError.self) { try insecure.validate() }
 }
 
+@Test func updateManifestRejectsVersionsThatAreNotPlainVersionText() throws {
+    for version in ["../../injected", "0.2 beta", "", String(repeating: "9", count: 41)] {
+        let manifest = UpdateManifest(
+            version: version,
+            build: 8,
+            minimumSystemVersion: "11.0",
+            downloadURL: try #require(URL(string: "https://example.com/usAIge.dmg")),
+            sha256: String(repeating: "a", count: 64)
+        )
+        #expect(throws: UpdateError.self) { try manifest.validate() }
+    }
+    let manifest = UpdateManifest(
+        version: "0.2.14-beta_1",
+        build: 8,
+        minimumSystemVersion: "11.0",
+        downloadURL: try #require(URL(string: "https://example.com/usAIge.dmg")),
+        sha256: String(repeating: "a", count: 64)
+    )
+    #expect(throws: Never.self) { try manifest.validate() }
+}
+
+@Test func releaseSigningKeyIsPinned() throws {
+    // Without a pinned key the whole manifest signature path is skipped.
+    #expect(UpdateSigning.pinnedPublicKey != nil)
+}
+
 @Test func updateManifestAcceptsAndValidatesReleaseNotes() throws {
     let data = Data(#"""
     {
@@ -185,6 +211,26 @@ import Testing
     // Release notes are outside the signed payload; the build is inside it.
     manifest.releaseNotes = ReleaseNotes(headline: "Edited", summary: "Wording only.", highlights: [])
     #expect(throws: Never.self) { try manifest.verifySignature(publicKey: key.publicKey) }
+    // So is the download URL: the legacy site export rewrites it for its host,
+    // and the signed SHA-256 already pins the disk image it may point at.
+    let rehosted = UpdateManifest(
+        version: manifest.version,
+        build: manifest.build,
+        minimumSystemVersion: manifest.minimumSystemVersion,
+        downloadURL: try #require(URL(string: "https://pmrichq.com/project/usaige/usAIge-0.2.14-alpha.dmg")),
+        sha256: manifest.sha256,
+        signature: manifest.signature
+    )
+    #expect(throws: Never.self) { try rehosted.verifySignature(publicKey: key.publicKey) }
+    let swappedImage = UpdateManifest(
+        version: manifest.version,
+        build: manifest.build,
+        minimumSystemVersion: manifest.minimumSystemVersion,
+        downloadURL: manifest.downloadURL,
+        sha256: String(repeating: "c", count: 64),
+        signature: manifest.signature
+    )
+    #expect(throws: UpdateError.self) { try swappedImage.verifySignature(publicKey: key.publicKey) }
     let tampered = UpdateManifest(
         version: manifest.version,
         build: 37,
@@ -209,7 +255,7 @@ import Testing
     let manifest = try JSONDecoder().decode(UpdateManifest.self, from: data)
     #expect(manifest.signature == "AAAA")
     #expect(String(decoding: manifest.signedPayload, as: UTF8.self)
-        == "usaige-update-v1\n0.2.14\n36\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\nhttps://example.com/usAIge.dmg\n")
+        == "usaige-update-v2\n0.2.14\n36\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n")
 }
 
 @Test func teamIdentifierIsNilForAdHocSignedBundles() {

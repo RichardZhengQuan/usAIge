@@ -109,22 +109,30 @@ enum BackgroundRefreshCoordinator {
                 return
             }
 
+            // iOS may kill the process as soon as the expiration handler
+            // returns, so the task must be completed there and then, and the
+            // normal path must not complete it a second time.
+            let completion = BackgroundTaskCompletion(refreshTask)
             let work = Task { @MainActor in
                 guard let model else {
                     // Keep the chain alive even when there is no model to
                     // refresh with; otherwise background refresh silently
                     // stops until the app is next backgrounded by hand.
                     schedule(afterMinutes: defaultRefreshIntervalMinutes)
-                    refreshTask.setTaskCompleted(success: false)
+                    completion.complete(success: false)
                     return
                 }
                 await model.start()
                 let succeeded = await model.refreshDueTools(forceWhenCacheIsEmpty: true)
                 schedule(afterMinutes: model.minimumRefreshIntervalMinutes)
-                refreshTask.setTaskCompleted(success: succeeded)
+                completion.complete(success: succeeded)
             }
             refreshTask.expirationHandler = {
                 work.cancel()
+                // The next opportunity must already be booked before the
+                // system takes this one away.
+                schedule(afterMinutes: defaultRefreshIntervalMinutes)
+                completion.complete(success: false)
                 Task { @MainActor in
                     model?.cancelRefresh()
                 }
@@ -141,5 +149,26 @@ enum BackgroundRefreshCoordinator {
         } catch {
             logger.error("Could not schedule background refresh: \(error.localizedDescription, privacy: .public)")
         }
+    }
+}
+
+/// Completes a background task exactly once, whichever of the refresh and
+/// the expiration handler gets there first.
+private final class BackgroundTaskCompletion: @unchecked Sendable {
+    private let task: BGTask
+    private let lock = NSLock()
+    private var isCompleted = false
+
+    init(_ task: BGTask) {
+        self.task = task
+    }
+
+    func complete(success: Bool) {
+        lock.lock()
+        let shouldComplete = !isCompleted
+        isCompleted = true
+        lock.unlock()
+        guard shouldComplete else { return }
+        task.setTaskCompleted(success: success)
     }
 }

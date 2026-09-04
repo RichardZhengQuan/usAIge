@@ -334,6 +334,37 @@ private func quota(id: String, displayName: String? = nil, toolID: AIToolID = .c
 }
 
 @MainActor
+@Test func draggedToolMovesDownIntoTheTargetSlot() {
+    let settings = HUDSettings(defaults: isolatedDefaults())
+    settings.toolOrder = [.chatGPT, .claude, .cursor, .grok]
+
+    // Moving down lands exactly on the released row, not one above it.
+    settings.moveTool(.chatGPT, to: .cursor)
+    #expect(settings.toolOrder == [.claude, .cursor, .chatGPT, .grok])
+
+    settings.moveTool(.claude, to: .grok)
+    #expect(settings.toolOrder == [.cursor, .chatGPT, .grok, .claude])
+
+    // Moving up lands on the released row too.
+    settings.moveTool(.claude, to: .cursor)
+    #expect(settings.toolOrder == [.claude, .cursor, .chatGPT, .grok])
+}
+
+@MainActor
+@Test func settingsAnnounceChangesBeforeApplyingThem() {
+    let settings = HUDSettings(defaults: isolatedDefaults())
+    settings.opacity = 0.5
+    var observedOpacity: Double?
+    let subscription = settings.objectWillChange.sink { observedOpacity = settings.opacity }
+    settings.opacity = 0.8
+    subscription.cancel()
+    // ObservableObject promises the old value is still readable when the
+    // change is announced.
+    #expect(observedOpacity == 0.5)
+    #expect(settings.opacity == 0.8)
+}
+
+@MainActor
 @Test func draggedToolOrderPersists() {
     let defaults = isolatedDefaults()
     var settings: HUDSettings? = HUDSettings(defaults: defaults)

@@ -89,8 +89,14 @@ export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: R
       const claim = await env.DB.prepare("UPDATE relay_pairings SET claimed_at = ? WHERE id = ? AND claimed_at IS NULL")
         .bind(now, pairing.id).run();
       if ((claim.meta.changes ?? 0) !== 1) return json({ error: "That pairing code is invalid or expired." }, 400);
-      await env.DB.prepare("INSERT INTO relay_devices (id, channel_id, name, read_token_hash, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)")
-        .bind(deviceID, pairing.channel_id, deviceName, await sha256(readToken), now, now).run();
+      const inserted = await insertDeviceWithinLimit(env.DB, {
+        id: deviceID, channelID: pairing.channel_id, name: deviceName, readTokenHash: await sha256(readToken), now,
+      });
+      if (!inserted) {
+        // Hand the code back so the Mac's list does not show a phantom device.
+        await env.DB.prepare("UPDATE relay_pairings SET claimed_at = NULL WHERE id = ?").bind(pairing.id).run();
+        return json({ error: "This Mac already has the maximum number of paired devices." }, 409);
+      }
       const channel = await channelByID(env.DB, pairing.channel_id);
       return json({ channelID: pairing.channel_id, deviceID, readToken, macName: channel?.mac_name ?? "Mac" }, 201);
     }
@@ -130,11 +136,14 @@ export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: R
 
     if (request.method === "POST" && tail === "pairings") {
       if (!await authorizeMac(request, channel)) return unauthorized();
+      // A person pairs a handful of devices; a leaked upload token must not fill the table.
+      await enforceRateLimit(env.DB, `pairings:${channelID}`, 30, 60 * 60_000);
       return json(await createPairing(env.DB, channelID, new Date()), 201);
     }
 
     if (request.method === "POST" && tail === "tool-pairings") {
       if (!await authorizeMac(request, channel)) return unauthorized();
+      await enforceRateLimit(env.DB, `tool-pairings:${channelID}`, 30, 60 * 60_000);
       return json(await createToolPairing(env.DB, channelID, new Date()), 201);
     }
 
@@ -151,23 +160,14 @@ export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: R
       if (existing && existing.channel_id !== channelID) {
         return json({ error: "That Watch device identifier is already in use." }, 409);
       }
-      if (!existing) {
-        const count = await env.DB.prepare("SELECT COUNT(*) AS count FROM relay_devices WHERE channel_id = ?")
-          .bind(channelID).first<{ count: number }>();
-        if ((count?.count ?? 0) >= maximumDevicesPerChannel) {
-          return json({ error: "This Mac already has the maximum number of paired devices." }, 409);
-        }
-      }
       const payload = await readJSON(request) as { deviceName?: string };
       const deviceName = cleanName(payload.deviceName, "Apple Watch");
       const readToken = randomToken("usg_watch_");
       const now = new Date().toISOString();
-      await env.DB.prepare(
-        `INSERT INTO relay_devices (id, channel_id, name, read_token_hash, created_at, last_seen_at)
-         VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET name = excluded.name,
-           read_token_hash = excluded.read_token_hash, last_seen_at = excluded.last_seen_at`
-      ).bind(watchDeviceID, channelID, deviceName, await sha256(readToken), now, now).run();
+      const inserted = await insertDeviceWithinLimit(env.DB, {
+        id: watchDeviceID, channelID, name: deviceName, readTokenHash: await sha256(readToken), now, replaceExisting: true,
+      });
+      if (!inserted) return json({ error: "This Mac already has the maximum number of paired devices." }, 409);
       return json({ channelID, deviceID: watchDeviceID, readToken, macName: channel.mac_name }, 201);
     }
 
@@ -199,6 +199,7 @@ export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: R
       await enforceRateLimit(env.DB, `events:${channelID}`, 240, 60 * 60_000);
       const event = await readJSON(request);
       validateSessionEvent(event);
+      event.occurredAt = clampedOccurredAt(event.occurredAt);
       const subscriber = await env.DB.prepare(
         "SELECT id FROM relay_devices WHERE channel_id = ? AND session_notifications_enabled = 1 LIMIT 1"
       ).bind(channelID).first<{ id: string }>();
@@ -287,8 +288,10 @@ export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: R
       if (payload.sessionNotificationsEnabled != null && typeof payload.sessionNotificationsEnabled !== "boolean") {
         return json({ error: "Invalid notification preference." }, 400);
       }
-      await env.DB.prepare("UPDATE relay_devices SET apns_token = ?, apns_environment = ?, session_notifications_enabled = ?, last_seen_at = ? WHERE id = ?")
-        .bind(payload.apnsToken!.toLowerCase(), payload.environment, payload.sessionNotificationsEnabled === true ? 1 : 0, new Date().toISOString(), device.id).run();
+      // A client that only refreshes its APNs token leaves the notification preference alone.
+      const notificationsEnabled = payload.sessionNotificationsEnabled == null ? null : (payload.sessionNotificationsEnabled ? 1 : 0);
+      await env.DB.prepare("UPDATE relay_devices SET apns_token = ?, apns_environment = ?, session_notifications_enabled = COALESCE(?, session_notifications_enabled), last_seen_at = ? WHERE id = ?")
+        .bind(payload.apnsToken!.toLowerCase(), payload.environment, notificationsEnabled, new Date().toISOString(), device.id).run();
       return json({ registered: true });
     }
 
@@ -433,7 +436,17 @@ function validateSessionEvent(value: unknown): asserts value is SessionEvent {
     throw new RelayError("Invalid session event.", 400);
   }
 }
-function isBoundedString(value: unknown, maximum: number): value is string { return typeof value === "string" && value.length > 0 && value.length <= maximum; }
+function isBoundedString(value: unknown, maximum: number): value is string {
+  // `maximum` counts characters; the byte cap stops four-byte characters from storing four times the intended size.
+  return typeof value === "string" && value.length > 0 && [...value].length <= maximum && encoder.encode(value).length <= maximum * 4;
+}
+/// Events dated in the future would sit at the top of the retention window for good; clock
+/// skew gets a few minutes of tolerance and anything beyond that is stamped with arrival time.
+const futureEventToleranceMs = 5 * 60_000;
+function clampedOccurredAt(occurredAt: string) {
+  const now = Date.now();
+  return Date.parse(occurredAt) > now + futureEventToleranceMs ? new Date(now).toISOString() : occurredAt;
+}
 function isDateString(value: unknown): value is string { return typeof value === "string" && value.length <= 64 && Number.isFinite(Date.parse(value)); }
 function isUUID(value: unknown): value is string { return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value); }
 function hasOnlyKeys(value: object, allowed: string[]) { return Object.keys(value).every(key => allowed.includes(key)); }
@@ -482,6 +495,22 @@ function randomCode() {
     }
   }
   return digits.join("");
+}
+/// Inserts a device only while the channel is under its device limit, in one statement so two
+/// concurrent registrations cannot both squeeze in at nine. With `replaceExisting`, a device that
+/// already exists is refreshed in place and does not count against the limit.
+async function insertDeviceWithinLimit(db: D1Database, device: { id: string; channelID: string; name: string; readTokenHash: string; now: string; replaceExisting?: boolean }) {
+  const conflict = device.replaceExisting
+    ? "ON CONFLICT(id) DO UPDATE SET name = excluded.name, read_token_hash = excluded.read_token_hash, last_seen_at = excluded.last_seen_at"
+    : "";
+  const result = await db.prepare(
+    `INSERT INTO relay_devices (id, channel_id, name, read_token_hash, created_at, last_seen_at)
+     SELECT ?1, ?2, ?3, ?4, ?5, ?5
+     WHERE (SELECT COUNT(*) FROM relay_devices WHERE channel_id = ?2) < ?6
+        OR EXISTS (SELECT 1 FROM relay_devices WHERE id = ?1)
+     ${conflict}`
+  ).bind(device.id, device.channelID, device.name, device.readTokenHash, device.now, maximumDevicesPerChannel).run();
+  return (result.meta.changes ?? 0) === 1;
 }
 async function createPairing(db: D1Database, channelID: string, now: Date) {
   const code = randomCode(); const expiresAt = new Date(now.getTime() + pairingLifetimeMs).toISOString();
@@ -608,4 +637,4 @@ async function providerToken(env: RelayEnv) {
   const value = `${header}.${claims}.${base64url(signature)}`; cachedProviderToken = { value, createdAt: now }; return value;
 }
 
-export const relayTestSupport = { normalizeCode, randomCode, enforceRateLimit, validateSnapshot, validateRemoteToolSnapshot, validateSessionEvent, validateFeedback, sessionEventCopy, sessionStatusSignature, isUUID, sha256 };
+export const relayTestSupport = { normalizeCode, randomCode, enforceRateLimit, validateSnapshot, validateRemoteToolSnapshot, validateSessionEvent, validateFeedback, sessionEventCopy, sessionStatusSignature, isUUID, sha256, isBoundedString, clampedOccurredAt };

@@ -59,6 +59,11 @@ struct LegacyHUDView: View {
             settings.registerBuckets(availableSnapshots)
             resizePanel(HUDMetrics.scaledSize(desiredSize, scale: settings.scale))
         }
+        .onChange(of: availableSnapshots.map(\.id)) { _ in
+            // Buckets that appear after launch (a second tool signing in)
+            // need a slot in the order too.
+            settings.registerBuckets(availableSnapshots)
+        }
     }
 
     @ViewBuilder

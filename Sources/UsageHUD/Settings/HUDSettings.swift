@@ -156,45 +156,44 @@ final class HUDSettings: ObservableObject {
 
     var bucketOrder: [String] {
         get { payload.bucketOrder }
-        set { payload.bucketOrder = newValue; persist() }
+        set { update { payload.bucketOrder = newValue } }
     }
 
     var hiddenBucketIDs: Set<String> {
         get { payload.hiddenBucketIDs }
-        set { payload.hiddenBucketIDs = newValue; persist() }
+        set { update { payload.hiddenBucketIDs = newValue } }
     }
 
     var toolOrder: [AIToolID] {
         get { payload.toolOrder }
-        set { payload.toolOrder = newValue; persist() }
+        set { update { payload.toolOrder = newValue } }
     }
 
     var hiddenToolIDs: Set<AIToolID> {
         get { payload.hiddenToolIDs }
-        set { payload.hiddenToolIDs = newValue; persist() }
+        set { update { payload.hiddenToolIDs = newValue } }
     }
 
     var scale: Double {
         get { payload.scale }
-        set { payload.scale = Self.clamp(newValue, to: Self.scaleRange); persist() }
+        set { update { payload.scale = Self.clamp(newValue, to: Self.scaleRange) } }
     }
 
     var opacity: Double {
         get { payload.opacity }
-        set { payload.opacity = Self.clamp(newValue, to: Self.opacityRange); persist() }
+        set { update { payload.opacity = Self.clamp(newValue, to: Self.opacityRange) } }
     }
 
     var showsResetCredits: Bool {
         get { payload.showsResetCredits }
-        set { payload.showsResetCredits = newValue; persist() }
+        set { update { payload.showsResetCredits = newValue } }
     }
 
     var usageAlertIntervalPercent: Int {
         get { payload.usageAlertIntervalPercent }
         set {
             guard Self.usageAlertIntervalOptions.contains(newValue) else { return }
-            payload.usageAlertIntervalPercent = newValue
-            persist()
+            update { payload.usageAlertIntervalPercent = newValue }
         }
     }
 
@@ -202,7 +201,7 @@ final class HUDSettings: ObservableObject {
     /// prompt, which Codex-only users should never see.
     var readsClaudeSignIn: Bool {
         get { payload.readsClaudeSignIn }
-        set { payload.readsClaudeSignIn = newValue; persist() }
+        set { update { payload.readsClaudeSignIn = newValue } }
     }
 
     /// Rail order: tools in the user's tool order, and within a tool the
@@ -230,9 +229,10 @@ final class HUDSettings: ObservableObject {
     }
 
     func setPosition(_ point: CGPoint, edge: MagnetEdge? = nil, for displayKey: String) {
-        payload.positions[displayKey] = HUDPosition(point, edge: edge)
-        payload.lastDisplayKey = displayKey
-        persist()
+        update {
+            payload.positions[displayKey] = HUDPosition(point, edge: edge)
+            payload.lastDisplayKey = displayKey
+        }
     }
 
     /// The edge Magnet holds the rail on for this display, if any.
@@ -244,7 +244,7 @@ final class HUDSettings: ObservableObject {
     /// there, and a docked rail hides off screen until the pointer returns.
     var magnetEnabled: Bool {
         get { payload.magnetEnabled }
-        set { payload.magnetEnabled = newValue; persist() }
+        set { update { payload.magnetEnabled = newValue } }
     }
 
     /// The display the rail was last parked on, so launch can put it back
@@ -258,8 +258,7 @@ final class HUDSettings: ObservableObject {
     }
 
     func resetPosition(for displayKey: String) {
-        payload.positions.removeValue(forKey: displayKey)
-        persist()
+        update { payload.positions.removeValue(forKey: displayKey) }
     }
 
     func moveBucket(_ id: String, by offset: Int) {
@@ -308,40 +307,43 @@ final class HUDSettings: ObservableObject {
     }
 
     func registerBuckets(_ snapshots: [QuotaSnapshot]) {
-        let additions = Self.stableUnique(snapshots.map(\.id)).filter { !payload.bucketOrder.contains($0) }
+        var updated = payload
+        let additions = Self.stableUnique(snapshots.map(\.id)).filter { !updated.bucketOrder.contains($0) }
         let toolAdditions = Self.stableUnique(snapshots.map(\.toolID))
-            .filter { !payload.toolOrder.contains($0) }
-        var changed = !additions.isEmpty || !toolAdditions.isEmpty
+            .filter { !updated.toolOrder.contains($0) }
         if !additions.isEmpty {
-            payload.bucketOrder.append(contentsOf: additions)
+            updated.bucketOrder.append(contentsOf: additions)
         }
         if !toolAdditions.isEmpty {
-            payload.toolOrder.append(contentsOf: toolAdditions)
+            updated.toolOrder.append(contentsOf: toolAdditions)
         }
 
         for rule in Self.primaryBucketDefaults
-        where !payload.primaryBucketDefaultToolIDs.contains(rule.tool) {
+        where !updated.primaryBucketDefaultToolIDs.contains(rule.tool) {
             let toolBuckets = snapshots.filter { $0.toolID == rule.tool }
             guard toolBuckets.count > 1,
                   let preferred = Self.preferredDefaultBucket(
                     in: toolBuckets,
                     preferredID: rule.bucketID
                   ) else { continue }
-            payload.hiddenBucketIDs.formUnion(
+            updated.hiddenBucketIDs.formUnion(
                 toolBuckets.lazy.map(\.id).filter { $0 != preferred.id }
             )
-            payload.hiddenBucketIDs.remove(preferred.id)
-            payload.primaryBucketDefaultToolIDs.insert(rule.tool)
-            payload.didApplyPrimaryBucketDefault = payload.primaryBucketDefaultToolIDs.contains(.chatGPT)
-            changed = true
+            updated.hiddenBucketIDs.remove(preferred.id)
+            updated.primaryBucketDefaultToolIDs.insert(rule.tool)
+            updated.didApplyPrimaryBucketDefault = updated.primaryBucketDefaultToolIDs.contains(.chatGPT)
         }
 
-        guard changed else { return }
-        persist()
+        guard updated != payload else { return }
+        update { payload = updated }
     }
 
-    private func persist() {
+    /// Every change goes through here: `objectWillChange` fires before the
+    /// payload changes, as ObservableObject promises, and the result is
+    /// written to defaults afterwards.
+    private func update(_ change: () -> Void) {
         objectWillChange.send()
+        change()
         if let data = try? JSONEncoder().encode(payload) {
             defaults.set(data, forKey: Self.storageKey)
         }
