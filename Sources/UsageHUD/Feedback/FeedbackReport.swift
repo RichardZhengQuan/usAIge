@@ -86,7 +86,10 @@ struct FeedbackClient: Sendable {
         }
         guard (200..<300).contains(http.statusCode) else {
             let serverMessage = try? JSONDecoder().decode(FeedbackErrorResponse.self, from: data)
-            throw FeedbackSubmissionError.server(serverMessage?.error ?? "Feedback could not be sent.")
+            throw FeedbackSubmissionError.server(RelaySyncController.sanitizedServerMessage(
+                serverMessage?.error,
+                fallback: "Feedback could not be sent."
+            ))
         }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601

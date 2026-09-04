@@ -63,6 +63,23 @@ struct UpdateManifest: Codable, Equatable, Sendable {
     static func newest(in manifests: [UpdateManifest]) -> UpdateManifest? {
         manifests.max(by: { $0.build < $1.build })
     }
+
+    /// Whether this build runs on the given macOS version. A release that
+    /// raises its floor must not be installed on a Mac below it, where it
+    /// would replace a working copy with one that cannot launch.
+    func supports(systemVersion: OperatingSystemVersion) -> Bool {
+        guard let required = Self.parseSystemVersion(minimumSystemVersion) else { return true }
+        let running = [systemVersion.majorVersion, systemVersion.minorVersion, systemVersion.patchVersion]
+        return running.lexicographicallyPrecedes(required) == false
+    }
+
+    static func parseSystemVersion(_ text: String) -> [Int]? {
+        let parts = text.split(separator: ".").map { Int($0) }
+        guard !parts.isEmpty, parts.allSatisfy({ $0 != nil }) else { return nil }
+        var values = parts.compactMap { $0 }
+        while values.count < 3 { values.append(0) }
+        return Array(values.prefix(3))
+    }
 }
 
 /// The release signing key usAIge trusts. The private half lives only on the
@@ -341,7 +358,8 @@ final class UpdateController: ObservableObject {
                     continue
                 }
             }
-            guard let manifest = UpdateManifest.newest(in: manifests) else {
+            let runningVersion = ProcessInfo.processInfo.operatingSystemVersion
+            guard let manifest = UpdateManifest.newest(in: manifests.filter { $0.supports(systemVersion: runningVersion) }) else {
                 throw UpdateError.feedUnavailable
             }
             if manifest.isNewer(thanBuild: currentBuild) {

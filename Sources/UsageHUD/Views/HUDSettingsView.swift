@@ -1081,6 +1081,9 @@ enum ToolReorderSection: Equatable {
 struct DraggedTool: Equatable {
     let id: AIToolID
     let section: ToolReorderSection
+    /// Distinguishes two drags of the same row, so the mouse-up watcher of a
+    /// finished drag can never clear a new one.
+    let token = UUID()
 }
 
 @available(macOS 14.0, *)
@@ -1104,18 +1107,18 @@ extension View {
                 delegate: ToolReorderDropDelegate(target: id, section: section, dragged: dragged, move: move)
             )
             .opacity(dragged.wrappedValue?.id == id ? 0.55 : 1)
-            .task(id: dragged.wrappedValue?.id == id) {
+            .task(id: dragged.wrappedValue.flatMap { $0.id == id ? $0.token : nil }) {
                 // SwiftUI only reports a drop that lands on a row. A drag
                 // cancelled with Escape or released elsewhere would leave
                 // this row dimmed, so watch for the button coming up.
-                guard dragged.wrappedValue?.id == id else { return }
-                while !Task.isCancelled, dragged.wrappedValue?.id == id {
+                guard let token = dragged.wrappedValue?.token, dragged.wrappedValue?.id == id else { return }
+                while !Task.isCancelled, dragged.wrappedValue?.token == token {
                     try? await Task.sleep(nanoseconds: 100_000_000)
                     if NSEvent.pressedMouseButtons == 0 {
                         // Give a successful drop its own chance to clear the state
                         // first, then clear it ourselves.
                         try? await Task.sleep(nanoseconds: 150_000_000)
-                        if dragged.wrappedValue?.id == id { dragged.wrappedValue = nil }
+                        if dragged.wrappedValue?.token == token { dragged.wrappedValue = nil }
                     }
                 }
             }

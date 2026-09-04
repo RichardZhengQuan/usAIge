@@ -30,6 +30,17 @@ actor CursorAgentProvider: CodexAgentProviding {
             return []
         }
         let database = try openDatabaseIfNeeded()
+        do {
+            return try tasks(from: database)
+        } catch {
+            // Cursor may replace the database underneath us; a handle that
+            // failed once must not be reused, or every poll fails after it.
+            closeDatabase()
+            throw error
+        }
+    }
+
+    private func tasks(from database: OpaquePointer) throws -> [CodexAgentTask] {
         let currentDate = now()
         let sinceMilliseconds = Int64((currentDate.timeIntervalSince1970 - Self.recentWindow) * 1000)
         let headers = try Self.query(

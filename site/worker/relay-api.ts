@@ -36,6 +36,7 @@ export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: R
       const address = clientAddress(request);
       await enforceRateLimit(env.DB, `feedback-hour:${address}`, 10, 60 * 60_000);
       await enforceRateLimit(env.DB, `feedback-day:${address}`, 30, 24 * 60 * 60_000);
+      ctx.waitUntil(pruneFeedback(env.DB));
       const payload = await readJSON(request);
       validateFeedback(payload);
       const feedback = payload as FeedbackSubmission;
@@ -121,8 +122,15 @@ export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: R
       const claim = await env.DB.prepare("UPDATE relay_tool_pairings SET claimed_at = ? WHERE id = ? AND claimed_at IS NULL")
         .bind(now, pairing.id).run();
       if ((claim.meta.changes ?? 0) !== 1) return json({ error: "That pairing code is invalid or expired." }, 400);
-      await env.DB.prepare("INSERT INTO relay_remote_tools (id, channel_id, name, symbol_name, website_url, write_token_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-        .bind(toolID, pairing.channel_id, toolName, symbolName, websiteURL, await sha256(writeToken), now).run();
+      const inserted = await env.DB.prepare(
+        `INSERT INTO relay_remote_tools (id, channel_id, name, symbol_name, website_url, write_token_hash, created_at)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
+         WHERE (SELECT COUNT(*) FROM relay_remote_tools WHERE channel_id = ?2) < ?8`
+      ).bind(toolID, pairing.channel_id, toolName, symbolName, websiteURL, await sha256(writeToken), now, maximumRemoteToolsPerChannel).run();
+      if ((inserted.meta.changes ?? 0) !== 1) {
+        await env.DB.prepare("UPDATE relay_tool_pairings SET claimed_at = NULL WHERE id = ?").bind(pairing.id).run();
+        return json({ error: "This Mac already has the maximum number of remote tools." }, 409);
+      }
       const uploadURL = `${url.origin}/api/v1/channels/${pairing.channel_id}/tools/${toolID}/snapshot`;
       return json({ channelID: pairing.channel_id, toolID, writeToken, uploadURL }, 201);
     }
@@ -200,10 +208,12 @@ export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: R
       const event = await readJSON(request);
       validateSessionEvent(event);
       event.occurredAt = clampedOccurredAt(event.occurredAt);
-      const subscriber = await env.DB.prepare(
-        "SELECT id FROM relay_devices WHERE channel_id = ? AND session_notifications_enabled = 1 LIMIT 1"
+      // Any paired device keeps an Activities inbox, so the event is stored for
+      // it; only devices that asked for alerts are pushed (see pushSessionEvent).
+      const pairedDevice = await env.DB.prepare(
+        "SELECT id FROM relay_devices WHERE channel_id = ? LIMIT 1"
       ).bind(channelID).first<{ id: string }>();
-      if (!subscriber) return json({ accepted: true, delivered: false }, 202);
+      if (!pairedDevice) return json({ accepted: true, delivered: false }, 202);
       const inserted = await storeSessionEvent(env.DB, channelID, event);
       if (inserted) ctx.waitUntil(pushSessionEvent(env, channel, event));
       return json({ accepted: true, duplicate: !inserted }, 202);
@@ -500,6 +510,7 @@ function randomCode() {
 /// concurrent registrations cannot both squeeze in at nine. With `replaceExisting`, a device that
 /// already exists is refreshed in place and does not count against the limit.
 async function insertDeviceWithinLimit(db: D1Database, device: { id: string; channelID: string; name: string; readTokenHash: string; now: string; replaceExisting?: boolean }) {
+  const existingClause = device.replaceExisting ? "OR EXISTS (SELECT 1 FROM relay_devices WHERE id = ?1)" : "";
   const conflict = device.replaceExisting
     ? "ON CONFLICT(id) DO UPDATE SET name = excluded.name, read_token_hash = excluded.read_token_hash, last_seen_at = excluded.last_seen_at"
     : "";
@@ -507,7 +518,7 @@ async function insertDeviceWithinLimit(db: D1Database, device: { id: string; cha
     `INSERT INTO relay_devices (id, channel_id, name, read_token_hash, created_at, last_seen_at)
      SELECT ?1, ?2, ?3, ?4, ?5, ?5
      WHERE (SELECT COUNT(*) FROM relay_devices WHERE channel_id = ?2) < ?6
-        OR EXISTS (SELECT 1 FROM relay_devices WHERE id = ?1)
+        ${existingClause}
      ${conflict}`
   ).bind(device.id, device.channelID, device.name, device.readTokenHash, device.now, maximumDevicesPerChannel).run();
   return (result.meta.changes ?? 0) === 1;
@@ -546,6 +557,13 @@ async function enforceRateLimit(db: D1Database, key: string, maximum: number, wi
 const rateLimitRetentionMs = 24 * 60 * 60_000;
 const sessionEventRetentionMs = 7 * 24 * 60 * 60_000;
 const maximumDevicesPerChannel = 10;
+const maximumRemoteToolsPerChannel = 10;
+const feedbackRetentionMs = 180 * 24 * 60 * 60_000;
+/// Feedback is read within weeks of arriving; nothing needs it after half a year.
+async function pruneFeedback(db: D1Database) {
+  const cutoff = new Date(Date.now() - feedbackRetentionMs).toISOString();
+  await db.prepare("DELETE FROM app_feedback WHERE received_at < ?").bind(cutoff).run();
+}
 /// Drops rate-limit rows whose window ended more than a day ago so the table stays bounded.
 async function pruneRateLimits(db: D1Database) {
   const cutoff = new Date(Date.now() - rateLimitRetentionMs).toISOString();

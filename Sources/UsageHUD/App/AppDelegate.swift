@@ -458,7 +458,7 @@ enum SettingsScenePresenter {
 
     private static func focusSettingsWindowWhenReady() {
         Task { @MainActor in
-            for _ in 0..<12 {
+            for _ in 0..<40 {
                 if let window = settingsWindow(in: NSApp.windows) {
                     NSApp.activate(ignoringOtherApps: true)
                     window.makeKeyAndOrderFront(nil)

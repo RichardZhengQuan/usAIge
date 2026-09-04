@@ -225,6 +225,9 @@ final class ClaudeSignInSession: ObservableObject {
 
     private func consume(_ chunk: String) {
         transcript += chunk
+        if transcript.count > 64 * 1024 {
+            transcript = String(transcript.suffix(32 * 1024))
+        }
         if case .starting = state, let url = Self.signInURL(in: transcript) {
             state = .waitingForCode(url)
             openURL(url)

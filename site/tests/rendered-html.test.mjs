@@ -108,6 +108,8 @@ test("publishes a valid automatic update manifest", async () => {
     manifest.downloadURL,
     "https://usaige-macos.richardqz.chatgpt.site/usAIge-0.2.13-alpha.dmg",
   );
+  // The app pins the release key, so an unsigned manifest blocks every update.
+  assert.match(manifest.signature ?? "", /^[A-Za-z0-9+/]{86}==$/);
 });
 
 test("exports the same migration release for the legacy host", async () => {
@@ -129,4 +131,7 @@ test("exports the same migration release for the legacy host", async () => {
     manifest.downloadURL,
     "https://pmrichq.com/project/usaige/usAIge-0.2.13-alpha.dmg",
   );
+  // The signature covers version, build, and sha256, so the rewritten URL keeps it valid.
+  const source = JSON.parse(await readFile(new URL("../public/update.json", import.meta.url), "utf8"));
+  assert.equal(manifest.signature, source.signature);
 });

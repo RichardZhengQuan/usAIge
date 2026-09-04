@@ -50,6 +50,22 @@ import Testing
     #expect(throws: Never.self) { try manifest.validate() }
 }
 
+@Test func updateManifestIsOnlyOfferedToMacsThatCanRunIt() throws {
+    let manifest = UpdateManifest(
+        version: "0.3.0",
+        build: 40,
+        minimumSystemVersion: "14.2",
+        downloadURL: try #require(URL(string: "https://example.com/usAIge.dmg")),
+        sha256: String(repeating: "a", count: 64)
+    )
+    #expect(manifest.supports(systemVersion: OperatingSystemVersion(majorVersion: 14, minorVersion: 2, patchVersion: 0)))
+    #expect(manifest.supports(systemVersion: OperatingSystemVersion(majorVersion: 15, minorVersion: 0, patchVersion: 0)))
+    #expect(!manifest.supports(systemVersion: OperatingSystemVersion(majorVersion: 14, minorVersion: 1, patchVersion: 9)))
+    #expect(!manifest.supports(systemVersion: OperatingSystemVersion(majorVersion: 11, minorVersion: 0, patchVersion: 0)))
+    #expect(UpdateManifest.parseSystemVersion("11") == [11, 0, 0])
+    #expect(UpdateManifest.parseSystemVersion("garbage") == nil)
+}
+
 @Test func releaseSigningKeyIsPinned() throws {
     // Without a pinned key the whole manifest signature path is skipped.
     #expect(UpdateSigning.pinnedPublicKey != nil)
@@ -112,6 +128,10 @@ import Testing
     #expect(manifest.version == plist["CFBundleShortVersionString"] as? String)
     #expect(manifest.build == Int(plist["CFBundleVersion"] as? String ?? ""))
     #expect(manifest.minimumSystemVersion == "11.0")
+    // The app pins the release key, so an unsigned manifest would block
+    // every update; the published file must verify against that key.
+    let pinnedKey = try #require(UpdateSigning.pinnedPublicKey)
+    #expect(throws: Never.self) { try manifest.verifySignature(publicKey: pinnedKey) }
     #expect(manifest.minimumSystemVersion == plist["LSMinimumSystemVersion"] as? String)
     #expect(manifest.releaseNotes?.highlights.isEmpty == false)
     #expect(

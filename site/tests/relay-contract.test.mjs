@@ -406,7 +406,7 @@ test("session events dated in the future are stamped with arrival time", async (
   const db = scriptedDB({
     "SELECT * FROM relay_channels": openChannel,
     "INSERT INTO relay_rate_limits": { count: 1 },
-    "SELECT id FROM relay_devices WHERE channel_id = ? AND session_notifications_enabled": { id: "phone-1" },
+    "SELECT id FROM relay_devices WHERE channel_id = ? LIMIT 1": { id: "phone-1" },
     "INSERT OR IGNORE INTO relay_session_events": bindings => { stored = bindings; return { meta: { changes: 1 } }; },
   });
   const before = Date.now();
@@ -434,4 +434,75 @@ test("browser preflights get no cross-origin grant", async () => {
   const response = await handleRelayRequest(new Request("https://relay.example/api/v1/channels", { method: "OPTIONS" }), { DB: scriptedDB() }, noopContext);
   assert.equal(response.status, 204);
   assert.equal(response.headers.get("access-control-allow-origin"), null);
+});
+
+test("claiming a tool pairing fails once the channel has ten remote tools and hands the code back", async () => {
+  const pairing = { id: "tool-pairing-1", channel_id: "channel-1", expires_at: new Date(Date.now() + 60_000).toISOString(), claimed_at: null };
+  const db = scriptedDB({
+    "INSERT INTO relay_rate_limits": { count: 1 },
+    "SELECT id, channel_id, expires_at, claimed_at FROM relay_tool_pairings": pairing,
+    "INSERT INTO relay_remote_tools": { meta: { changes: 0 } },
+  });
+  const response = await handleRelayRequest(new Request("https://relay.example/api/v1/tool-pairings/claim", {
+    method: "POST",
+    headers: { "content-type": "application/json", "cf-connecting-ip": "203.0.113.5" },
+    body: JSON.stringify({ code: "01234567", toolName: "Team tool" }),
+  }), { DB: db }, noopContext);
+  assert.equal(response.status, 409);
+  assert.match(db.calls.find(sql => sql.startsWith("INSERT INTO relay_remote_tools")), /SELECT COUNT\(\*\) FROM relay_remote_tools/);
+  assert.ok(db.calls.some(sql => sql.startsWith("UPDATE relay_tool_pairings SET claimed_at = NULL")));
+});
+
+test("a fresh device insert never bypasses the limit through the existing-row clause", async () => {
+  const pairing = { id: "pairing-1", channel_id: "channel-1", expires_at: new Date(Date.now() + 60_000).toISOString(), claimed_at: null };
+  const db = scriptedDB({
+    "INSERT INTO relay_rate_limits": { count: 1 },
+    "SELECT id, channel_id, expires_at, claimed_at FROM relay_pairings": pairing,
+  });
+  await handleRelayRequest(new Request("https://relay.example/api/v1/pairings/claim", {
+    method: "POST",
+    headers: { "content-type": "application/json", "cf-connecting-ip": "203.0.113.5" },
+    body: JSON.stringify({ code: "01234567", deviceName: "iPhone" }),
+  }), { DB: db }, noopContext);
+  const insert = db.calls.find(sql => sql.startsWith("INSERT INTO relay_devices"));
+  assert.doesNotMatch(insert, /EXISTS/);
+  assert.doesNotMatch(insert, /ON CONFLICT/);
+});
+
+
+test("session events are kept for a paired device that has not enabled alerts", async () => {
+  const db = scriptedDB({
+    "SELECT * FROM relay_channels": openChannel,
+    "INSERT INTO relay_rate_limits": { count: 1 },
+    "SELECT id FROM relay_devices WHERE channel_id = ? LIMIT 1": { id: "phone-1" },
+  });
+  const response = await handleRelayRequest(new Request("https://relay.example/api/v1/channels/channel-1/session-events", {
+    method: "POST",
+    headers: { authorization: "Bearer usg_mac_secret", "content-type": "application/json" },
+    body: JSON.stringify({ schemaVersion: 1, eventID: "event-2", kind: "finished", sessionTitle: "Task", workspaceName: "Repo", occurredAt: "2026-07-18T12:00:00Z" }),
+  }), { DB: db }, noopContext);
+  assert.equal(response.status, 202);
+  assert.ok(db.calls.some(sql => sql.startsWith("INSERT OR IGNORE INTO relay_session_events")));
+
+  const unpaired = scriptedDB({ "SELECT * FROM relay_channels": openChannel, "INSERT INTO relay_rate_limits": { count: 1 } });
+  const dropped = await handleRelayRequest(new Request("https://relay.example/api/v1/channels/channel-1/session-events", {
+    method: "POST",
+    headers: { authorization: "Bearer usg_mac_secret", "content-type": "application/json" },
+    body: JSON.stringify({ schemaVersion: 1, eventID: "event-3", kind: "finished", sessionTitle: "Task", workspaceName: "Repo", occurredAt: "2026-07-18T12:00:00Z" }),
+  }), { DB: unpaired }, noopContext);
+  assert.equal(dropped.status, 202);
+  assert.ok(!unpaired.calls.some(sql => sql.startsWith("INSERT OR IGNORE INTO relay_session_events")));
+});
+
+test("feedback older than half a year is pruned as new feedback arrives", async () => {
+  const db = scriptedDB({ "INSERT INTO relay_rate_limits": { count: 1 } });
+  const waited = [];
+  const response = await handleRelayRequest(new Request("https://relay.example/api/v1/feedback", {
+    method: "POST",
+    headers: { "content-type": "application/json", "cf-connecting-ip": "203.0.113.5" },
+    body: JSON.stringify({ schemaVersion: 1, content: "The rail is great.", platform: "macOS", systemVersion: "15.0", architecture: "arm64", locale: "en_US", language: "en", appVersion: "0.2.13", appBuild: "35", appBundleIdentifier: "com.richardq.usaige", submittedAt: "2026-07-18T12:00:00Z" }),
+  }), { DB: db }, { waitUntil(promise) { waited.push(promise); } });
+  assert.equal(response.status, 201);
+  await Promise.all(waited);
+  assert.ok(db.calls.some(sql => sql.startsWith("DELETE FROM app_feedback WHERE received_at <")));
 });

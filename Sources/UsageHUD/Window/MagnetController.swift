@@ -136,7 +136,12 @@ final class MagnetController {
     /// it flush and keeping it hidden if it was hidden.
     func panelDidResize(to size: CGSize) {
         guard let panel, let edge, let screen = dockedScreen else { return }
-        dockedDisplayID = Self.displayID(of: screen)
+        // While the docked display is unplugged the rail borrows another
+        // one for layout, but it stays docked to the missing display so the
+        // saved position there survives and nothing is written for the
+        // stand-in.
+        let isDockedDisplayPresent = dockedDisplayID == nil || Self.displayID(of: screen) == dockedDisplayID
+        if dockedDisplayID == nil { dockedDisplayID = Self.displayID(of: screen) }
         dockedFrame = MagnetGeometry.dockedFrame(
             size: size,
             edge: edge,
@@ -149,7 +154,7 @@ final class MagnetController {
         isMovingPanel = true
         panel.setFrame(target, display: true, animate: false)
         isMovingPanel = false
-        onDockingChanged?(edge, dockedFrame, screen)
+        if isDockedDisplayPresent { onDockingChanged?(edge, dockedFrame, screen) }
     }
 
     func screenParametersDidChange() {

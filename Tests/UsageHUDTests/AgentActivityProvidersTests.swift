@@ -19,6 +19,18 @@ private func claudeRecord(_ type: String, extra: String = "") -> String {
     #expect(ClaudeCodeSessionDecoder.decode(toolCall).phase == .thinking)
 }
 
+@Test func claudeCodeQuestionsAndPlanApprovalsNeedInput() {
+    let question = Data(claudeRecord("assistant", extra: ",\"message\":{\"role\":\"assistant\",\"stop_reason\":\"tool_use\",\"content\":[{\"type\":\"text\",\"text\":\"?\"},{\"type\":\"tool_use\",\"name\":\"AskUserQuestion\"}]}").utf8)
+    #expect(ClaudeCodeSessionDecoder.decode(question).phase == .needsInput)
+    let plan = Data(claudeRecord("assistant", extra: ",\"message\":{\"role\":\"assistant\",\"stop_reason\":\"tool_use\",\"content\":[{\"type\":\"tool_use\",\"name\":\"ExitPlanMode\"}]}").utf8)
+    #expect(ClaudeCodeSessionDecoder.decode(plan).phase == .needsInput)
+    let ordinary = Data(claudeRecord("assistant", extra: ",\"message\":{\"role\":\"assistant\",\"stop_reason\":\"tool_use\",\"content\":[{\"type\":\"tool_use\",\"name\":\"Bash\"}]}").utf8)
+    #expect(ClaudeCodeSessionDecoder.decode(ordinary).phase == .thinking)
+    // The answer arrives as a tool result and the session is working again.
+    let answered = question + Data(claudeRecord("user", extra: ",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\"}]}").utf8)
+    #expect(ClaudeCodeSessionDecoder.decode(answered).phase == .thinking)
+}
+
 @Test func claudeCodeEndOfTurnMeansCompleteAndAPIErrorMeansError() {
     let ended = Data(claudeRecord("assistant", extra: ",\"message\":{\"role\":\"assistant\",\"stop_reason\":\"end_turn\"}").utf8)
     #expect(ClaudeCodeSessionDecoder.decode(ended).phase == .complete)
@@ -121,6 +133,27 @@ private func grokLine(_ message: String, pid: Int = 500, sid: String? = "sid-1",
     let sessions = GrokBuildLogDecoder.sessions(from: data)
     #expect(sessions["a"]?.phase == .idle)
     #expect(sessions["b"]?.phase == .thinking)
+}
+
+@Test func grokBuildSessionEndClosesASessionThatStartedBeforeTheTail() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("usaige-grok-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root.appendingPathComponent("logs"), withIntermediateDirectories: true)
+    let log = root.appendingPathComponent("logs/unified.jsonl")
+    try Data(grokLine("prompt received", pid: 500, sid: "long").utf8).write(to: log)
+    let provider = GrokBuildAgentProvider(grokDirectory: root, isProcessAlive: { _ in true }, now: { Date() })
+    #expect(try await provider.refresh().first?.phase == .thinking)
+
+    // Push the start record out of the tail, then end the process.
+    let handle = try FileHandle(forWritingTo: log)
+    try handle.seekToEnd()
+    let noise = Data(grokLine("shell.image_budget", pid: 500, sid: nil, at: 2).utf8)
+    var padding = Data()
+    while padding.count < Int(GrokBuildAgentProvider.maximumTailBytes) + 1024 { padding.append(noise) }
+    try handle.write(contentsOf: padding)
+    try handle.write(contentsOf: Data(grokLine("session_end.worker_join", pid: 500, sid: nil, at: 3).utf8))
+    try handle.close()
+    #expect(try await provider.refresh().first?.phase == .idle)
 }
 
 @Test func grokBuildProviderDropsSessionsWhoseProcessIsGone() async throws {

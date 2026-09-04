@@ -132,8 +132,10 @@ enum AIToolLauncher {
     }
 
     static func codexTaskURL(id: String) -> URL? {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove("/")
         guard !id.isEmpty,
-              let encodedID = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+              let encodedID = id.addingPercentEncoding(withAllowedCharacters: allowed)
         else { return nil }
         return URL(string: "codex://threads/\(encodedID)")
     }

@@ -98,9 +98,27 @@ struct URLSessionUsageHTTPClient: UsageHTTPClient {
         session = URLSession(configuration: configuration)
     }
 
+    /// Usage payloads are a few kilobytes; anything past this is not a usage
+    /// payload and must not be buffered in full.
+    static let maximumBodyBytes = 2 * 1024 * 1024
+
     func send(_ request: URLRequest) async throws -> (status: Int, body: Data) {
-        let (data, response) = try await session.data(for: request)
-        return ((response as? HTTPURLResponse)?.statusCode ?? 0, data)
+        guard #available(macOS 12.0, *) else {
+            let (data, response) = try await session.data(for: request)
+            guard data.count <= Self.maximumBodyBytes else { throw LocalToolUsageError.invalidResponse }
+            return ((response as? HTTPURLResponse)?.statusCode ?? 0, data)
+        }
+        let (bytes, response) = try await session.bytes(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard response.expectedContentLength <= Int64(Self.maximumBodyBytes) else {
+            throw LocalToolUsageError.invalidResponse
+        }
+        var data = Data()
+        for try await byte in bytes {
+            guard data.count < Self.maximumBodyBytes else { throw LocalToolUsageError.invalidResponse }
+            data.append(byte)
+        }
+        return (status, data)
     }
 }
 

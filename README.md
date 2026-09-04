@@ -128,7 +128,7 @@ While idle, the panel surface is fully transparent and every visible control is 
 - For Grok Build limits: the Grok Build CLI signed in with `grok login`.
 - For remote limits: a compatible adapter that can claim a one-time usAIge pairing code and upload normalized limits.
 
-Each tool's ring also breathes while that tool has an agent session running, turns green when a session finishes, amber when one is waiting on you, and pink on an error; clicking the ring opens the tool and settles the light. The signals are read locally: Codex through its app-server, Claude Code from the record types at the end of its session transcripts in `~/.claude` (never the text), Cursor from the conversation status fields in its own state database, and Grok Build from its unified log. Paired iPhones and the Watch show the same per-tool session status.
+Each tool's ring also breathes while that tool has an agent session running, turns green when a session finishes, amber when one is waiting on you (for Claude Code, a question or a plan awaiting approval; permission prompts leave no record on disk), and pink on an error; clicking the ring opens the tool and settles the light. The signals are read locally: Codex through its app-server, Claude Code from the record types at the end of its session transcripts in `~/.claude` (never the text), Cursor from the conversation status fields in its own state database, and Grok Build from its unified log. Paired iPhones and the Watch show the same per-tool session status.
 
 usAIge uses the bundled Codex executable from the ChatGPT/Codex application when available. It does not implement a second account login.
 
@@ -334,7 +334,7 @@ When a quota resets, the new window starts its own notification cycle. Selecting
 - The Mac relay credential is stored in an owner-only local application-support file. Each remote tool keeps its own write credential outside usAIge.
 - No screen pixels are captured or inspected.
 - Preferences contain visual settings, bucket identifiers, and display positions; they do not contain remote-tool bearer tokens.
-- Feedback is sent only when you press **Send Feedback** and contains the message plus the disclosed app/system context.
+- Feedback is sent only when you press **Send Feedback** and contains the message plus the disclosed app/system context. The server keeps it for 180 days.
 - Unsupported or malformed quota buckets are omitted rather than guessed.
 
 ## Visibility
