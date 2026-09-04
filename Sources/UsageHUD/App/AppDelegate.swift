@@ -17,6 +17,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     let localToolStatus: LocalToolStatusRegistry
     private var panel: HUDPanel?
     let screenState = PanelScreenState()
+    private let magnet: MagnetController
+    private var magnetSettingsObserver: AnyCancellable?
     private var screenObserver: NSObjectProtocol?
     private var whatsNewWindowController: WhatsNewWindowController?
     private var codexAttentionMonitor: CodexAttentionMonitor?
@@ -29,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     override init() {
         let configuredSettings = HUDSettings()
         settings = configuredSettings
+        magnet = MagnetController(isEnabled: configuredSettings.magnetEnabled)
         let configuredRelaySync = RelaySyncController()
         relaySync = configuredRelaySync
         settingsNavigation = SettingsNavigation()
@@ -108,6 +111,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         let panel = HUDPanel(contentView: NSHostingView(rootView: content))
         panel.delegate = self
         self.panel = panel
+        magnet.attach(to: panel)
+        magnet.onDockingChanged = { [weak self] edge, frame, screen in
+            self?.settings.setPosition(frame.origin, edge: edge, for: Self.displayKey(for: screen))
+        }
+        panel.onDragStateChanged = { [weak self] isDragging in
+            if isDragging { self?.magnet.dragDidBegin() } else { self?.magnet.dragDidEnd() }
+        }
+        magnetSettingsObserver = settings.objectWillChange.sink { [weak self] in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.magnet.isEnabled = self.settings.magnetEnabled
+            }
+        }
         positionPanel(panel, on: launchScreen())
         screenState.update(for: panel)
         screenObserver = NotificationCenter.default.addObserver(
@@ -118,6 +134,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
             Task { @MainActor [weak self] in
                 guard let self, let panel = self.panel else { return }
                 self.screenState.update(for: panel)
+                self.magnet.screenParametersDidChange()
             }
         }
         panel.orderFrontRegardless()
@@ -193,8 +210,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
 
     func windowDidMove(_ notification: Notification) {
         guard let panel, let screen = panel.screen else { return }
-        settings.setPosition(panel.frame.origin, for: Self.displayKey(for: screen))
         screenState.update(for: panel)
+        // A docked rail's position is recorded by Magnet itself, and its own
+        // slide animations must not be mistaken for the user moving it.
+        guard !magnet.isMovingPanel, !magnet.isDocked else { return }
+        settings.setPosition(panel.frame.origin, for: Self.displayKey(for: screen))
     }
 
     func windowDidChangeScreen(_ notification: Notification) {
@@ -215,6 +235,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     func resetPanelPosition() {
         guard let panel, let screen = panel.screen ?? NSScreen.main else { return }
         let key = Self.displayKey(for: screen)
+        magnet.undock()
         settings.resetPosition(for: key)
         positionPanel(panel, on: screen)
     }
@@ -262,11 +283,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         }
         NSApp.activate(ignoringOtherApps: true)
         panel.orderFrontRegardless()
+        magnet.reveal()
     }
 
     private func positionPanel(_ panel: NSPanel, on screen: NSScreen? = NSScreen.main) {
         guard let screen else { return }
         let key = Self.displayKey(for: screen)
+        if settings.magnetEnabled,
+           let edge = settings.magnetEdge(for: key),
+           let saved = settings.position(for: key) {
+            magnet.dock(to: edge, y: saved.y, on: screen, animated: false)
+            return
+        }
         let frame = PanelPositioner.frame(
             panelSize: panel.frame.size,
             visibleFrame: screen.visibleFrame,
@@ -279,6 +307,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         guard let panel,
               abs(panel.frame.width - size.width) > 0.5
                 || abs(panel.frame.height - size.height) > 0.5 else { return }
+        if magnet.isDocked {
+            magnet.panelDidResize(to: size)
+            return
+        }
 
         let anchoredOrigin = CGPoint(
             x: panel.frame.maxX - size.width,

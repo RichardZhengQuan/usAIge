@@ -315,6 +315,10 @@ The built-in Codex, Claude Code, Cursor, and Grok Build sources read sign-ins al
 
 The packaged app checks the public usAIge website at launch and every six hours. When a newer build is published, macOS shows a local notification and Settings marks the update button with a red dot. Clicking the notification opens Settings; clicking **Update** downloads the DMG, verifies its SHA-256 checksum, validates the app bundle and code signature, replaces the installed copy, and relaunches usAIge. If the replacement fails, the previous copy is put back and relaunched. When the installed app carries a Developer ID team, the replacement must be signed by the same team. The manifest can also carry an Ed25519 signature from the release key: `scripts/generate-update-signing-key.swift` creates the key once on the release Mac, `scripts/package-dmg.sh` signs `update.json` with it, and once the public key is set in `UpdateSigning.pinnedPublicKeyBase64` the app refuses unsigned or tampered manifests, so a compromised download host cannot push a different build. A manual **Check for Updates** action reports **You’re up to date!** after a successful check when no newer build exists.
 
+## Magnet
+
+Drop the rail within about 32 points of the left or right edge of a display and it snaps flush to that edge and stays docked there, per display, across relaunches. A docked rail slides off screen a moment after your pointer leaves it, leaving a two-point sliver, and slides back when the pointer pushes against that edge, the way the Dock does. Drag it away from the edge to undock it. **Magnet** in Settings turns the behaviour off, which releases a docked rail where it sits.
+
 ## Usage-limit notifications
 
 After the first successful usage read, usAIge asks for macOS notification permission. The first value for each limit establishes a quiet baseline; it does not generate catch-up alerts. Later live updates notify at newly crossed 5% used boundaries for primary and secondary windows independently. If one update skips several boundaries, usAIge sends one notification for the newest boundary instead of a burst.
