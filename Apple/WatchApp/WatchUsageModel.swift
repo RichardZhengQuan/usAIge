@@ -141,13 +141,26 @@ final class WatchUsageModel: NSObject, ObservableObject {
         }
     }
 
+    /// Asks the iPhone for relay credentials only while a paired Mac has
+    /// none yet; every provision rotates the Watch's read token on the
+    /// relay, so repeating it on each snapshot would be a write per update.
     private func provisionCellularIfPossible() {
         guard !isProvisioning,
               let session,
               session.activationState == .activated,
-              session.isReachable else { return }
+              session.isReachable,
+              needsCellularProvisioning else { return }
         isProvisioning = true
         sendProvisionMessage(session, installationID: installationID)
+    }
+
+    private var needsCellularProvisioning: Bool {
+        let stored = Set(((try? credentialStore.load()) ?? []).map(\.channelID))
+        guard !stored.isEmpty else { return true }
+        let paired = Set((envelope?.tools ?? []).compactMap { tool in
+            tool.sourceID.flatMap(UUID.init(uuidString:))
+        })
+        return !paired.isSubset(of: stored)
     }
 
     private nonisolated func sendProvisionMessage(
@@ -295,7 +308,10 @@ private struct WatchRelayCredentialStore: Sendable {
         let data = try WatchRelayCredentialCodec.encode(credentials)
         let status = SecItemUpdate(
             baseQuery as CFDictionary,
-            [kSecValueData as String: data] as CFDictionary
+            [
+                kSecValueData as String: data,
+                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+            ] as CFDictionary
         )
         if status == errSecItemNotFound {
             var query = baseQuery
@@ -353,11 +369,26 @@ private struct WatchRelayClient: Sendable {
         var revoked: Set<UUID> = []
         var failures = 0
         var lastError: String?
+        // Every Mac at once: a sleeping Mac costs one timeout, not one per
+        // Mac, which keeps the fetch inside the Watch's background budget.
+        let outcomes = await withTaskGroup(of: (UUID, Result<[WatchToolQuotaSnapshot], Error>).self) { group in
+            for credential in credentials {
+                group.addTask {
+                    do { return (credential.channelID, .success(try await self.fetch(credential: credential))) }
+                    catch { return (credential.channelID, .failure(error)) }
+                }
+            }
+            var collected: [(UUID, Result<[WatchToolQuotaSnapshot], Error>)] = []
+            for await outcome in group { collected.append(outcome) }
+            return collected
+        }
         for credential in credentials {
-            do {
-                tools.append(contentsOf: try await fetch(credential: credential))
+            guard let outcome = outcomes.first(where: { $0.0 == credential.channelID }) else { continue }
+            switch outcome.1 {
+            case let .success(fetched):
+                tools.append(contentsOf: fetched)
                 successes.insert(credential.channelID)
-            } catch {
+            case let .failure(error):
                 failures += 1
                 lastError = error.localizedDescription
                 if case WatchRelayClientError.unauthorized = error {

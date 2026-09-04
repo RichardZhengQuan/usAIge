@@ -332,8 +332,13 @@ actor ClaudeUsageProvider: CodexUsageProviding {
                     ?? model?["id"]?.stringValue
                     ?? scope?["surface"]?.stringValue
                 let name = scopeName ?? kind
-                let id = "claude_\(slug(name))"
-                guard usedIDs.insert(id).inserted else { continue }
+                // Two limits that slug to the same id are still two limits.
+                var id = "claude_\(slug(name))"
+                var suffix = 2
+                while !usedIDs.insert(id).inserted {
+                    id = "claude_\(slug(name))_\(suffix)"
+                    suffix += 1
+                }
                 let minutes: Int? = switch limit["group"]?.stringValue {
                 case "session": 300
                 case "daily": 1_440

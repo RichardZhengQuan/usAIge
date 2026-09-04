@@ -323,7 +323,7 @@ struct UsageComplicationView: View {
         var text = "\(selected.scopeName), \(selected.limit.displayName), \(selected.durationTag), \(Int(selected.remainingPercent.rounded())) percent remaining"
         if showsLiveSessionStatus(selected),
            let status = selected.tool.sessionStatus {
-            text += ", Codex session \(status.phase.label)"
+            text += ", session \(status.phase.label)"
         }
         if entry.selectedLimitIsStale { text += ", data may be stale" }
         return text

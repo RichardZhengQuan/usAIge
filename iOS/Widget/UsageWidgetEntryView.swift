@@ -512,7 +512,7 @@ private enum WidgetQuotaAccessibility {
         }
         if let sessionStatus = snapshot.sessionStatus,
            sessionStatus.phase.showsLight {
-            parts.append("Codex session \(sessionStatus.phase.label)")
+            parts.append("session \(sessionStatus.phase.label)")
         }
         return parts.joined(separator: ", ")
     }

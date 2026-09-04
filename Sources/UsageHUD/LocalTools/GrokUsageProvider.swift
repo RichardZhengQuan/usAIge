@@ -345,7 +345,10 @@ actor GrokUsageProvider: CodexUsageProviding {
         return buckets
     }
 
-    private static func collectTaskUsage(_ value: JSONValue, into buckets: inout [RateLimitBucket]) {
+    private static let maximumTaskUsageDepth = 32
+
+    private static func collectTaskUsage(_ value: JSONValue, into buckets: inout [RateLimitBucket], depth: Int = 0) {
+        guard depth < maximumTaskUsageDepth else { return }
         if let object = value.objectValue {
             let reset = LocalToolDates.parseFlexible(
                 object["resetTime"] ?? object["resetsAt"] ?? object["resetAt"]
@@ -369,10 +372,10 @@ actor GrokUsageProvider: CodexUsageProviding {
                 ))
             }
             for key in object.keys.sorted() {
-                collectTaskUsage(object[key]!, into: &buckets)
+                collectTaskUsage(object[key]!, into: &buckets, depth: depth + 1)
             }
         } else if let items = value.arrayValue {
-            for item in items { collectTaskUsage(item, into: &buckets) }
+            for item in items { collectTaskUsage(item, into: &buckets, depth: depth + 1) }
         }
     }
 

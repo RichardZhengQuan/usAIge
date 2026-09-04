@@ -64,6 +64,9 @@ struct LegacyHUDView: View {
             // need a slot in the order too.
             settings.registerBuckets(availableSnapshots)
         }
+        .onChange(of: HUDMetrics.scaledSize(desiredSize, scale: settings.scale)) { size in
+            resizePanel(size)
+        }
     }
 
     @ViewBuilder

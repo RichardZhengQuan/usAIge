@@ -31,10 +31,15 @@ actor GrokBuildAgentProvider: CodexAgentProviding {
         guard let attributes = AgentActivityFiles.attributes(of: logURL) else { return [] }
         if attributes != logAttributes,
            let tail = AgentActivityFiles.tail(of: logURL, maximumBytes: Self.maximumTailBytes) {
-            let decoded = GrokBuildLogDecoder.sessions(from: tail.data, startsMidLine: tail.startsMidLine)
+            let decoded = GrokBuildLogDecoder.decode(tail.data, startsMidLine: tail.startsMidLine)
             // Sessions that fell out of the tail keep their last known state
-            // until their process goes away.
-            sessions.merge(decoded) { _, latest in latest }
+            // until their process goes away or announces its end.
+            sessions.merge(decoded.sessions) { _, latest in latest }
+            for (sid, state) in sessions where decoded.endedProcessIDs.keys.contains(state.pid) {
+                let endedAt = decoded.endedProcessIDs[state.pid] ?? state.updatedAt
+                guard endedAt >= state.updatedAt else { continue }
+                sessions[sid] = GrokBuildLogDecoder.SessionState(pid: state.pid, phase: .idle, updatedAt: endedAt)
+            }
             logAttributes = attributes
         }
         sessions = sessions.filter { isProcessAlive($0.value.pid) }
@@ -86,8 +91,19 @@ enum GrokBuildLogDecoder {
         let updatedAt: Date
     }
 
+    struct Decoded: Equatable, Sendable {
+        var sessions: [String: SessionState] = [:]
+        /// Processes that announced their end, with the time they did, so
+        /// sessions that started before this tail can be closed too.
+        var endedProcessIDs: [Int32: Date] = [:]
+    }
+
     static func sessions(from data: Data, startsMidLine: Bool = false) -> [String: SessionState] {
-        var states: [String: SessionState] = [:]
+        decode(data, startsMidLine: startsMidLine).sessions
+    }
+
+    static func decode(_ data: Data, startsMidLine: Bool = false) -> Decoded {
+        var decoded = Decoded()
         for line in AgentActivityFiles.lines(in: data, startsMidLine: startsMidLine) {
             guard let record = try? JSONDecoder().decode(JSONValue.self, from: line),
                   let message = record["msg"]?.stringValue,
@@ -95,16 +111,17 @@ enum GrokBuildLogDecoder {
             let timestamp = AgentActivityFiles.timestamp(record["ts"]?.stringValue) ?? .distantPast
             if message.hasPrefix("session_end") {
                 // The process is winding down; every session it owned is over.
-                for (sid, state) in states where state.pid == pid {
-                    states[sid] = SessionState(pid: pid, phase: .idle, updatedAt: timestamp)
+                for (sid, state) in decoded.sessions where state.pid == pid {
+                    decoded.sessions[sid] = SessionState(pid: pid, phase: .idle, updatedAt: timestamp)
                 }
+                decoded.endedProcessIDs[pid] = timestamp
                 continue
             }
             guard let sid = record["sid"]?.stringValue,
                   let phase = phase(for: message, context: record["ctx"], level: record["lvl"]?.stringValue) else { continue }
-            states[sid] = SessionState(pid: pid, phase: phase, updatedAt: timestamp)
+            decoded.sessions[sid] = SessionState(pid: pid, phase: phase, updatedAt: timestamp)
         }
-        return states
+        return decoded
     }
 
     static func phase(for message: String, context: JSONValue?, level: String?) -> CodexAgentPhase? {

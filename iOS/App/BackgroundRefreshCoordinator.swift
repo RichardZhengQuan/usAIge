@@ -76,9 +76,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
 @MainActor
 enum BackgroundRefreshCoordinator {
-    static let taskIdentifier = "com.richardq.usaige.ios.refresh"
-    static let defaultRefreshIntervalMinutes = 15
-    private static let logger = Logger(
+    nonisolated static let taskIdentifier = "com.richardq.usaige.ios.refresh"
+    nonisolated static let defaultRefreshIntervalMinutes = 15
+    private nonisolated static let logger = Logger(
         subsystem: "com.richardq.usaige",
         category: "BackgroundRefresh"
     )
@@ -140,7 +140,9 @@ enum BackgroundRefreshCoordinator {
         }
     }
 
-    static func schedule(afterMinutes minutes: Int) {
+    /// Safe from any queue: the expiration handler runs on the scheduler's
+    /// own queue, and BGTaskScheduler is thread-safe.
+    nonisolated static func schedule(afterMinutes minutes: Int) {
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: taskIdentifier)
         let request = BGAppRefreshTaskRequest(identifier: taskIdentifier)
         request.earliestBeginDate = Date().addingTimeInterval(TimeInterval(max(15, minutes) * 60))

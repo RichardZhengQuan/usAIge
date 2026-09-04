@@ -287,6 +287,9 @@ final class RelaySyncController: ObservableObject {
 
     private func scheduleUpload() {
         guard isLinked else { return }
+        // New data gets a fresh retry budget; the cap only stops one failed
+        // upload from retrying forever.
+        retryAttempt = 0
         uploadTask?.cancel()
         uploadTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 1_000_000_000)
@@ -536,7 +539,7 @@ final class RelaySyncController: ObservableObject {
 
     /// Percent-encodes each path segment so an identifier can never add or
     /// remove segments from the request path.
-    static func encodedPath(_ path: String) -> String {
+    nonisolated static func encodedPath(_ path: String) -> String {
         var allowed = CharacterSet.alphanumerics
         allowed.insert(charactersIn: "-_.~")
         return path.split(separator: "/", omittingEmptySubsequences: true)
@@ -550,8 +553,10 @@ final class RelaySyncController: ObservableObject {
 
     /// The relay's error text goes straight into Settings, so keep it to one
     /// short line of printable text.
-    static func sanitizedServerMessage(_ message: String?) -> String {
-        let fallback = "The relay request failed."
+    nonisolated static func sanitizedServerMessage(
+        _ message: String?,
+        fallback: String = "The relay request failed."
+    ) -> String {
         guard let message else { return fallback }
         let cleaned = message
             .components(separatedBy: .newlines)

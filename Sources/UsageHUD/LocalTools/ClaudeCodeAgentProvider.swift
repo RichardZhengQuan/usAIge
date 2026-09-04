@@ -137,13 +137,25 @@ actor ClaudeCodeAgentProvider: CodexAgentProviding {
 
 /// Reads the lifecycle out of a Claude Code transcript tail. A user record
 /// (a prompt or a tool result) means Claude is working; an assistant record
-/// that stopped for a tool call means it is still working; one that ended
-/// its turn means the session is waiting on the person; an API error record
-/// means the last thing that happened was a failure.
+/// that stopped for a tool call means it is still working, unless that call
+/// is a question to the person or a plan awaiting approval, which is "needs
+/// input"; one that ended its turn means the session is waiting on the
+/// person; an API error record means the last thing that happened was a
+/// failure. Permission prompts leave no record, so they cannot be shown.
 enum ClaudeCodeSessionDecoder {
     struct Result: Equatable {
         let phase: CodexAgentPhase?
         let title: String?
+    }
+
+    /// Tool calls that stop and wait for the person to answer.
+    static let toolsThatWaitForInput: Set<String> = ["AskUserQuestion", "ExitPlanMode"]
+
+    private static func waitsForInput(_ record: JSONValue) -> Bool {
+        (record["message"]?["content"]?.arrayValue ?? []).contains { block in
+            block["type"]?.stringValue == "tool_use"
+                && toolsThatWaitForInput.contains(block["name"]?.stringValue ?? "")
+        }
     }
 
     static func decode(_ data: Data, startsMidLine: Bool = false) -> Result {
@@ -159,7 +171,7 @@ enum ClaudeCodeSessionDecoder {
             case "assistant":
                 switch record["message"]?["stop_reason"]?.stringValue {
                 case "end_turn", "stop_sequence", "max_tokens": phase = .complete
-                default: phase = .thinking
+                default: phase = waitsForInput(record) ? .needsInput : .thinking
                 }
             case "system":
                 if record["subtype"]?.stringValue == "api_error" { phase = .error }
