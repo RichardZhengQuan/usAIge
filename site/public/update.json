@@ -1,29 +1,29 @@
 {
-  "build" : 35,
-  "downloadURL" : "https://usaige-macos.richardqz.chatgpt.site/usAIge-0.2.13-alpha.dmg",
+  "build" : 36,
+  "downloadURL" : "https://usaige-macos.richardqz.chatgpt.site/usAIge-0.2.14-alpha.dmg",
   "minimumSystemVersion" : "11.0",
   "releaseNotes" : {
-    "headline" : "What’s New shows once",
+    "headline" : "Every tool’s ring breathes",
     "highlights" : [
       {
-        "detail" : "Opening Settings no longer brings back the What’s New window once you have seen it; it stays available from the usAIge menu.",
-        "systemImage" : "gearshape",
-        "title" : "Settings opens Settings"
+        "detail" : "Each ring breathes while that tool has an agent working, turns green when a session finishes, amber when it is waiting on you, and pink on an error. Paired iPhones and the Watch show the same status.",
+        "systemImage" : "waveform.path.ecg",
+        "title" : "Session lights for every tool"
       },
       {
-        "detail" : "Drag tool rows in Manage AI Tools to set their order in the rail; a tool’s limits stay grouped together.",
-        "systemImage" : "arrow.up.arrow.down",
-        "title" : "Drag tools into order"
+        "detail" : "Update manifests now carry a signature from the release key, so the app only installs builds that were published by usAIge.",
+        "systemImage" : "checkmark.seal",
+        "title" : "Signed updates"
       },
       {
-        "detail" : "The floating rail grows to fit all of your tools instead of scrolling.",
-        "systemImage" : "rectangle.expand.vertical",
-        "title" : "The rail shows every tool"
+        "detail" : "A docked rail comes back on the edge you chose, even beside a second display or after one is unplugged, and a cancelled drag no longer leaves a tool row dimmed.",
+        "systemImage" : "rectangle.on.rectangle",
+        "title" : "Magnet remembers its display"
       }
     ],
-    "summary" : "Version 0.2.13 stops the What’s New window from reappearing every time you open Settings."
+    "summary" : "Version 0.2.14 lights the rail for Claude Code, Cursor, and Grok Build sessions, signs its updates, and keeps Magnet on the right display."
   },
-  "sha256" : "a1d2b4a53e1329e4f0fbc669336fba8b595245ab50907efeae9c7c1a5cae9318",
-  "signature" : "9cGFSkIi1Aauias9NrTEYUK3Z1xsJVciq1fWfxSQ9M07k9TzhirSpTgRbNaXRWA29qTlsBpQQuEXGBeYKQ7kBQ==",
-  "version" : "0.2.13"
+  "sha256" : "b30d77ed6f6db6129b866a1809938075634464fb44d9bddc1207231f7cdcc686",
+  "signature" : "Sc06Bpamv6u4oBlrGnjY1/IlZ1b1fVLJ7n2hEld8QcN6hwmBhuqNLnMgx4NZImEKDznceR8doj+Z/eRd9+ojBQ==",
+  "version" : "0.2.14"
 }
