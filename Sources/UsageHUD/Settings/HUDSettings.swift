@@ -5,10 +5,13 @@ import Foundation
 struct HUDPosition: Codable, Equatable, Sendable {
     var x: Double
     var y: Double
+    /// The edge the rail is docked to on this display, when Magnet holds it.
+    var edge: MagnetEdge? = nil
 
-    init(_ point: CGPoint) {
+    init(_ point: CGPoint, edge: MagnetEdge? = nil) {
         x = point.x
         y = point.y
+        self.edge = edge
     }
 
     var point: CGPoint { CGPoint(x: x, y: y) }
@@ -36,6 +39,7 @@ final class HUDSettings: ObservableObject {
         var showsResetCredits = true
         var usageAlertIntervalPercent = HUDSettings.defaultUsageAlertIntervalPercent
         var readsClaudeSignIn = false
+        var magnetEnabled = true
         var didApplyLatestBucketDefault = false
         var didApplyPrimaryBucketDefault = false
         var primaryBucketDefaultToolIDs: Set<AIToolID> = []
@@ -49,6 +53,7 @@ final class HUDSettings: ObservableObject {
             case showsResetCredits
             case usageAlertIntervalPercent
             case readsClaudeSignIn
+            case magnetEnabled
             case didApplyLatestBucketDefault
             case didApplyPrimaryBucketDefault
             case primaryBucketDefaultToolIDs
@@ -89,6 +94,7 @@ final class HUDSettings: ObservableObject {
             ) ?? []
             positions = try values.decodeIfPresent([String: HUDPosition].self, forKey: .positions) ?? [:]
             lastDisplayKey = try values.decodeIfPresent(String.self, forKey: .lastDisplayKey)
+            magnetEnabled = try values.decodeIfPresent(Bool.self, forKey: .magnetEnabled) ?? true
             remoteTools = try values.decodeIfPresent([LegacyRemoteTool].self, forKey: .remoteTools) ?? []
         }
     }
@@ -223,10 +229,22 @@ final class HUDSettings: ObservableObject {
             .map(AIToolDescriptor.descriptor(for:))
     }
 
-    func setPosition(_ point: CGPoint, for displayKey: String) {
-        payload.positions[displayKey] = HUDPosition(point)
+    func setPosition(_ point: CGPoint, edge: MagnetEdge? = nil, for displayKey: String) {
+        payload.positions[displayKey] = HUDPosition(point, edge: edge)
         payload.lastDisplayKey = displayKey
         persist()
+    }
+
+    /// The edge Magnet holds the rail on for this display, if any.
+    func magnetEdge(for displayKey: String) -> MagnetEdge? {
+        payload.positions[displayKey]?.edge
+    }
+
+    /// Magnet: dropping the rail near a display's left or right edge docks it
+    /// there, and a docked rail hides off screen until the pointer returns.
+    var magnetEnabled: Bool {
+        get { payload.magnetEnabled }
+        set { payload.magnetEnabled = newValue; persist() }
     }
 
     /// The display the rail was last parked on, so launch can put it back

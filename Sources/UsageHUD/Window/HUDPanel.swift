@@ -5,6 +5,8 @@ final class HUDPanel: NSPanel {
     private var dragStartPointerLocation: CGPoint?
     private var dragStartWindowOrigin: CGPoint?
     private var isDraggingContent = false
+    /// Reports the start (true) and end (false) of a drag by the user.
+    var onDragStateChanged: ((Bool) -> Void)?
 
     init(contentView: NSView) {
         super.init(
@@ -28,6 +30,12 @@ final class HUDPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
+    /// A docked rail slides past the screen edge on purpose; AppKit must not
+    /// pull it back on screen.
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        frameRect
+    }
+
     override func sendEvent(_ event: NSEvent) {
         switch event.type {
         case .leftMouseDown:
@@ -48,6 +56,7 @@ final class HUDPanel: NSPanel {
             )
             if !isDraggingContent {
                 isDraggingContent = hypot(translation.width, translation.height) >= Self.dragThreshold
+                if isDraggingContent { onDragStateChanged?(true) }
             }
             if isDraggingContent {
                 setFrameOrigin(
@@ -66,6 +75,7 @@ final class HUDPanel: NSPanel {
                 isDraggingContent = false
             }
             if isDraggingContent {
+                onDragStateChanged?(false)
                 return
             }
 

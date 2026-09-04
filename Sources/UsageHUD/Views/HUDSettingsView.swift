@@ -174,6 +174,27 @@ struct HUDSettingsView: View {
                     .accessibilityLabel("Show reset credits")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Magnet")
+
+                        Text("Drop the rail near the left or right edge of a display to dock it there. A docked rail slides off screen while you work and returns when your pointer touches that edge.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Toggle(
+                        "Magnet",
+                        isOn: Binding(
+                            get: { settings.magnetEnabled },
+                            set: { settings.magnetEnabled = $0 }
+                        )
+                    )
+                    .labelsHidden()
+                    .accessibilityLabel("Magnet")
+                    .help("Dock the rail to a screen edge and hide it until the pointer returns")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             Section("More") {
