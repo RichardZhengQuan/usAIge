@@ -12,7 +12,11 @@ let keyURL = directory.appendingPathComponent("update-signing-key")
 
 if FileManager.default.fileExists(atPath: keyURL.path) {
     let stored = try String(contentsOf: keyURL, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
-    let key = try Curve25519.Signing.PrivateKey(rawRepresentation: Data(base64Encoded: stored)!)
+    guard let rawKey = Data(base64Encoded: stored),
+          let key = try? Curve25519.Signing.PrivateKey(rawRepresentation: rawKey) else {
+        FileHandle.standardError.write(Data("\(keyURL.path) is not a base64 Ed25519 private key\n".utf8))
+        exit(1)
+    }
     print("Key already exists at \(keyURL.path)")
     print("Public key: \(key.publicKey.rawRepresentation.base64EncodedString())")
     exit(0)

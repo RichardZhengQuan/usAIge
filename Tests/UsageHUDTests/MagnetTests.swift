@@ -92,8 +92,13 @@ private let size = CGSize(width: 260, height: 220)
     #expect(panel.frame.maxX == mainScreen.visibleFrame.maxX)
     #expect(recorded.last?.0 == .right)
 
-    // The pointer is away from the rail, so the scheduled hide fires.
-    try await Task.sleep(nanoseconds: UInt64((MagnetController.hideDelay + 0.1) * 1_000_000_000))
+    // The pointer is away from the rail, so the scheduled hide fires. The
+    // hide task shares the main actor with every other test, so wait for the
+    // state instead of racing its timer.
+    let deadline = Date().addingTimeInterval(MagnetController.hideDelay + 3)
+    while controller.isRevealed, Date() < deadline {
+        try await Task.sleep(nanoseconds: 50_000_000)
+    }
     #expect(!controller.isRevealed)
 
     // Pushing the pointer against the docked edge brings it back.
@@ -105,6 +110,32 @@ private let size = CGSize(width: 260, height: 220)
     controller.isEnabled = false
     #expect(!controller.isDocked)
     #expect(recorded.last?.0 == nil)
+}
+
+@MainActor
+@Test func magnetRemembersTheDockedDisplayWhileHidden() throws {
+    guard let mainScreen = NSScreen.main else { return }
+    let controller = MagnetController(isEnabled: true, pointerLocation: { CGPoint(x: -10_000, y: -10_000) })
+    let panel = NSPanel(
+        contentRect: CGRect(origin: .zero, size: size),
+        styleMask: [.borderless, .nonactivatingPanel],
+        backing: .buffered,
+        defer: false
+    )
+    controller.attach(to: panel)
+    controller.dock(to: .right, y: 300, on: mainScreen, animated: false)
+    #expect(MagnetController.displayID(of: mainScreen) != nil)
+    #expect(controller.dockedScreen == mainScreen)
+
+    // Slide it off screen and confirm the docked display is still the one
+    // the reveal edge is measured against, not whatever the panel overlaps.
+    controller.hide()
+    #expect(!controller.isRevealed)
+    #expect(controller.dockedScreen == mainScreen)
+    controller.handlePointer(at: CGPoint(x: mainScreen.frame.maxX, y: mainScreen.frame.midY))
+    #expect(controller.isRevealed)
+    controller.undock()
+    #expect(controller.dockedScreen == (panel.screen ?? NSScreen.main))
 }
 
 @MainActor

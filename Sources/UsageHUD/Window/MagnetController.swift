@@ -30,9 +30,15 @@ final class MagnetController {
     private weak var panel: NSPanel?
     private var pointerLocation: () -> CGPoint
     private var dockedFrame: CGRect = .zero
+    /// The display the rail is docked on. A hidden rail sits almost entirely
+    /// past its display's edge, so `panel.screen` reports whichever
+    /// neighbouring display it overlaps more; the rail must keep checking the
+    /// edge it was docked to.
+    private var dockedDisplayID: CGDirectDisplayID?
     private var isDragging = false
     private var hideTask: Task<Void, Never>?
     private var pollTimer: Timer?
+    private var moveGeneration = 0
 
     init(
         isEnabled: Bool,
@@ -48,12 +54,28 @@ final class MagnetController {
 
     var isDocked: Bool { edge != nil }
 
+    /// The display the rail is docked on, falling back to the display under
+    /// the panel when that display is gone.
+    var dockedScreen: NSScreen? {
+        if let dockedDisplayID,
+           let screen = NSScreen.screens.first(where: { Self.displayID(of: $0) == dockedDisplayID }) {
+            return screen
+        }
+        return panel?.screen ?? NSScreen.main
+    }
+
+    static func displayID(of screen: NSScreen) -> CGDirectDisplayID? {
+        let numberKey = NSDeviceDescriptionKey("NSScreenNumber")
+        return (screen.deviceDescription[numberKey] as? NSNumber).map { CGDirectDisplayID($0.uint32Value) }
+    }
+
     // MARK: Docking
 
     /// Docks the rail to `edge` on `screen` at vertical position `y`.
     func dock(to edge: MagnetEdge, y: CGFloat, on screen: NSScreen, animated: Bool) {
         guard let panel, isEnabled else { return }
         self.edge = edge
+        dockedDisplayID = Self.displayID(of: screen)
         dockedFrame = MagnetGeometry.dockedFrame(
             size: panel.frame.size,
             edge: edge,
@@ -71,14 +93,16 @@ final class MagnetController {
     func undock() {
         guard edge != nil else { return }
         let wasHidden = !isRevealed
+        let screen = dockedScreen
         edge = nil
+        dockedDisplayID = nil
         hideTask?.cancel()
         hideTask = nil
         stopPolling()
         if let panel {
             if wasHidden { move(panel, to: dockedFrame, animated: true) }
             isRevealed = true
-            if let screen = panel.screen ?? NSScreen.main {
+            if let screen {
                 onDockingChanged?(nil, dockedFrame, screen)
             }
         }
@@ -99,6 +123,7 @@ final class MagnetController {
               let snapEdge = MagnetGeometry.edge(toSnap: panel.frame, in: screen.visibleFrame) else {
             if edge != nil {
                 edge = nil
+                dockedDisplayID = nil
                 stopPolling()
                 onDockingChanged?(nil, panel.frame, screen)
             }
@@ -110,7 +135,8 @@ final class MagnetController {
     /// Re-lays out a docked rail after its size or display changed, keeping
     /// it flush and keeping it hidden if it was hidden.
     func panelDidResize(to size: CGSize) {
-        guard let panel, let edge, let screen = panel.screen ?? NSScreen.main else { return }
+        guard let panel, let edge, let screen = dockedScreen else { return }
+        dockedDisplayID = Self.displayID(of: screen)
         dockedFrame = MagnetGeometry.dockedFrame(
             size: size,
             edge: edge,
@@ -142,7 +168,7 @@ final class MagnetController {
 
     func hide() {
         guard let panel, let edge, isRevealed, !isDragging,
-              let screen = panel.screen ?? NSScreen.main else { return }
+              let screen = dockedScreen else { return }
         guard MagnetGeometry.pointerIsClear(of: dockedFrame, pointer: pointerLocation()) else {
             scheduleHide()
             return
@@ -153,7 +179,7 @@ final class MagnetController {
 
     /// One step of the pointer watch; exposed for tests.
     func handlePointer(at pointer: CGPoint) {
-        guard let edge, let panel, let screen = panel.screen ?? NSScreen.main else { return }
+        guard let edge, panel != nil, let screen = dockedScreen else { return }
         if !isRevealed {
             if MagnetGeometry.pointerReveals(pointer: pointer, edge: edge, screenFrame: screen.frame) {
                 reveal()
@@ -195,17 +221,25 @@ final class MagnetController {
 
     private func move(_ panel: NSPanel, to frame: CGRect, animated: Bool) {
         isMovingPanel = true
+        moveGeneration += 1
         guard animated else {
             panel.setFrame(frame, display: true, animate: false)
             isMovingPanel = false
             return
         }
+        // Only the newest animation may clear the flag: a hide that finishes
+        // while a reveal is already sliding must not expose the reveal as a
+        // user drag.
+        let generation = moveGeneration
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = Self.animationDuration
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             panel.animator().setFrame(frame, display: true)
         }, completionHandler: { [weak self] in
-            Task { @MainActor [weak self] in self?.isMovingPanel = false }
+            Task { @MainActor [weak self] in
+                guard let self, self.moveGeneration == generation else { return }
+                self.isMovingPanel = false
+            }
         })
     }
 }

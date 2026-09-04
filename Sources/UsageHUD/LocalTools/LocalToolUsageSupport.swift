@@ -332,6 +332,9 @@ actor ThrottledUsageProvider: ThrottledUsageProviding {
     }
 
     func stop() async {
+        // A refresh still running (say, behind a Keychain prompt) must not
+        // write its gates into a provider that has since been stopped.
+        generation += 1
         inFlight?.cancel()
         inFlight = nil
         await base.stop()
@@ -341,20 +344,24 @@ actor ThrottledUsageProvider: ThrottledUsageProviding {
         nextManualRefresh = nil
     }
 
+    private var generation = 0
+
     private func startRefresh() -> Task<AccountUsageResult, Error> {
         let base = self.base
-        let task = Task<AccountUsageResult, Error>.detached {
+        let startedGeneration = generation
+        let task = Task<AccountUsageResult, Error>.detached { [weak self] in
             let outcome: Result<AccountUsageResult, Error>
             do { outcome = .success(try await base.refresh()) }
             catch { outcome = .failure(error) }
-            await self.finishRefresh(outcome)
+            await self?.finishRefresh(outcome, generation: startedGeneration)
             return try outcome.get()
         }
         inFlight = task
         return task
     }
 
-    private func finishRefresh(_ outcome: Result<AccountUsageResult, Error>) {
+    private func finishRefresh(_ outcome: Result<AccountUsageResult, Error>, generation startedGeneration: Int) {
+        guard startedGeneration == generation else { return }
         inFlight = nil
         let completedAt = now()
         switch outcome {

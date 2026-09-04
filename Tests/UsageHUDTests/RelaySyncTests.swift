@@ -132,3 +132,20 @@ import Testing
     #expect(payload.tools[0].sessionStatus == nil)
     #expect(payload.tools[1].sessionStatus == status)
 }
+
+@MainActor
+@Test func relayPathSegmentsArePercentEncoded() {
+    #expect(RelaySyncController.encodedPath("channels/abc-123/devices/dev_1") == "channels/abc-123/devices/dev_1")
+    // An identifier can never add or remove path segments.
+    #expect(RelaySyncController.encodedPath("channels/abc/../other/devices") == "channels/abc/%2E%2E/other/devices")
+    #expect(RelaySyncController.encodedPath("channels/a b?c#d") == "channels/a%20b%3Fc%23d")
+}
+
+@MainActor
+@Test func relayServerMessagesAreKeptToOneShortPrintableLine() {
+    #expect(RelaySyncController.sanitizedServerMessage(nil) == "The relay request failed.")
+    #expect(RelaySyncController.sanitizedServerMessage("   ") == "The relay request failed.")
+    #expect(RelaySyncController.sanitizedServerMessage("Not found.") == "Not found.")
+    #expect(RelaySyncController.sanitizedServerMessage("line one\nline two\u{07}") == "line one line two")
+    #expect(RelaySyncController.sanitizedServerMessage(String(repeating: "x", count: 500)).count == 200)
+}

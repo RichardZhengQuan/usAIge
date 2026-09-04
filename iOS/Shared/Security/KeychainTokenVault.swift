@@ -63,7 +63,13 @@ public struct KeychainTokenVault: TokenVault, Sendable {
 
         let tokenData = Data(token.utf8)
         let query = baseQuery(for: toolID)
-        let updates: [String: Any] = [kSecValueData as String: tokenData]
+        // Carry the accessibility class on every update so a token saved by
+        // an earlier build with the default (unlocked-only) class becomes
+        // readable during locked-phone background refreshes.
+        let updates: [String: Any] = [
+            kSecValueData as String: tokenData,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        ]
         let updateStatus = SecItemUpdate(query as CFDictionary, updates as CFDictionary)
 
         if updateStatus == errSecItemNotFound {

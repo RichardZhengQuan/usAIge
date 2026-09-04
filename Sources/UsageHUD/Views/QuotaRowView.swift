@@ -308,7 +308,12 @@ struct QuotaRowView: View {
         .onAppear {
             updateCriticalPulse()
         }
+        .onDisappear {
+            // Stop the repeat-forever glow when the row leaves the screen.
+            criticalPulse = false
+        }
         .onChange(of: hasCriticalSeverity) { _, _ in updateCriticalPulse() }
+        .onChange(of: reduceMotion) { _, _ in updateCriticalPulse() }
     }
 
     private var usageRing: some View {
@@ -351,8 +356,8 @@ struct QuotaRowView: View {
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .help(agentTaskID == nil ? "Open \(tool.name)" : "Open Codex task · \(agentPhase.label)")
-            .accessibilityLabel(agentTaskID == nil ? "Open \(tool.name)" : "Open Codex task")
+            .help(agentTaskID == nil ? "Open \(tool.name)" : "Open \(sessionNoun) · \(agentPhase.label)")
+            .accessibilityLabel(agentTaskID == nil ? "Open \(tool.name)" : "Open \(sessionNoun)")
         }
         .frame(width: 60, height: 60)
         .background {
@@ -367,7 +372,12 @@ struct QuotaRowView: View {
                 )
             }
         }
-        .help(agentPhase.showsLight ? "Codex agents · \(agentPhase.label)" : "")
+        .help(agentPhase.showsLight ? "\(tool.name) sessions · \(agentPhase.label)" : "")
+    }
+
+    /// What clicking the ring opens: Codex's own task, another tool's app.
+    private var sessionNoun: String {
+        snapshot.toolID == .chatGPT ? "Codex task" : "\(tool.name) session"
     }
 
     private func performPrimaryAction() {
@@ -556,7 +566,7 @@ struct QuotaRowView: View {
             text += ", \(secondaryWindow.typeTag) \(Int(secondaryWindow.remainingPercent.rounded())) percent remaining"
         }
         if agentPhase.showsLight {
-            text += ", Codex agents \(agentPhase.label)"
+            text += ", \(tool.name) sessions \(agentPhase.label)"
         }
         return text
     }

@@ -128,6 +128,8 @@ While idle, the panel surface is fully transparent and every visible control is 
 - For Grok Build limits: the Grok Build CLI signed in with `grok login`.
 - For remote limits: a compatible adapter that can claim a one-time usAIge pairing code and upload normalized limits.
 
+Each tool's ring also breathes while that tool has an agent session running, turns green when a session finishes, amber when one is waiting on you, and pink on an error; clicking the ring opens the tool and settles the light. The signals are read locally: Codex through its app-server, Claude Code from the record types at the end of its session transcripts in `~/.claude` (never the text), Cursor from the conversation status fields in its own state database, and Grok Build from its unified log. Paired iPhones and the Watch show the same per-tool session status.
+
 usAIge uses the bundled Codex executable from the ChatGPT/Codex application when available. It does not implement a second account login.
 
 ## Build and run macOS
@@ -313,7 +315,7 @@ The built-in Codex, Claude Code, Cursor, and Grok Build sources read sign-ins al
 
 ## Updates
 
-The packaged app checks the public usAIge website at launch and every six hours. When a newer build is published, macOS shows a local notification and Settings marks the update button with a red dot. Clicking the notification opens Settings; clicking **Update** downloads the DMG, verifies its SHA-256 checksum, validates the app bundle and code signature, replaces the installed copy, and relaunches usAIge. If the replacement fails, the previous copy is put back and relaunched. When the installed app carries a Developer ID team, the replacement must be signed by the same team. The manifest can also carry an Ed25519 signature from the release key: `scripts/generate-update-signing-key.swift` creates the key once on the release Mac, `scripts/package-dmg.sh` signs `update.json` with it, and once the public key is set in `UpdateSigning.pinnedPublicKeyBase64` the app refuses unsigned or tampered manifests, so a compromised download host cannot push a different build. A manual **Check for Updates** action reports **You’re up to date!** after a successful check when no newer build exists.
+The packaged app checks the public usAIge website at launch and every six hours. When a newer build is published, macOS shows a local notification and Settings marks the update button with a red dot. Clicking the notification opens Settings; clicking **Update** downloads the DMG, verifies its SHA-256 checksum, validates the app bundle and code signature, replaces the installed copy, and relaunches usAIge. If the replacement fails, the previous copy is put back and relaunched. When the installed app carries a Developer ID team, the replacement must be signed by the same team. The manifest carries an Ed25519 signature from the release key: `scripts/generate-update-signing-key.swift` created the key once on the release Mac (keep `~/.config/usaige/update-signing-key` backed up; losing it breaks in-app updates), `scripts/package-dmg.sh` signs `update.json` with it on every release, and the public key pinned in `UpdateSigning.pinnedPublicKeyBase64` makes the app refuse unsigned or tampered manifests, so a compromised download host cannot push a different build. A manual **Check for Updates** action reports **You’re up to date!** after a successful check when no newer build exists.
 
 ## Magnet
 

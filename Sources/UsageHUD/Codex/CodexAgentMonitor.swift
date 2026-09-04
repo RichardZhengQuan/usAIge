@@ -30,12 +30,16 @@ enum CodexAgentPhase: String, Codable, Equatable, Sendable {
     }
 }
 
+/// One agent session of any supported tool. `toolID` says which rail row
+/// its light belongs to; the store stamps it from the provider that
+/// reported the task.
 struct CodexAgentTask: Identifiable, Equatable, Sendable {
     let id: String
     let title: String
     let workspaceName: String
     let phase: CodexAgentPhase
     let updatedAt: Date
+    var toolID: AIToolID = .chatGPT
 }
 
 struct CodexAgentAggregate: Equatable, Sendable {
@@ -297,85 +301,134 @@ enum CodexAgentSessionDecoder {
 
 @MainActor
 final class CodexAgentStore: ObservableObject {
-    @Published private(set) var phase: CodexAgentPhase = .idle
-    @Published private(set) var targetTask: CodexAgentTask?
-    @Published private(set) var lastError: String?
-
-    var onAttentionEvent: (@MainActor (CodexAgentTask) -> Void)?
-    var onAggregatePhaseChanged: (@MainActor (CodexAgentPhase, Date) -> Void)?
-
-    private let provider: any CodexAgentProviding
-    private var monitorTask: Task<Void, Never>?
-    private var tasks: [CodexAgentTask] = []
-    private var acknowledgements: [String: CodexAgentAcknowledgement] = [:]
-    private var lastCodexViewedAt: Date?
-    private var hasLoadedInitialTasks = false
-
-    init(provider: any CodexAgentProviding) {
-        self.provider = provider
+    /// One session source per rail row: the Codex app-server, Claude Code
+    /// transcripts, Cursor's composer store, the Grok Build log.
+    struct Source {
+        let toolID: AIToolID
+        let provider: any CodexAgentProviding
     }
 
-    /// Polling cadence: one second while Codex answers, backing off to a
+    /// The light each tool's row shows, from that tool's unacknowledged
+    /// sessions.
+    @Published private(set) var aggregatesByTool: [AIToolID: CodexAgentAggregate] = [:]
+    @Published private(set) var lastError: String?
+
+    /// Codex's aggregate, kept for callers that predate per-tool lights.
+    var phase: CodexAgentPhase { phase(for: .chatGPT) }
+    var targetTask: CodexAgentTask? { targetTask(for: .chatGPT) }
+
+    func phase(for toolID: AIToolID) -> CodexAgentPhase {
+        aggregatesByTool[toolID]?.phase ?? .idle
+    }
+
+    func targetTask(for toolID: AIToolID) -> CodexAgentTask? {
+        aggregatesByTool[toolID]?.task
+    }
+
+    var onAttentionEvent: (@MainActor (CodexAgentTask) -> Void)?
+    var onAggregatePhaseChanged: (@MainActor (AIToolID, CodexAgentPhase, Date) -> Void)?
+
+    private let sources: [Source]
+    private var monitorTasks: [AIToolID: Task<Void, Never>] = [:]
+    private var tasksByTool: [AIToolID: [CodexAgentTask]] = [:]
+    private var acknowledgementsByTool: [AIToolID: [String: CodexAgentAcknowledgement]] = [:]
+    private var lastViewedAtByTool: [AIToolID: Date] = [:]
+    private var loadedTools: Set<AIToolID> = []
+    private var consecutiveFailuresByTool: [AIToolID: Int] = [:]
+
+    init(sources: [Source]) {
+        self.sources = sources
+    }
+
+    convenience init(provider: any CodexAgentProviding) {
+        self.init(sources: [Source(toolID: .chatGPT, provider: provider)])
+    }
+
+    /// Polling cadence: one second while a source answers, backing off to a
     /// minute while it does not (for example when Codex is not installed),
-    /// so a missing app-server never becomes a subprocess-launch storm.
+    /// so a missing app-server never becomes a subprocess-launch storm. Each
+    /// source backs off on its own; a missing Codex never slows Claude Code.
     static let pollingInterval: TimeInterval = 1
     static let failureBackoff: [TimeInterval] = [2, 4, 8, 16, 30, 60]
-    private var consecutiveFailures = 0
 
     func start() {
-        guard monitorTask == nil else { return }
-        monitorTask = Task { [weak self] in
-            while !Task.isCancelled {
-                guard let self else { return }
-                await refresh()
-                let delay = self.nextPollingDelay
-                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+        for source in sources where monitorTasks[source.toolID] == nil {
+            let toolID = source.toolID
+            monitorTasks[toolID] = Task { [weak self] in
+                while !Task.isCancelled {
+                    guard let self else { return }
+                    await refresh(source)
+                    let delay = self.nextPollingDelay(for: toolID)
+                    try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                }
             }
         }
     }
 
+    /// The first source's cadence; every source has its own.
     var nextPollingDelay: TimeInterval {
-        guard consecutiveFailures > 0 else { return Self.pollingInterval }
-        return Self.failureBackoff[min(consecutiveFailures, Self.failureBackoff.count) - 1]
+        guard let first = sources.first else { return Self.pollingInterval }
+        return nextPollingDelay(for: first.toolID)
+    }
+
+    func nextPollingDelay(for toolID: AIToolID) -> TimeInterval {
+        let failures = consecutiveFailuresByTool[toolID] ?? 0
+        guard failures > 0 else { return Self.pollingInterval }
+        return Self.failureBackoff[min(failures, Self.failureBackoff.count) - 1]
     }
 
     func refresh() async {
+        await withTaskGroup(of: Void.self) { group in
+            for source in sources {
+                group.addTask { await self.refresh(source) }
+            }
+        }
+    }
+
+    private func refresh(_ source: Source) async {
         do {
-            updateTasks(try await provider.refresh())
-            lastError = nil
-            consecutiveFailures = 0
+            let tasks = try await source.provider.refresh()
+            updateTasks(tasks, for: source.toolID)
+            if source.toolID == .chatGPT { lastError = nil }
+            consecutiveFailuresByTool[source.toolID] = 0
         } catch {
-            lastError = error.localizedDescription
-            consecutiveFailures += 1
+            if source.toolID == .chatGPT { lastError = error.localizedDescription }
+            consecutiveFailuresByTool[source.toolID, default: 0] += 1
         }
     }
 
     func shutdown() async {
-        monitorTask?.cancel()
-        monitorTask = nil
-        await provider.stop()
+        for task in monitorTasks.values { task.cancel() }
+        monitorTasks = [:]
+        for source in sources { await source.provider.stop() }
     }
 
     func acknowledge(taskID: String) {
-        guard let task = tasks.first(where: { $0.id == taskID }),
-              task.phase.requiresAcknowledgement
-        else { return }
-
-        acknowledgements[taskID] = CodexAgentAcknowledgement(
-            phase: task.phase,
-            updatedAt: task.updatedAt
-        )
-        publishAggregate()
+        for (toolID, tasks) in tasksByTool {
+            guard let task = tasks.first(where: { $0.id == taskID }),
+                  task.phase.requiresAcknowledgement
+            else { continue }
+            acknowledgementsByTool[toolID, default: [:]][taskID] = CodexAgentAcknowledgement(
+                phase: task.phase,
+                updatedAt: task.updatedAt
+            )
+            publishAggregate(for: toolID)
+        }
     }
 
-    func acknowledgeAttentionStates(viewedAt: Date = Date()) {
-        lastCodexViewedAt = max(lastCodexViewedAt ?? .distantPast, viewedAt)
-        acknowledgements = Self.acknowledgements(
-            afterAcknowledgingAttentionIn: tasks,
-            existing: acknowledgements,
-            viewedAt: viewedAt
-        )
-        publishAggregate()
+    /// The user looked at the tool itself, so its attention states are seen.
+    /// Without a tool, every tool counts as seen.
+    func acknowledgeAttentionStates(for toolID: AIToolID? = nil, viewedAt: Date = Date()) {
+        let toolIDs = toolID.map { [$0] } ?? sources.map(\.toolID)
+        for toolID in toolIDs {
+            lastViewedAtByTool[toolID] = max(lastViewedAtByTool[toolID] ?? .distantPast, viewedAt)
+            acknowledgementsByTool[toolID] = Self.acknowledgements(
+                afterAcknowledgingAttentionIn: tasksByTool[toolID] ?? [],
+                existing: acknowledgementsByTool[toolID] ?? [:],
+                viewedAt: viewedAt
+            )
+            publishAggregate(for: toolID)
+        }
     }
 
     nonisolated static func aggregate(_ tasks: [CodexAgentTask]) -> CodexAgentPhase {
@@ -421,29 +474,41 @@ final class CodexAgentStore: ObservableObject {
         return updated
     }
 
-    private func updateTasks(_ refreshedTasks: [CodexAgentTask]) {
-        let previousTasks = Dictionary(uniqueKeysWithValues: tasks.map { ($0.id, $0) })
-        if hasLoadedInitialTasks {
+    private func updateTasks(_ refreshedTasks: [CodexAgentTask], for toolID: AIToolID) {
+        let refreshedTasks = refreshedTasks.map { task -> CodexAgentTask in
+            var stamped = task
+            stamped.toolID = toolID
+            return stamped
+        }
+        let previousTasks = Dictionary(
+            (tasksByTool[toolID] ?? []).map { ($0.id, $0) },
+            uniquingKeysWith: { _, latest in latest }
+        )
+        if loadedTools.contains(toolID) {
             for task in Self.newAttentionTasks(refreshedTasks, previous: previousTasks) {
                 onAttentionEvent?(task)
             }
         } else {
-            hasLoadedInitialTasks = true
+            loadedTools.insert(toolID)
         }
-        tasks = refreshedTasks
-        let tasksByID = Dictionary(uniqueKeysWithValues: refreshedTasks.map { ($0.id, $0) })
-        acknowledgements = acknowledgements.filter { taskID, acknowledgement in
+        tasksByTool[toolID] = refreshedTasks
+        let tasksByID = Dictionary(
+            refreshedTasks.map { ($0.id, $0) },
+            uniquingKeysWith: { _, latest in latest }
+        )
+        var acknowledgements = (acknowledgementsByTool[toolID] ?? [:]).filter { taskID, acknowledgement in
             guard let task = tasksByID[taskID] else { return false }
             return task.phase == acknowledgement.phase && task.updatedAt <= acknowledgement.updatedAt
         }
-        if let lastCodexViewedAt {
+        if let lastViewedAt = lastViewedAtByTool[toolID] {
             acknowledgements = Self.acknowledgements(
                 afterAcknowledgingAttentionIn: refreshedTasks,
                 existing: acknowledgements,
-                viewedAt: lastCodexViewedAt
+                viewedAt: lastViewedAt
             )
         }
-        publishAggregate()
+        acknowledgementsByTool[toolID] = acknowledgements
+        publishAggregate(for: toolID)
     }
 
     nonisolated static func newAttentionTasks(
@@ -457,16 +522,16 @@ final class CodexAgentStore: ObservableObject {
         }
     }
 
-    private func publishAggregate() {
+    private func publishAggregate(for toolID: AIToolID) {
         let aggregate = Self.aggregateStatus(Self.unacknowledgedTasks(
-            tasks,
-            acknowledgements: acknowledgements
+            tasksByTool[toolID] ?? [],
+            acknowledgements: acknowledgementsByTool[toolID] ?? [:]
         ))
-        let previousPhase = phase
-        phase = aggregate.phase
-        targetTask = aggregate.task
+        let previousPhase = phase(for: toolID)
+        aggregatesByTool[toolID] = aggregate
         if aggregate.phase != previousPhase {
             onAggregatePhaseChanged?(
+                toolID,
                 aggregate.phase,
                 aggregate.task?.updatedAt ?? Date()
             )

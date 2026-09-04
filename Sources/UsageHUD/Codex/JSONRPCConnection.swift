@@ -159,6 +159,7 @@ actor ProcessLineTransport: LineTransport {
     private var process: Process?
     private var input: Pipe?
     private var output: Pipe?
+    private var errorOutput: Pipe?
     private var readerTask: Task<Void, Never>?
     private var lineStream: AsyncStream<String>?
     private var lineContinuation: AsyncStream<String>.Continuation?
@@ -179,11 +180,19 @@ actor ProcessLineTransport: LineTransport {
         process.standardInput = input
         process.standardOutput = output
         process.standardError = error
+        // Nothing reads the app-server's stderr, so drain it as it arrives.
+        // A pipe nobody reads fills after about 64 KB and then blocks the
+        // app-server on its next log line, which stalls stdout and every
+        // request with it.
+        error.fileHandleForReading.readabilityHandler = { handle in
+            autoreleasepool { _ = handle.availableData }
+        }
         try process.run()
         let streamPair = AsyncStream.makeStream(of: String.self)
         self.process = process
         self.input = input
         self.output = output
+        self.errorOutput = error
         lineStream = streamPair.stream
         lineContinuation = streamPair.continuation
 
@@ -227,10 +236,13 @@ actor ProcessLineTransport: LineTransport {
         readerTask = nil
         try? input?.fileHandleForWriting.close()
         try? output?.fileHandleForReading.close()
+        errorOutput?.fileHandleForReading.readabilityHandler = nil
+        try? errorOutput?.fileHandleForReading.close()
         if process?.isRunning == true { process?.terminate() }
         process = nil
         input = nil
         output = nil
+        errorOutput = nil
         lineContinuation?.finish()
         lineStream = nil
         lineContinuation = nil

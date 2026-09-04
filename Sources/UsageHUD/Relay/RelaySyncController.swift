@@ -45,6 +45,20 @@ struct RelaySnapshotPayload: Encodable, Equatable, Sendable {
         codexSessionStatus: RelaySessionStatusPayload? = nil,
         at date: Date = Date()
     ) -> Self {
+        make(
+            from: snapshots,
+            sessionStatuses: codexSessionStatus.map { [.chatGPT: $0] } ?? [:],
+            at: date
+        )
+    }
+
+    /// Every tool carries its own session light, so the iPhone shows the
+    /// same activity the rail does.
+    static func make(
+        from snapshots: [QuotaSnapshot],
+        sessionStatuses: [AIToolID: RelaySessionStatusPayload],
+        at date: Date = Date()
+    ) -> Self {
         let orderedIDs = snapshots.reduce(into: [AIToolID]()) { values, snapshot in
             if !values.contains(snapshot.toolID) { values.append(snapshot.toolID) }
         }
@@ -83,7 +97,7 @@ struct RelaySnapshotPayload: Encodable, Equatable, Sendable {
                         }
                     )
                 },
-                sessionStatus: toolID == .chatGPT ? codexSessionStatus : nil
+                sessionStatus: sessionStatuses[toolID]
             )
         }
         return Self(generatedAt: date, tools: tools)
@@ -111,10 +125,11 @@ struct RelaySessionEventPayload: Encodable, Equatable, Sendable {
         case .needsInput: kind = .permissionNeeded
         case .idle, .thinking: return nil
         }
-        eventID = String("\(task.id):\(task.phase.rawValue):\(task.updatedAt.timeIntervalSince1970)".prefix(256))
+        eventID = String("\(task.toolID.rawValue):\(task.id):\(task.phase.rawValue):\(task.updatedAt.timeIntervalSince1970)".prefix(256))
         let title = task.title.trimmingCharacters(in: .whitespacesAndNewlines)
         let workspace = task.workspaceName.trimmingCharacters(in: .whitespacesAndNewlines)
-        sessionTitle = String((title.isEmpty ? "Codex session" : title).prefix(160))
+        let toolName = AIToolDescriptor.descriptor(for: task.toolID).name
+        sessionTitle = String((title.isEmpty ? "\(toolName) session" : title).prefix(160))
         workspaceName = String((workspace.isEmpty ? "Mac workspace" : workspace).prefix(160))
         occurredAt = task.updatedAt
     }
@@ -199,7 +214,7 @@ final class RelaySyncController: ObservableObject {
     private let session: URLSession
     private let credentials: RelayMacCredentialStore
     private var latestSnapshots: [QuotaSnapshot] = []
-    private var latestCodexSessionStatus: RelaySessionStatusPayload?
+    private var latestSessionStatuses: [AIToolID: RelaySessionStatusPayload] = [:]
     private var uploadTask: Task<Void, Never>?
     private var heartbeatTask: Task<Void, Never>?
     private var remotePairingPollTask: Task<Void, Never>?
@@ -258,9 +273,13 @@ final class RelaySyncController: ObservableObject {
     }
 
     func observeCodexSession(_ phase: CodexAgentPhase, at date: Date = Date()) {
+        observeSession(phase, for: .chatGPT, at: date)
+    }
+
+    func observeSession(_ phase: CodexAgentPhase, for toolID: AIToolID, at date: Date = Date()) {
         let status = RelaySessionStatusPayload(phase: phase, updatedAt: date)
-        guard status.phase != latestCodexSessionStatus?.phase else { return }
-        latestCodexSessionStatus = status
+        guard status.phase != latestSessionStatuses[toolID]?.phase else { return }
+        latestSessionStatuses[toolID] = status
         if !latestSnapshots.isEmpty {
             scheduleUpload()
         }
@@ -391,6 +410,7 @@ final class RelaySyncController: ObservableObject {
         catch { status = .failed(error.localizedDescription); return }
         try? credentials.delete()
         defaults.removeObject(forKey: Self.channelKey)
+        defaults.removeObject(forKey: Self.macNameKey)
         pairingCode = nil
         pairingExpiresAt = nil
         devices = []
@@ -441,7 +461,7 @@ final class RelaySyncController: ObservableObject {
         do {
             let payload = RelaySnapshotPayload.make(
                 from: latestSnapshots,
-                codexSessionStatus: latestCodexSessionStatus
+                sessionStatuses: latestSessionStatuses
             )
             var request = try authorizedURLRequest(method: "PUT", path: "channels/\(channelID)/snapshot")
             let encoder = JSONEncoder()
@@ -507,17 +527,48 @@ final class RelaySyncController: ObservableObject {
 
     private func authorizedURLRequest(method: String, path: String) throws -> URLRequest {
         guard let token = try credentials.token() else { throw RelaySyncError.missingCredential }
-        var request = URLRequest(url: Self.relayURL.appendingPathComponent(path))
+        var request = URLRequest(url: Self.relayURL.appendingPathComponent(Self.encodedPath(path)))
         request.httpMethod = method
         request.timeoutInterval = 20
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         return request
     }
 
+    /// Percent-encodes each path segment so an identifier can never add or
+    /// remove segments from the request path.
+    static func encodedPath(_ path: String) -> String {
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-_.~")
+        return path.split(separator: "/", omittingEmptySubsequences: true)
+            .map { segment -> String in
+                // "." and ".." are path syntax, not identifiers.
+                let dotsOnly = segment.allSatisfy { $0 == "." }
+                return segment.addingPercentEncoding(withAllowedCharacters: dotsOnly ? .alphanumerics : allowed) ?? ""
+            }
+            .joined(separator: "/")
+    }
+
+    /// The relay's error text goes straight into Settings, so keep it to one
+    /// short line of printable text.
+    static func sanitizedServerMessage(_ message: String?) -> String {
+        let fallback = "The relay request failed."
+        guard let message else { return fallback }
+        let cleaned = message
+            .components(separatedBy: .newlines)
+            .joined(separator: " ")
+            .unicodeScalars
+            .filter { !CharacterSet.controlCharacters.contains($0) }
+            .map(String.init)
+            .joined()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return fallback }
+        return String(cleaned.prefix(200))
+    }
+
     private func send<T: Decodable>(_ request: URLRequest) async throws -> T {
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            let message = (try? JSONDecoder().decode(ErrorResponse.self, from: data).error) ?? "The relay request failed."
+            let message = Self.sanitizedServerMessage(try? JSONDecoder().decode(ErrorResponse.self, from: data).error)
             throw RelaySyncError.server(message)
         }
         let decoder = JSONDecoder()

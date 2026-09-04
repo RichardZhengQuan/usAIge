@@ -202,14 +202,18 @@ struct HUDView: View {
                             QuotaRowView(
                                 snapshot: snapshot,
                                 showsResetCredits: settings.showsResetCredits,
-                                agentPhase: snapshot.toolID == .chatGPT ? agentStore.phase : .idle,
-                                agentTaskID: snapshot.toolID == .chatGPT
-                                    ? agentStore.targetTask?.id
-                                    : nil,
+                                agentPhase: agentStore.phase(for: snapshot.toolID),
+                                agentTaskID: agentStore.targetTask(for: snapshot.toolID)?.id,
                                 openTool: openTool,
                                 openAgentTask: { taskID in
                                     agentStore.acknowledge(taskID: taskID)
-                                    AIToolLauncher.openCodexTask(id: taskID)
+                                    // Codex can open the exact task; the other
+                                    // tools open to their own app.
+                                    if snapshot.toolID == .chatGPT {
+                                        AIToolLauncher.openCodexTask(id: taskID)
+                                    } else {
+                                        openTool(.descriptor(for: snapshot))
+                                    }
                                 },
                                 onDetailHoverChanged: { isHovered in
                                     if isHovered {
@@ -283,8 +287,8 @@ struct HUDView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("Refresh usage and Codex status")
-        .accessibilityLabel("Refresh usage and Codex status")
+        .help("Refresh usage and session status")
+        .accessibilityLabel("Refresh usage and session status")
     }
 
     private var settingsLink: some View {

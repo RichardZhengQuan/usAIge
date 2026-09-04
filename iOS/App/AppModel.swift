@@ -1058,9 +1058,14 @@ final class RelayAppModel {
     }
 
     private func performRefreshAll() async {
+        // Fetch every Mac at once: one asleep Mac costs its 20-second
+        // timeout, not 20 seconds per Mac, which keeps a background refresh
+        // and a Watch reply inside their budgets.
         let currentConnections = connections
-        for connection in currentConnections {
-            await fetch(connection)
+        await withTaskGroup(of: Void.self) { group in
+            for connection in currentConnections {
+                group.addTask { await self.fetch(connection) }
+            }
         }
         await refreshSessionEvents()
         await persistCurrentState()

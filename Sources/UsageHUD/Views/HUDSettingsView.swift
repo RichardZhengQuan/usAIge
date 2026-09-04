@@ -45,7 +45,7 @@ struct HUDSettingsView: View {
     @State private var feedbackState: FeedbackSubmissionState = .idle
     @StateObject private var claudeSignIn = ClaudeSignInSession()
     @State private var expandedToolIDs: Set<AIToolID> = []
-    @State private var draggedToolID: AIToolID?
+    @State private var draggedTool: DraggedTool?
 
     /// The supported local tools in the user's rail order.
     private var localGuidances: [LocalToolGuidance] {
@@ -279,7 +279,7 @@ struct HUDSettingsView: View {
                 Section {
                     ForEach(localGuidances) { guidance in
                         localToolStatusRow(guidance)
-                            .reorderable(guidance.id, dragged: $draggedToolID) { moved, target in
+                            .reorderable(guidance.id, in: .local, dragged: $draggedTool) { moved, target in
                                 settings.moveTool(moved, to: target)
                             }
                     }
@@ -319,7 +319,7 @@ struct HUDSettingsView: View {
                     }
                     ForEach(orderedRemoteTools) { tool in
                         remoteToolRow(tool)
-                            .reorderable(tool.toolID, dragged: $draggedToolID) { moved, target in
+                            .reorderable(tool.toolID, in: .remote, dragged: $draggedTool) { moved, target in
                                 settings.moveTool(moved, to: target)
                             }
                         if expandedToolIDs.contains(tool.toolID) {
@@ -1048,19 +1048,23 @@ private enum FeedbackSubmissionState: Equatable {
 /// pointer passes over it, so the order updates live and persists on drop.
 private struct ToolReorderDropDelegate: DropDelegate {
     let target: AIToolID
-    @Binding var dragged: AIToolID?
+    let section: ToolReorderSection
+    @Binding var dragged: DraggedTool?
     let move: (AIToolID, AIToolID) -> Void
 
     func dropEntered(info: DropInfo) {
-        guard let dragged, dragged != target else { return }
-        move(dragged, target)
+        // Local and remote tools are separate lists; a row carried over the
+        // other list must not reorder anything.
+        guard let dragged, dragged.section == section, dragged.id != target else { return }
+        move(dragged.id, target)
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
-        DropProposal(operation: .move)
+        DropProposal(operation: dragged?.section == section ? .move : .cancel)
     }
 
     func performDrop(info: DropInfo) -> Bool {
+        guard dragged?.section == section else { return false }
         dragged = nil
         return true
     }
@@ -1068,23 +1072,52 @@ private struct ToolReorderDropDelegate: DropDelegate {
     func dropExited(info: DropInfo) {}
 }
 
+/// Which list a dragged tool row came from.
+enum ToolReorderSection: Equatable {
+    case local
+    case remote
+}
+
+struct DraggedTool: Equatable {
+    let id: AIToolID
+    let section: ToolReorderSection
+}
+
+@available(macOS 14.0, *)
 extension View {
-    /// Makes a tool row draggable and a drop target for other tool rows.
+    /// Makes a tool row draggable and a drop target for other tool rows in
+    /// the same section.
     func reorderable(
         _ id: AIToolID,
-        dragged: Binding<AIToolID?>,
+        in section: ToolReorderSection,
+        dragged: Binding<DraggedTool?>,
         move: @escaping (AIToolID, AIToolID) -> Void
     ) -> some View {
         self
             .contentShape(Rectangle())
             .onDrag {
-                dragged.wrappedValue = id
+                dragged.wrappedValue = DraggedTool(id: id, section: section)
                 return NSItemProvider(object: id.rawValue as NSString)
             }
             .onDrop(
                 of: [UTType.plainText],
-                delegate: ToolReorderDropDelegate(target: id, dragged: dragged, move: move)
+                delegate: ToolReorderDropDelegate(target: id, section: section, dragged: dragged, move: move)
             )
-            .opacity(dragged.wrappedValue == id ? 0.55 : 1)
+            .opacity(dragged.wrappedValue?.id == id ? 0.55 : 1)
+            .task(id: dragged.wrappedValue?.id == id) {
+                // SwiftUI only reports a drop that lands on a row. A drag
+                // cancelled with Escape or released elsewhere would leave
+                // this row dimmed, so watch for the button coming up.
+                guard dragged.wrappedValue?.id == id else { return }
+                while !Task.isCancelled, dragged.wrappedValue?.id == id {
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                    if NSEvent.pressedMouseButtons == 0 {
+                        // Give a successful drop its own chance to clear the state
+                        // first, then clear it ourselves.
+                        try? await Task.sleep(nanoseconds: 150_000_000)
+                        if dragged.wrappedValue?.id == id { dragged.wrappedValue = nil }
+                    }
+                }
+            }
     }
 }

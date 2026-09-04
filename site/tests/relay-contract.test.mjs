@@ -336,13 +336,15 @@ test("a pairing code can only be claimed once", async () => {
   assert.ok(!db.calls.some(sql => sql.startsWith("INSERT INTO relay_devices")));
 });
 
+const phoneDevice = async () => ({ id: "phone-1", channel_id: "channel-1", name: "iPhone", read_token_hash: await relayTestSupport.sha256("usg_ios_secret"), apns_token: null, apns_environment: null, last_push_at: null, session_notifications_enabled: 1 });
+
 test("a channel cannot register more than ten devices", async () => {
-  const phone = { id: "phone-1", channel_id: "channel-1", name: "iPhone", read_token_hash: await relayTestSupport.sha256("usg_ios_secret"), apns_token: null, apns_environment: null, last_push_at: null, session_notifications_enabled: 0 };
   const db = scriptedDB({
     "SELECT * FROM relay_channels": openChannel,
-    "SELECT * FROM relay_devices WHERE channel_id = ? AND read_token_hash": phone,
+    "SELECT * FROM relay_devices WHERE channel_id = ? AND read_token_hash": await phoneDevice(),
     "SELECT channel_id FROM relay_devices WHERE id": null,
-    "SELECT COUNT(*) AS count FROM relay_devices": { count: 10 },
+    // The bounded insert finds the channel full and inserts nothing.
+    "INSERT INTO relay_devices": { meta: { changes: 0 } },
   });
   const response = await handleRelayRequest(new Request("https://relay.example/api/v1/channels/channel-1/watch-devices/2a5f3c4e-1b2d-4c3e-8f9a-0b1c2d3e4f5a", {
     method: "POST",
@@ -350,7 +352,82 @@ test("a channel cannot register more than ten devices", async () => {
     body: JSON.stringify({ deviceName: "Apple Watch" }),
   }), { DB: db }, noopContext);
   assert.equal(response.status, 409);
-  assert.ok(!db.calls.some(sql => sql.startsWith("INSERT INTO relay_devices")));
+  const insert = db.calls.find(sql => sql.startsWith("INSERT INTO relay_devices"));
+  // The limit check and the insert are one statement, so no count-then-insert gap.
+  assert.match(insert, /SELECT COUNT\(\*\) FROM relay_devices/);
+  assert.ok(!db.calls.some(sql => sql.startsWith("SELECT COUNT(*)")));
+});
+
+test("claiming a pairing code fails once the channel is full and hands the code back", async () => {
+  const pairing = { id: "pairing-1", channel_id: "channel-1", expires_at: new Date(Date.now() + 60_000).toISOString(), claimed_at: null };
+  const db = scriptedDB({
+    "INSERT INTO relay_rate_limits": { count: 1 },
+    "SELECT id, channel_id, expires_at, claimed_at FROM relay_pairings": pairing,
+    "INSERT INTO relay_devices": { meta: { changes: 0 } },
+  });
+  const response = await handleRelayRequest(new Request("https://relay.example/api/v1/pairings/claim", {
+    method: "POST",
+    headers: { "content-type": "application/json", "cf-connecting-ip": "203.0.113.5" },
+    body: JSON.stringify({ code: "01234567", deviceName: "iPhone" }),
+  }), { DB: db }, noopContext);
+  assert.equal(response.status, 409);
+  assert.ok(db.calls.some(sql => sql.startsWith("UPDATE relay_pairings SET claimed_at = NULL")));
+});
+
+test("pairing code creation is rate limited per channel", async () => {
+  const db = scriptedDB({ "SELECT * FROM relay_channels": openChannel, "INSERT INTO relay_rate_limits": { count: 31 } });
+  const response = await handleRelayRequest(new Request("https://relay.example/api/v1/channels/channel-1/pairings", {
+    method: "POST",
+    headers: { authorization: "Bearer usg_mac_secret" },
+  }), { DB: db }, noopContext);
+  assert.equal(response.status, 429);
+  assert.ok(!db.calls.some(sql => sql.startsWith("INSERT INTO relay_pairings")));
+});
+
+test("refreshing an APNs token keeps the saved notification preference", async () => {
+  let update;
+  const db = scriptedDB({
+    "SELECT * FROM relay_channels": openChannel,
+    "SELECT * FROM relay_devices WHERE channel_id = ? AND read_token_hash": await phoneDevice(),
+    "UPDATE relay_devices SET apns_token": bindings => { update = bindings; return { meta: { changes: 1 } }; },
+  });
+  const response = await handleRelayRequest(new Request("https://relay.example/api/v1/channels/channel-1/devices/phone-1", {
+    method: "PUT",
+    headers: { authorization: "Bearer usg_ios_secret", "content-type": "application/json" },
+    body: JSON.stringify({ apnsToken: "ab".repeat(32), environment: "production" }),
+  }), { DB: db }, noopContext);
+  assert.equal(response.status, 200);
+  assert.match(db.calls.find(sql => sql.startsWith("UPDATE relay_devices SET apns_token")), /COALESCE\(\?, session_notifications_enabled\)/);
+  assert.equal(update[2], null);
+});
+
+test("session events dated in the future are stamped with arrival time", async () => {
+  let stored;
+  const db = scriptedDB({
+    "SELECT * FROM relay_channels": openChannel,
+    "INSERT INTO relay_rate_limits": { count: 1 },
+    "SELECT id FROM relay_devices WHERE channel_id = ? AND session_notifications_enabled": { id: "phone-1" },
+    "INSERT OR IGNORE INTO relay_session_events": bindings => { stored = bindings; return { meta: { changes: 1 } }; },
+  });
+  const before = Date.now();
+  const response = await handleRelayRequest(new Request("https://relay.example/api/v1/channels/channel-1/session-events", {
+    method: "POST",
+    headers: { authorization: "Bearer usg_mac_secret", "content-type": "application/json" },
+    body: JSON.stringify({ schemaVersion: 1, eventID: "event-1", kind: "finished", sessionTitle: "Task", workspaceName: "Repo", occurredAt: "2099-01-01T00:00:00Z" }),
+  }), { DB: db }, noopContext);
+  assert.equal(response.status, 202);
+  const occurredAt = Date.parse(stored[6]);
+  assert.ok(occurredAt >= before - 1000 && occurredAt <= Date.now() + 1000);
+
+  const recent = new Date(Date.now() + 60_000).toISOString();
+  assert.equal(relayTestSupport.clampedOccurredAt(recent), recent);
+});
+
+test("bounded strings count characters and cap bytes", () => {
+  assert.equal(relayTestSupport.isBoundedString("😀".repeat(64), 64), true);
+  assert.equal(relayTestSupport.isBoundedString("😀".repeat(65), 64), false);
+  assert.equal(relayTestSupport.isBoundedString("a".repeat(64), 64), true);
+  assert.equal(relayTestSupport.isBoundedString("", 64), false);
 });
 
 test("browser preflights get no cross-origin grant", async () => {
