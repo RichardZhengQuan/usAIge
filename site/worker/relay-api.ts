@@ -25,6 +25,9 @@ let schemaReady: Promise<void> | undefined;
 export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: RelayContext): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/v1/")) return null;
+  // Respond to browser preflight requests without granting any cross-origin access.
+  // Native Mac and iOS clients never send preflights; browser origins are denied by omission.
+  if (request.method === "OPTIONS") return new Response(null, { status: 204 });
   if (!env.DB) return json({ error: "Relay storage is unavailable." }, 503);
 
   try {
@@ -64,13 +67,19 @@ export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: R
     }
 
     if (request.method === "POST" && url.pathname === "/api/v1/pairings/claim") {
+      // Per-IP rate limit is the only brute-force protection here.
+      // A wrong code yields a null row (lookup is by code_hash), so failed_attempts cannot be
+      // incremented per pairing — the column exists but is not used.
+      // Code space: 10^8 combinations × 10-minute expiry × ≤20 attempts per 15 min ≈ negligible
+      // guessing probability; 20/15 min is intentionally tight.
       await enforceRateLimit(env.DB, `claim:${clientAddress(request)}`, 20, 15 * 60_000);
+      ctx.waitUntil(pruneRateLimits(env.DB));
       const payload = await readJSON(request) as { code?: string; deviceName?: string };
       const normalizedCode = normalizeCode(payload.code);
       const pairing = await env.DB.prepare(
-        "SELECT id, channel_id, expires_at, claimed_at, failed_attempts FROM relay_pairings WHERE code_hash = ?"
-      ).bind(await sha256(normalizedCode)).first<{ id: string; channel_id: string; expires_at: string; claimed_at: string | null; failed_attempts: number }>();
-      if (!pairing || pairing.claimed_at || Date.parse(pairing.expires_at) <= Date.now() || pairing.failed_attempts >= 5) {
+        "SELECT id, channel_id, expires_at, claimed_at FROM relay_pairings WHERE code_hash = ?"
+      ).bind(await sha256(normalizedCode)).first<{ id: string; channel_id: string; expires_at: string; claimed_at: string | null }>();
+      if (!pairing || pairing.claimed_at || Date.parse(pairing.expires_at) <= Date.now()) {
         return json({ error: "That pairing code is invalid or expired." }, 400);
       }
       const deviceID = crypto.randomUUID();
@@ -87,6 +96,7 @@ export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: R
     }
 
     if (request.method === "POST" && url.pathname === "/api/v1/tool-pairings/claim") {
+      // Same brute-force design as /pairings/claim: per-IP rate limit only (see comment there).
       await enforceRateLimit(env.DB, `tool-claim:${clientAddress(request)}`, 20, 15 * 60_000);
       const payload = await readJSON(request) as { code?: string; toolName?: string; symbolName?: string; websiteURL?: string };
       const normalizedCode = normalizeCode(payload.code);
@@ -141,6 +151,13 @@ export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: R
       if (existing && existing.channel_id !== channelID) {
         return json({ error: "That Watch device identifier is already in use." }, 409);
       }
+      if (!existing) {
+        const count = await env.DB.prepare("SELECT COUNT(*) AS count FROM relay_devices WHERE channel_id = ?")
+          .bind(channelID).first<{ count: number }>();
+        if ((count?.count ?? 0) >= maximumDevicesPerChannel) {
+          return json({ error: "This Mac already has the maximum number of paired devices." }, 409);
+        }
+      }
       const payload = await readJSON(request) as { deviceName?: string };
       const deviceName = cleanName(payload.deviceName, "Apple Watch");
       const readToken = randomToken("usg_watch_");
@@ -156,6 +173,9 @@ export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: R
 
     if (request.method === "PUT" && tail === "snapshot") {
       if (!await authorizeMac(request, channel)) return unauthorized();
+      // A Mac uploads only when its rail changes, at most about once a second; 600 an hour leaves
+      // room for a busy session while bounding what a leaked token or retry loop can write.
+      await enforceRateLimit(env.DB, `snapshot:${channelID}`, 600, 60 * 60_000);
       const payload = await readJSON(request);
       validateSnapshot(payload);
       const canonical = JSON.stringify(payload);
@@ -451,7 +471,18 @@ function normalizeCode(value: unknown) {
   return raw.replace(/[- ]/g, "");
 }
 function randomToken(prefix: string) { const bytes = crypto.getRandomValues(new Uint8Array(32)); return prefix + base64url(bytes); }
-function randomCode() { const bytes = crypto.getRandomValues(new Uint8Array(8)); return Array.from(bytes, byte => pairingAlphabet[byte % pairingAlphabet.length]).join(""); }
+function randomCode() {
+  // Rejection sampling: 256 is not a multiple of 10, so bytes at or above 250 are discarded to
+  // keep every digit equally likely.
+  const limit = 256 - (256 % pairingAlphabet.length);
+  const digits: string[] = [];
+  while (digits.length < 8) {
+    for (const byte of crypto.getRandomValues(new Uint8Array(16))) {
+      if (byte < limit && digits.length < 8) digits.push(pairingAlphabet[byte % pairingAlphabet.length]);
+    }
+  }
+  return digits.join("");
+}
 async function createPairing(db: D1Database, channelID: string, now: Date) {
   const code = randomCode(); const expiresAt = new Date(now.getTime() + pairingLifetimeMs).toISOString();
   await db.prepare("INSERT INTO relay_pairings (id, channel_id, code_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?)")
@@ -469,10 +500,27 @@ function timingSafeEqual(a: string, b: string) { if (a.length !== b.length) retu
 function base64url(bytes: Uint8Array) { let binary = ""; for (const byte of bytes) binary += String.fromCharCode(byte); return btoa(binary).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_"); }
 function clientAddress(request: Request) { return request.headers.get("cf-connecting-ip") ?? "unknown"; }
 async function enforceRateLimit(db: D1Database, key: string, maximum: number, windowMs: number) {
-  const hashed = await sha256(key); const now = new Date(); const row = await db.prepare("SELECT count, window_started_at FROM relay_rate_limits WHERE key = ?").bind(hashed).first<{ count: number; window_started_at: string }>();
-  if (!row || Date.now() - Date.parse(row.window_started_at) >= windowMs) { await db.prepare("INSERT INTO relay_rate_limits (key, count, window_started_at) VALUES (?, 1, ?) ON CONFLICT(key) DO UPDATE SET count = 1, window_started_at = excluded.window_started_at").bind(hashed, now.toISOString()).run(); return; }
-  if (row.count >= maximum) throw new RelayError("Too many requests. Try again later.", 429);
-  await db.prepare("UPDATE relay_rate_limits SET count = count + 1 WHERE key = ?").bind(hashed).run();
+  // One atomic upsert: start a new window when the old one has expired, otherwise increment,
+  // and read the resulting count back. No SELECT-then-UPDATE gap for concurrent isolates to slip
+  // through, and rejected attempts still count against the window.
+  const hashed = await sha256(key);
+  const nowISO = new Date().toISOString();
+  const row = await db.prepare(
+    `INSERT INTO relay_rate_limits (key, count, window_started_at) VALUES (?1, 1, ?2)
+     ON CONFLICT(key) DO UPDATE SET
+       count = CASE WHEN (julianday(?2) - julianday(window_started_at)) * 86400000 >= ?3 THEN 1 ELSE count + 1 END,
+       window_started_at = CASE WHEN (julianday(?2) - julianday(window_started_at)) * 86400000 >= ?3 THEN ?2 ELSE window_started_at END
+     RETURNING count`
+  ).bind(hashed, nowISO, windowMs).first<{ count: number }>();
+  if ((row?.count ?? 1) > maximum) throw new RelayError("Too many requests. Try again later.", 429);
+}
+const rateLimitRetentionMs = 24 * 60 * 60_000;
+const sessionEventRetentionMs = 7 * 24 * 60 * 60_000;
+const maximumDevicesPerChannel = 10;
+/// Drops rate-limit rows whose window ended more than a day ago so the table stays bounded.
+async function pruneRateLimits(db: D1Database) {
+  const cutoff = new Date(Date.now() - rateLimitRetentionMs).toISOString();
+  await db.prepare("DELETE FROM relay_rate_limits WHERE window_started_at < ?").bind(cutoff).run();
 }
 
 async function pushChannel(env: RelayEnv, channel: ChannelRow, bypassThrottle = false) {
@@ -536,9 +584,10 @@ async function storeSessionEvent(db: D1Database, channelID: string, event: Sessi
     "INSERT OR IGNORE INTO relay_session_events (id, channel_id, event_id, kind, session_title, workspace_name, occurred_at, received_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
   ).bind(`${channelID}:${event.eventID}`, channelID, event.eventID, event.kind, event.sessionTitle, event.workspaceName, event.occurredAt, receivedAt).run();
   if ((result.meta.changes ?? 0) !== 1) return false;
+  const retentionCutoff = new Date(Date.now() - sessionEventRetentionMs).toISOString();
   await db.prepare(
-    "DELETE FROM relay_session_events WHERE channel_id = ? AND id NOT IN (SELECT id FROM relay_session_events WHERE channel_id = ? ORDER BY occurred_at DESC, received_at DESC LIMIT 100)"
-  ).bind(channelID, channelID).run();
+    "DELETE FROM relay_session_events WHERE channel_id = ? AND (received_at < ? OR id NOT IN (SELECT id FROM relay_session_events WHERE channel_id = ? ORDER BY occurred_at DESC, received_at DESC LIMIT 100))"
+  ).bind(channelID, retentionCutoff, channelID).run();
   return true;
 }
 function sessionEventCopy(event: SessionEvent) {
@@ -559,4 +608,4 @@ async function providerToken(env: RelayEnv) {
   const value = `${header}.${claims}.${base64url(signature)}`; cachedProviderToken = { value, createdAt: now }; return value;
 }
 
-export const relayTestSupport = { normalizeCode, randomCode, validateSnapshot, validateRemoteToolSnapshot, validateSessionEvent, validateFeedback, sessionEventCopy, sessionStatusSignature, isUUID, sha256 };
+export const relayTestSupport = { normalizeCode, randomCode, enforceRateLimit, validateSnapshot, validateRemoteToolSnapshot, validateSessionEvent, validateFeedback, sessionEventCopy, sessionStatusSignature, isUUID, sha256 };

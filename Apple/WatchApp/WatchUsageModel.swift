@@ -88,16 +88,21 @@ final class WatchUsageModel: NSObject, ObservableObject {
                 Task { @MainActor in
                     self?.isRefreshing = false
                     self?.errorMessage = error.localizedDescription
-                    self?.refreshFromServer()
+                    // Keep the WatchConnectivity failure visible when the
+                    // server path cannot even start; it is the more useful
+                    // reason for the person looking at the Watch.
+                    self?.refreshFromServer(preservingErrorMessage: true)
                 }
             }
         )
     }
 
-    private func refreshFromServer() {
+    private func refreshFromServer(preservingErrorMessage: Bool = false) {
         let credentials = (try? credentialStore.load()) ?? []
         guard !credentials.isEmpty else {
-            errorMessage = "Open usAIge on the paired iPhone once to enable cellular sync."
+            if !preservingErrorMessage || errorMessage == nil {
+                errorMessage = "Open usAIge on the paired iPhone once to enable cellular sync."
+            }
             return
         }
         isRefreshing = true
@@ -319,6 +324,7 @@ private struct WatchDirectSyncResult: Sendable {
 
 private struct WatchRelayClient: Sendable {
     private static let baseURL = URL(string: "https://usaige-macos.richardqz.chatgpt.site/api/v1/")!
+    private static let maximumResponseBytes = 1_048_576
     private let session: URLSession
 
     init() {
@@ -360,9 +366,18 @@ private struct WatchRelayClient: Sendable {
         var request = URLRequest(url: url)
         request.setValue("Bearer \(credential.readToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+        // Stream the body under a hard cap, as the iPhone client does; a Watch
+        // extension's memory budget is far too small to buffer an arbitrary
+        // response.
+        let (bytes, response) = try await session.bytes(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+              http.expectedContentLength <= Int64(Self.maximumResponseBytes) else {
             throw WatchRelayClientError.requestFailed
+        }
+        var data = Data()
+        for try await byte in bytes {
+            guard data.count < Self.maximumResponseBytes else { throw WatchRelayClientError.requestFailed }
+            data.append(byte)
         }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601

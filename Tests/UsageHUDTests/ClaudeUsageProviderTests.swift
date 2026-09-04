@@ -260,3 +260,95 @@ private struct RecordingCredentialSource: ClaudeCredentialSource {
     try Data(#"{"apiKeyHelper":"  "}"#.utf8).write(to: dir.appendingPathComponent("settings.json"))
     #expect(!ClaudeCodeConfiguration.usesAPIKeyHelper(homeDirectory: home))
 }
+
+/// The shape the endpoint returns as of September 2026: a `limits` array
+/// alongside the older top-level windows, plus internal experiment keys.
+private let claudeLimitsUsageJSON = """
+{
+  "five_hour": { "utilization": 18.0, "resets_at": "2026-09-04T12:10:00.346724+00:00", "limit_dollars": null },
+  "seven_day": { "utilization": 80.0, "resets_at": "2026-09-08T05:00:00.346746+00:00", "limit_dollars": null },
+  "seven_day_oauth_apps": null,
+  "seven_day_opus": null,
+  "seven_day_sonnet": null,
+  "seven_day_cowork": null,
+  "tangelo": null,
+  "nimbus_quill": { "utilization": 0.0, "resets_at": null, "limit_dollars": null },
+  "extra_usage": { "is_enabled": false, "monthly_limit": null, "used_credits": null, "utilization": null },
+  "limits": [
+    { "kind": "session", "group": "session", "percent": 18, "severity": "normal", "resets_at": "2026-09-04T12:10:00.346724+00:00", "scope": null, "is_active": false },
+    { "kind": "weekly_all", "group": "weekly", "percent": 80, "severity": "warning", "resets_at": "2026-09-08T05:00:00.346746+00:00", "scope": null, "is_active": false },
+    { "kind": "weekly_scoped", "group": "weekly", "percent": 86, "severity": "warning", "resets_at": "2026-09-08T05:00:00.346992+00:00", "scope": { "model": { "id": null, "display_name": "Fable" }, "surface": null }, "is_active": true }
+  ],
+  "spend": { "used": { "amount_minor": 0, "currency": "USD" }, "limit": null, "percent": 0, "enabled": false },
+  "member_dashboard_available": false
+}
+"""
+
+@Test func claudePrefersTheLimitsArrayAndShowsScopedWeeklyLimits() {
+    let response = JSONValue.parse(Data(claudeLimitsUsageJSON.utf8))!
+
+    let snapshots = ClaudeUsageProvider.snapshots(from: response, planType: "max", updatedAt: testNow)
+
+    #expect(snapshots.map(\.id) == ["claude", "claude_fable"])
+    #expect(snapshots.allSatisfy { $0.toolID == .claude && $0.planType == "max" })
+
+    let main = snapshots[0]
+    #expect(main.displayName == "All models")
+    #expect(main.usedPercent == 18)
+    #expect(main.typeTag == "5H")
+    #expect(main.resetAt == Date(timeIntervalSince1970: 1_788_523_800.346))
+    #expect(main.secondaryWindow?.usedPercent == 80)
+    #expect(main.secondaryWindow?.typeTag == "7D")
+    #expect(main.secondaryWindow?.resetAt == Date(timeIntervalSince1970: 1_788_843_600.346))
+
+    let fable = snapshots[1]
+    #expect(fable.displayName == "Fable")
+    #expect(fable.usedPercent == 86)
+    #expect(fable.remainingPercent == 14)
+    #expect(fable.typeTag == "7D")
+    #expect(fable.resetAt == Date(timeIntervalSince1970: 1_788_843_600.346))
+}
+
+@Test func claudeNamesScopedLimitsFromSurfaceOrKindWhenThereIsNoModel() {
+    let response = JSONValue.parse(Data("""
+    {"limits":[
+      {"kind":"weekly_all","group":"weekly","percent":40,"resets_at":"2026-09-08T05:00:00Z","scope":null},
+      {"kind":"weekly_scoped","group":"weekly","percent":10,"resets_at":null,"scope":{"model":null,"surface":"cowork"}},
+      {"kind":"weekly_scoped","group":"weekly","percent":12,"resets_at":null,"scope":{"model":{"id":"claude-fable-5-1","display_name":null},"surface":null}},
+      {"kind":"daily_all","group":"daily","percent":5,"resets_at":null,"scope":null},
+      {"kind":"weekly_scoped","group":"weekly","percent":"n/a","scope":null}
+    ]}
+    """.utf8))!
+
+    let snapshots = ClaudeUsageProvider.snapshots(from: response, planType: nil, updatedAt: testNow)
+
+    #expect(snapshots.map(\.id) == ["claude", "claude_cowork", "claude_fable_5_1", "claude_daily_all"])
+    #expect(snapshots[0].typeTag == "7D")
+    #expect(snapshots[0].secondaryWindow == nil)
+    #expect(snapshots[0].usedPercent == 40)
+    #expect(snapshots[1].displayName == "Cowork")
+    #expect(snapshots[1].typeTag == "7D")
+    #expect(snapshots[2].displayName == "Claude fable 5 1")
+    #expect(snapshots[3].displayName == "Daily all")
+    #expect(snapshots[3].typeTag == "1D")
+}
+
+@Test func claudeIgnoresExperimentKeysWithoutTheLimitsArray() {
+    let response = JSONValue.parse(Data("""
+    {"five_hour":{"utilization":18,"resets_at":"2026-09-04T12:10:00Z"},
+     "seven_day":{"utilization":80,"resets_at":"2026-09-08T05:00:00Z"},
+     "seven_day_cowork":{"utilization":3,"resets_at":null},
+     "nimbus_quill":{"utilization":0,"resets_at":null},
+     "tangelo":null,
+     "limits":[],
+     "spend":{"percent":0,"enabled":false},
+     "member_dashboard_available":false,
+     "extra_usage":{"is_enabled":false}}
+    """.utf8))!
+
+    let snapshots = ClaudeUsageProvider.snapshots(from: response, planType: nil, updatedAt: testNow)
+
+    #expect(snapshots.map(\.id) == ["claude", "claude_cowork"])
+    #expect(snapshots[0].secondaryWindow?.usedPercent == 80)
+    #expect(snapshots[1].displayName == "Cowork")
+}

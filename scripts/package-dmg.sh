@@ -119,6 +119,16 @@ if [[ -d "$site_public" ]]; then
         "$digest" \
         "$release_notes" \
         > "$site_public/update.json"
+    signing_key="$HOME/.config/usaige/update-signing-key"
+    if [[ -f "$signing_key" ]]; then
+        swift "$root/scripts/sign-update-manifest.swift" "$site_public/update.json"
+    else
+        echo "warning: no update signing key at $signing_key; update.json is unsigned" >&2
+        echo "         run scripts/generate-update-signing-key.swift once on the release Mac" >&2
+    fi
+    # Only the current release ships in the repo; the previous DMG is removed
+    # so the tree does not grow by one disk image per release.
+    find "$site_public" -maxdepth 1 -name 'usAIge-*-alpha.dmg*' ! -name "$name.dmg*" -delete
 fi
 
 echo "$dmg"

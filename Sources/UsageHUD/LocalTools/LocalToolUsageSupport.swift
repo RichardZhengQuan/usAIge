@@ -105,9 +105,13 @@ struct URLSessionUsageHTTPClient: UsageHTTPClient {
 }
 
 enum UsAIgeUserAgent {
+    /// The marketing version from the bundle, or "dev" outside a packaged app.
+    static var shortVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
+    }
+
     static var value: String {
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
-        return "usAIge/\(version) (macOS)"
+        "usAIge/\(shortVersion) (macOS)"
     }
 }
 

@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import CryptoKit
 import Foundation
+import Security
 import UserNotifications
 
 private extension Array {
@@ -15,9 +16,26 @@ struct UpdateManifest: Codable, Equatable, Sendable {
     let downloadURL: URL
     let sha256: String
     var releaseNotes: ReleaseNotes? = nil
+    /// Ed25519 signature (base64) over `signedPayload`, made by the release
+    /// signing key. Verified against `UpdateSigning.pinnedPublicKey` so a
+    /// compromised download host cannot point the app at a different build.
+    var signature: String? = nil
 
     func isNewer(thanBuild currentBuild: Int) -> Bool {
         build > currentBuild
+    }
+
+    /// The fields the signature covers. Release notes are display-only and
+    /// stay outside it so wording fixes do not require re-signing.
+    var signedPayload: Data {
+        Data("usaige-update-v1\n\(version)\n\(build)\n\(sha256.lowercased())\n\(downloadURL.absoluteString)\n".utf8)
+    }
+
+    func verifySignature(publicKey: Curve25519.Signing.PublicKey) throws {
+        guard let signature, let raw = Data(base64Encoded: signature),
+              publicKey.isValidSignature(raw, for: signedPayload) else {
+            throw UpdateError.unsignedManifest
+        }
     }
 
     func validate() throws {
@@ -35,6 +53,23 @@ struct UpdateManifest: Codable, Equatable, Sendable {
 
     static func newest(in manifests: [UpdateManifest]) -> UpdateManifest? {
         manifests.max(by: { $0.build < $1.build })
+    }
+}
+
+/// The release signing key usAIge trusts. The private half lives only on the
+/// release machine (`scripts/generate-update-signing-key.swift` creates it in
+/// `~/.config/usaige/`); `scripts/sign-update-manifest.swift` signs
+/// `update.json` during packaging. While `pinnedPublicKey` is nil the app
+/// falls back to transport security plus the SHA-256 in the manifest, which
+/// is only as strong as the host serving both.
+enum UpdateSigning {
+    /// Base64 raw representation of the Ed25519 public key. Set this to the
+    /// value printed by `generate-update-signing-key.swift`.
+    static let pinnedPublicKeyBase64: String? = nil
+
+    static var pinnedPublicKey: Curve25519.Signing.PublicKey? {
+        guard let pinnedPublicKeyBase64, let data = Data(base64Encoded: pinnedPublicKeyBase64) else { return nil }
+        return try? Curve25519.Signing.PublicKey(rawRepresentation: data)
     }
 }
 
@@ -136,6 +171,7 @@ final class UpdateController: ObservableObject {
     @Published private(set) var isReplacementPrepared = false
 
     private let manifestURLs: [URL]
+    private let signingKey: Curve25519.Signing.PublicKey?
     private let currentVersion: String
     private let currentBuild: Int
     private let applicationURL: URL
@@ -231,8 +267,10 @@ final class UpdateController: ObservableObject {
         session: URLSession = .shared,
         userDefaults: UserDefaults = .standard,
         installer: UpdateInstaller = UpdateInstaller(),
-        manifestURLs: [URL]? = nil
+        manifestURLs: [URL]? = nil,
+        signingKey: Curve25519.Signing.PublicKey? = UpdateSigning.pinnedPublicKey
     ) {
+        self.signingKey = signingKey
         let configuredURLs = (bundle.object(forInfoDictionaryKey: "UpdateManifestURLs") as? [String])?
             .compactMap(URL.init(string:))
         let legacyConfiguredURL = (bundle.object(forInfoDictionaryKey: "UpdateManifestURL") as? String)
@@ -315,6 +353,9 @@ final class UpdateController: ObservableObject {
         }
         let manifest = try JSONDecoder().decode(UpdateManifest.self, from: data)
         try manifest.validate()
+        if let key = signingKey {
+            try manifest.verifySignature(publicKey: key)
+        }
         return manifest
     }
 
@@ -476,6 +517,13 @@ actor UpdateInstaller {
             "/usr/bin/codesign",
             arguments: ["--verify", "--deep", "--strict", mountedApplicationURL.path]
         )
+        // `codesign --verify` accepts any self-consistent signature, including
+        // ad-hoc ones. Once the installed app carries a Developer ID team, the
+        // replacement must be signed by that same team.
+        if let currentTeam = Self.teamIdentifier(ofApplicationAt: currentApplicationURL),
+           Self.teamIdentifier(ofApplicationAt: mountedApplicationURL) != currentTeam {
+            throw UpdateError.untrustedSigner
+        }
 
         let workDirectory = dmgURL.deletingLastPathComponent()
         let stagedApplicationURL = workDirectory.appendingPathComponent("usAIge.app")
@@ -500,7 +548,11 @@ actor UpdateInstaller {
             rm -rf "$backup" "$work_dir"
             /usr/bin/open "$target_app"
         else
+            # The app has already quit, so put the previous build back and
+            # relaunch it rather than leaving the user with nothing running.
             if [ -e "$backup" ]; then /bin/mv "$backup" "$target_app"; fi
+            rm -rf "$incoming" "$work_dir"
+            /usr/bin/open "$target_app" || true
             exit 1
         fi
         """
@@ -515,6 +567,21 @@ actor UpdateInstaller {
             workDirectory.path,
         ]
         try helper.run()
+    }
+
+    /// The Developer ID team of a signed bundle, or nil for ad-hoc and
+    /// unsigned bundles.
+    static func teamIdentifier(ofApplicationAt url: URL) -> String? {
+        var staticCode: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(url as CFURL, [], &staticCode) == errSecSuccess,
+              let staticCode else { return nil }
+        var information: CFDictionary?
+        guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &information)
+                == errSecSuccess,
+              let dictionary = information as? [String: Any],
+              let team = dictionary[kSecCodeInfoTeamIdentifier as String] as? String,
+              !team.isEmpty else { return nil }
+        return team
     }
 
     private static func sha256(of fileURL: URL) throws -> String {
@@ -582,6 +649,8 @@ enum UpdateError: LocalizedError {
     case applicationNotWritable
     case mountFailed
     case invalidApplication
+    case unsignedManifest
+    case untrustedSigner
     case commandFailed(String)
 
     var errorDescription: String? {
@@ -602,6 +671,10 @@ enum UpdateError: LocalizedError {
             "The downloaded update couldn’t be opened."
         case .invalidApplication:
             "The downloaded app isn’t a valid usAIge update."
+        case .unsignedManifest:
+            "The update information isn’t signed by the usAIge release key."
+        case .untrustedSigner:
+            "The downloaded app isn’t signed by the usAIge developer."
         case let .commandFailed(message):
             message.trimmingCharacters(in: .whitespacesAndNewlines)
         }

@@ -39,7 +39,12 @@ struct QuotaTimelineProvider: AppIntentTimelineProvider {
         for configuration: UsageWidgetConfigurationIntentV2,
         in context: Context
     ) async -> QuotaTimelineEntry {
-        await entry(at: .now, configuration: configuration, family: context.family)
+        entry(
+            at: .now,
+            cachedState: try? await cache.load(),
+            configuration: configuration,
+            family: context.family
+        )
     }
 
     func timeline(
@@ -47,8 +52,12 @@ struct QuotaTimelineProvider: AppIntentTimelineProvider {
         in context: Context
     ) async -> Timeline<QuotaTimelineEntry> {
         let now = Date()
-        let currentEntry = await entry(
+        // One cache read feeds both entries so they cannot describe two
+        // different generations of the cache.
+        let cachedState = try? await cache.load()
+        let currentEntry = entry(
             at: now,
+            cachedState: cachedState,
             configuration: configuration,
             family: context.family
         )
@@ -57,7 +66,7 @@ struct QuotaTimelineProvider: AppIntentTimelineProvider {
         // If a system refresh is delayed, this prebuilt entry keeps the
         // widget honest about cached data becoming stale.
         if case let .current(snapshots) = currentEntry.state,
-           let cachedState = try? await cache.load(),
+           let cachedState,
            let staleDate = earliestStaleDate(in: snapshots, cacheState: cachedState),
            staleDate > now {
             entries.append(
@@ -79,34 +88,31 @@ struct QuotaTimelineProvider: AppIntentTimelineProvider {
 
     private func entry(
         at date: Date,
+        cachedState: QuotaCacheState?,
         configuration: UsageWidgetConfigurationIntentV2,
         family: WidgetFamily
-    ) async -> QuotaTimelineEntry {
-        do {
-            let cachedState = try await cache.load()
-            let snapshots = selectedSnapshots(
-                from: cachedState.snapshots,
-                configuration: configuration,
-                family: family
-            )
-            guard !snapshots.isEmpty else {
-                return QuotaTimelineEntry(date: date, state: .empty)
-            }
-
-            if snapshots.contains(where: { isStale($0, in: cachedState, at: date) }) {
-                return QuotaTimelineEntry(
-                    date: date,
-                    state: .stale(
-                        snapshots,
-                        oldestUpdate: oldestUpdate(in: snapshots) ?? cachedState.savedAt
-                    )
-                )
-            }
-
-            return QuotaTimelineEntry(date: date, state: .current(snapshots))
-        } catch {
-            return QuotaTimelineEntry(date: date, state: .error)
+    ) -> QuotaTimelineEntry {
+        guard let cachedState else { return QuotaTimelineEntry(date: date, state: .error) }
+        let snapshots = selectedSnapshots(
+            from: cachedState.snapshots,
+            configuration: configuration,
+            family: family
+        )
+        guard !snapshots.isEmpty else {
+            return QuotaTimelineEntry(date: date, state: .empty)
         }
+
+        if snapshots.contains(where: { isStale($0, in: cachedState, at: date) }) {
+            return QuotaTimelineEntry(
+                date: date,
+                state: .stale(
+                    snapshots,
+                    oldestUpdate: oldestUpdate(in: snapshots) ?? cachedState.savedAt
+                )
+            )
+        }
+
+        return QuotaTimelineEntry(date: date, state: .current(snapshots))
     }
 
     private func earliestStaleDate(

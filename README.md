@@ -93,7 +93,7 @@ Push Notifications plus the Remote notifications background mode.
   disconnects the channel. It receives no provider credentials, browser
   cookies, prompts, or account content.
 - For session notification delivery, the relay retains at most the latest
-  100 status events per Mac: event type, session title, workspace name, and
+  100 status events per Mac, and none older than seven days: event type, session title, workspace name, and
   timestamp. Disconnecting the Mac deletes that history with the channel.
 
 ## Apple Watch app and complications
@@ -194,7 +194,7 @@ to open.
 
 | Tool | Sign-in read | Usage source | Buckets |
 | --- | --- | --- | --- |
-| Claude Code | Keychain item `Claude Code-credentials` (or `~/.claude/.credentials.json`) | `api.anthropic.com/api/oauth/usage`, the request Claude Code itself makes for `/usage` | **All models** (5-hour session inner ring, 7-day outer ring), plus Opus, Sonnet, OAuth apps, extra usage, and any further weekly window the account reports |
+| Claude Code | Keychain item `Claude Code-credentials` (or `~/.claude/.credentials.json`) | `api.anthropic.com/api/oauth/usage`, the request Claude Code itself makes for `/usage` | **All models** (5-hour session inner ring, 7-day outer ring), plus one bucket per limit scoped to a model or surface (for example a weekly Fable or Opus limit), OAuth apps, and extra usage |
 | Cursor | `cursorAuth/accessToken` in Cursor's own state store | `api2.cursor.sh` `DashboardService/GetCurrentPeriodUsage`, the request the editor makes for Plan & Usage | **Cursor models** and **Other models** for the current billing cycle, or the blended included-usage percentage when the split is not reported |
 | Grok Build | `~/.grok/auth.json` (or `$GROK_HOME/auth.json`) | `grok.com` credits configuration and task usage, the requests Grok Build makes for its own usage view | Included credits for the current cycle, plus task limits when the account reports them |
 
@@ -232,7 +232,9 @@ token itself.
 
 Claude reports several weekly buckets. The rail shows **All models** by
 default and keeps the others available under **Manage AI Tools**, mirroring
-how the Codex buckets are handled.
+how the Codex buckets are handled. A weekly limit scoped to one model (Claude
+lists it as, for example, **Fable**) is often the one that actually gates a
+heavy session, so turn that bucket on if you want the rail to warn about it.
 
 ### Remote AI tools
 
@@ -311,7 +313,7 @@ The built-in Codex, Claude Code, Cursor, and Grok Build sources read sign-ins al
 
 ## Updates
 
-The packaged app checks the public usAIge website at launch and every six hours. When a newer build is published, macOS shows a local notification and Settings marks the update button with a red dot. Clicking the notification opens Settings; clicking **Update** downloads the DMG, verifies its SHA-256 checksum, validates the app bundle and code signature, replaces the installed copy, and relaunches usAIge. A manual **Check for Updates** action reports **You’re up to date!** after a successful check when no newer build exists.
+The packaged app checks the public usAIge website at launch and every six hours. When a newer build is published, macOS shows a local notification and Settings marks the update button with a red dot. Clicking the notification opens Settings; clicking **Update** downloads the DMG, verifies its SHA-256 checksum, validates the app bundle and code signature, replaces the installed copy, and relaunches usAIge. If the replacement fails, the previous copy is put back and relaunched. When the installed app carries a Developer ID team, the replacement must be signed by the same team. The manifest can also carry an Ed25519 signature from the release key: `scripts/generate-update-signing-key.swift` creates the key once on the release Mac, `scripts/package-dmg.sh` signs `update.json` with it, and once the public key is set in `UpdateSigning.pinnedPublicKeyBase64` the app refuses unsigned or tampered manifests, so a compromised download host cannot push a different build. A manual **Check for Updates** action reports **You’re up to date!** after a successful check when no newer build exists.
 
 ## Usage-limit notifications
 

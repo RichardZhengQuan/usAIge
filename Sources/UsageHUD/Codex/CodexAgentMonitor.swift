@@ -76,6 +76,19 @@ actor CodexAgentProvider: CodexAgentProviding {
     }
 
     func refresh() async throws -> [CodexAgentTask] {
+        do {
+            return try await performRefresh()
+        } catch JSONRPCError.disconnected {
+            // The Codex app-server can restart independently of usAIge. Reset
+            // the transport and initialize a fresh process so one dropped
+            // connection cannot leave the activity light permanently stale.
+            await rpc.stop()
+            initialized = false
+            return try await performRefresh()
+        }
+    }
+
+    private func performRefresh() async throws -> [CodexAgentTask] {
         try await initializeIfNeeded()
         let response = try await rpc.request(method: "thread/list", params: .object([
             "archived": .bool(false),
@@ -109,7 +122,7 @@ actor CodexAgentProvider: CodexAgentProviding {
             "clientInfo": .object([
                 "name": .string("usaige-agent-monitor"),
                 "title": .string("usAIge Agent Monitor"),
-                "version": .string("0.2.13"),
+                "version": .string(UsAIgeUserAgent.shortVersion),
             ]),
         ]))
         try await rpc.notify(method: "initialized", params: .object([:]))
@@ -302,23 +315,38 @@ final class CodexAgentStore: ObservableObject {
         self.provider = provider
     }
 
+    /// Polling cadence: one second while Codex answers, backing off to a
+    /// minute while it does not (for example when Codex is not installed),
+    /// so a missing app-server never becomes a subprocess-launch storm.
+    static let pollingInterval: TimeInterval = 1
+    static let failureBackoff: [TimeInterval] = [2, 4, 8, 16, 30, 60]
+    private var consecutiveFailures = 0
+
     func start() {
         guard monitorTask == nil else { return }
         monitorTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
                 await refresh()
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                let delay = self.nextPollingDelay
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             }
         }
+    }
+
+    var nextPollingDelay: TimeInterval {
+        guard consecutiveFailures > 0 else { return Self.pollingInterval }
+        return Self.failureBackoff[min(consecutiveFailures, Self.failureBackoff.count) - 1]
     }
 
     func refresh() async {
         do {
             updateTasks(try await provider.refresh())
             lastError = nil
+            consecutiveFailures = 0
         } catch {
             lastError = error.localizedDescription
+            consecutiveFailures += 1
         }
     }
 

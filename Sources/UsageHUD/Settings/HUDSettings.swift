@@ -40,11 +40,12 @@ final class HUDSettings: ObservableObject {
         var didApplyPrimaryBucketDefault = false
         var primaryBucketDefaultToolIDs: Set<AIToolID> = []
         var positions: [String: HUDPosition] = [:]
+        var lastDisplayKey: String? = nil
         var remoteTools: [LegacyRemoteTool] = []
 
         enum CodingKeys: String, CodingKey {
             case version, bucketOrder, hiddenBucketIDs, toolOrder, hiddenToolIDs
-            case scale, opacity, positions
+            case scale, opacity, positions, lastDisplayKey
             case showsResetCredits
             case usageAlertIntervalPercent
             case readsClaudeSignIn
@@ -87,6 +88,7 @@ final class HUDSettings: ObservableObject {
                 forKey: .primaryBucketDefaultToolIDs
             ) ?? []
             positions = try values.decodeIfPresent([String: HUDPosition].self, forKey: .positions) ?? [:]
+            lastDisplayKey = try values.decodeIfPresent(String.self, forKey: .lastDisplayKey)
             remoteTools = try values.decodeIfPresent([LegacyRemoteTool].self, forKey: .remoteTools) ?? []
         }
     }
@@ -223,7 +225,14 @@ final class HUDSettings: ObservableObject {
 
     func setPosition(_ point: CGPoint, for displayKey: String) {
         payload.positions[displayKey] = HUDPosition(point)
+        payload.lastDisplayKey = displayKey
         persist()
+    }
+
+    /// The display the rail was last parked on, so launch can put it back
+    /// there instead of on whichever display is main today.
+    var lastDisplayKey: String? {
+        payload.lastDisplayKey
     }
 
     func position(for displayKey: String) -> CGPoint? {
