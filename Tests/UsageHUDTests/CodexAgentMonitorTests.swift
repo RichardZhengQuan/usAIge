@@ -271,3 +271,76 @@ private func task(
 private func acknowledgement(for task: CodexAgentTask) -> CodexAgentAcknowledgement {
     CodexAgentAcknowledgement(phase: task.phase, updatedAt: task.updatedAt)
 }
+
+private actor DisconnectingAgentRPC: RPCRequesting {
+    private(set) var startCount = 0
+    private(set) var stopCount = 0
+    private(set) var requestedMethods: [String] = []
+    private var shouldDisconnect = true
+
+    func start() async throws { startCount += 1 }
+
+    func request(method: String, params: JSONValue) async throws -> JSONValue {
+        requestedMethods.append(method)
+        if method == "thread/list", shouldDisconnect {
+            shouldDisconnect = false
+            throw JSONRPCError.disconnected
+        }
+        switch method {
+        case "initialize": return .object([:])
+        case "thread/list": return .object(["data": .array([])])
+        default: throw JSONRPCError.disconnected
+        }
+    }
+
+    func notify(method: String, params: JSONValue) async throws {}
+
+    func notifications() async -> AsyncStream<JSONRPCNotification> {
+        AsyncStream { $0.finish() }
+    }
+
+    func stop() async { stopCount += 1 }
+}
+
+@Test func agentProviderReconnectsAfterCodexAppServerDisconnects() async throws {
+    let rpc = DisconnectingAgentRPC()
+    let provider = CodexAgentProvider(rpc: rpc)
+
+    let tasks = try await provider.refresh()
+
+    #expect(tasks.isEmpty)
+    #expect(await rpc.startCount == 2)
+    #expect(await rpc.stopCount == 1)
+    #expect(await rpc.requestedMethods == [
+        "initialize", "thread/list",
+        "initialize", "thread/list",
+    ])
+}
+
+private actor FailingAgentProvider: CodexAgentProviding {
+    var shouldFail = true
+    func setShouldFail(_ value: Bool) { shouldFail = value }
+    func refresh() async throws -> [CodexAgentTask] {
+        if shouldFail { throw JSONRPCError.disconnected }
+        return []
+    }
+    func stop() async {}
+}
+
+@MainActor
+@Test func agentStoreBacksOffWhileCodexKeepsFailing() async {
+    let provider = FailingAgentProvider()
+    let store = CodexAgentStore(provider: provider)
+
+    #expect(store.nextPollingDelay == CodexAgentStore.pollingInterval)
+    for expected in CodexAgentStore.failureBackoff {
+        await store.refresh()
+        #expect(store.nextPollingDelay == expected)
+    }
+    await store.refresh()
+    #expect(store.nextPollingDelay == CodexAgentStore.failureBackoff.last)
+
+    await provider.setShouldFail(false)
+    await store.refresh()
+    #expect(store.nextPollingDelay == CodexAgentStore.pollingInterval)
+}

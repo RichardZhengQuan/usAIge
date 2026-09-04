@@ -12,6 +12,7 @@ struct HUDView: View {
     let openCodex: () -> Void
     let openSettings: () -> Void
     let resizePanel: (CGSize) -> Void
+    @ObservedObject var screenState: PanelScreenState
     @State private var isPanelHovered = false
     @State private var detailHoveredSnapshotIDs: Set<String> = []
     @State private var refreshRotation = 0.0
@@ -37,7 +38,7 @@ struct HUDView: View {
                 height: HUDMetrics.railHeight(
                     rowCount: snapshots.count,
                     maximumHeight: HUDMetrics.maximumRailHeight(
-                        visibleHeight: NSScreen.main?.visibleFrame.height ?? 900,
+                        visibleHeight: screenState.visibleHeight,
                         scale: settings.scale
                     )
                 )

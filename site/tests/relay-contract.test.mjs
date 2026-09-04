@@ -239,3 +239,122 @@ test("accepts only canonical Watch device UUIDs", () => {
     assert.equal(relayTestSupport.isUUID(invalid), false);
   }
 });
+
+/// A scripted D1 stand-in: `handlers` map a SQL prefix to the row `first()` returns
+/// or a function of the bindings; everything else is a successful no-op.
+function scriptedDB(handlers = {}) {
+  const calls = [];
+  const resolve = (sql, bindings) => {
+    for (const [prefix, handler] of Object.entries(handlers)) {
+      if (sql.trim().startsWith(prefix)) return typeof handler === "function" ? handler(bindings) : handler;
+    }
+    return null;
+  };
+  return {
+    calls,
+    prepare(sql) {
+      return {
+        bindings: [],
+        bind(...bindings) { this.bindings = bindings; return this; },
+        async first() { calls.push(sql); return resolve(sql, this.bindings); },
+        async all() {
+          if (sql.startsWith("PRAGMA table_info(relay_devices)")) return { results: [{ name: "session_notifications_enabled" }] };
+          return { results: [] };
+        },
+        async run() {
+          calls.push(sql);
+          const result = resolve(sql, this.bindings);
+          return result ?? { meta: { changes: 1 } };
+        },
+      };
+    },
+    async batch(statements) { return statements.map(() => ({ success: true })); },
+  };
+}
+const noopContext = { waitUntil() {} };
+const openChannel = { id: "channel-1", mac_name: "Mac", upload_token_hash: await relayTestSupport.sha256("usg_mac_secret"), snapshot_json: null, snapshot_version: 0, last_upload_at: null };
+
+test("rate limiting is one atomic upsert and rejects once the window is full", async () => {
+  const db = scriptedDB({ "INSERT INTO relay_rate_limits": { count: 21 } });
+  await assert.rejects(
+    () => relayTestSupport.enforceRateLimit(db, "claim:203.0.113.5", 20, 15 * 60_000),
+    error => error.status === 429
+  );
+  assert.equal(db.calls.filter(sql => sql.includes("relay_rate_limits")).length, 1);
+  assert.match(db.calls[0], /RETURNING count/);
+  assert.doesNotMatch(db.calls[0], /^SELECT/);
+
+  const allowed = scriptedDB({ "INSERT INTO relay_rate_limits": { count: 20 } });
+  await assert.doesNotReject(() => relayTestSupport.enforceRateLimit(allowed, "claim:203.0.113.5", 20, 15 * 60_000));
+});
+
+test("pairing codes stay uniform and eight digits long", () => {
+  const seen = new Set();
+  for (let index = 0; index < 400; index += 1) {
+    const code = relayTestSupport.randomCode();
+    assert.match(code, /^\d{8}$/);
+    for (const digit of code) seen.add(digit);
+  }
+  assert.equal(seen.size, 10);
+});
+
+test("an invalid bearer token is rejected on an authenticated endpoint", async () => {
+  const db = scriptedDB({ "SELECT * FROM relay_channels": openChannel, "INSERT INTO relay_rate_limits": { count: 1 } });
+  const response = await handleRelayRequest(new Request("https://relay.example/api/v1/channels/channel-1/snapshot", {
+    method: "PUT",
+    headers: { authorization: "Bearer usg_mac_wrong", "content-type": "application/json" },
+    body: JSON.stringify(validSnapshot()),
+  }), { DB: db }, noopContext);
+  assert.equal(response.status, 401);
+  assert.ok(!db.calls.some(sql => sql.startsWith("UPDATE relay_channels")));
+});
+
+test("snapshot uploads are rate limited per channel", async () => {
+  const db = scriptedDB({ "SELECT * FROM relay_channels": openChannel, "INSERT INTO relay_rate_limits": { count: 601 } });
+  const response = await handleRelayRequest(new Request("https://relay.example/api/v1/channels/channel-1/snapshot", {
+    method: "PUT",
+    headers: { authorization: "Bearer usg_mac_secret", "content-type": "application/json" },
+    body: JSON.stringify(validSnapshot()),
+  }), { DB: db }, noopContext);
+  assert.equal(response.status, 429);
+});
+
+test("a pairing code can only be claimed once", async () => {
+  const pairing = { id: "pairing-1", channel_id: "channel-1", expires_at: new Date(Date.now() + 60_000).toISOString(), claimed_at: null };
+  const db = scriptedDB({
+    "INSERT INTO relay_rate_limits": { count: 1 },
+    "SELECT id, channel_id, expires_at, claimed_at FROM relay_pairings": pairing,
+    // The conditional UPDATE finds the row already claimed by a concurrent request.
+    "UPDATE relay_pairings SET claimed_at": { meta: { changes: 0 } },
+  });
+  const response = await handleRelayRequest(new Request("https://relay.example/api/v1/pairings/claim", {
+    method: "POST",
+    headers: { "content-type": "application/json", "cf-connecting-ip": "203.0.113.5" },
+    body: JSON.stringify({ code: "01234567", deviceName: "iPhone" }),
+  }), { DB: db }, noopContext);
+  assert.equal(response.status, 400);
+  assert.ok(!db.calls.some(sql => sql.startsWith("INSERT INTO relay_devices")));
+});
+
+test("a channel cannot register more than ten devices", async () => {
+  const phone = { id: "phone-1", channel_id: "channel-1", name: "iPhone", read_token_hash: await relayTestSupport.sha256("usg_ios_secret"), apns_token: null, apns_environment: null, last_push_at: null, session_notifications_enabled: 0 };
+  const db = scriptedDB({
+    "SELECT * FROM relay_channels": openChannel,
+    "SELECT * FROM relay_devices WHERE channel_id = ? AND read_token_hash": phone,
+    "SELECT channel_id FROM relay_devices WHERE id": null,
+    "SELECT COUNT(*) AS count FROM relay_devices": { count: 10 },
+  });
+  const response = await handleRelayRequest(new Request("https://relay.example/api/v1/channels/channel-1/watch-devices/2a5f3c4e-1b2d-4c3e-8f9a-0b1c2d3e4f5a", {
+    method: "POST",
+    headers: { authorization: "Bearer usg_ios_secret", "content-type": "application/json" },
+    body: JSON.stringify({ deviceName: "Apple Watch" }),
+  }), { DB: db }, noopContext);
+  assert.equal(response.status, 409);
+  assert.ok(!db.calls.some(sql => sql.startsWith("INSERT INTO relay_devices")));
+});
+
+test("browser preflights get no cross-origin grant", async () => {
+  const response = await handleRelayRequest(new Request("https://relay.example/api/v1/channels", { method: "OPTIONS" }), { DB: scriptedDB() }, noopContext);
+  assert.equal(response.status, 204);
+  assert.equal(response.headers.get("access-control-allow-origin"), null);
+});

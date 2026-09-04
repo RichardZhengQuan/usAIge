@@ -276,30 +276,98 @@ actor ClaudeUsageProvider: CodexUsageProviding {
 
     // MARK: Decoding
 
-    /// Maps the OAuth usage payload onto rail buckets. The session window
-    /// (five hours) and the all-models weekly window share one bucket so the
-    /// rail shows them as inner and outer rings, matching the Codex layout.
-    /// Every other window with a numeric utilization becomes its own bucket,
-    /// so new provider windows appear without a code change.
+    /// Maps the OAuth usage payload onto rail buckets.
+    ///
+    /// Newer payloads carry a `limits` array: the provider's own list of what
+    /// gates the account, with a `kind` per entry. That list is authoritative
+    /// when present. The session window and the all-models weekly window
+    /// share one bucket so the rail shows them as inner and outer rings,
+    /// matching the Codex layout; every other limit, such as a weekly limit
+    /// scoped to one model, becomes its own bucket.
+    ///
+    /// Older payloads only have top-level windows (`five_hour`, `seven_day`,
+    /// `seven_day_opus`, …), which are mapped the same way. Top-level keys
+    /// without a window prefix are internal experiment names and are not
+    /// shown.
     static func snapshots(from response: JSONValue, planType: String?, updatedAt: Date) -> [QuotaSnapshot] {
         guard let object = response.objectValue else { return [] }
-        var buckets: [RateLimitBucket] = []
+        var buckets: [RateLimitBucket]
+        if let limits = object["limits"]?.arrayValue, !limits.isEmpty {
+            buckets = limitBuckets(from: limits, planType: planType)
+        } else {
+            buckets = windowBuckets(from: object, planType: planType)
+        }
+        if let extra = extraUsageBucket(from: object, planType: planType) {
+            buckets.append(extra)
+        }
+        return buckets.map { bucket in
+            var snapshot = QuotaSnapshot.make(from: bucket, updatedAt: updatedAt)
+            snapshot.toolID = .claude
+            return snapshot
+        }
+    }
 
-        let fiveHour = window(object["five_hour"])
-        let sevenDay = window(object["seven_day"])
-        if let primary = fiveHour ?? sevenDay {
-            let secondary = fiveHour != nil ? sevenDay : nil
-            buckets.append(RateLimitBucket(
-                limitID: primaryBucketID,
-                limitName: "All models",
-                usedPercent: primary.usedPercent,
-                windowDurationMinutes: fiveHour != nil ? 300 : 10_080,
-                resetsAt: primary.resetsAt,
-                planType: planType,
-                secondaryUsedPercent: secondary?.usedPercent,
-                secondaryWindowDurationMinutes: secondary.map { _ in 10_080 },
-                secondaryResetsAt: secondary?.resetsAt
-            ))
+    private static func limitBuckets(from limits: [JSONValue], planType: String?) -> [RateLimitBucket] {
+        var session: Window?
+        var weeklyAll: Window?
+        var scoped: [RateLimitBucket] = []
+        var usedIDs: Set<String> = [primaryBucketID]
+
+        for limit in limits {
+            guard let kind = limit["kind"]?.stringValue,
+                  let percent = limit["percent"]?.lenientNumber else { continue }
+            let window = Window(
+                usedPercent: min(100, max(0, percent)),
+                resetsAt: LocalToolDates.parse(limit["resets_at"]?.stringValue)?.timeIntervalSince1970
+            )
+            switch kind {
+            case "session":
+                if session == nil { session = window }
+            case "weekly_all":
+                if weeklyAll == nil { weeklyAll = window }
+            default:
+                let scope = limit["scope"]
+                let model = scope?["model"]
+                let scopeName = model?["display_name"]?.stringValue
+                    ?? model?["id"]?.stringValue
+                    ?? scope?["surface"]?.stringValue
+                let name = scopeName ?? kind
+                let id = "claude_\(slug(name))"
+                guard usedIDs.insert(id).inserted else { continue }
+                let minutes: Int? = switch limit["group"]?.stringValue {
+                case "session": 300
+                case "daily": 1_440
+                case "weekly": 10_080
+                case "monthly": 43_200
+                default: nil
+                }
+                scoped.append(RateLimitBucket(
+                    limitID: id,
+                    limitName: model?["display_name"]?.stringValue ?? LocalToolText.humanized(name),
+                    usedPercent: window.usedPercent,
+                    windowDurationMinutes: minutes,
+                    resetsAt: window.resetsAt,
+                    planType: planType
+                ))
+            }
+        }
+
+        var buckets: [RateLimitBucket] = []
+        if let bucket = mainBucket(session: session, weekly: weeklyAll, planType: planType) {
+            buckets.append(bucket)
+        }
+        buckets.append(contentsOf: scoped)
+        return buckets
+    }
+
+    private static func windowBuckets(from object: [String: JSONValue], planType: String?) -> [RateLimitBucket] {
+        var buckets: [RateLimitBucket] = []
+        if let bucket = mainBucket(
+            session: window(object["five_hour"]),
+            weekly: window(object["seven_day"]),
+            planType: planType
+        ) {
+            buckets.append(bucket)
         }
 
         var consumed = mainWindowKeys
@@ -316,45 +384,63 @@ actor ClaudeUsageProvider: CodexUsageProviding {
             ))
         }
 
-        for key in object.keys.sorted() where !consumed.contains(key) && key != "extra_usage" {
-            guard let value = window(object[key]) else { continue }
-            var name = key
-            for prefix in ["seven_day_", "five_hour_", "claude_"] where name.hasPrefix(prefix) {
-                name = String(name.dropFirst(prefix.count))
-            }
+        for key in object.keys.sorted() where !consumed.contains(key) {
+            guard let prefix = ["seven_day_", "five_hour_"].first(where: { key.hasPrefix($0) }),
+                  let value = window(object[key]) else { continue }
+            let name = String(key.dropFirst(prefix.count))
             buckets.append(RateLimitBucket(
                 limitID: "claude_\(name)",
                 limitName: LocalToolText.humanized(name),
                 usedPercent: value.usedPercent,
-                windowDurationMinutes: key.hasPrefix("seven_day") ? 10_080 : (key.hasPrefix("five_hour") ? 300 : nil),
+                windowDurationMinutes: prefix == "seven_day_" ? 10_080 : 300,
                 resetsAt: value.resetsAt,
                 planType: planType
             ))
         }
+        return buckets
+    }
 
-        if let extra = object["extra_usage"], extra["is_enabled"]?.boolValue == true {
-            let used: Double? = extra["utilization"]?.lenientNumber ?? {
-                guard let usedCredits = extra["used_credits"]?.lenientNumber,
-                      let limit = extra["monthly_limit"]?.lenientNumber, limit > 0 else { return nil }
-                return usedCredits / limit * 100
-            }()
-            if let used {
-                buckets.append(RateLimitBucket(
-                    limitID: "claude_extra",
-                    limitName: "Extra usage",
-                    usedPercent: used,
-                    windowDurationMinutes: 43_200,
-                    resetsAt: LocalToolDates.parse(extra["resets_at"]?.stringValue)?.timeIntervalSince1970,
-                    planType: planType
-                ))
-            }
-        }
+    private static func mainBucket(session: Window?, weekly: Window?, planType: String?) -> RateLimitBucket? {
+        guard let primary = session ?? weekly else { return nil }
+        let secondary = session != nil ? weekly : nil
+        return RateLimitBucket(
+            limitID: primaryBucketID,
+            limitName: "All models",
+            usedPercent: primary.usedPercent,
+            windowDurationMinutes: session != nil ? 300 : 10_080,
+            resetsAt: primary.resetsAt,
+            planType: planType,
+            secondaryUsedPercent: secondary?.usedPercent,
+            secondaryWindowDurationMinutes: secondary.map { _ in 10_080 },
+            secondaryResetsAt: secondary?.resetsAt
+        )
+    }
 
-        return buckets.map { bucket in
-            var snapshot = QuotaSnapshot.make(from: bucket, updatedAt: updatedAt)
-            snapshot.toolID = .claude
-            return snapshot
-        }
+    private static func extraUsageBucket(from object: [String: JSONValue], planType: String?) -> RateLimitBucket? {
+        guard let extra = object["extra_usage"], extra["is_enabled"]?.boolValue == true else { return nil }
+        let used: Double? = extra["utilization"]?.lenientNumber ?? {
+            guard let usedCredits = extra["used_credits"]?.lenientNumber,
+                  let limit = extra["monthly_limit"]?.lenientNumber, limit > 0 else { return nil }
+            return usedCredits / limit * 100
+        }()
+        guard let used else { return nil }
+        return RateLimitBucket(
+            limitID: "claude_extra",
+            limitName: "Extra usage",
+            usedPercent: used,
+            windowDurationMinutes: 43_200,
+            resetsAt: LocalToolDates.parse(extra["resets_at"]?.stringValue)?.timeIntervalSince1970,
+            planType: planType
+        )
+    }
+
+    /// `Fable` → `fable`, `claude-fable-5-1` → `fable_5_1`, `Claude Code` → `code`.
+    private static func slug(_ name: String) -> String {
+        let parts = name.lowercased()
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .map(String.init)
+        let trimmed = parts.first == "claude" && parts.count > 1 ? Array(parts.dropFirst()) : parts
+        return trimmed.isEmpty ? "limit" : trimmed.joined(separator: "_")
     }
 
     private struct Window {

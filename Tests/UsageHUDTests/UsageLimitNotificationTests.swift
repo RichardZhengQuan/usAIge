@@ -357,3 +357,19 @@ private extension Array {
         count == 1 ? self[0] : nil
     }
 }
+
+@Test func usageLimitTrackerDoesNotMistakeAOneStepCorrectionForAResetWithoutAResetDate() {
+    var tracker = UsageLimitThresholdTracker(stepPercent: 10)
+
+    #expect(tracker.events(for: [snapshot(usedPercent: 25, resetAt: nil)]).isEmpty)
+    // A provider correcting 25% to 14% crosses a band boundary and drops by
+    // more than one step, but nothing about it looks like a new window.
+    #expect(tracker.events(for: [snapshot(usedPercent: 14, resetAt: nil)]).isEmpty)
+    // Losing half the scale does.
+    #expect(
+        tracker.events(for: [snapshot(usedPercent: 90, resetAt: nil)]).map(\.thresholdPercent) == [90]
+    )
+    #expect(
+        tracker.events(for: [snapshot(usedPercent: 12, resetAt: nil)]).map(\.notificationKind) == [.reset]
+    )
+}

@@ -6,6 +6,7 @@ struct LegacyHUDView: View {
     @ObservedObject var store: UsageStore
     @ObservedObject var settings: HUDSettings
     @ObservedObject var updateController: UpdateController
+    @ObservedObject var screenState: PanelScreenState
     let openTool: (AIToolDescriptor) -> Void
     let openSettings: () -> Void
     let resizePanel: (CGSize) -> Void
@@ -20,7 +21,7 @@ struct LegacyHUDView: View {
                 height: HUDMetrics.railHeight(
                     rowCount: snapshots.count,
                     maximumHeight: HUDMetrics.maximumRailHeight(
-                        visibleHeight: NSScreen.main?.visibleFrame.height ?? 900,
+                        visibleHeight: screenState.visibleHeight,
                         scale: settings.scale
                     )
                 )

@@ -207,6 +207,7 @@ final class RelaySyncController: ObservableObject {
     private var isUploadInFlight = false
     private var hasPendingUpload = false
     private var sentSessionEventIDs: Set<String> = []
+    private static let maximumRememberedSessionEventIDs = 2_000
 
     init(
         defaults: UserDefaults = .standard,
@@ -278,6 +279,12 @@ final class RelaySyncController: ObservableObject {
     func sendSessionEvent(for task: CodexAgentTask) {
         guard isLinked, let payload = RelaySessionEventPayload(task: task),
               sentSessionEventIDs.insert(payload.eventID).inserted else { return }
+        // Only recent IDs matter for de-duplication; keep the set bounded over
+        // a long-running session.
+        if sentSessionEventIDs.count > Self.maximumRememberedSessionEventIDs {
+            sentSessionEventIDs.removeAll()
+            sentSessionEventIDs.insert(payload.eventID)
+        }
         Task { [weak self] in
             await self?.postSessionEvent(payload)
         }
@@ -558,11 +565,15 @@ struct RelayMacCredentialStore: Sendable {
             [.posixPermissions: 0o700],
             ofItemAtPath: directory.path
         )
-        try Data(value.utf8).write(to: fileURL, options: .atomic)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o600],
-            ofItemAtPath: fileURL.path
-        )
+        // Create the file owner-only from the first byte instead of tightening
+        // it after the write, then move it into place atomically.
+        let staging = directory.appendingPathComponent(".relay-upload-token.\(UUID().uuidString)")
+        guard FileManager.default.createFile(
+            atPath: staging.path,
+            contents: Data(value.utf8),
+            attributes: [.posixPermissions: 0o600]
+        ) else { throw RelaySyncError.requestFailed }
+        _ = try FileManager.default.replaceItemAt(fileURL, withItemAt: staging)
     }
 
     func delete() throws {

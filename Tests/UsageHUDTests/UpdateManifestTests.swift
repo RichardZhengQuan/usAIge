@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Testing
 @testable import UsageHUD
@@ -164,4 +165,55 @@ import Testing
 
     #expect(UpdateManifest.newest(in: [legacy, current]) == current)
     #expect(UpdateManifest.newest(in: [current, legacy]) == current)
+}
+
+@Test func updateManifestSignatureIsVerifiedAgainstThePinnedKey() throws {
+    let key = Curve25519.Signing.PrivateKey()
+    var manifest = UpdateManifest(
+        version: "0.2.14",
+        build: 36,
+        minimumSystemVersion: "11.0",
+        downloadURL: try #require(URL(string: "https://example.com/usAIge-0.2.14-alpha.dmg")),
+        sha256: String(repeating: "b", count: 64)
+    )
+
+    #expect(throws: UpdateError.self) { try manifest.verifySignature(publicKey: key.publicKey) }
+
+    manifest.signature = try key.signature(for: manifest.signedPayload).base64EncodedString()
+    #expect(throws: Never.self) { try manifest.verifySignature(publicKey: key.publicKey) }
+
+    // Release notes are outside the signed payload; the build is inside it.
+    manifest.releaseNotes = ReleaseNotes(headline: "Edited", summary: "Wording only.", highlights: [])
+    #expect(throws: Never.self) { try manifest.verifySignature(publicKey: key.publicKey) }
+    let tampered = UpdateManifest(
+        version: manifest.version,
+        build: 37,
+        minimumSystemVersion: manifest.minimumSystemVersion,
+        downloadURL: manifest.downloadURL,
+        sha256: manifest.sha256,
+        signature: manifest.signature
+    )
+    #expect(throws: UpdateError.self) { try tampered.verifySignature(publicKey: key.publicKey) }
+    #expect(throws: UpdateError.self) {
+        try manifest.verifySignature(publicKey: Curve25519.Signing.PrivateKey().publicKey)
+    }
+}
+
+@Test func updateManifestSignatureRoundTripsThroughJSON() throws {
+    let data = Data(#"""
+    {"version":"0.2.14","build":36,"minimumSystemVersion":"11.0",
+     "downloadURL":"https://example.com/usAIge.dmg",
+     "sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+     "signature":"AAAA"}
+    """#.utf8)
+    let manifest = try JSONDecoder().decode(UpdateManifest.self, from: data)
+    #expect(manifest.signature == "AAAA")
+    #expect(String(decoding: manifest.signedPayload, as: UTF8.self)
+        == "usaige-update-v1\n0.2.14\n36\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\nhttps://example.com/usAIge.dmg\n")
+}
+
+@Test func teamIdentifierIsNilForAdHocSignedBundles() {
+    // The test bundle is ad-hoc signed (or unsigned) on every developer Mac
+    // and CI runner, so the check must not misreport a team there.
+    #expect(UpdateInstaller.teamIdentifier(ofApplicationAt: Bundle.main.bundleURL) == nil)
 }

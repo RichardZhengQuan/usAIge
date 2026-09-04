@@ -358,6 +358,7 @@ final class AppModel {
             snapshots.append(contentsOf: fetched)
             refreshMetadata.append(
                 RefreshScheduleMetadata(toolID: updatedTool.id)
+                    .recordingAttempt(at: now)
                     .recordingSuccess(
                         at: now,
                         refreshIntervalMinutes: updatedTool.refreshIntervalMinutes
@@ -1008,11 +1009,55 @@ final class RelayAppModel {
         }
     }
 
+    /// A refresh requested while another is in flight. `.all` absorbs any
+    /// narrower request; it runs as soon as the current refresh finishes so
+    /// foregrounding during a slow fetch never shows a stale rail.
+    private enum QueuedRefresh: Equatable {
+        case all
+        case connection(UUID)
+    }
+    private var queuedRefresh: QueuedRefresh?
+
     func refreshAll() async {
         guard !connections.isEmpty else { return }
-        guard !isRefreshing else { return }
+        guard !isRefreshing else {
+            queuedRefresh = .all
+            return
+        }
         isRefreshing = true
-        defer { isRefreshing = false }
+        await performRefreshAll()
+        isRefreshing = false
+        await drainQueuedRefresh()
+    }
+
+    func refresh(connectionID: UUID) async {
+        guard state(for: connectionID) != nil else { return }
+        guard !isRefreshing else {
+            if queuedRefresh != .all { queuedRefresh = .connection(connectionID) }
+            return
+        }
+        isRefreshing = true
+        await performRefresh(connectionID: connectionID)
+        isRefreshing = false
+        await drainQueuedRefresh()
+    }
+
+    /// Whether a refresh is waiting on the one in flight.
+    var hasQueuedRefresh: Bool { queuedRefresh != nil }
+
+    private func drainQueuedRefresh() async {
+        while let queued = queuedRefresh, !isRefreshing {
+            queuedRefresh = nil
+            isRefreshing = true
+            switch queued {
+            case .all: await performRefreshAll()
+            case let .connection(id): await performRefresh(connectionID: id)
+            }
+            isRefreshing = false
+        }
+    }
+
+    private func performRefreshAll() async {
         let currentConnections = connections
         for connection in currentConnections {
             await fetch(connection)
@@ -1021,11 +1066,8 @@ final class RelayAppModel {
         await persistCurrentState()
     }
 
-    func refresh(connectionID: UUID) async {
+    private func performRefresh(connectionID: UUID) async {
         guard let connection = state(for: connectionID)?.connection else { return }
-        guard !isRefreshing else { return }
-        isRefreshing = true
-        defer { isRefreshing = false }
         await fetch(connection)
         await refreshSessionEvents(connectionID: connectionID)
         await persistCurrentState()

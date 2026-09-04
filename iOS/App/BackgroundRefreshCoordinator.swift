@@ -77,6 +77,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 @MainActor
 enum BackgroundRefreshCoordinator {
     static let taskIdentifier = "com.richardq.usaige.ios.refresh"
+    static let defaultRefreshIntervalMinutes = 15
     private static let logger = Logger(
         subsystem: "com.richardq.usaige",
         category: "BackgroundRefresh"
@@ -110,6 +111,10 @@ enum BackgroundRefreshCoordinator {
 
             let work = Task { @MainActor in
                 guard let model else {
+                    // Keep the chain alive even when there is no model to
+                    // refresh with; otherwise background refresh silently
+                    // stops until the app is next backgrounded by hand.
+                    schedule(afterMinutes: defaultRefreshIntervalMinutes)
                     refreshTask.setTaskCompleted(success: false)
                     return
                 }

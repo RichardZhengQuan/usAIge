@@ -132,8 +132,13 @@ struct UsageLimitThresholdTracker {
             windowDurationMinutes: windowDurationMinutes
         )
         let lacksStableResetIdentity = previous.resetAt == nil || resetAt == nil
+        // Without a reset date to compare, only a drop that looks like a
+        // fresh window counts: usage landing back near zero, or losing at
+        // least half the scale. A one-step downward correction from the
+        // provider (25% -> 14%) must not announce a reset.
+        let landedNearZero = used <= Double(stepPercent) && usageDrop >= 1
         let confirmedByRollover = lacksStableResetIdentity && fellToLowerBand
-            && (usageDrop >= Double(stepPercent) || (band == 0 && usageDrop >= 1))
+            && (landedNearZero || usageDrop >= 50)
         let confirmedByResetDate = (fellToLowerBand || previous.pendingReset)
             && resetDateAdvanced
         let resetCreditCountDecreased: Bool

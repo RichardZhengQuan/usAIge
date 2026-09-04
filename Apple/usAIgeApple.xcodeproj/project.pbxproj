@@ -15,9 +15,7 @@
 		1D75258402632AC2430BC410 /* QuotaRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8AB3EAD0D261E2D01C7B0D2 /* QuotaRow.swift */; };
 		207B708E0A733CFC8F77692E /* RemoteToolConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A412FD303E4CBBAEA67C0926 /* RemoteToolConfiguration.swift */; };
 		20AB039C5640B9762326CD16 /* RefreshScheduleMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A320A032CF1CA5A368FC44E /* RefreshScheduleMetadata.swift */; };
-		2180A3DCB5FDBFA2359821F9 /* AddToolView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64BFB475AF2A56A35BC55C5A /* AddToolView.swift */; };
 		234CE38BE98E1E0A925C5F17 /* ToolsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC9F126328C84F7B6F676D5A /* ToolsView.swift */; };
-		266B2DB8208D845D4F8A1544 /* EditToolView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 792F98F89080B773709D785F /* EditToolView.swift */; };
 		27AF9B5C4E25A2D964B88BB5 /* RemoteQuotaPayloadDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E4120E2C8BEC73CB3962E9D /* RemoteQuotaPayloadDecoder.swift */; };
 		27F90363A074DF759C831E55 /* QuotaSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 158D248D5A3A52AFFBBD6153 /* QuotaSnapshot.swift */; };
 		293B4690BDD678546C9F8924 /* UsageComplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFCB83ACE67932543D3877F1 /* UsageComplication.swift */; };
@@ -27,7 +25,6 @@
 		5CBD44CA8422550282D1CF1E /* BackgroundRefreshCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 869C3D31360AAF9CE92444C7 /* BackgroundRefreshCoordinator.swift */; };
 		600DAC805221A81911D675CB /* UsageVisualStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0163A35B45BF0193FFE2C09B /* UsageVisualStyle.swift */; };
 		6916DF307151C6D5C8010EF2 /* UsageVisualStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0163A35B45BF0193FFE2C09B /* UsageVisualStyle.swift */; };
-		6CB2D634C81FEB35F80C86A0 /* ToolDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D2F233B8124A74B215B297 /* ToolDetailView.swift */; };
 		7AA43C3A695C5A0AD5345C4F /* usAIgeWatchWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 6E6191009ECBE6AD6695C453 /* usAIgeWatchWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		7C68E7984AF094D08F469355 /* RemoteUsageClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BB1D76EE9A1B7EDFDD128B5 /* RemoteUsageClient.swift */; };
 		7FA3AF889C8DBA75B726A25D /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9497029FAEFA3DF008F19B56 /* DashboardView.swift */; };
@@ -140,14 +137,12 @@
 		59FE6262FE82BB83AABF25E0 /* WatchUsageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchUsageView.swift; sourceTree = "<group>"; };
 		5B40D91178C457E64933BA17 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		5BB1D76EE9A1B7EDFDD128B5 /* RemoteUsageClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteUsageClient.swift; sourceTree = "<group>"; };
-		64BFB475AF2A56A35BC55C5A /* AddToolView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddToolView.swift; sourceTree = "<group>"; };
 		6E6191009ECBE6AD6695C453 /* usAIgeWatchWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = usAIgeWatchWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		6E84F94942FEBC2B09F6F3D4 /* QuotaTimelineProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuotaTimelineProvider.swift; sourceTree = "<group>"; };
 		6E9251A6797046D9F323514C /* usAIgeWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = usAIgeWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		6FC7614EF737DCD73A9DA265 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		71F38CCFD95322DFBF5B3130 /* UsageWidgetEntryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageWidgetEntryView.swift; sourceTree = "<group>"; };
 		748D7F8E8764CF75E137E7AD /* UsAIgeIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsAIgeIOSApp.swift; sourceTree = "<group>"; };
-		792F98F89080B773709D785F /* EditToolView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditToolView.swift; sourceTree = "<group>"; };
 		7E6844339736DE677D45D067 /* AppGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppGroup.swift; sourceTree = "<group>"; };
 		8543E70F212BA9F31DAC5126 /* UsageWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = UsageWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		869C3D31360AAF9CE92444C7 /* BackgroundRefreshCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundRefreshCoordinator.swift; sourceTree = "<group>"; };
@@ -156,7 +151,6 @@
 		9A320A032CF1CA5A368FC44E /* RefreshScheduleMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RefreshScheduleMetadata.swift; sourceTree = "<group>"; };
 		9C44459FCCD3F8979ECE8366 /* usAIge-iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "usAIge-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		A412FD303E4CBBAEA67C0926 /* RemoteToolConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteToolConfiguration.swift; sourceTree = "<group>"; };
-		A6D2F233B8124A74B215B297 /* ToolDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolDetailView.swift; sourceTree = "<group>"; };
 		B0E09005B64C40ECA94AF8ED /* usAIgeWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = usAIgeWatchApp.swift; sourceTree = "<group>"; };
 		B8AB3EAD0D261E2D01C7B0D2 /* QuotaRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuotaRow.swift; sourceTree = "<group>"; };
 		BB4888B646262C0A1D9AB091 /* usAIgeWatchWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = usAIgeWatchWidgetBundle.swift; sourceTree = "<group>"; };
@@ -269,17 +263,14 @@
 		A990EC1F466709EEA8919101 /* App */ = {
 			isa = PBXGroup;
 			children = (
-				64BFB475AF2A56A35BC55C5A /* AddToolView.swift */,
 				5B40D91178C457E64933BA17 /* AppModel.swift */,
 				D1C0A7E20260719000000002 /* AppIcon.png */,
 				6FC7614EF737DCD73A9DA265 /* Assets.xcassets */,
 				869C3D31360AAF9CE92444C7 /* BackgroundRefreshCoordinator.swift */,
 				9497029FAEFA3DF008F19B56 /* DashboardView.swift */,
-				792F98F89080B773709D785F /* EditToolView.swift */,
 				B8AB3EAD0D261E2D01C7B0D2 /* QuotaRow.swift */,
 				263191A755BAA8B44965A7A0 /* RootView.swift */,
 				F1E2D3C4B5A6978877665544 /* SettingsView.swift */,
-				A6D2F233B8124A74B215B297 /* ToolDetailView.swift */,
 				FC9F126328C84F7B6F676D5A /* ToolsView.swift */,
 				748D7F8E8764CF75E137E7AD /* UsAIgeIOSApp.swift */,
 				174E061665888ACBCADB61E9 /* WatchSyncCoordinator.swift */,
@@ -510,11 +501,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				2180A3DCB5FDBFA2359821F9 /* AddToolView.swift in Sources */,
 				A77F37D4BB4C1F0A28750AF8 /* AppModel.swift in Sources */,
 				5CBD44CA8422550282D1CF1E /* BackgroundRefreshCoordinator.swift in Sources */,
 				7FA3AF889C8DBA75B726A25D /* DashboardView.swift in Sources */,
-				266B2DB8208D845D4F8A1544 /* EditToolView.swift in Sources */,
 				838EE98727317A73C0879D38 /* JSONFileStorage.swift in Sources */,
 				8F16DBFCB7645A2A89730B36 /* KeychainTokenVault.swift in Sources */,
 				1D75258402632AC2430BC410 /* QuotaRow.swift in Sources */,
@@ -527,7 +516,6 @@
 				F1E2D3C4B5A6978877665545 /* SettingsView.swift in Sources */,
 				C2D8CBE498521A7A12A9EA85 /* SharedQuotaCache.swift in Sources */,
 				F077DD8321F3DE53F5124B87 /* ToolConfigurationStore.swift in Sources */,
-				6CB2D634C81FEB35F80C86A0 /* ToolDetailView.swift in Sources */,
 				234CE38BE98E1E0A925C5F17 /* ToolsView.swift in Sources */,
 				A9C9B0CECD7974F67332DF7E /* UsAIgeIOSApp.swift in Sources */,
 				BC642E16510A77BBF069CECD /* WatchSyncCoordinator.swift in Sources */,

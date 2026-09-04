@@ -28,9 +28,16 @@ enum WidgetLimitSelection {
             snapshots.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
-        let selectedSnapshots = requestedIDs.compactMap { snapshotsByID[$0] }
-        guard !selectedSnapshots.isEmpty else {
-            return Array(orderedSnapshots.prefix(maximumCount))
+        var selectedSnapshots = requestedIDs.compactMap { snapshotsByID[$0] }
+        // A configured limit can disappear (its tool was removed); fill the
+        // empty slots from the automatic ordering instead of shrinking the
+        // widget.
+        if selectedSnapshots.count < maximumCount {
+            let chosen = Set(selectedSnapshots.map(\.id))
+            let missing = maximumCount - selectedSnapshots.count
+            selectedSnapshots.append(
+                contentsOf: orderedSnapshots.filter { !chosen.contains($0.id) }.prefix(missing)
+            )
         }
         return selectedSnapshots
     }

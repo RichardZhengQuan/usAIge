@@ -26,6 +26,11 @@ struct UsAIgeIOSApp: App {
             .task {
                 await model.start()
                 await model.refreshAll()
+                // Seed the background chain at first launch; the .background
+                // transition keeps it going afterwards.
+                BackgroundRefreshCoordinator.schedule(
+                    afterMinutes: model.minimumRefreshIntervalMinutes
+                )
             }
             .onChange(of: scenePhase) { _, phase in
                 switch phase {

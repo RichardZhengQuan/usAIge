@@ -16,6 +16,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     let settingsNavigation: SettingsNavigation
     let localToolStatus: LocalToolStatusRegistry
     private var panel: HUDPanel?
+    let screenState = PanelScreenState()
+    private var screenObserver: NSObjectProtocol?
     private var whatsNewWindowController: WhatsNewWindowController?
     private var codexAttentionMonitor: CodexAttentionMonitor?
     var settingsSceneOpener: @MainActor () -> Void = SettingsScenePresenter.open
@@ -89,13 +91,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
                 openTool: AIToolLauncher.open,
                 openCodex: AIToolLauncher.openCodex,
                 openSettings: { [weak self] in self?.showSettings() },
-                resizePanel: { [weak self] size in self?.resizePanel(to: size) }
+                resizePanel: { [weak self] size in self?.resizePanel(to: size) },
+                screenState: screenState
             ))
         } else {
             content = AnyView(LegacyHUDView(
                 store: store,
                 settings: settings,
                 updateController: updateController,
+                screenState: screenState,
                 openTool: AIToolLauncher.open,
                 openSettings: { [weak self] in self?.showSettings() },
                 resizePanel: { [weak self] size in self?.resizePanel(to: size) }
@@ -104,7 +108,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         let panel = HUDPanel(contentView: NSHostingView(rootView: content))
         panel.delegate = self
         self.panel = panel
-        positionPanel(panel)
+        positionPanel(panel, on: launchScreen())
+        screenState.update(for: panel)
+        screenObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, let panel = self.panel else { return }
+                self.screenState.update(for: panel)
+            }
+        }
         panel.orderFrontRegardless()
         store.start()
         relaySync.start()
@@ -179,6 +194,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     func windowDidMove(_ notification: Notification) {
         guard let panel, let screen = panel.screen else { return }
         settings.setPosition(panel.frame.origin, for: Self.displayKey(for: screen))
+        screenState.update(for: panel)
+    }
+
+    func windowDidChangeScreen(_ notification: Notification) {
+        guard let panel else { return }
+        screenState.update(for: panel)
+    }
+
+    /// The display to place the rail on at launch: the one it was last parked
+    /// on when that display is still attached, otherwise the main display.
+    private func launchScreen() -> NSScreen? {
+        if let key = settings.lastDisplayKey,
+           let screen = NSScreen.screens.first(where: { Self.displayKey(for: $0) == key }) {
+            return screen
+        }
+        return NSScreen.main
     }
 
     func resetPanelPosition() {
