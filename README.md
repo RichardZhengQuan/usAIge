@@ -393,3 +393,18 @@ Add `USAIGE_LIVE_CLAUDE=1` to include Claude; reading its Keychain item shows a 
 
 - Add the usAIge website link to Settings.
 - Tune the main HUD glass-board opacity while the HUD is hovered.
+
+## Contributing
+
+Bug reports and pull requests are welcome on
+[GitHub](https://github.com/RichardZhengQuan/usAIge).
+[`CONTRIBUTING.md`](CONTRIBUTING.md) covers how to build, test, and send a
+change, and [`SECURITY.md`](SECURITY.md) explains how to report a
+vulnerability privately.
+
+## License
+
+usAIge is open source under the [MIT License](LICENSE). Codex, ChatGPT,
+Claude, Cursor, and Grok are trademarks of their respective owners; their names
+and marks in this repository identify the tools usAIge reads and are not
+covered by that license.
