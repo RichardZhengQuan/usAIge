@@ -3,6 +3,18 @@ import XCTest
 @testable import usAIge_iOS
 
 final class RemoteUsageClientTests: XCTestCase {
+    func testRelayDatesDecodeWithAndWithoutFractionalSeconds() throws {
+        struct Stamp: Decodable { let at: Date }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601WithOptionalFractionalSeconds
+        // The relay server stamps times with JavaScript's toISOString().
+        let fractional = try decoder.decode(Stamp.self, from: Data(#"{"at":"2026-10-09T06:30:00.123Z"}"#.utf8))
+        XCTAssertEqual(fractional.at.timeIntervalSince1970, 1_791_527_400.123, accuracy: 0.001)
+        let whole = try decoder.decode(Stamp.self, from: Data(#"{"at":"2026-10-09T06:30:00Z"}"#.utf8))
+        XCTAssertEqual(whole.at.timeIntervalSince1970, 1_791_527_400)
+        XCTAssertThrowsError(try decoder.decode(Stamp.self, from: Data(#"{"at":"yesterday"}"#.utf8)))
+    }
+
     func testSessionNotificationRouterTargetsTheInboxEvent() throws {
         let channelID = UUID(uuidString: "11111111-1111-4111-8111-111111111111")!
         let destination = try XCTUnwrap(SessionNotificationRouter.destination(

@@ -319,6 +319,31 @@ test("snapshot uploads are rate limited per channel", async () => {
   assert.equal(response.status, 429);
 });
 
+test("remote tool uploads are rate limited per tool", async () => {
+  const tool = { id: "tool-1", channel_id: "channel-1", name: "Tool", symbol_name: "cpu", website_url: null, write_token_hash: await relayTestSupport.sha256("usg_tool_secret"), snapshot_json: null, created_at: "2026-07-18T12:00:00Z", last_upload_at: null };
+  const db = scriptedDB({ "SELECT * FROM relay_channels": openChannel, "SELECT * FROM relay_remote_tools": tool, "INSERT INTO relay_rate_limits": { count: 601 } });
+  const response = await handleRelayRequest(new Request("https://relay.example/api/v1/channels/channel-1/tools/tool-1/snapshot", {
+    method: "PUT",
+    headers: { authorization: "Bearer usg_tool_secret", "content-type": "application/json" },
+    body: JSON.stringify({ schemaVersion: 1, limits: [] }),
+  }), { DB: db }, noopContext);
+  assert.equal(response.status, 429);
+  assert.ok(!db.calls.some(sql => sql.startsWith("UPDATE relay_remote_tools")));
+});
+
+test("phone reads only move last-seen once it is a few minutes old", async () => {
+  const device = { id: "device-1", channel_id: "channel-1", name: "iPhone", read_token_hash: await relayTestSupport.sha256("usg_phone_secret"), last_seen_at: new Date().toISOString() };
+  for (const path of ["snapshot", "session-events"]) {
+    const db = scriptedDB({ "SELECT * FROM relay_channels": openChannel, "SELECT * FROM relay_devices": device });
+    await handleRelayRequest(new Request(`https://relay.example/api/v1/channels/channel-1/${path}`, {
+      headers: { authorization: "Bearer usg_phone_secret" },
+    }), { DB: db }, noopContext);
+    const updates = db.calls.filter(sql => sql.startsWith("UPDATE relay_devices SET last_seen_at"));
+    assert.equal(updates.length, 1);
+    assert.match(updates[0], /AND last_seen_at < \?/);
+  }
+});
+
 test("a pairing code can only be claimed once", async () => {
   const pairing = { id: "pairing-1", channel_id: "channel-1", expires_at: new Date(Date.now() + 60_000).toISOString(), claimed_at: null };
   const db = scriptedDB({

@@ -150,3 +150,28 @@ private func isolatedDefaults() -> UserDefaults {
     defaults.removePersistentDomain(forName: suite)
     return defaults
 }
+
+@MainActor
+@Test func magnetKeepsTheDockedHeightWhenLayoutClampsItForAWhile() throws {
+    guard let mainScreen = NSScreen.main else { return }
+    let controller = MagnetController(isEnabled: true, pointerLocation: { CGPoint(x: -10_000, y: -10_000) })
+    let panel = NSPanel(
+        contentRect: CGRect(origin: .zero, size: size),
+        styleMask: [.borderless, .nonactivatingPanel],
+        backing: .buffered,
+        defer: false
+    )
+    controller.attach(to: panel)
+    let visible = mainScreen.visibleFrame
+    let topY = visible.maxY - size.height
+    controller.dock(to: .right, y: topY, on: mainScreen, animated: false)
+    #expect(panel.frame.minY == topY)
+
+    // A taller rail (or a shorter stand-in display) has to sit lower, but
+    // once it fits again it returns to where the user docked it.
+    controller.panelDidResize(to: CGSize(width: size.width, height: size.height + 120))
+    #expect(panel.frame.minY < topY)
+    controller.panelDidResize(to: size)
+    #expect(panel.frame.minY == topY)
+    controller.undock()
+}

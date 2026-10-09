@@ -152,7 +152,7 @@ public enum WatchUsageSnapshotCodec {
 
     public static func decode(_ data: Data) throws -> WatchUsageSnapshotEnvelope {
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = .iso8601WithOptionalFractionalSeconds
         let envelope = try decoder.decode(WatchUsageSnapshotEnvelope.self, from: data)
         guard envelope.schemaVersion == WatchUsageSnapshotEnvelope.currentSchemaVersion else {
             throw CodecError.unsupportedSchemaVersion(envelope.schemaVersion)
@@ -194,4 +194,31 @@ public enum WatchMessageKey {
     public static let snapshot = "snapshot"
     public static let installationID = "installationID"
     public static let relayCredentials = "relayCredentials"
+}
+
+public extension JSONDecoder.DateDecodingStrategy {
+    /// ISO 8601 with or without fractional seconds. The relay server stamps
+    /// times with JavaScript's `toISOString()` (`…T12:00:00.123Z`), which the
+    /// plain `.iso8601` strategy rejects on older OS releases such as
+    /// watchOS 10.
+    static var iso8601WithOptionalFractionalSeconds: Self {
+        .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let text = try container.decode(String.self)
+            if let date = ISO8601DateParsing.date(from: text) { return date }
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Expected an ISO 8601 date, got \(text)"
+            )
+        }
+    }
+}
+
+public enum ISO8601DateParsing {
+    public static func date(from text: String) -> Date? {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractional.date(from: text) { return date }
+        return ISO8601DateFormatter().date(from: text)
+    }
 }

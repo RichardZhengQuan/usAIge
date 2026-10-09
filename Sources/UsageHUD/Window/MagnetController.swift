@@ -30,6 +30,10 @@ final class MagnetController {
     private weak var panel: NSPanel?
     private var pointerLocation: () -> CGPoint
     private var dockedFrame: CGRect = .zero
+    /// Where the user docked the rail on its display. Layout clamps a copy
+    /// of it, so fitting the rail onto a shorter stand-in display while the
+    /// docked one is unplugged doesn't move it once that display is back.
+    private var dockedY: CGFloat = 0
     /// The display the rail is docked on. A hidden rail sits almost entirely
     /// past its display's edge, so `panel.screen` reports whichever
     /// neighbouring display it overlaps more; the rail must keep checking the
@@ -76,6 +80,7 @@ final class MagnetController {
         guard let panel, isEnabled else { return }
         self.edge = edge
         dockedDisplayID = Self.displayID(of: screen)
+        dockedY = y
         dockedFrame = MagnetGeometry.dockedFrame(
             size: panel.frame.size,
             edge: edge,
@@ -145,7 +150,7 @@ final class MagnetController {
         dockedFrame = MagnetGeometry.dockedFrame(
             size: size,
             edge: edge,
-            y: dockedFrame.minY,
+            y: dockedY,
             visibleFrame: screen.visibleFrame
         )
         let target = isRevealed

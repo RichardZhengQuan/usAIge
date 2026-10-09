@@ -238,3 +238,87 @@ private func resetCreditLimits(
         ]),
     ])
 }
+
+@Test func aPushDuringAFullReadIsNotOverwrittenByOlderNumbers() async throws {
+    let rpc = PushDuringReadRPC()
+    let provider = CodexUsageProvider(
+        rpc: rpc,
+        now: { Date(timeIntervalSince1970: 1_800_000_000) }
+    )
+    #expect(try await provider.refresh().snapshots.first?.remainingPercent == 90)
+
+    let updates = await provider.updates()
+    var iterator = updates.makeAsyncIterator()
+    // The second full read is answered with numbers from before the push
+    // that arrives while it is in flight.
+    let refresh = Task { try await provider.refresh() }
+    let pushed = await iterator.next()
+    #expect(pushed?.first?.remainingPercent == 50)
+    await rpc.answerRead()
+
+    #expect(try await refresh.value.snapshots.first?.remainingPercent == 50)
+    await provider.stop()
+}
+
+private actor PushDuringReadRPC: RPCRequesting {
+    private let notificationStream: AsyncStream<JSONRPCNotification>
+    private let notificationContinuation: AsyncStream<JSONRPCNotification>.Continuation
+    private var reads = 0
+    private var pendingRead: CheckedContinuation<Void, Never>?
+
+    init() {
+        (notificationStream, notificationContinuation) = AsyncStream.makeStream(of: JSONRPCNotification.self)
+    }
+
+    func start() async throws {}
+
+    func request(method: String, params: JSONValue) async throws -> JSONValue {
+        switch method {
+        case "initialize":
+            return .object([:])
+        case "account/read":
+            return .object(["account": .object(["type": .string("chatgpt")])])
+        case "account/rateLimits/read":
+            reads += 1
+            if reads > 1 {
+                notificationContinuation.yield(JSONRPCNotification(
+                    method: "account/rateLimits/updated",
+                    params: Self.limits(usedPercent: 50)
+                ))
+                await withCheckedContinuation { pendingRead = $0 }
+            }
+            return Self.limits(usedPercent: 10)
+        default:
+            throw TestRPCError.noResponse
+        }
+    }
+
+    func answerRead() {
+        pendingRead?.resume()
+        pendingRead = nil
+    }
+
+    func notify(method: String, params: JSONValue) async throws {}
+
+    func notifications() async -> AsyncStream<JSONRPCNotification> {
+        notificationStream
+    }
+
+    func stop() async {
+        notificationContinuation.finish()
+    }
+
+    private static func limits(usedPercent: Double) -> JSONValue {
+        .object([
+            "rateLimits": .object([
+                "limitId": .string("codex"),
+                "limitName": .string("Codex"),
+                "primary": .object([
+                    "usedPercent": .number(usedPercent),
+                    "windowDurationMins": .number(300),
+                    "resetsAt": .number(1_800_018_000),
+                ]),
+            ]),
+        ])
+    }
+}

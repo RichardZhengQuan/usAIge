@@ -45,6 +45,11 @@ actor CodexUsageProvider: CodexUsageProviding {
     private let now: @Sendable () -> Date
     private var initialized = false
     private var snapshotsByID: [String: QuotaSnapshot] = [:]
+    /// Counts pushed updates, and records the count at which each limit was
+    /// last pushed, so a full read that was already in flight doesn't
+    /// overwrite a newer push with older numbers.
+    private var mergeCount = 0
+    private var mergedAtCount: [String: Int] = [:]
 
     init(
         rpc: any RPCRequesting,
@@ -77,11 +82,16 @@ actor CodexUsageProvider: CodexUsageProviding {
             return .signedOut
         }
 
+        let countBeforeRead = mergeCount
         let response = try await rpc.request(
             method: "account/rateLimits/read",
             params: .object([:])
         )
-        let snapshots = Self.decodeSnapshots(from: response, updatedAt: now())
+        let snapshots = Self.decodeSnapshots(from: response, updatedAt: now()).map { snapshot in
+            guard (mergedAtCount[snapshot.id] ?? 0) > countBeforeRead,
+                  let pushed = snapshotsByID[snapshot.id] else { return snapshot }
+            return pushed
+        }
         snapshotsByID = Dictionary(uniqueKeysWithValues: snapshots.map { ($0.id, $0) })
         return .authenticated(snapshots)
     }
@@ -146,6 +156,7 @@ actor CodexUsageProvider: CodexUsageProviding {
             .first
         let resetCredits = Self.resetCreditSummary(in: wrapped)
         let updates = Self.decodeSnapshots(from: wrapped, updatedAt: now())
+        mergeCount += 1
         let resetCreditWasConsumed: Bool
         if let previousAvailableResetCount, let resetCredits {
             resetCreditWasConsumed = resetCredits.availableCount < previousAvailableResetCount
@@ -163,6 +174,7 @@ actor CodexUsageProvider: CodexUsageProviding {
                     ?? snapshotsByID.values.compactMap(\.resetCreditExpiresAt).first
             }
             snapshotsByID[snapshot.id] = snapshot
+            mergedAtCount[snapshot.id] = mergeCount
         }
         if let resetCredits {
             for id in snapshotsByID.keys {
