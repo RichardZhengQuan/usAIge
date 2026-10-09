@@ -222,7 +222,7 @@ export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: R
     if (request.method === "GET" && tail === "snapshot") {
       const device = await authorizePhone(request, env.DB, channelID);
       if (!device) return unauthorized();
-      await env.DB.prepare("UPDATE relay_devices SET last_seen_at = ? WHERE id = ?").bind(new Date().toISOString(), device.id).run();
+      await markDeviceSeen(env.DB, device.id);
       if (!channel.snapshot_json) return json({ error: "The Mac has not uploaded limits yet." }, 404);
       const etag = `\"${channel.snapshot_version}\"`;
       if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers: { etag } });
@@ -232,7 +232,7 @@ export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: R
     if (request.method === "GET" && tail === "session-events") {
       const device = await authorizePhone(request, env.DB, channelID);
       if (!device) return unauthorized();
-      await env.DB.prepare("UPDATE relay_devices SET last_seen_at = ? WHERE id = ?").bind(new Date().toISOString(), device.id).run();
+      await markDeviceSeen(env.DB, device.id);
       const rows = await env.DB.prepare(
         "SELECT event_id, kind, session_title, workspace_name, occurred_at FROM relay_session_events WHERE channel_id = ? ORDER BY occurred_at DESC, received_at DESC LIMIT 100"
       ).bind(channelID).all<SessionEventRow>();
@@ -271,6 +271,7 @@ export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: R
     if (toolSnapshotMatch && request.method === "PUT") {
       const tool = await remoteToolByID(env.DB, channelID, toolSnapshotMatch[1]);
       if (!tool || !await authorizeRemoteTool(request, tool)) return unauthorized();
+      await enforceRateLimit(env.DB, `tool-snapshot:${tool.id}`, 600, 60 * 60_000);
       const payload = await readJSON(request);
       validateRemoteToolSnapshot(payload);
       const now = new Date().toISOString();
@@ -472,6 +473,14 @@ async function channelByID(db: D1Database, id: string) { return db.prepare("SELE
 async function remoteToolByID(db: D1Database, channelID: string, id: string) { return db.prepare("SELECT * FROM relay_remote_tools WHERE id = ? AND channel_id = ?").bind(id, channelID).first<RemoteToolRow>(); }
 async function authorizeMac(request: Request, channel: ChannelRow) { const token = bearer(request); return !!token && timingSafeEqual(await sha256(token), channel.upload_token_hash); }
 async function authorizeRemoteTool(request: Request, tool: RemoteToolRow) { const token = bearer(request); return !!token && timingSafeEqual(await sha256(token), tool.write_token_hash); }
+/// Polling every few seconds should not turn each read into a write, so last-seen only moves
+/// once it is a few minutes old; the WHERE clause makes a fresh one a no-op.
+async function markDeviceSeen(db: D1Database, deviceID: string) {
+  const now = Date.now();
+  await db.prepare("UPDATE relay_devices SET last_seen_at = ? WHERE id = ? AND last_seen_at < ?")
+    .bind(new Date(now).toISOString(), deviceID, new Date(now - deviceSeenIntervalMs).toISOString()).run();
+}
+const deviceSeenIntervalMs = 5 * 60_000;
 async function authorizePhone(request: Request, db: D1Database, channelID: string) {
   const token = bearer(request); if (!token) return null;
   return db.prepare("SELECT * FROM relay_devices WHERE channel_id = ? AND read_token_hash = ?").bind(channelID, await sha256(token)).first<DeviceRow>();

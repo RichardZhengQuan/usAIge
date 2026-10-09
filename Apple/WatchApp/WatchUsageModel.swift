@@ -428,7 +428,7 @@ private struct WatchRelayClient: Sendable {
             data.append(byte)
         }
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = .iso8601WithOptionalFractionalSeconds
         let envelope = try decoder.decode(WatchRelayEnvelope.self, from: data)
         return envelope.snapshot.tools.map { tool in
             WatchToolQuotaSnapshot(

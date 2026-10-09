@@ -170,6 +170,7 @@ final class ClaudeSignInSession: ObservableObject {
                 guard !Task.isCancelled else { return }
                 self?.finish(status: status)
             } catch {
+                guard !Task.isCancelled else { return }
                 self?.state = .failed(error.localizedDescription)
             }
         }
@@ -177,6 +178,9 @@ final class ClaudeSignInSession: ObservableObject {
             try? await Task.sleep(nanoseconds: UInt64(max(1, self?.timeout ?? 600) * 1_000_000_000))
             guard let self, !Task.isCancelled, self.isActive else { return }
             await self.process?.terminate()
+            // Cancel may have run while the process was being stopped; it
+            // already cleared the panel, so don't report a timeout over it.
+            guard !Task.isCancelled, self.isActive else { return }
             self.task?.cancel()
             self.state = .failed("Timed out waiting for the sign-in to finish.")
         }

@@ -165,7 +165,7 @@ public actor RelayConnectionStore {
         guard FileManager.default.fileExists(atPath: storageURL.path) else { return [] }
         let data = try Data(contentsOf: storageURL, options: .mappedIfSafe)
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = .iso8601WithOptionalFractionalSeconds
         if let states = try? decoder.decode([RelayConnectionState].self, from: data) {
             return states
         }
@@ -283,7 +283,7 @@ public struct RelayClient: Sendable {
         guard let http = response as? HTTPURLResponse else { throw RelayClientError.invalidResponse }
         if http.statusCode == 304 { return nil }
         try validate(http: http, data: data)
-        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601WithOptionalFractionalSeconds
         let envelope = try decoder.decode(RelayEnvelope.self, from: data)
         let values = envelope.snapshot.tools.flatMap { tool in
             tool.limits.map { limit in
@@ -353,7 +353,7 @@ public struct RelayClient: Sendable {
         }
         try validate(http: http, data: data)
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = .iso8601WithOptionalFractionalSeconds
         let envelope = try decoder.decode(SessionEventEnvelope.self, from: data)
         return envelope.events.map { event in
             SessionEventRecord(
@@ -417,7 +417,7 @@ public struct RelayClient: Sendable {
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw RelayClientError.invalidResponse }
         try validate(http: http, data: data)
-        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601WithOptionalFractionalSeconds
         return try decoder.decode(T.self, from: data)
     }
     private func validate(http: HTTPURLResponse, data: Data) throws {

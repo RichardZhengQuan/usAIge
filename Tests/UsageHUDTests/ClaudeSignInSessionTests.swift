@@ -154,6 +154,49 @@ private func waitUntil(_ condition: @MainActor () async -> Bool) async {
     #expect(HUDSettingsView.offersClaudeSignIn(status: .credentialExpired))
     #expect(HUDSettingsView.offersClaudeSignIn(status: .apiKeyHelperSignInExpired))
     #expect(!HUDSettingsView.offersClaudeSignIn(status: .connected))
+    #expect(!HUDSettingsView.offersClaudeSignIn(status: .connectedThroughClaudeApp))
     #expect(!HUDSettingsView.offersClaudeSignIn(status: .rateLimited))
     #expect(!HUDSettingsView.offersClaudeSignIn(status: .unknown))
+}
+
+/// A login process whose terminate() waits until the test lets it finish,
+/// so a cancel can land while the timeout is stopping the process.
+private actor SlowToStopLoginProcess: ClaudeLoginProcess {
+    private(set) var started = false
+    private(set) var terminateCalls = 0
+    private var stopping: [CheckedContinuation<Void, Never>] = []
+
+    func start() async throws -> AsyncStream<String> {
+        started = true
+        return AsyncStream { _ in }
+    }
+
+    func write(_ text: String) async throws {}
+    func waitForExit() async -> Int32 { 0 }
+
+    func terminate() async {
+        terminateCalls += 1
+        await withCheckedContinuation { stopping.append($0) }
+    }
+
+    func finishStopping() {
+        stopping.forEach { $0.resume() }
+        stopping.removeAll()
+    }
+}
+
+@MainActor
+@Test func cancellingWhileTheTimeoutStopsTheCLIDoesNotReportATimeout() async throws {
+    let process = SlowToStopLoginProcess()
+    let session = ClaudeSignInSession(makeProcess: { process }, openURL: { _ in }, timeout: 1)
+    session.start()
+    await waitUntil { await process.terminateCalls == 1 }
+    #expect(await process.terminateCalls == 1)
+
+    session.cancel()
+    await process.finishStopping()
+    await waitUntil { await process.terminateCalls == 2 }
+    await process.finishStopping()
+    try await Task.sleep(nanoseconds: 50_000_000)
+    #expect(session.state == .idle)
 }

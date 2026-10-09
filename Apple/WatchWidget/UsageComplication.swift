@@ -20,9 +20,18 @@ struct UsageTimelineEntry: TimelineEntry {
             }
     }
 
+    static let staleAge: TimeInterval = 30 * 60
+
     var selectedLimitIsStale: Bool {
         guard let selectedLimit else { return false }
-        return date.timeIntervalSince(selectedLimit.tool.sourceUpdatedAt) > 30 * 60
+        return date.timeIntervalSince(selectedLimit.tool.sourceUpdatedAt) > Self.staleAge
+    }
+
+    /// When the selected limit's data turns stale, if that is still ahead.
+    var selectedLimitStaleDate: Date? {
+        guard let selectedLimit else { return nil }
+        let staleDate = selectedLimit.tool.sourceUpdatedAt.addingTimeInterval(Self.staleAge + 1)
+        return staleDate > date ? staleDate : nil
     }
 }
 
@@ -91,7 +100,13 @@ struct UsageTimelineProvider: TimelineProvider {
         let resetRefresh = entry.selectedLimit?.resetAt
             .flatMap { $0 > now ? $0.addingTimeInterval(2) : nil }
         let refreshAt = min(scheduled, resetRefresh ?? scheduled)
-        completion(Timeline(entries: [entry], policy: .after(refreshAt)))
+        var entries = [entry]
+        // If watchOS delays the next refresh, this prebuilt entry still
+        // marks the cached numbers stale once they are.
+        if let staleDate = entry.selectedLimitStaleDate {
+            entries.append(UsageTimelineEntry(date: staleDate, envelope: envelope))
+        }
+        completion(Timeline(entries: entries, policy: .after(refreshAt)))
     }
 }
 

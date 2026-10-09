@@ -74,9 +74,11 @@ struct SettingsPageHeightKey: PreferenceKey {
 struct SettingsWindowSizing<Content: View>: View {
     @ViewBuilder let content: Content
     @State private var pageHeight = HUDSettingsMetrics.initialHeight
+    @State private var visibleScreenHeight = NSScreen.main?.visibleFrame.height ?? 900
 
     var body: some View {
         content
+            .background(WindowScreenHeightReader { height in visibleScreenHeight = height })
             .onPreferenceChange(SettingsPageHeightKey.self) { height in
                 // Preferences are delivered on the main thread during layout.
                 MainActor.assumeIsolated {
@@ -87,9 +89,56 @@ struct SettingsWindowSizing<Content: View>: View {
                 width: HUDSettingsMetrics.width,
                 height: HUDSettingsMetrics.windowHeight(
                     forPage: pageHeight,
-                    visibleScreenHeight: NSScreen.main?.visibleFrame.height ?? 900
+                    visibleScreenHeight: visibleScreenHeight
                 )
             )
+    }
+}
+
+/// Reports the visible height of the display the hosting window is on, and
+/// again whenever the window moves to another display, so Settings fits the
+/// screen it opened on rather than the main one.
+private struct WindowScreenHeightReader: NSViewRepresentable {
+    let onChange: @MainActor (CGFloat) -> Void
+
+    func makeNSView(context: Context) -> ReaderView {
+        let view = ReaderView()
+        view.onChange = onChange
+        return view
+    }
+
+    func updateNSView(_ view: ReaderView, context: Context) {
+        view.onChange = onChange
+    }
+
+    final class ReaderView: NSView {
+        var onChange: (@MainActor (CGFloat) -> Void)?
+        private var observer: NSObjectProtocol?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            // Leaving the window (when Settings closes) drops the observer.
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+            observer = nil
+            guard let window else { return }
+            observer = NotificationCenter.default.addObserver(
+                forName: NSWindow.didChangeScreenNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.report() }
+            }
+            report()
+        }
+
+        private func report() {
+            guard let height = window?.screen?.visibleFrame.height else { return }
+            // Never change SwiftUI state during the layout pass that moved us.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let onChange = self.onChange else { return }
+                onChange(height)
+            }
+        }
     }
 }
 

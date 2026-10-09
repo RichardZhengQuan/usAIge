@@ -54,6 +54,9 @@ struct CursorStateDatabase: CursorSessionSource {
                 continue
             }
             defer { sqlite3_close(database) }
+            // Cursor writes this database constantly; wait briefly for its
+            // lock instead of mistaking a busy database for a signed-out one.
+            sqlite3_busy_timeout(database, 200)
             var statement: OpaquePointer?
             guard sqlite3_prepare_v2(
                 database,
@@ -67,8 +70,12 @@ struct CursorStateDatabase: CursorSessionSource {
             defer { sqlite3_finalize(statement) }
             let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
             sqlite3_bind_text(statement, 1, key, -1, transient)
-            guard sqlite3_step(statement) == SQLITE_ROW,
-                  let text = sqlite3_column_text(statement, 0) else { return nil }
+            switch sqlite3_step(statement) {
+            case SQLITE_ROW: break
+            case SQLITE_DONE: return nil
+            default: throw LocalToolUsageError.invalidResponse
+            }
+            guard let text = sqlite3_column_text(statement, 0) else { return nil }
             return String(cString: text)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .trimmingCharacters(in: CharacterSet(charactersIn: "\""))

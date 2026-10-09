@@ -8,7 +8,7 @@ enum JSONFileStorage {
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         let data = try Data(contentsOf: url, options: .mappedIfSafe)
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = .iso8601WithOptionalFractionalSeconds
         return try decoder.decode(type, from: data)
     }
 
