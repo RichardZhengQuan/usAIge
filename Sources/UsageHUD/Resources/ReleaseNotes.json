@@ -1,24 +1,29 @@
 {
-  "version": "0.2.14",
-  "build": 36,
+  "version": "0.2.15",
+  "build": 37,
   "releaseNotes": {
-    "headline": "Every tool’s ring breathes",
-    "summary": "Version 0.2.14 lights the rail for Claude Code, Cursor, and Grok Build sessions, signs its updates, and keeps Magnet on the right display.",
+    "headline": "Claude without a switch, Settings that fit",
+    "summary": "Version 0.2.15 reads Claude limits with nothing to turn on, finds Codex in the latest ChatGPT app, and sizes Settings to each page.",
     "highlights": [
       {
-        "title": "Session lights for every tool",
-        "detail": "Each ring breathes while that tool has an agent working, turns green when a session finishes, amber when it is waiting on you, and pink on an error. Paired iPhones and the Watch show the same status.",
-        "systemImage": "waveform.path.ecg"
+        "title": "Claude limits, no switch",
+        "detail": "usAIge reads Claude Code’s sign-in the way Claude Code saves it: nothing to turn on, and no Keychain prompt.",
+        "systemImage": "key"
       },
       {
-        "title": "Signed updates",
-        "detail": "Update manifests now carry a signature from the release key, so the app only installs builds that were published by usAIge.",
-        "systemImage": "checkmark.seal"
+        "title": "Codex limits are back",
+        "detail": "The latest ChatGPT app moved its Codex tool. usAIge finds it there and looks again when Codex restarts.",
+        "systemImage": "arrow.triangle.2.circlepath"
       },
       {
-        "title": "Magnet remembers its display",
-        "detail": "A docked rail comes back on the edge you chose, even beside a second display or after one is unplugged, and a cancelled drag no longer leaves a tool row dimmed.",
-        "systemImage": "rectangle.on.rectangle"
+        "title": "Settings fit every page",
+        "detail": "The window fits the page you open, sliders show their values, and tools reorder from a Control-click.",
+        "systemImage": "macwindow"
+      },
+      {
+        "title": "A clearer rail",
+        "detail": "Tags stay legible on any wallpaper, refresh shows progress, and VoiceOver can refresh or open Settings.",
+        "systemImage": "eye"
       }
     ]
   }

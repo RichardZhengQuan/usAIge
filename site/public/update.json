@@ -1,29 +1,34 @@
 {
-  "build" : 36,
-  "downloadURL" : "https://usaige-macos.richardqz.chatgpt.site/usAIge-0.2.14-alpha.dmg",
+  "build" : 37,
+  "downloadURL" : "https://usaige-macos.richardqz.chatgpt.site/usAIge-0.2.15-alpha.dmg",
   "minimumSystemVersion" : "11.0",
   "releaseNotes" : {
-    "headline" : "Every tool’s ring breathes",
+    "headline" : "Claude without a switch, Settings that fit",
     "highlights" : [
       {
-        "detail" : "Each ring breathes while that tool has an agent working, turns green when a session finishes, amber when it is waiting on you, and pink on an error. Paired iPhones and the Watch show the same status.",
-        "systemImage" : "waveform.path.ecg",
-        "title" : "Session lights for every tool"
+        "detail" : "usAIge reads Claude Code’s sign-in the way Claude Code saves it: nothing to turn on, and no Keychain prompt.",
+        "systemImage" : "key",
+        "title" : "Claude limits, no switch"
       },
       {
-        "detail" : "Update manifests now carry a signature from the release key, so the app only installs builds that were published by usAIge.",
-        "systemImage" : "checkmark.seal",
-        "title" : "Signed updates"
+        "detail" : "The latest ChatGPT app moved its Codex tool. usAIge finds it there and looks again when Codex restarts.",
+        "systemImage" : "arrow.triangle.2.circlepath",
+        "title" : "Codex limits are back"
       },
       {
-        "detail" : "A docked rail comes back on the edge you chose, even beside a second display or after one is unplugged, and a cancelled drag no longer leaves a tool row dimmed.",
-        "systemImage" : "rectangle.on.rectangle",
-        "title" : "Magnet remembers its display"
+        "detail" : "The window fits the page you open, sliders show their values, and tools reorder from a Control-click.",
+        "systemImage" : "macwindow",
+        "title" : "Settings fit every page"
+      },
+      {
+        "detail" : "Tags stay legible on any wallpaper, refresh shows progress, and VoiceOver can refresh or open Settings.",
+        "systemImage" : "eye",
+        "title" : "A clearer rail"
       }
     ],
-    "summary" : "Version 0.2.14 lights the rail for Claude Code, Cursor, and Grok Build sessions, signs its updates, and keeps Magnet on the right display."
+    "summary" : "Version 0.2.15 reads Claude limits with nothing to turn on, finds Codex in the latest ChatGPT app, and sizes Settings to each page."
   },
-  "sha256" : "b30d77ed6f6db6129b866a1809938075634464fb44d9bddc1207231f7cdcc686",
-  "signature" : "Sc06Bpamv6u4oBlrGnjY1/IlZ1b1fVLJ7n2hEld8QcN6hwmBhuqNLnMgx4NZImEKDznceR8doj+Z/eRd9+ojBQ==",
-  "version" : "0.2.14"
+  "sha256" : "db752010a268731fb8691a414fb22fafa401a9537a159a07612a517d48500a96",
+  "signature" : "jvecNkPq4dx9jQjhq/pWtymFJR7uPqF91hM0aCXNOS3D5QfRXPwwQfA5guq/hrjgaoZ9ztvtfYhSg6NIKL5rBA==",
+  "version" : "0.2.15"
 }
