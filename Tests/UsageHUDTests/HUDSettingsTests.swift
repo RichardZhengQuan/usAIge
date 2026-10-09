@@ -382,3 +382,33 @@ private func quota(id: String, displayName: String? = nil, toolID: AIToolID = .c
     #expect(moved?.prefix(2) == [.cursor, .chatGPT])
     #expect(HUDSettings(defaults: defaults).toolOrder == moved)
 }
+
+@Test func settingsWindowFitsEachPageUntilTheDisplayRunsOut() {
+    // A page shorter than the floor still gets a usable window.
+    #expect(HUDSettingsMetrics.windowHeight(forPage: 120, visibleScreenHeight: 1_000) == HUDSettingsMetrics.minimumHeight)
+    // A page that fits gets exactly its height, rounded up to whole points.
+    #expect(HUDSettingsMetrics.windowHeight(forPage: 721.3, visibleScreenHeight: 1_000) == 722)
+    // A page taller than the display stops short of it and scrolls.
+    #expect(HUDSettingsMetrics.windowHeight(forPage: 1_400, visibleScreenHeight: 1_000)
+        == 1_000 - HUDSettingsMetrics.screenAllowance)
+    // A tiny display never pushes the window below the floor.
+    #expect(HUDSettingsMetrics.windowHeight(forPage: 900, visibleScreenHeight: 200) == HUDSettingsMetrics.minimumHeight)
+}
+
+@Test func settingsWindowGrowsAtOnceButIgnoresScrollerJitter() {
+    #expect(HUDSettingsMetrics.settledPageHeight(current: 580, measured: 756) == 756)
+    // The scroller coming and going rewraps text by a few points.
+    #expect(HUDSettingsMetrics.settledPageHeight(current: 758, measured: 750) == 758)
+    // Another page is a real change.
+    #expect(HUDSettingsMetrics.settledPageHeight(current: 758, measured: 523) == 523)
+    #expect(HUDSettingsMetrics.settledPageHeight(current: 523, measured: 0) == 523)
+}
+
+@MainActor
+@Test func displaySlidersShowTheirValues() {
+    #expect(HUDSettingsView.opacityText(0.92) == "92%")
+    #expect(HUDSettingsView.opacityText(0.2999) == "30%")
+    #expect(HUDSettingsView.scaleText(1) == "1.0\u{00D7}")
+    #expect(HUDSettingsView.scaleText(1.5) == "1.5\u{00D7}")
+}
+

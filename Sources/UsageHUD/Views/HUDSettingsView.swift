@@ -13,16 +13,83 @@ struct HUDSettingsRootView: View {
     @ObservedObject var navigation: SettingsNavigation
 
     var body: some View {
-        HUDSettingsView(
-            settings: settings,
-            snapshots: store.visibleSnapshots,
-            launchAtLogin: launchAtLogin,
-            updateController: updateController,
-            relaySync: relaySync,
-            localToolStatus: localToolStatus,
-            navigation: navigation,
-            refreshUsage: { await store.refresh() }
-        )
+        SettingsWindowSizing {
+            HUDSettingsView(
+                settings: settings,
+                snapshots: store.visibleSnapshots,
+                launchAtLogin: launchAtLogin,
+                updateController: updateController,
+                relaySync: relaySync,
+                localToolStatus: localToolStatus,
+                navigation: navigation,
+                refreshUsage: { await store.refresh() }
+            )
+        }
+    }
+}
+
+/// Sizing for the Settings window. Each page sizes the window to its own
+/// content, the way the rail grows to fit its rows, so nothing scrolls until
+/// the display is too short for the page.
+enum HUDSettingsMetrics {
+    static let width: CGFloat = 520
+    static let minimumHeight: CGFloat = 300
+    /// Close to the root page's height, so the first open doesn't visibly
+    /// grow the window.
+    static let initialHeight: CGFloat = 760
+    /// Room for the title bar and a margin above and below the window.
+    static let screenAllowance: CGFloat = 96
+
+    /// A page shorter than the window by less than this keeps the window.
+    /// The scroller appearing and disappearing as the window crosses the
+    /// page height rewraps text by a few points, and following those changes
+    /// both ways would resize the window back and forth forever.
+    static let shrinkThreshold: CGFloat = 16
+
+    static func windowHeight(forPage pageHeight: CGFloat, visibleScreenHeight: CGFloat) -> CGFloat {
+        let maximum = max(minimumHeight, visibleScreenHeight - screenAllowance)
+        return min(maximum, max(minimumHeight, pageHeight.rounded(.up)))
+    }
+
+    /// The page height to size the window for after measuring `measured`:
+    /// grow at once, shrink only for a real change such as another page.
+    static func settledPageHeight(current: CGFloat, measured: CGFloat) -> CGFloat {
+        guard measured > 0 else { return current }
+        if measured > current || current - measured > shrinkThreshold { return measured }
+        return current
+    }
+}
+
+/// The natural height of the Settings page on screen: its header plus its
+/// form content, measured inside the scroll view.
+struct SettingsPageHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value += nextValue()
+    }
+}
+
+@available(macOS 14.0, *)
+struct SettingsWindowSizing<Content: View>: View {
+    @ViewBuilder let content: Content
+    @State private var pageHeight = HUDSettingsMetrics.initialHeight
+
+    var body: some View {
+        content
+            .onPreferenceChange(SettingsPageHeightKey.self) { height in
+                // Preferences are delivered on the main thread during layout.
+                MainActor.assumeIsolated {
+                    pageHeight = HUDSettingsMetrics.settledPageHeight(current: pageHeight, measured: height)
+                }
+            }
+            .frame(
+                width: HUDSettingsMetrics.width,
+                height: HUDSettingsMetrics.windowHeight(
+                    forPage: pageHeight,
+                    visibleScreenHeight: NSScreen.main?.visibleFrame.height ?? 900
+                )
+            )
     }
 }
 
@@ -46,6 +113,7 @@ struct HUDSettingsView: View {
     @StateObject private var claudeSignIn = ClaudeSignInSession()
     @State private var expandedToolIDs: Set<AIToolID> = []
     @State private var draggedTool: DraggedTool?
+    @AccessibilityFocusState private var isPageTitleFocused: Bool
 
     /// The supported local tools in the user's rail order.
     private var localGuidances: [LocalToolGuidance] {
@@ -141,18 +209,34 @@ struct HUDSettingsView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                pageLink("Manage AI Tools", destination: .aiTools)
+                pageLink("AI Tools", destination: .aiTools)
                 pageLink("iPhone & Apple Watch Sync", destination: .iphoneSync)
             }
 
             Section("Display") {
                 LabeledContent("Opacity") {
-                    Slider(value: binding(for: \HUDSettings.opacity), in: HUDSettings.opacityRange)
-                        .frame(width: 180)
+                    HStack(spacing: 8) {
+                        Slider(value: binding(for: \HUDSettings.opacity), in: HUDSettings.opacityRange)
+                            .frame(width: 180)
+                            .accessibilityValue(Self.opacityText(settings.opacity))
+                        Text(Self.opacityText(settings.opacity))
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .frame(width: 40, alignment: .trailing)
+                            .accessibilityHidden(true)
+                    }
                 }
                 LabeledContent("Scale") {
-                    Slider(value: binding(for: \HUDSettings.scale), in: HUDSettings.scaleRange)
-                        .frame(width: 180)
+                    HStack(spacing: 8) {
+                        Slider(value: binding(for: \HUDSettings.scale), in: HUDSettings.scaleRange)
+                            .frame(width: 180)
+                            .accessibilityValue(Self.scaleText(settings.scale))
+                        Text(Self.scaleText(settings.scale))
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .frame(width: 40, alignment: .trailing)
+                            .accessibilityHidden(true)
+                    }
                 }
                 HStack(alignment: .center, spacing: 12) {
                     VStack(alignment: .leading, spacing: 8) {
@@ -234,6 +318,7 @@ struct HUDSettingsView: View {
                             from: nil
                         )
                     }
+                    .buttonStyle(.link)
                     Spacer()
                     Button("Quit usAIge") {
                         NSApplication.shared.terminate(nil)
@@ -244,6 +329,14 @@ struct HUDSettingsView: View {
         .task {
             await updateController.checkForUpdates()
         }
+    }
+
+    static func opacityText(_ opacity: Double) -> String {
+        "\(Int((opacity * 100).rounded()))%"
+    }
+
+    static func scaleText(_ scale: Double) -> String {
+        String(format: "%.1f\u{00D7}", scale)
     }
 
     private var updateButton: some View {
@@ -279,12 +372,17 @@ struct HUDSettingsView: View {
                 Section {
                     ForEach(localGuidances) { guidance in
                         localToolStatusRow(guidance)
-                            .reorderable(guidance.id, in: .local, dragged: $draggedTool) { moved, target in
+                            .reorderable(
+                                guidance.id,
+                                in: .local,
+                                among: localGuidances.map(\.id),
+                                dragged: $draggedTool
+                            ) { moved, target in
                                 settings.moveTool(moved, to: target)
                             }
                     }
                     HStack {
-                        Text("Drag tools to set their order in the rail. Sign-ins stay on this Mac.")
+                        Text("Drag or Control-click a tool to reorder. Sign-ins stay on this Mac.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Spacer()
@@ -319,7 +417,12 @@ struct HUDSettingsView: View {
                     }
                     ForEach(orderedRemoteTools) { tool in
                         remoteToolRow(tool)
-                            .reorderable(tool.toolID, in: .remote, dragged: $draggedTool) { moved, target in
+                            .reorderable(
+                                tool.toolID,
+                                in: .remote,
+                                among: orderedRemoteTools.map(\.toolID),
+                                dragged: $draggedTool
+                            ) { moved, target in
                                 settings.moveTool(moved, to: target)
                             }
                         if expandedToolIDs.contains(tool.toolID) {
@@ -341,7 +444,7 @@ struct HUDSettingsView: View {
                         Button {
                             navigation.route.append(.remoteToolPairing)
                         } label: {
-                            Label("Add AI Tool", systemImage: "plus")
+                            Label("Connect AI Tool", systemImage: "plus")
                         }
                         .accessibilityHint("Creates a one-time code for pairing a remote AI tool")
                     }
@@ -512,7 +615,7 @@ struct HUDSettingsView: View {
     private var remoteToolPairingPage: some View {
         pageContainer(title: "Connect AI Tool") {
             settingsForm {
-                Section("Connection") {
+                Section {
                     if relaySync.remoteTools.isEmpty {
                         ContentUnavailableView(
                             "Not Connected",
@@ -563,7 +666,7 @@ struct HUDSettingsView: View {
                                         Text("Creating…")
                                     }
                                 } else {
-                                    Text(relaySync.remoteTools.isEmpty ? "Create Connection" : "Add AI Tool")
+                                    Text(relaySync.remoteTools.isEmpty ? "Create Connection" : "Connect Another Tool")
                                 }
                             }
                             .buttonStyle(.borderedProminent)
@@ -575,6 +678,15 @@ struct HUDSettingsView: View {
                             .font(.caption)
                             .foregroundStyle(.red)
                     }
+                } header: {
+                    Text("Connection")
+                } footer: {
+                    Label(
+                        "Only normalized remaining percentages and reset times are accepted. Provider credentials stay with the paired tool.",
+                        systemImage: "lock.shield"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
 
                 if !relaySync.remoteTools.isEmpty {
@@ -603,14 +715,6 @@ struct HUDSettingsView: View {
                     }
                 }
 
-                Section {
-                    Label(
-                        "Only normalized remaining percentages and reset times are accepted. Provider credentials stay with the paired tool.",
-                        systemImage: "lock.shield"
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                }
             }
             .task { _ = try? await relaySync.refreshRemoteTools() }
         }
@@ -620,6 +724,8 @@ struct HUDSettingsView: View {
         topPadding: CGFloat = 0,
         @ViewBuilder content: () -> Content
     ) -> some View {
+        // The window sizes itself to this content; the scroll view only
+        // matters when the display is too short for the whole page.
         ScrollView {
             Form {
                 content()
@@ -629,6 +735,7 @@ struct HUDSettingsView: View {
             .padding(.horizontal)
             .padding(.top, topPadding)
             .padding(.bottom, 28)
+            .background(measuredHeight)
         }
     }
 
@@ -665,13 +772,24 @@ struct HUDSettingsView: View {
                 .accessibilityLabel("Back")
                 Text(title)
                     .font(.title3.weight(.semibold))
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityFocused($isPageTitleFocused)
                 Spacer()
             }
             .padding(.horizontal, 24)
             .padding(.top, 18)
             .padding(.bottom, 4)
+            .background(measuredHeight)
+            .task(id: title) { isPageTitleFocused = true }
 
             content()
+        }
+    }
+
+    /// Reports the height of the view it backs toward the window's size.
+    private var measuredHeight: some View {
+        GeometryReader { proxy in
+            Color.clear.preference(key: SettingsPageHeightKey.self, value: proxy.size.height)
         }
     }
 
@@ -1074,15 +1192,29 @@ struct DraggedTool: Equatable {
 @available(macOS 14.0, *)
 extension View {
     /// Makes a tool row draggable and a drop target for other tool rows in
-    /// the same section.
+    /// the same section. The same moves are offered as Move Up and Move Down
+    /// in the row's context menu and as VoiceOver actions, since dragging
+    /// needs a pointer.
     func reorderable(
         _ id: AIToolID,
         in section: ToolReorderSection,
+        among siblings: [AIToolID],
         dragged: Binding<DraggedTool?>,
         move: @escaping (AIToolID, AIToolID) -> Void
     ) -> some View {
-        self
+        let index = siblings.firstIndex(of: id)
+        let previous = index.flatMap { $0 > 0 ? siblings[$0 - 1] : nil }
+        let next = index.flatMap { $0 + 1 < siblings.count ? siblings[$0 + 1] : nil }
+        return self
             .contentShape(Rectangle())
+            .contextMenu {
+                Button("Move Up") { if let previous { move(id, previous) } }
+                    .disabled(previous == nil)
+                Button("Move Down") { if let next { move(id, next) } }
+                    .disabled(next == nil)
+            }
+            .accessibilityAction(named: "Move Up") { if let previous { move(id, previous) } }
+            .accessibilityAction(named: "Move Down") { if let next { move(id, next) } }
             .onDrag {
                 dragged.wrappedValue = DraggedTool(id: id, section: section)
                 return NSItemProvider(object: id.rawValue as NSString)

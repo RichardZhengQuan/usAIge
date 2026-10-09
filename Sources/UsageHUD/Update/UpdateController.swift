@@ -267,7 +267,7 @@ final class UpdateController: ObservableObject {
     var statusText: String {
         switch status {
         case .idle:
-            "Check whenever you like"
+            "usAIge checks automatically"
         case .checking:
             "Checking for updates…"
         case .upToDate:

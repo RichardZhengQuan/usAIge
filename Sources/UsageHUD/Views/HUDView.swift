@@ -4,6 +4,8 @@ import SwiftUI
 @available(macOS 14.0, *)
 struct HUDView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.hudPreviewsHover) private var previewsHover
     @ObservedObject var store: UsageStore
     @ObservedObject var agentStore: CodexAgentStore
     @ObservedObject var settings: HUDSettings
@@ -15,7 +17,7 @@ struct HUDView: View {
     @ObservedObject var screenState: PanelScreenState
     @State private var isPanelHovered = false
     @State private var detailHoveredSnapshotIDs: Set<String> = []
-    @State private var refreshRotation = 0.0
+    @State private var isRefreshing = false
 
     private var availableSnapshots: [QuotaSnapshot] {
         switch store.state {
@@ -127,7 +129,17 @@ struct HUDView: View {
             .task(id: availableSnapshots.map(\.id)) {
                 settings.registerBuckets(availableSnapshots)
             }
-            .onAppear { resizePanel(scaledSize) }
+            .onAppear {
+                if previewsHover { isPanelHovered = true }
+                resizePanel(scaledSize)
+            }
+            // The footer stays hidden until the pointer is over the rail, which
+            // VoiceOver never reports, so its actions live on the rail too.
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("usAIge")
+            .accessibilityValue(isRefreshing ? "Refreshing" : "")
+            .accessibilityAction(named: "Refresh usage and session status") { refreshAll() }
+            .accessibilityAction(named: "Open Settings") { openSettings() }
             .onChange(of: scaledSize) { _, size in resizePanel(size) }
     }
 
@@ -139,7 +151,7 @@ struct HUDView: View {
     private var panelSurface: some View {
         HUDGlassSurface(
             severity: currentLimitSeverity,
-            isActive: HUDMetrics.glassSurfaceOpacity(
+            isActive: reduceTransparency || HUDMetrics.glassSurfaceOpacity(
                 isHovered: isPanelHovered,
                 forceVisible: showsStatusSurface
             ) > 0
@@ -153,11 +165,10 @@ struct HUDView: View {
             statusView(title: "Connecting")
         case .signedOut:
             messageView(
-                title: "Connect",
+                title: "Signed Out",
                 detail: UsageState.connectGuidance,
-                symbol: "network.slash",
+                symbol: "person.crop.circle.badge.xmark",
                 actionTitle: "Open Codex",
-                usesPrimaryAction: true,
                 action: openCodex
             )
         case let .unavailable(message):
@@ -170,8 +181,8 @@ struct HUDView: View {
             )
         case .empty:
             messageView(
-                title: "No limits",
-                detail: "Nothing is available to display",
+                title: "No Data",
+                detail: "No usage data was found.",
                 symbol: "circle.dotted",
                 actionTitle: "Retry"
             ) {
@@ -242,22 +253,31 @@ struct HUDView: View {
             switch status {
             case .stale:
                 Image(systemName: "wifi.slash")
+                    .imageScale(.small)
                     .foregroundStyle(.secondary)
-                    .help("Usage may be out of date")
-                    .accessibilityLabel("Usage may be out of date")
+                    .frame(width: 16, height: 16)
+                    .help("Showing the last usage; the latest refresh failed")
+                    .accessibilityLabel("Showing the last usage; the latest refresh failed")
             case .current:
                 Circle()
                     .fill(.green)
                     .frame(width: 7, height: 7)
+                    .frame(width: 16, height: 16)
+                    .contentShape(Rectangle())
+                    .help("Usage is current")
                     .accessibilityLabel("Usage is current")
             case .connecting:
                 ProgressView()
                     .controlSize(.mini)
+                    .help("Connecting to Codex")
                     .accessibilityLabel("Connecting to Codex")
             case .disconnected:
                 Circle()
                     .fill(.orange)
                     .frame(width: 7, height: 7)
+                    .frame(width: 16, height: 16)
+                    .contentShape(Rectangle())
+                    .help("Codex is disconnected")
                     .accessibilityLabel("Codex is disconnected")
             }
             settingsLink
@@ -269,26 +289,36 @@ struct HUDView: View {
     }
 
     private var refreshButton: some View {
-        Button {
-            if !reduceMotion {
-                withAnimation(.easeInOut(duration: 0.45)) {
-                    refreshRotation += 360
+        Button(action: refreshAll) {
+            ZStack {
+                if isRefreshing {
+                    ProgressView()
+                        .controlSize(.mini)
+                } else {
+                    Image(systemName: "arrow.clockwise")
                 }
             }
-            Task {
-                async let usageRefresh: Void = store.refresh()
-                async let agentRefresh: Void = agentStore.refresh()
-                _ = await (usageRefresh, agentRefresh)
-            }
-        } label: {
-            Image(systemName: "arrow.clockwise")
-                .rotationEffect(.degrees(refreshRotation))
-                .frame(width: 18, height: 18)
-                .contentShape(Rectangle())
+            .frame(width: 18, height: 18)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("Refresh usage and session status")
+        .disabled(isRefreshing)
+        .help(isRefreshing ? "Refreshing…" : "Refresh usage and session status")
         .accessibilityLabel("Refresh usage and session status")
+        .accessibilityValue(isRefreshing ? "Refreshing" : "")
+    }
+
+    /// Refreshes usage and session lights together; the refresh control shows
+    /// progress until both are back.
+    private func refreshAll() {
+        guard !isRefreshing else { return }
+        isRefreshing = true
+        Task {
+            async let usageRefresh: Void = store.refresh()
+            async let agentRefresh: Void = agentStore.refresh()
+            _ = await (usageRefresh, agentRefresh)
+            isRefreshing = false
+        }
     }
 
     private var settingsLink: some View {
@@ -408,6 +438,7 @@ struct HUDView: View {
                 .foregroundStyle(.orange)
                 .frame(width: 34, height: 34)
                 .background(Color.orange.opacity(0.14), in: Circle())
+                .accessibilityHidden(true)
             Text(title)
                 .font(.caption.weight(.semibold))
                 .lineLimit(1)
@@ -458,6 +489,19 @@ struct HUDGlassSurface: View {
                     .allowsHitTesting(false)
             }
         }
+    }
+}
+
+/// Draws the rail as if the pointer were over it, for rendered previews of
+/// the hovered state.
+private struct HUDPreviewsHoverKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var hudPreviewsHover: Bool {
+        get { self[HUDPreviewsHoverKey.self] }
+        set { self[HUDPreviewsHoverKey.self] = newValue }
     }
 }
 

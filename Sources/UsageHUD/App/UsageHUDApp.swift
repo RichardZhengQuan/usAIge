@@ -25,9 +25,9 @@ struct UsAIgeApp: App {
                         updateController: appDelegate.updateController,
                         relaySync: appDelegate.relaySync
                     )
+                    .frame(width: 520, height: 580)
                 }
             }
-            .frame(width: 520, height: 580)
         }
     }
 }
