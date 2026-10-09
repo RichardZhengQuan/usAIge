@@ -6,13 +6,10 @@ import Foundation
 /// two-minute floor. A manual refresh may go sooner, but never faster than
 /// the manual floor, so hovering the rail cannot hammer a provider.
 enum LocalToolProviders {
-    static func make(
-        statusRegistry: LocalToolStatusRegistry,
-        readsClaudeSignIn: @escaping @Sendable () async -> Bool
-    ) -> [any CodexUsageProviding] {
+    static func make(statusRegistry: LocalToolStatusRegistry) -> [any CodexUsageProviding] {
         [
             ThrottledUsageProvider(
-                base: ClaudeUsageProvider(statusRegistry: statusRegistry, isEnabled: readsClaudeSignIn),
+                base: ClaudeUsageProvider(statusRegistry: statusRegistry),
                 minimumInterval: 300,
                 manualMinimumInterval: 60,
                 rateLimitedInterval: 900
@@ -74,8 +71,6 @@ struct LocalToolGuidance: Identifiable, Sendable {
     func presentation(for status: LocalToolStatus) -> Presentation {
         switch status {
         case .unknown: Presentation(text: "Checking…", isProblem: false)
-        case .disabled:
-            Presentation(text: "Off. Turn on to read the Claude Code sign-in; macOS asks once per build.", isProblem: false)
         case .apiKeyOnly:
             Presentation(
                 text: "No Claude plan sign-in yet (Claude Code uses an API key helper here). Sign in to show plan limits.",
@@ -85,12 +80,17 @@ struct LocalToolGuidance: Identifiable, Sendable {
         case .notInstalled: Presentation(text: "Not installed.", isProblem: false)
         case .signedOut: Presentation(text: "Not connected. \(signInHint)", isProblem: false)
         case .credentialExpired: Presentation(text: expiredHint, isProblem: true)
+        case .apiKeyHelperSignInExpired:
+            Presentation(
+                text: "The Claude plan sign-in expired. Claude Code uses an API key helper here, so it won't renew it; use Sign In.",
+                isProblem: true
+            )
         case .missingScope:
             Presentation(text: "This sign-in cannot read limits. Sign out and sign in again.", isProblem: true)
         case .rateLimited:
             Presentation(text: "The provider is rate limiting usage checks. usAIge will retry later.", isProblem: true)
         case .keychainAccessDenied:
-            Presentation(text: "Allow usAIge to read the Claude Code sign-in in Keychain, then press Detect.", isProblem: true)
+            Presentation(text: "macOS blocked reading the Claude Code sign-in from Keychain. Press Detect to try again.", isProblem: true)
         case let .failed(message): Presentation(text: message, isProblem: true)
         }
     }

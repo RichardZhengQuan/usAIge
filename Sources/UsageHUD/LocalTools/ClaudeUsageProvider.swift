@@ -48,7 +48,7 @@ struct ClaudeCredentials: Equatable, Sendable {
 
 protocol ClaudeCredentialSource: Sendable {
     /// `nil` means Claude Code has no sign-in on this Mac.
-    func load() throws -> ClaudeCredentials?
+    func load() async throws -> ClaudeCredentials?
 }
 
 /// Reads the sign-in Claude Code stores in the login Keychain (service
@@ -59,32 +59,24 @@ struct ClaudeCodeCredentialStore: ClaudeCredentialSource {
     static let keychainService = "Claude Code-credentials"
 
     private let credentialsFileURL: URL
+    private let readKeychainItem: @Sendable () async throws -> Data?
 
-    init(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) {
+    init(
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        readKeychainItem: @escaping @Sendable () async throws -> Data? = {
+            try await KeychainSecurityTool.genericPassword(service: ClaudeCodeCredentialStore.keychainService)
+        }
+    ) {
         credentialsFileURL = homeDirectory
             .appendingPathComponent(".claude")
             .appendingPathComponent(".credentials.json")
+        self.readKeychainItem = readKeychainItem
     }
 
-    func load() throws -> ClaudeCredentials? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.keychainService,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-        switch status {
-        case errSecSuccess:
-            guard let data = item as? Data, !data.isEmpty else { return nil }
+    func load() async throws -> ClaudeCredentials? {
+        if let data = try await readKeychainItem() {
+            guard !data.isEmpty else { return nil }
             return try Self.credentials(from: data)
-        case errSecItemNotFound:
-            break
-        case errSecAuthFailed, errSecUserCanceled, errSecInteractionNotAllowed:
-            throw LocalToolUsageError.keychainAccessDenied
-        default:
-            throw LocalToolUsageError.keychain(status)
         }
 
         guard FileManager.default.fileExists(atPath: credentialsFileURL.path) else { return nil }
@@ -95,6 +87,105 @@ struct ClaudeCodeCredentialStore: ClaudeCredentialSource {
     private static func credentials(from data: Data) throws -> ClaudeCredentials? {
         do { return try ClaudeCredentials.parse(data) }
         catch LocalToolUsageError.notSignedIn { return nil }
+    }
+}
+
+/// Reads a generic-password item through `/usr/bin/security`, the tool
+/// Claude Code itself uses to save its sign-in. The item's access list
+/// trusts that tool, so the read needs no macOS prompt; asking the Keychain
+/// API directly from usAIge would prompt, and prompt again after every
+/// update because each release is a new ad-hoc-signed build.
+enum KeychainSecurityTool {
+    static let executableURL = URL(fileURLWithPath: "/usr/bin/security")
+
+    /// The item's secret, or `nil` when there is no such item. The tool runs
+    /// on a dispatch queue so waiting for it never ties up a Swift
+    /// concurrency thread.
+    static func genericPassword(service: String, timeout: TimeInterval = 60) async throws -> Data? {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(with: Result { try readGenericPassword(service: service, timeout: timeout) })
+            }
+        }
+    }
+
+    private static func readGenericPassword(service: String, timeout: TimeInterval) throws -> Data? {
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = executableURL
+        process.arguments = ["find-generic-password", "-s", service, "-w"]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            throw LocalToolUsageError.keychain(errSecNotAvailable)
+        }
+        // If the access list ever stops trusting the tool, `security` waits on
+        // a macOS prompt; don't hold the refresh forever behind it.
+        let box = ProcessBox(process)
+        let deadline = DispatchWorkItem { if box.process.isRunning { box.process.terminate() } }
+        DispatchQueue.global().asyncAfter(deadline: .now() + max(1, timeout), execute: deadline)
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        deadline.cancel()
+        if process.terminationReason == .uncaughtSignal { throw LocalToolUsageError.timedOut }
+        return try secret(fromOutput: data, exitStatus: process.terminationStatus)
+    }
+
+    /// Interprets what `security find-generic-password -w` printed. The tool
+    /// exits with the low byte of the Keychain status, and prints a secret
+    /// that isn't plain printable ASCII (any non-ASCII character in the
+    /// JSON, say) as hex instead of text. A JSON secret starts with `{`, so
+    /// it can't be mistaken for hex.
+    static func secret(fromOutput output: Data, exitStatus: Int32) throws -> Data? {
+        switch exitStatus {
+        case 0:
+            break
+        case exitCode(for: errSecItemNotFound):
+            return nil
+        case exitCode(for: errSecAuthFailed),
+             exitCode(for: errSecUserCanceled),
+             exitCode(for: errSecInteractionNotAllowed):
+            throw LocalToolUsageError.keychainAccessDenied
+        default:
+            throw LocalToolUsageError.keychain(exitStatus)
+        }
+        var text = String(decoding: output, as: UTF8.self)
+        if text.hasSuffix("\n") { text.removeLast() }
+        return hexDecoded(text) ?? Data(text.utf8)
+    }
+
+    static func exitCode(for status: OSStatus) -> Int32 {
+        status & 0xFF
+    }
+
+    private static func hexDecoded(_ text: String) -> Data? {
+        let digits = Array((text.hasPrefix("0x") ? text.dropFirst(2) : Substring(text)).utf8)
+        guard !digits.isEmpty, digits.count.isMultiple(of: 2) else { return nil }
+        var data = Data(capacity: digits.count / 2)
+        var index = 0
+        while index < digits.count {
+            guard let high = hexValue(digits[index]), let low = hexValue(digits[index + 1]) else { return nil }
+            data.append(high << 4 | low)
+            index += 2
+        }
+        return data
+    }
+
+    private static func hexValue(_ digit: UInt8) -> UInt8? {
+        switch digit {
+        case UInt8(ascii: "0")...UInt8(ascii: "9"): digit - UInt8(ascii: "0")
+        case UInt8(ascii: "a")...UInt8(ascii: "f"): digit - UInt8(ascii: "a") + 10
+        case UInt8(ascii: "A")...UInt8(ascii: "F"): digit - UInt8(ascii: "A") + 10
+        default: nil
+        }
+    }
+
+    private final class ProcessBox: @unchecked Sendable {
+        let process: Process
+        init(_ process: Process) { self.process = process }
     }
 }
 
@@ -181,19 +272,15 @@ actor ClaudeUsageProvider: CodexUsageProviding {
     private let http: any UsageHTTPClient
     private let statusRegistry: LocalToolStatusRegistry?
     private let userAgentVersion: @Sendable () -> String
-    private let isEnabled: @Sendable () async -> Bool
     private let usesAPIKeyHelper: @Sendable () -> Bool
     private let now: @Sendable () -> Date
     private var cachedUserAgent: String?
 
-    /// Reading the Claude Code sign-in shows a macOS Keychain prompt, so the
-    /// provider stays inert until the user turns Claude on in Settings.
     init(
         credentials: any ClaudeCredentialSource = ClaudeCodeCredentialStore(),
         http: any UsageHTTPClient = URLSessionUsageHTTPClient(),
         statusRegistry: LocalToolStatusRegistry? = nil,
         userAgentVersion: @escaping @Sendable () -> String = { ClaudeCodeVersion.resolve() },
-        isEnabled: @escaping @Sendable () async -> Bool = { true },
         usesAPIKeyHelper: @escaping @Sendable () -> Bool = { ClaudeCodeConfiguration.usesAPIKeyHelper() },
         now: @escaping @Sendable () -> Date = Date.init
     ) {
@@ -201,16 +288,11 @@ actor ClaudeUsageProvider: CodexUsageProviding {
         self.http = http
         self.statusRegistry = statusRegistry
         self.userAgentVersion = userAgentVersion
-        self.isEnabled = isEnabled
         self.usesAPIKeyHelper = usesAPIKeyHelper
         self.now = now
     }
 
     func refresh() async throws -> AccountUsageResult {
-        guard await isEnabled() else {
-            await report(.disabled)
-            return .signedOut
-        }
         do {
             let result = try await performRefresh()
             if result == .signedOut {
@@ -219,6 +301,9 @@ actor ClaudeUsageProvider: CodexUsageProviding {
                 await report(.connected)
             }
             return result
+        } catch LocalToolUsageError.credentialExpired where usesAPIKeyHelper() {
+            await report(.apiKeyHelperSignInExpired)
+            throw LocalToolUsageError.credentialExpired
         } catch {
             await report(LocalToolStatus(error: error))
             throw error
@@ -232,7 +317,7 @@ actor ClaudeUsageProvider: CodexUsageProviding {
     func stop() async {}
 
     private func performRefresh() async throws -> AccountUsageResult {
-        guard let credentials = try credentials.load() else { return .signedOut }
+        guard let credentials = try await credentials.load() else { return .signedOut }
         if credentials.isExpired(at: now()) { throw LocalToolUsageError.credentialExpired }
         guard credentials.canReadUsage else { throw LocalToolUsageError.missingScope }
 

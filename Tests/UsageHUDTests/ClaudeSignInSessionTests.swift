@@ -152,7 +152,8 @@ private func waitUntil(_ condition: @MainActor () async -> Bool) async {
     #expect(HUDSettingsView.offersClaudeSignIn(status: .signedOut))
     #expect(HUDSettingsView.offersClaudeSignIn(status: .apiKeyOnly))
     #expect(HUDSettingsView.offersClaudeSignIn(status: .credentialExpired))
-    #expect(HUDSettingsView.offersClaudeSignIn(status: .disabled))
+    #expect(HUDSettingsView.offersClaudeSignIn(status: .apiKeyHelperSignInExpired))
     #expect(!HUDSettingsView.offersClaudeSignIn(status: .connected))
     #expect(!HUDSettingsView.offersClaudeSignIn(status: .rateLimited))
+    #expect(!HUDSettingsView.offersClaudeSignIn(status: .unknown))
 }

@@ -63,6 +63,7 @@ private let testNow = Date(timeIntervalSince1970: 1_800_000_000)
         http: http,
         statusRegistry: registry,
         userAgentVersion: { "2.1.212" },
+        usesAPIKeyHelper: { false },
         now: { testNow }
     )
 
@@ -125,6 +126,7 @@ private let testNow = Date(timeIntervalSince1970: 1_800_000_000)
         credentials: StaticClaudeCredentialSource(credentials: expired),
         http: http,
         statusRegistry: registry,
+        usesAPIKeyHelper: { false },
         now: { testNow }
     )
 
@@ -143,6 +145,7 @@ private let testNow = Date(timeIntervalSince1970: 1_800_000_000)
         let provider = ClaudeUsageProvider(
             credentials: StaticClaudeCredentialSource(credentials: liveCredentials()),
             http: http,
+            usesAPIKeyHelper: { false },
             now: { testNow }
         )
         await #expect(throws: expected) {
@@ -157,6 +160,7 @@ private let testNow = Date(timeIntervalSince1970: 1_800_000_000)
         credentials: StaticClaudeCredentialSource(credentials: nil, error: .keychainAccessDenied),
         http: ScriptedUsageHTTPClient(responses: [:]),
         statusRegistry: registry,
+        usesAPIKeyHelper: { false },
         now: { testNow }
     )
 
@@ -204,30 +208,79 @@ private let testNow = Date(timeIntervalSince1970: 1_800_000_000)
     #expect(ClaudeCodeVersion.resolve(environment: ["HOME": "/nonexistent", "PATH": ""]) == ClaudeCodeVersion.fallback)
 }
 
-private struct RecordingCredentialSource: ClaudeCredentialSource {
-    let box: TestClockBox // reused as a Sendable mutable flag holder
-    func load() throws -> ClaudeCredentials? {
-        box.now = Date(timeIntervalSince1970: 1)
-        return liveCredentials()
-    }
-}
-
-@Test func claudeStaysInertUntilEnabledAndNeverTouchesTheKeychain() async throws {
-    let touched = TestClockBox(Date(timeIntervalSince1970: 0))
-    let http = ScriptedUsageHTTPClient(responses: [:])
+@Test func claudeReadsAnExistingSignInWithoutBeingTurnedOn() async throws {
+    let http = ScriptedUsageHTTPClient(responses: [
+        ClaudeUsageProvider.usageURL.absoluteString: .init(json: claudeUsageJSON),
+    ])
     let registry = await LocalToolStatusRegistry()
     let provider = ClaudeUsageProvider(
-        credentials: RecordingCredentialSource(box: touched),
+        credentials: StaticClaudeCredentialSource(credentials: liveCredentials()),
         http: http,
         statusRegistry: registry,
-        isEnabled: { false },
+        usesAPIKeyHelper: { false },
         now: { testNow }
     )
 
-    #expect(try await provider.refresh() == .signedOut)
-    #expect(touched.now == Date(timeIntervalSince1970: 0))
-    #expect(await http.requests.isEmpty)
-    #expect(await registry.status(for: .claude) == .disabled)
+    #expect(try await provider.refresh().snapshots.isEmpty == false)
+    #expect(await http.requests.count == 1)
+    #expect(await registry.status(for: .claude) == .connected)
+}
+
+@Test func securityToolOutputIsReadAsTextOrHex() throws {
+    let json = #"{"claudeAiOauth":{"accessToken":"sk-ant-oat01-abc","scopes":["user:profile"]}}"#
+    let text = try KeychainSecurityTool.secret(fromOutput: Data((json + "\n").utf8), exitStatus: 0)
+    #expect(text == Data(json.utf8))
+
+    // `security` prints a secret with any non-ASCII byte as hex.
+    let accented = #"{"claudeAiOauth":{"accessToken":"tok"},"mcpOAuth":{"café":{}}}"#
+    let hex = Data(accented.utf8).map { String(format: "%02x", $0) }.joined()
+    #expect(try KeychainSecurityTool.secret(fromOutput: Data((hex + "\n").utf8), exitStatus: 0) == Data(accented.utf8))
+    #expect(try KeychainSecurityTool.secret(fromOutput: Data(("0x" + hex).utf8), exitStatus: 0) == Data(accented.utf8))
+}
+
+@Test func securityToolExitStatusesMapToKeychainOutcomes() throws {
+    #expect(KeychainSecurityTool.exitCode(for: errSecItemNotFound) == 44)
+    #expect(try KeychainSecurityTool.secret(fromOutput: Data(), exitStatus: 44) == nil)
+    #expect(throws: LocalToolUsageError.keychainAccessDenied) {
+        _ = try KeychainSecurityTool.secret(fromOutput: Data(), exitStatus: KeychainSecurityTool.exitCode(for: errSecUserCanceled))
+    }
+    #expect(throws: LocalToolUsageError.keychainAccessDenied) {
+        _ = try KeychainSecurityTool.secret(fromOutput: Data(), exitStatus: KeychainSecurityTool.exitCode(for: errSecAuthFailed))
+    }
+    #expect(throws: LocalToolUsageError.keychainAccessDenied) {
+        _ = try KeychainSecurityTool.secret(fromOutput: Data(), exitStatus: KeychainSecurityTool.exitCode(for: errSecInteractionNotAllowed))
+    }
+    #expect(throws: LocalToolUsageError.keychain(1)) {
+        _ = try KeychainSecurityTool.secret(fromOutput: Data(), exitStatus: 1)
+    }
+}
+
+@Test func credentialStoreFallsBackToTheFileOnlyWhenTheKeychainHasNoItem() async throws {
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("usaige-claude-store-\(UUID().uuidString)")
+    let directory = home.appendingPathComponent(".claude")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: home) }
+    try Data(#"{"claudeAiOauth":{"accessToken":"from-file"}}"#.utf8)
+        .write(to: directory.appendingPathComponent(".credentials.json"))
+
+    let noItem = ClaudeCodeCredentialStore(homeDirectory: home, readKeychainItem: { nil })
+    #expect(try await noItem.load()?.accessToken == "from-file")
+
+    let keychain = ClaudeCodeCredentialStore(homeDirectory: home, readKeychainItem: {
+        Data(#"{"claudeAiOauth":{"accessToken":"from-keychain"}}"#.utf8)
+    })
+    #expect(try await keychain.load()?.accessToken == "from-keychain")
+
+    // An item holding only MCP sign-ins means Claude Code has no plan sign-in.
+    let mcpOnly = ClaudeCodeCredentialStore(homeDirectory: home, readKeychainItem: {
+        Data(#"{"mcpOAuth":{}}"#.utf8)
+    })
+    #expect(try await mcpOnly.load() == nil)
+
+    let denied = ClaudeCodeCredentialStore(homeDirectory: home, readKeychainItem: {
+        throw LocalToolUsageError.keychainAccessDenied
+    })
+    await #expect(throws: LocalToolUsageError.keychainAccessDenied) { _ = try await denied.load() }
 }
 
 @Test func claudeKeychainBlobWithoutAPlanSignInMeansSignedOut() async throws {
@@ -246,6 +299,28 @@ private struct RecordingCredentialSource: ClaudeCredentialSource {
     )
     #expect(try await provider.refresh() == .signedOut)
     #expect(await registry.status(for: .claude) == .apiKeyOnly)
+}
+
+@Test func expiredPlanSignInUnderAnAPIKeyHelperSaysClaudeCodeWontRenewIt() async {
+    let stale = ClaudeCredentials(
+        accessToken: "sk-ant-oat01-test",
+        expiresAt: testNow.addingTimeInterval(-3600),
+        scopes: ["user:profile"],
+        subscriptionType: "max",
+        rateLimitTier: nil
+    )
+    for (usesHelper, expected) in [(true, LocalToolStatus.apiKeyHelperSignInExpired), (false, .credentialExpired)] {
+        let registry = await LocalToolStatusRegistry()
+        let provider = ClaudeUsageProvider(
+            credentials: StaticClaudeCredentialSource(credentials: stale),
+            http: ScriptedUsageHTTPClient(responses: [:]),
+            statusRegistry: registry,
+            usesAPIKeyHelper: { usesHelper },
+            now: { testNow }
+        )
+        await #expect(throws: LocalToolUsageError.credentialExpired) { try await provider.refresh() }
+        #expect(await registry.status(for: .claude) == expected)
+    }
 }
 
 @Test func claudeCodeAPIKeyHelperIsDetectedFromSettings() throws {

@@ -54,7 +54,7 @@ struct StaticClaudeCredentialSource: ClaudeCredentialSource {
     let credentials: ClaudeCredentials?
     var error: LocalToolUsageError?
 
-    func load() throws -> ClaudeCredentials? {
+    func load() async throws -> ClaudeCredentials? {
         if let error { throw error }
         return credentials
     }

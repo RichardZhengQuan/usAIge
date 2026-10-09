@@ -38,7 +38,6 @@ final class HUDSettings: ObservableObject {
         var opacity = 0.92
         var showsResetCredits = true
         var usageAlertIntervalPercent = HUDSettings.defaultUsageAlertIntervalPercent
-        var readsClaudeSignIn = false
         var magnetEnabled = true
         var didApplyLatestBucketDefault = false
         var didApplyPrimaryBucketDefault = false
@@ -52,7 +51,6 @@ final class HUDSettings: ObservableObject {
             case scale, opacity, positions, lastDisplayKey
             case showsResetCredits
             case usageAlertIntervalPercent
-            case readsClaudeSignIn
             case magnetEnabled
             case didApplyLatestBucketDefault
             case didApplyPrimaryBucketDefault
@@ -79,7 +77,6 @@ final class HUDSettings: ObservableObject {
                 Int.self,
                 forKey: .usageAlertIntervalPercent
             ) ?? HUDSettings.defaultUsageAlertIntervalPercent
-            readsClaudeSignIn = try values.decodeIfPresent(Bool.self, forKey: .readsClaudeSignIn) ?? false
             didApplyLatestBucketDefault = try values.decodeIfPresent(
                 Bool.self,
                 forKey: .didApplyLatestBucketDefault
@@ -195,13 +192,6 @@ final class HUDSettings: ObservableObject {
             guard Self.usageAlertIntervalOptions.contains(newValue) else { return }
             update { payload.usageAlertIntervalPercent = newValue }
         }
-    }
-
-    /// Off by default: reading the Claude Code sign-in shows a macOS Keychain
-    /// prompt, which Codex-only users should never see.
-    var readsClaudeSignIn: Bool {
-        get { payload.readsClaudeSignIn }
-        set { update { payload.readsClaudeSignIn = newValue } }
     }
 
     /// Rail order: tools in the user's tool order, and within a tool the

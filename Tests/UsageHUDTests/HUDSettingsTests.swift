@@ -298,15 +298,22 @@ private func quota(id: String, displayName: String? = nil, toolID: AIToolID = .c
 }
 
 @MainActor
-@Test func readingTheClaudeSignInIsOffByDefaultAndPersistsWhenEnabled() {
+@Test func settingsSavedWithTheRetiredClaudeSwitchStillLoad() throws {
     let defaults = isolatedDefaults()
-    var settings: HUDSettings? = HUDSettings(defaults: defaults)
+    let saved: [String: Any] = [
+        "version": 9,
+        "bucketOrder": ["codex", "claude"],
+        "hiddenBucketIDs": ["claude_sonnet"],
+        "scale": 1.2,
+        "readsClaudeSignIn": false,
+    ]
+    defaults.set(try JSONSerialization.data(withJSONObject: saved), forKey: "usageHUD.settings.v1")
 
-    #expect(settings?.readsClaudeSignIn == false)
-    settings?.readsClaudeSignIn = true
-    settings = nil
+    let settings = HUDSettings(defaults: defaults)
 
-    #expect(HUDSettings(defaults: defaults).readsClaudeSignIn == true)
+    #expect(settings.bucketOrder == ["codex", "claude"])
+    #expect(settings.hiddenBucketIDs == ["claude_sonnet"])
+    #expect(settings.scale == 1.2)
 }
 
 @MainActor

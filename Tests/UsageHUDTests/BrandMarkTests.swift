@@ -70,7 +70,6 @@ func rendersAIToolsSettingsPage() throws {
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     let defaults = UserDefaults(suiteName: "usaige.render.settings.\(UUID().uuidString)")!
     let settings = HUDSettings(defaults: defaults)
-    settings.readsClaudeSignIn = true
     let registry = LocalToolStatusRegistry()
     registry.report(.apiKeyOnly, for: .claude)
     registry.report(.connected, for: .cursor)
