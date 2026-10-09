@@ -191,7 +191,7 @@ sign-in its own client already stores on this Mac, holds it in memory for a
 single request to that provider's account usage endpoint, and keeps only the
 normalized percentages and reset times. usAIge never writes, logs, or relays
 a token, and it never refreshes or rotates one; when a sign-in expires, the
-rail keeps the last values and **Settings → Manage AI Tools** says which tool
+rail keeps the last values and **Settings → AI Tools** says which tool
 to open.
 
 | Tool | Sign-in read | Usage source | Buckets |
@@ -217,7 +217,7 @@ tool Claude Code uses to save it. The Keychain item already trusts that tool,
 so there is no macOS prompt, and none after usAIge updates either.
 
 If Claude Code is configured with an `apiKeyHelper`, it bills an API key
-rather than a Claude plan, so there are no plan limits to read; Manage AI Tools
+rather than a Claude plan, so there are no plan limits to read; AI Tools
 says so instead of showing a Claude row. **Sign In** on that row runs Claude
 Code's own `claude auth login --claudeai`, opens the Claude sign-in page, and
 takes the code you paste back; Claude Code stores the resulting plan sign-in
@@ -231,7 +231,7 @@ own auth file, at most once every ten minutes, and never touches the refresh
 token itself.
 
 Claude reports several weekly buckets. The rail shows **All models** by
-default and keeps the others available under **Manage AI Tools**, mirroring
+default and keeps the others available under **AI Tools**, mirroring
 how the Codex buckets are handled. A weekly limit scoped to one model (Claude
 lists it as, for example, **Fable**) is often the one that actually gates a
 heavy session, so turn that bucket on if you want the rail to warn about it.
@@ -240,7 +240,7 @@ heavy session, so turn that bucket on if you want the rail to warn about it.
 
 Connect a remote source from **Settings**:
 
-1. Open **Manage AI Tools → Add AI Tool**.
+1. Open **AI Tools → Connect AI Tool**.
 2. Click **Create Connection** to generate an 8-digit, one-use code.
 3. Copy the connection instructions into Codex, Claude Code, or another compatible adapter. The tool claims the code and stores its revocable upload credential locally.
 4. When the first normalized limit snapshot arrives, usAIge shows the paired tool automatically. Revoke it from the same screen at any time.
@@ -297,7 +297,7 @@ Contract details:
 
 Use the gear button on the panel to open native macOS Settings. Available preferences include:
 
-- Active AI tool visibility, and the rail order of tools by dragging them in **Manage AI Tools**.
+- Active AI tool visibility, and the rail order of tools by dragging them, or with **Move Up** and **Move Down** in a row's Control-click menu, in **AI Tools**.
 - Quota visibility and vertical ordering within a tool.
 - Connecting remote AI tools with one-time pairing codes and per-tool revocation.
 - Panel opacity and scale.
@@ -309,7 +309,7 @@ Use the gear button on the panel to open native macOS Settings. Available prefer
 
 Drag the panel by its background. Its safe position is stored separately for each display. If a display disappears, the panel is clamped onto an available screen the next time it is positioned.
 
-The built-in Codex, Claude Code, Cursor, and Grok Build sources read sign-ins already on this Mac; **Manage AI Tools** shows each one's connection state. Other tools appear only after a paired adapter uploads valid normalized usage data; usAIge does not scrape provider websites or invent missing values.
+The built-in Codex, Claude Code, Cursor, and Grok Build sources read sign-ins already on this Mac; **AI Tools** shows each one's connection state. Other tools appear only after a paired adapter uploads valid normalized usage data; usAIge does not scrape provider websites or invent missing values.
 
 ## Updates
 
@@ -353,7 +353,7 @@ Start the ChatGPT or Codex app, confirm that it is signed in, then press the ref
 
 ### Claude, Cursor, or Grok Build is missing from the rail
 
-Open **Settings → Manage AI Tools**. The **Supported Local Tools** list shows
+Open **Settings → AI Tools**. The **Local AI Tools** list shows
 each tool's state and the fix: sign in to the tool, or run `claude` or
 `grok login` to refresh an expired sign-in. Anthropic rate limits
 its usage endpoint; when that happens usAIge keeps the last values and retries

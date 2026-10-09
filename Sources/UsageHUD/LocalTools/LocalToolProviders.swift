@@ -39,7 +39,7 @@ struct LocalToolGuidance: Identifiable, Sendable {
     static let supported: [LocalToolGuidance] = [
         LocalToolGuidance(
             id: .chatGPT,
-            source: "Local Codex app-server",
+            source: "Codex sign-in on this Mac",
             signInHint: "Open the ChatGPT or Codex app and sign in.",
             expiredHint: "Open the ChatGPT or Codex app and sign in again."
         ),
@@ -59,7 +59,7 @@ struct LocalToolGuidance: Identifiable, Sendable {
             id: .grok,
             source: "Grok Build sign-in on this Mac",
             signInHint: "Run `grok login` in Terminal.",
-            expiredHint: "Sign-in expired. Run `grok` in Terminal so Grok Build refreshes it."
+            expiredHint: "Sign-in expired. Run `grok login` in Terminal to sign in again."
         ),
     ]
 
@@ -73,7 +73,7 @@ struct LocalToolGuidance: Identifiable, Sendable {
         case .unknown: Presentation(text: "Checking…", isProblem: false)
         case .apiKeyOnly:
             Presentation(
-                text: "No Claude plan sign-in yet (Claude Code uses an API key helper here). Sign in to show plan limits.",
+                text: "Claude Code uses an API key here, which has no plan limits. Sign in with your Claude plan to show them.",
                 isProblem: false
             )
         case .connected: Presentation(text: "Connected · \(source)", isProblem: false)
@@ -82,7 +82,7 @@ struct LocalToolGuidance: Identifiable, Sendable {
         case .credentialExpired: Presentation(text: expiredHint, isProblem: true)
         case .apiKeyHelperSignInExpired:
             Presentation(
-                text: "The Claude plan sign-in expired. Claude Code uses an API key helper here, so it won't renew it; use Sign In.",
+                text: "Your Claude plan sign-in expired. Claude Code runs on an API key here and won't renew it, so sign in again.",
                 isProblem: true
             )
         case .missingScope:

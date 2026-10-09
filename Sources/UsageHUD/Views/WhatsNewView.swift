@@ -76,10 +76,21 @@ struct WhatsNewView: View {
         .accessibilityElement(children: .combine)
     }
 
+    /// The footer only talks about updates while one is on offer or under
+    /// way; otherwise the notes stand on their own.
+    private var showsUpdateStatus: Bool {
+        switch updateController.status {
+        case .available, .downloading, .preparing, .failed: true
+        case .idle, .checking, .upToDate, .unavailableInDevelopment: presentation.isAvailableUpdate
+        }
+    }
+
     private var footer: some View {
         HStack(spacing: 12) {
-            Text(updateController.statusText)
-                .font(.caption).foregroundColor(.secondary).lineLimit(2)
+            if showsUpdateStatus {
+                Text(updateController.statusText)
+                    .font(.caption).foregroundColor(.secondary).lineLimit(2)
+            }
             Spacer()
             Button("Close", action: close).keyboardShortcut(.cancelAction)
             if presentation.isAvailableUpdate {

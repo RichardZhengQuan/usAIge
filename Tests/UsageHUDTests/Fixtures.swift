@@ -90,3 +90,21 @@ enum Fixtures {
         ]),
     ])
 }
+
+/// Stands in for the login-item service in tests that build Settings. A real
+/// LaunchAtLoginController turns open-at-login on by default the first time
+/// it is created, which inside the test runner would register
+/// swiftpm-testing-helper as a login item.
+final class InertLaunchAtLoginService: LaunchAtLoginServicing {
+    var status: LaunchAtLoginStatus { .notRegistered }
+    func register() throws {}
+    func unregister() throws {}
+}
+
+@MainActor
+func inertLaunchAtLogin() -> LaunchAtLoginController {
+    LaunchAtLoginController(
+        service: InertLaunchAtLoginService(),
+        defaults: UserDefaults(suiteName: "usaige.tests.login.\(UUID().uuidString)")!
+    )
+}

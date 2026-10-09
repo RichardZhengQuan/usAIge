@@ -96,7 +96,7 @@ func rendersAIToolsSettingsPage() throws {
     let view = HUDSettingsView(
         settings: settings,
         snapshots: snapshots,
-        launchAtLogin: LaunchAtLoginController(),
+        launchAtLogin: inertLaunchAtLogin(),
         updateController: UpdateController(),
         relaySync: RelaySyncController(defaults: defaults),
         localToolStatus: registry,

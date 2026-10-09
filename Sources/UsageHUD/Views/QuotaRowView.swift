@@ -237,6 +237,7 @@ struct QuotaRowView: View {
     let openAgentTask: (String) -> Void
     let onDetailHoverChanged: (Bool) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @State private var isHovered = false
     @State private var criticalPulse = false
 
@@ -469,7 +470,13 @@ struct QuotaRowView: View {
             }
             .padding(.horizontal, isCondensed ? 3 : 6)
             .frame(height: isCondensed ? 16 : 20, alignment: .center)
-            .background(Color.primary.opacity(0.06), in: Capsule())
+            // A material keeps the tag legible over any wallpaper. With Reduce
+            // Transparency the rail's surface is the same solid material, so a
+            // tint keeps the capsule distinct from it.
+            .background(
+                reduceTransparency ? AnyShapeStyle(Color.primary.opacity(0.1)) : AnyShapeStyle(.ultraThinMaterial),
+                in: Capsule()
+            )
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(
                 ResetRemainingText.accessibilityLabel(until: resetAt, now: context.date)
