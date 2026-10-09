@@ -267,20 +267,26 @@ actor ClaudeUsageProvider: CodexUsageProviding {
         ("seven_day_oauth_apps", "claude_oauth_apps", "OAuth apps"),
     ]
     private static let mainWindowKeys: Set<String> = ["five_hour", "seven_day"]
+    /// The Claude app records a reading every few minutes while it runs; an
+    /// older one means it has quit, and its numbers are no longer current.
+    static let claudeAppMaximumAge: TimeInterval = 30 * 60
 
     private let credentials: any ClaudeCredentialSource
     private let http: any UsageHTTPClient
     private let statusRegistry: LocalToolStatusRegistry?
+    private let claudeApp: any ClaudeAppUsageSource
     private let userAgentVersion: @Sendable () -> String
     private let usesAPIKeyHelper: @Sendable () -> Bool
     private let now: @Sendable () -> Date
     private var cachedUserAgent: String?
+    private var planType: String?
 
     init(
         credentials: any ClaudeCredentialSource = ClaudeCodeCredentialStore(),
         http: any UsageHTTPClient = URLSessionUsageHTTPClient(),
         statusRegistry: LocalToolStatusRegistry? = nil,
         userAgentVersion: @escaping @Sendable () -> String = { ClaudeCodeVersion.resolve() },
+        claudeApp: any ClaudeAppUsageSource = ClaudeAppUsageHistory(),
         usesAPIKeyHelper: @escaping @Sendable () -> Bool = { ClaudeCodeConfiguration.usesAPIKeyHelper() },
         now: @escaping @Sendable () -> Date = Date.init
     ) {
@@ -288,26 +294,48 @@ actor ClaudeUsageProvider: CodexUsageProviding {
         self.http = http
         self.statusRegistry = statusRegistry
         self.userAgentVersion = userAgentVersion
+        self.claudeApp = claudeApp
         self.usesAPIKeyHelper = usesAPIKeyHelper
         self.now = now
     }
 
+    /// Prefers the Claude Code sign-in, which has reset times and limits
+    /// scoped to one model. When it can't produce limits (no plan sign-in,
+    /// an expired one Claude Code won't renew, a Keychain or network
+    /// failure), the Claude app's own recent reading is used instead, so a
+    /// running Claude app is enough and nobody has to sign in for usAIge.
     func refresh() async throws -> AccountUsageResult {
         do {
             let result = try await performRefresh()
-            if result == .signedOut {
-                await report(usesAPIKeyHelper() ? .apiKeyOnly : .signedOut)
-            } else {
+            if result != .signedOut {
                 await report(.connected)
+                return result
             }
+            if let fromApp = claudeAppResult() {
+                await report(.connectedThroughClaudeApp)
+                return fromApp
+            }
+            await report(usesAPIKeyHelper() ? .apiKeyOnly : .signedOut)
             return result
-        } catch LocalToolUsageError.credentialExpired where usesAPIKeyHelper() {
-            await report(.apiKeyHelperSignInExpired)
-            throw LocalToolUsageError.credentialExpired
         } catch {
-            await report(LocalToolStatus(error: error))
+            if let fromApp = claudeAppResult() {
+                await report(.connectedThroughClaudeApp)
+                return fromApp
+            }
+            if case LocalToolUsageError.credentialExpired = error, usesAPIKeyHelper() {
+                await report(.apiKeyHelperSignInExpired)
+            } else {
+                await report(LocalToolStatus(error: error))
+            }
             throw error
         }
+    }
+
+    private func claudeAppResult() -> AccountUsageResult? {
+        guard let sample = claudeApp.latestSample(),
+              now().timeIntervalSince(sample.recordedAt) <= Self.claudeAppMaximumAge else { return nil }
+        let snapshots = Self.snapshots(fromClaudeApp: sample, planType: planType)
+        return snapshots.isEmpty ? nil : .authenticated(snapshots)
     }
 
     func updates() async -> AsyncStream<[QuotaSnapshot]> {
@@ -318,6 +346,7 @@ actor ClaudeUsageProvider: CodexUsageProviding {
 
     private func performRefresh() async throws -> AccountUsageResult {
         guard let credentials = try await credentials.load() else { return .signedOut }
+        planType = credentials.subscriptionType ?? credentials.rateLimitTier
         if credentials.isExpired(at: now()) { throw LocalToolUsageError.credentialExpired }
         guard credentials.canReadUsage else { throw LocalToolUsageError.missingScope }
 
@@ -390,6 +419,20 @@ actor ClaudeUsageProvider: CodexUsageProviding {
             snapshot.toolID = .claude
             return snapshot
         }
+    }
+
+    /// The Claude app records only the session and all-models weekly
+    /// percentages, without reset times.
+    static func snapshots(fromClaudeApp sample: ClaudeAppUsageSample, planType: String?) -> [QuotaSnapshot] {
+        let clamp = { (value: Double) in Window(usedPercent: min(100, max(0, value)), resetsAt: nil) }
+        guard let bucket = mainBucket(
+            session: sample.sessionPercent.map(clamp),
+            weekly: sample.weeklyPercent.map(clamp),
+            planType: planType
+        ) else { return [] }
+        var snapshot = QuotaSnapshot.make(from: bucket, updatedAt: sample.recordedAt)
+        snapshot.toolID = .claude
+        return [snapshot]
     }
 
     private static func limitBuckets(from limits: [JSONValue], planType: String?) -> [RateLimitBucket] {

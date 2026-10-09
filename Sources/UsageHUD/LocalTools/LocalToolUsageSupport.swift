@@ -38,6 +38,9 @@ enum LocalToolStatus: Equatable, Sendable {
     case unknown
     case apiKeyOnly
     case connected
+    /// Limits come from the Claude desktop app's own recent reading because
+    /// the Claude Code sign-in can't provide them.
+    case connectedThroughClaudeApp
     case notInstalled
     case signedOut
     case credentialExpired
