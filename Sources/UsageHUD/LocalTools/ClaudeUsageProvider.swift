@@ -280,6 +280,12 @@ actor ClaudeUsageProvider: CodexUsageProviding {
     private let now: @Sendable () -> Date
     private var cachedUserAgent: String?
     private var planType: String?
+    /// After a 429 or a blocked Keychain read, the sign-in isn't tried again
+    /// until this date. The Claude app reading hides those failures from the
+    /// throttle, so the provider keeps the back-off itself.
+    private var signInPause: (until: Date, error: LocalToolUsageError)?
+    private let rateLimitedPause: TimeInterval
+    private let accessDeniedPause: TimeInterval
 
     init(
         credentials: any ClaudeCredentialSource = ClaudeCodeCredentialStore(),
@@ -288,6 +294,8 @@ actor ClaudeUsageProvider: CodexUsageProviding {
         userAgentVersion: @escaping @Sendable () -> String = { ClaudeCodeVersion.resolve() },
         claudeApp: any ClaudeAppUsageSource = ClaudeAppUsageHistory(),
         usesAPIKeyHelper: @escaping @Sendable () -> Bool = { ClaudeCodeConfiguration.usesAPIKeyHelper() },
+        rateLimitedPause: TimeInterval = 900,
+        accessDeniedPause: TimeInterval = 3_600,
         now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.credentials = credentials
@@ -296,6 +304,8 @@ actor ClaudeUsageProvider: CodexUsageProviding {
         self.userAgentVersion = userAgentVersion
         self.claudeApp = claudeApp
         self.usesAPIKeyHelper = usesAPIKeyHelper
+        self.rateLimitedPause = rateLimitedPause
+        self.accessDeniedPause = accessDeniedPause
         self.now = now
     }
 
@@ -305,6 +315,17 @@ actor ClaudeUsageProvider: CodexUsageProviding {
     /// failure), the Claude app's own recent reading is used instead, so a
     /// running Claude app is enough and nobody has to sign in for usAIge.
     func refresh() async throws -> AccountUsageResult {
+        if let pause = signInPause {
+            if now() < pause.until {
+                if let fromApp = claudeAppResult() {
+                    await report(.connectedThroughClaudeApp)
+                    return fromApp
+                }
+                await report(LocalToolStatus(error: pause.error))
+                throw pause.error
+            }
+            signInPause = nil
+        }
         do {
             let result = try await performRefresh()
             if result != .signedOut {
@@ -318,6 +339,11 @@ actor ClaudeUsageProvider: CodexUsageProviding {
             await report(usesAPIKeyHelper() ? .apiKeyOnly : .signedOut)
             return result
         } catch {
+            switch error as? LocalToolUsageError {
+            case .rateLimited: signInPause = (now().addingTimeInterval(rateLimitedPause), .rateLimited)
+            case .keychainAccessDenied: signInPause = (now().addingTimeInterval(accessDeniedPause), .keychainAccessDenied)
+            default: break
+            }
             if let fromApp = claudeAppResult() {
                 await report(.connectedThroughClaudeApp)
                 return fromApp

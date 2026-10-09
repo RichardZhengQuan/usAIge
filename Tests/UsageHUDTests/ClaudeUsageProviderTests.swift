@@ -568,3 +568,78 @@ private struct StaticClaudeAppUsage: ClaudeAppUsageSource {
     #expect(try await signedOut.refresh() == .signedOut)
     #expect(await registry.status(for: .claude) == .signedOut)
 }
+
+private final class SwitchableClaudeAppUsage: ClaudeAppUsageSource, @unchecked Sendable {
+    var sample: ClaudeAppUsageSample?
+    init(_ sample: ClaudeAppUsageSample?) { self.sample = sample }
+    func latestSample() -> ClaudeAppUsageSample? { sample }
+}
+
+private actor CountingClaudeCredentialSource: ClaudeCredentialSource {
+    private(set) var loads = 0
+    let error: LocalToolUsageError
+    init(error: LocalToolUsageError) { self.error = error }
+    func load() async throws -> ClaudeCredentials? {
+        loads += 1
+        throw error
+    }
+}
+
+@Test func claudeAppFallbackKeepsTheRateLimitBackOff() async throws {
+    let clock = TestClockBox(testNow)
+    let http = ScriptedUsageHTTPClient(responses: [
+        ClaudeUsageProvider.usageURL.absoluteString: .init(status: 429, json: "{}"),
+    ])
+    let app = SwitchableClaudeAppUsage(nil)
+    let registry = await LocalToolStatusRegistry()
+    let provider = ClaudeUsageProvider(
+        credentials: StaticClaudeCredentialSource(credentials: liveCredentials()),
+        http: http,
+        statusRegistry: registry,
+        userAgentVersion: { "2.1.212" },
+        claudeApp: app,
+        usesAPIKeyHelper: { false },
+        rateLimitedPause: 900,
+        now: { clock.now }
+    )
+
+    app.sample = ClaudeAppUsageSample(recordedAt: testNow, sessionPercent: 6, weeklyPercent: 26)
+    #expect(try await provider.refresh().snapshots.first?.remainingPercent == 94)
+    #expect(await http.requests.count == 1)
+
+    // Inside the back-off the endpoint isn't asked again; the app reading
+    // stands in, and once the app has quit the 429 is reported again.
+    clock.now = testNow.addingTimeInterval(300)
+    #expect(try await provider.refresh().snapshots.first?.remainingPercent == 94)
+    app.sample = nil
+    await #expect(throws: LocalToolUsageError.rateLimited) { try await provider.refresh() }
+    #expect(await registry.status(for: .claude) == .rateLimited)
+    #expect(await http.requests.count == 1)
+
+    clock.now = testNow.addingTimeInterval(901)
+    await #expect(throws: LocalToolUsageError.rateLimited) { try await provider.refresh() }
+    #expect(await http.requests.count == 2)
+}
+
+@Test func claudeAppFallbackKeepsTheKeychainBackOff() async throws {
+    let clock = TestClockBox(testNow)
+    let credentials = CountingClaudeCredentialSource(error: .keychainAccessDenied)
+    let provider = ClaudeUsageProvider(
+        credentials: credentials,
+        http: ScriptedUsageHTTPClient(responses: [:]),
+        claudeApp: StaticClaudeAppUsage(sample: ClaudeAppUsageSample(recordedAt: testNow, sessionPercent: 6, weeklyPercent: 26)),
+        usesAPIKeyHelper: { false },
+        accessDeniedPause: 3_600,
+        now: { clock.now }
+    )
+
+    #expect(try await provider.refresh().snapshots.count == 1)
+    clock.now = testNow.addingTimeInterval(600)
+    #expect(try await provider.refresh().snapshots.count == 1)
+    #expect(await credentials.loads == 1)
+
+    // The app reading is stale by now, so the retried denial surfaces.
+    clock.now = testNow.addingTimeInterval(3_601)
+    await #expect(throws: LocalToolUsageError.keychainAccessDenied) { try await provider.refresh() }
+    #expect(await credentials.loads == 2)
+}
