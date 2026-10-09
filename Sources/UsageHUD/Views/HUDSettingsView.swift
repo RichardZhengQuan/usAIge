@@ -919,13 +919,13 @@ struct HUDSettingsView: View {
         }
     }
 
-    /// usAIge reads an existing Claude Code sign-in on its own, so the
-    /// button only appears when there is no readable plan sign-in; a
-    /// connected or rate-limited tool, or one still being checked, doesn't
-    /// need it.
+    /// usAIge reads an existing Claude Code sign-in, or the running Claude
+    /// app's own readings, on its own, so the button only appears when
+    /// neither gives limits; a connected or rate-limited tool, or one still
+    /// being checked, doesn't need it.
     static func offersClaudeSignIn(status: LocalToolStatus) -> Bool {
         switch status {
-        case .connected, .rateLimited, .unknown: false
+        case .connected, .connectedThroughClaudeApp, .rateLimited, .unknown: false
         default: true
         }
     }

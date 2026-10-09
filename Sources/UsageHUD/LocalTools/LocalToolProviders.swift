@@ -46,8 +46,8 @@ struct LocalToolGuidance: Identifiable, Sendable {
         LocalToolGuidance(
             id: .claude,
             source: "Claude Code sign-in on this Mac",
-            signInHint: "Use Sign In, or run `claude auth login` in Terminal.",
-            expiredHint: "Sign-in expired. Use Sign In, or run `claude` in Terminal to refresh it."
+            signInHint: "Open the Claude app, or use Sign In.",
+            expiredHint: "Sign-in expired. Open the Claude app, or run `claude` in Terminal to refresh it."
         ),
         LocalToolGuidance(
             id: .cursor,
@@ -73,16 +73,18 @@ struct LocalToolGuidance: Identifiable, Sendable {
         case .unknown: Presentation(text: "Checking…", isProblem: false)
         case .apiKeyOnly:
             Presentation(
-                text: "Claude Code uses an API key here, which has no plan limits. Sign in with your Claude plan to show them.",
+                text: "Claude Code uses an API key here, which has no plan limits. Open the Claude app to show them, or sign in with your Claude plan.",
                 isProblem: false
             )
         case .connected: Presentation(text: "Connected · \(source)", isProblem: false)
+        case .connectedThroughClaudeApp:
+            Presentation(text: "Connected · Claude app on this Mac. Reset times need a Claude Code sign-in.", isProblem: false)
         case .notInstalled: Presentation(text: "Not installed.", isProblem: false)
         case .signedOut: Presentation(text: "Not connected. \(signInHint)", isProblem: false)
         case .credentialExpired: Presentation(text: expiredHint, isProblem: true)
         case .apiKeyHelperSignInExpired:
             Presentation(
-                text: "Your Claude plan sign-in expired. Claude Code runs on an API key here and won't renew it, so sign in again.",
+                text: "Your Claude plan sign-in expired and Claude Code runs on an API key here, so it won't renew it. Open the Claude app to show limits, or sign in again.",
                 isProblem: true
             )
         case .missingScope:

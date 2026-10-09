@@ -63,6 +63,7 @@ private let testNow = Date(timeIntervalSince1970: 1_800_000_000)
         http: http,
         statusRegistry: registry,
         userAgentVersion: { "2.1.212" },
+        claudeApp: StaticClaudeAppUsage(sample: nil),
         usesAPIKeyHelper: { false },
         now: { testNow }
     )
@@ -103,6 +104,7 @@ private let testNow = Date(timeIntervalSince1970: 1_800_000_000)
         credentials: StaticClaudeCredentialSource(credentials: nil),
         http: http,
         statusRegistry: registry,
+        claudeApp: StaticClaudeAppUsage(sample: nil),
         usesAPIKeyHelper: { false },
         now: { testNow }
     )
@@ -126,6 +128,7 @@ private let testNow = Date(timeIntervalSince1970: 1_800_000_000)
         credentials: StaticClaudeCredentialSource(credentials: expired),
         http: http,
         statusRegistry: registry,
+        claudeApp: StaticClaudeAppUsage(sample: nil),
         usesAPIKeyHelper: { false },
         now: { testNow }
     )
@@ -145,6 +148,7 @@ private let testNow = Date(timeIntervalSince1970: 1_800_000_000)
         let provider = ClaudeUsageProvider(
             credentials: StaticClaudeCredentialSource(credentials: liveCredentials()),
             http: http,
+            claudeApp: StaticClaudeAppUsage(sample: nil),
             usesAPIKeyHelper: { false },
             now: { testNow }
         )
@@ -160,6 +164,7 @@ private let testNow = Date(timeIntervalSince1970: 1_800_000_000)
         credentials: StaticClaudeCredentialSource(credentials: nil, error: .keychainAccessDenied),
         http: ScriptedUsageHTTPClient(responses: [:]),
         statusRegistry: registry,
+        claudeApp: StaticClaudeAppUsage(sample: nil),
         usesAPIKeyHelper: { false },
         now: { testNow }
     )
@@ -217,6 +222,7 @@ private let testNow = Date(timeIntervalSince1970: 1_800_000_000)
         credentials: StaticClaudeCredentialSource(credentials: liveCredentials()),
         http: http,
         statusRegistry: registry,
+        claudeApp: StaticClaudeAppUsage(sample: nil),
         usesAPIKeyHelper: { false },
         now: { testNow }
     )
@@ -294,6 +300,7 @@ private let testNow = Date(timeIntervalSince1970: 1_800_000_000)
         credentials: StaticClaudeCredentialSource(credentials: nil),
         http: ScriptedUsageHTTPClient(responses: [:]),
         statusRegistry: registry,
+        claudeApp: StaticClaudeAppUsage(sample: nil),
         usesAPIKeyHelper: { true },
         now: { testNow }
     )
@@ -315,6 +322,7 @@ private let testNow = Date(timeIntervalSince1970: 1_800_000_000)
             credentials: StaticClaudeCredentialSource(credentials: stale),
             http: ScriptedUsageHTTPClient(responses: [:]),
             statusRegistry: registry,
+            claudeApp: StaticClaudeAppUsage(sample: nil),
             usesAPIKeyHelper: { usesHelper },
             now: { testNow }
         )
@@ -426,4 +434,137 @@ private let claudeLimitsUsageJSON = """
     #expect(snapshots.map(\.id) == ["claude", "claude_cowork"])
     #expect(snapshots[0].secondaryWindow?.usedPercent == 80)
     #expect(snapshots[1].displayName == "Cowork")
+}
+
+private struct StaticClaudeAppUsage: ClaudeAppUsageSource {
+    let sample: ClaudeAppUsageSample?
+    func latestSample() -> ClaudeAppUsageSample? { sample }
+}
+
+@Test func claudeAppUsageHistoryYieldsTheNewestReading() throws {
+    let history = """
+    {"version":2,"samples":[
+      {"t":1799999400000,"org":"o","u":{"fh":4,"sd":25}},
+      {"t":1799999700000,"org":"o","u":{"fh":6,"sd":26}},
+      {"t":1799999000000,"org":"o","u":{"fh":1,"sd":20}},
+      {"t":1799999800000,"org":"o","u":{}}
+    ]}
+    """
+    let sample = try #require(ClaudeAppUsageHistory.latestSample(from: Data(history.utf8)))
+    #expect(sample == ClaudeAppUsageSample(
+        recordedAt: Date(timeIntervalSince1970: 1_799_999_700),
+        sessionPercent: 6,
+        weeklyPercent: 26
+    ))
+    #expect(ClaudeAppUsageHistory.latestSample(from: Data(#"{"samples":[]}"#.utf8)) == nil)
+    #expect(ClaudeAppUsageHistory.latestSample(from: Data("not json".utf8)) == nil)
+}
+
+@Test func claudeAppUsageHistoryIsReadFromApplicationSupport() throws {
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("usaige-claude-app-\(UUID().uuidString)")
+    let dir = home.appendingPathComponent("Library/Application Support/Claude")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: home) }
+
+    #expect(ClaudeAppUsageHistory(homeDirectory: home).latestSample() == nil)
+    try Data(#"{"samples":[{"t":1799999700000,"u":{"fh":6,"sd":26}}]}"#.utf8)
+        .write(to: dir.appendingPathComponent("plan-usage-history.json"))
+    #expect(ClaudeAppUsageHistory(homeDirectory: home).latestSample()?.weeklyPercent == 26)
+}
+
+@Test func claudeFallsBackToTheClaudeAppWhenTheSignInCantReadLimits() async throws {
+    let reading = ClaudeAppUsageSample(
+        recordedAt: testNow.addingTimeInterval(-300),
+        sessionPercent: 6,
+        weeklyPercent: 26
+    )
+    let stale = ClaudeCredentials(
+        accessToken: "sk-ant-oat01-test",
+        expiresAt: testNow.addingTimeInterval(-3600),
+        scopes: ["user:profile"],
+        subscriptionType: "max",
+        rateLimitTier: nil
+    )
+    let sources: [ClaudeCredentials?] = [nil, stale]
+    for credentials in sources {
+        let http = ScriptedUsageHTTPClient(responses: [:])
+        let registry = await LocalToolStatusRegistry()
+        let provider = ClaudeUsageProvider(
+            credentials: StaticClaudeCredentialSource(credentials: credentials),
+            http: http,
+            statusRegistry: registry,
+            claudeApp: StaticClaudeAppUsage(sample: reading),
+            usesAPIKeyHelper: { true },
+            now: { testNow }
+        )
+
+        let snapshots = try await provider.refresh().snapshots
+        #expect(snapshots.map(\.id) == ["claude"])
+        let main = try #require(snapshots.first)
+        #expect(main.toolID == .claude)
+        #expect(main.displayName == "All models")
+        #expect(main.remainingPercent == 94)
+        #expect(main.typeTag == "5H")
+        #expect(main.resetAt == nil)
+        #expect(main.secondaryWindow?.remainingPercent == 74)
+        #expect(main.secondaryWindow?.typeTag == "7D")
+        #expect(main.updatedAt == reading.recordedAt)
+        #expect(main.planType == credentials?.subscriptionType)
+        #expect(await http.requests.isEmpty)
+        #expect(await registry.status(for: .claude) == .connectedThroughClaudeApp)
+    }
+}
+
+@Test func claudeAppReadingIsUsedWhenTheUsageRequestFails() async throws {
+    let reading = ClaudeAppUsageSample(recordedAt: testNow, sessionPercent: 10, weeklyPercent: nil)
+    let registry = await LocalToolStatusRegistry()
+    let provider = ClaudeUsageProvider(
+        credentials: StaticClaudeCredentialSource(credentials: liveCredentials()),
+        http: ScriptedUsageHTTPClient(responses: [
+            ClaudeUsageProvider.usageURL.absoluteString: .init(status: 401, json: "{}"),
+        ]),
+        statusRegistry: registry,
+        userAgentVersion: { "2.1.212" },
+        claudeApp: StaticClaudeAppUsage(sample: reading),
+        usesAPIKeyHelper: { false },
+        now: { testNow }
+    )
+    let main = try #require(try await provider.refresh().snapshots.first)
+    #expect(main.remainingPercent == 90)
+    #expect(main.secondaryWindow == nil)
+    #expect(await registry.status(for: .claude) == .connectedThroughClaudeApp)
+}
+
+@Test func claudePrefersTheSignInAndIgnoresAStaleClaudeAppReading() async throws {
+    let http = ScriptedUsageHTTPClient(responses: [
+        ClaudeUsageProvider.usageURL.absoluteString: .init(json: claudeUsageJSON),
+    ])
+    let registry = await LocalToolStatusRegistry()
+    let provider = ClaudeUsageProvider(
+        credentials: StaticClaudeCredentialSource(credentials: liveCredentials()),
+        http: http,
+        statusRegistry: registry,
+        userAgentVersion: { "2.1.212" },
+        claudeApp: StaticClaudeAppUsage(sample: ClaudeAppUsageSample(recordedAt: testNow, sessionPercent: 99, weeklyPercent: 99)),
+        usesAPIKeyHelper: { false },
+        now: { testNow }
+    )
+    #expect(try await provider.refresh().snapshots.first?.remainingPercent == 67)
+    #expect(await registry.status(for: .claude) == .connected)
+
+    let quitApp = ClaudeAppUsageSample(
+        recordedAt: testNow.addingTimeInterval(-ClaudeUsageProvider.claudeAppMaximumAge - 1),
+        sessionPercent: 6,
+        weeklyPercent: 26
+    )
+    let signedOut = ClaudeUsageProvider(
+        credentials: StaticClaudeCredentialSource(credentials: nil),
+        http: ScriptedUsageHTTPClient(responses: [:]),
+        statusRegistry: registry,
+        claudeApp: StaticClaudeAppUsage(sample: quitApp),
+        usesAPIKeyHelper: { false },
+        now: { testNow }
+    )
+    #expect(try await signedOut.refresh() == .signedOut)
+    #expect(await registry.status(for: .claude) == .signedOut)
 }
