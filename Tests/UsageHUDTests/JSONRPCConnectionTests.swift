@@ -82,6 +82,38 @@ import Testing
     await transport.stop()
 }
 
+@Test func processTransportResolvesItsExecutableOnEveryStart() async throws {
+    let calls = ResolveCounter()
+    let transport = ProcessLineTransport(
+        executableURL: { calls.next() },
+        arguments: []
+    )
+
+    try await transport.start()
+    var lines = await transport.lines().makeAsyncIterator()
+    try await transport.write("ping")
+    #expect(await lines.next() == "ping")
+    await transport.stop()
+
+    // The executable is gone now, say after an app update moved it.
+    await #expect(throws: JSONRPCError.disconnected) { try await transport.start() }
+    #expect(calls.count == 2)
+}
+
+private final class ResolveCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var calls = 0
+
+    var count: Int { lock.withLock { calls } }
+
+    func next() -> URL? {
+        lock.withLock {
+            calls += 1
+            return calls == 1 ? URL(fileURLWithPath: "/bin/cat") : nil
+        }
+    }
+}
+
 private actor TestLineTransport: LineTransport {
     private var continuation: AsyncStream<String>.Continuation?
     private var written: [String] = []

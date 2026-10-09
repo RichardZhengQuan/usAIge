@@ -39,11 +39,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         localToolStatus = configuredLocalToolStatus
         let localProvider: any CodexUsageProviding
         let agentProvider: any CodexAgentProviding
-        if let executable = CodexExecutableResolver.resolve() {
-            let transport = ProcessLineTransport(executableURL: executable)
+        if CodexExecutableResolver.resolve() != nil {
+            // Resolve again on every app-server start: a ChatGPT app update
+            // can move or replace its bundled CLI while usAIge is running.
+            // When nothing resolves, the start fails as a disconnect and the
+            // next refresh looks again.
+            let currentExecutable: @Sendable () -> URL? = { CodexExecutableResolver.resolve() }
+            let transport = ProcessLineTransport(executableURL: currentExecutable)
             let connection = JSONRPCConnection(transport: transport)
             localProvider = CodexUsageProvider(rpc: connection)
-            let agentTransport = ProcessLineTransport(executableURL: executable)
+            let agentTransport = ProcessLineTransport(executableURL: currentExecutable)
             let agentConnection = JSONRPCConnection(transport: agentTransport)
             agentProvider = CodexAgentProvider(rpc: agentConnection)
         } else {
@@ -55,10 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         }
         store = UsageStore(provider: CompositeUsageProvider(
             local: localProvider,
-            throttled: LocalToolProviders.make(
-                statusRegistry: configuredLocalToolStatus,
-                readsClaudeSignIn: { await MainActor.run { configuredSettings.readsClaudeSignIn } }
-            ),
+            throttled: LocalToolProviders.make(statusRegistry: configuredLocalToolStatus),
             remote: remoteProvider
         ))
         // Every rail row gets a session light: Codex through its app-server,
@@ -497,29 +499,6 @@ enum SettingsScenePresenter {
                 $0.keyEquivalent == ","
                     && $0.keyEquivalentModifierMask.contains(.command)
             }
-    }
-}
-
-private enum CodexExecutableResolver {
-    static func resolve() -> URL? {
-        let fileManager = FileManager.default
-        let candidates = [
-            "/Applications/ChatGPT.app/Contents/Resources/codex",
-            "/Applications/Codex.app/Contents/Resources/codex",
-            "/opt/homebrew/bin/codex",
-            "/usr/local/bin/codex",
-        ]
-        if let path = candidates.first(where: { fileManager.isExecutableFile(atPath: $0) }) {
-            return URL(fileURLWithPath: path)
-        }
-        let pathEntries = ProcessInfo.processInfo.environment["PATH"]?.split(separator: ":") ?? []
-        for directory in pathEntries {
-            let path = String(directory) + "/codex"
-            if fileManager.isExecutableFile(atPath: path) {
-                return URL(fileURLWithPath: path)
-            }
-        }
-        return nil
     }
 }
 

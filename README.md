@@ -123,7 +123,7 @@ While idle, the panel surface is fully transparent and every visible control is 
 - macOS 11 or later on an Apple-silicon Mac.
 - Swift 6.2 and Xcode 26 for source builds.
 - For local Codex limits: the ChatGPT or Codex macOS app, or a `codex` executable on `PATH`, with an existing Codex-managed ChatGPT sign-in.
-- For Claude limits: Claude Code signed in on this Mac (run `claude` once), and **Read Claude Code sign-in** turned on under **Manage AI Tools**. It is off by default because reading that sign-in from the login Keychain shows a macOS prompt.
+- For Claude limits: Claude Code signed in to a Claude plan on this Mac (run `claude` once). usAIge reads that sign-in on its own; there is nothing to turn on and no Keychain prompt.
 - For Cursor limits: the Cursor app installed and signed in on this Mac.
 - For Grok Build limits: the Grok Build CLI signed in with `grok login`.
 - For remote limits: a compatible adapter that can claim a one-time usAIge pairing code and upload normalized limits.
@@ -204,19 +204,17 @@ Polling is deliberately slow because these are account endpoints rather than
 a local server: Claude every 5 minutes, Cursor and Grok Build every 2 minutes,
 with automatic back-off after any failure and a longer pause after an HTTP
 429. A manual refresh may run sooner but never faster than a per-tool floor. A
-source that is waiting on something, such as the first Keychain prompt for
-the Claude sign-in, never holds up the others; the rail keeps showing the
+source that is waiting on something, such as a slow network request, never
+holds up the others; the rail keeps showing the
 last known values and picks up the answer on the next cycle.
 The endpoints are the ones each vendor's own client uses; they are not
 publicly documented contracts, so a provider change can pause a tool until
 usAIge is updated. When that happens the rail keeps the last accepted values
 and marks them stale rather than inventing numbers.
 
-Claude is off until you turn on **Read Claude Code sign-in** under **Manage AI
-Tools**, so Codex-only users never see a Keychain prompt. Turning it on reads
-the sign-in immediately and macOS asks whether to allow it. Releases are
-ad-hoc signed, so macOS treats each new build as a new app and asks again
-after an update; choosing Always Allow covers the current build.
+usAIge reads the Claude Code sign-in through `/usr/bin/security`, the same
+tool Claude Code uses to save it. The Keychain item already trusts that tool,
+so there is no macOS prompt, and none after usAIge updates either.
 
 If Claude Code is configured with an `apiKeyHelper`, it bills an API key
 rather than a Claude plan, so there are no plan limits to read; Manage AI Tools
@@ -345,19 +343,19 @@ The floating panel remains visible while usAIge is running, including across Spa
 
 ### “Open Codex to connect”
 
-Start the ChatGPT or Codex app, confirm that it is signed in, then press the refresh button. The app searches these locations before checking `PATH`:
+Start the ChatGPT or Codex app, confirm that it is signed in, then press the refresh button. The app searches these locations, in `/Applications` and then `~/Applications`, before checking `PATH`:
 
-- `/Applications/ChatGPT.app/Contents/Resources/codex`
-- `/Applications/Codex.app/Contents/Resources/codex`
+- `ChatGPT.app/Contents/Resources/codex-cli` (the entry point its `codex-package.json` names, normally `bin/codex`)
+- `ChatGPT.app/Contents/Resources/codex` (older app builds)
+- the same two paths inside `Codex.app`
 - `/opt/homebrew/bin/codex`
 - `/usr/local/bin/codex`
 
 ### Claude, Cursor, or Grok Build is missing from the rail
 
 Open **Settings → Manage AI Tools**. The **Supported Local Tools** list shows
-each tool's state and the fix: sign in to the tool, run `claude` or
-`grok login` to refresh an expired sign-in, or turn on **Read Claude Code
-sign-in** and allow the Keychain prompt. Anthropic rate limits
+each tool's state and the fix: sign in to the tool, or run `claude` or
+`grok login` to refresh an expired sign-in. Anthropic rate limits
 its usage endpoint; when that happens usAIge keeps the last values and retries
 later instead of polling harder.
 
@@ -387,7 +385,7 @@ Opt-in smoke tests exercise the real sign-ins on this Mac and print only normali
 USAIGE_LIVE_LOCAL_TOOLS=1 swift test --filter LiveLocalTools
 ```
 
-Add `USAIGE_LIVE_CLAUDE=1` to include Claude; reading its Keychain item shows a macOS access prompt the first time.
+Add `USAIGE_LIVE_CLAUDE=1` to include Claude; it is opt-in because Anthropic rate limits its usage endpoint aggressively.
 
 ## TODO
 

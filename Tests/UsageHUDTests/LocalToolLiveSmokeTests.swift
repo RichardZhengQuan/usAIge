@@ -5,8 +5,8 @@ import Testing
 // Opt-in smoke tests against the real sign-ins on this Mac. They print the
 // normalized limits and never print tokens. Run with:
 //   USAIGE_LIVE_LOCAL_TOOLS=1 swift test --filter LiveLocalTools
-// Claude is included only with USAIGE_LIVE_CLAUDE=1 because reading its
-// Keychain item shows a macOS access prompt the first time.
+// Claude is included only with USAIGE_LIVE_CLAUDE=1 because Anthropic rate
+// limits its usage endpoint aggressively.
 
 private let liveEnabled = ProcessInfo.processInfo.environment["USAIGE_LIVE_LOCAL_TOOLS"] == "1"
 private let liveClaudeEnabled = ProcessInfo.processInfo.environment["USAIGE_LIVE_CLAUDE"] == "1"
@@ -32,6 +32,15 @@ private func describe(_ result: AccountUsageResult) -> String {
 
 @Suite("LiveLocalTools", .enabled(if: liveEnabled))
 struct LiveLocalToolsSmokeTests {
+    @Test func codexLive() async throws {
+        let executable = try #require(CodexExecutableResolver.resolve())
+        print("[live] Codex executable: \(executable.path)")
+        let provider = CodexUsageProvider(rpc: JSONRPCConnection(transport: ProcessLineTransport(executableURL: executable)))
+        let result = try await provider.refresh()
+        await provider.stop()
+        print("[live] Codex:\n\(describe(result))")
+    }
+
     @Test func cursorLive() async throws {
         let result = try await CursorUsageProvider().refresh()
         print("[live] Cursor:\n\(describe(result))")

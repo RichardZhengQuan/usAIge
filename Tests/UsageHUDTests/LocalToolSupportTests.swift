@@ -45,9 +45,10 @@ import Testing
     let guidance = LocalToolGuidance.supported.first { $0.id == .claude }!
     #expect(guidance.presentation(for: .credentialExpired).isProblem)
     #expect(guidance.presentation(for: .connected).text.hasPrefix("Connected"))
-    #expect(guidance.presentation(for: .disabled).text.hasPrefix("Off."))
     #expect(guidance.presentation(for: .apiKeyOnly).text.contains("API key helper"))
-    #expect(!guidance.presentation(for: .disabled).isProblem)
+    #expect(guidance.presentation(for: .keychainAccessDenied).isProblem)
+    #expect(guidance.presentation(for: .apiKeyHelperSignInExpired).text.contains("Sign In"))
+    #expect(!guidance.presentation(for: .apiKeyHelperSignInExpired).text.contains("`claude`"))
     #expect(LocalToolGuidance.supported.map(\.id) == [.chatGPT, .claude, .cursor, .grok])
 }
 

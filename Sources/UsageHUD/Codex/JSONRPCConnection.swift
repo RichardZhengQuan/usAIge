@@ -154,7 +154,7 @@ actor JSONRPCConnection {
 }
 
 actor ProcessLineTransport: LineTransport {
-    private let executableURL: URL
+    private let executableURL: @Sendable () -> URL?
     private let arguments: [String]
     private var process: Process?
     private var input: Pipe?
@@ -165,12 +165,19 @@ actor ProcessLineTransport: LineTransport {
     private var lineContinuation: AsyncStream<String>.Continuation?
 
     init(executableURL: URL, arguments: [String] = ["app-server"]) {
+        self.init(executableURL: { executableURL }, arguments: arguments)
+    }
+
+    /// `executableURL` is asked again on every start, so a restart picks up
+    /// an executable that moved since the last one.
+    init(executableURL: @escaping @Sendable () -> URL?, arguments: [String] = ["app-server"]) {
         self.executableURL = executableURL
         self.arguments = arguments
     }
 
     func start() async throws {
         guard process == nil else { return }
+        guard let executableURL = executableURL() else { throw JSONRPCError.disconnected }
         let process = Process()
         let input = Pipe()
         let output = Pipe()

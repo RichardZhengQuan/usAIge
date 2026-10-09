@@ -746,26 +746,10 @@ struct HUDSettingsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 8)
-                if guidance.id == .claude {
-                    if Self.offersClaudeSignIn(status: status), !claudeSignIn.isActive {
-                        Button("Sign In…") { claudeSignIn.start() }
-                            .controlSize(.small)
-                            .accessibilityHint("Runs Claude Code's own sign-in and opens the Claude sign-in page")
-                    }
-                    Toggle(
-                        "Read Claude Code sign-in",
-                        isOn: Binding(
-                            get: { settings.readsClaudeSignIn },
-                            set: { enabled in
-                                settings.readsClaudeSignIn = enabled
-                                Task { await refreshUsage() }
-                            }
-                        )
-                    )
-                    .labelsHidden()
-                    .controlSize(.small)
-                    .accessibilityLabel("Read Claude Code sign-in")
-                    .help("Read the Claude Code sign-in from Keychain")
+                if guidance.id == .claude, Self.offersClaudeSignIn(status: status), !claudeSignIn.isActive {
+                    Button("Sign In…") { claudeSignIn.start() }
+                        .controlSize(.small)
+                        .accessibilityHint("Runs Claude Code's own sign-in and opens the Claude sign-in page")
                 }
                 if !buckets.isEmpty {
                     Toggle(
@@ -812,14 +796,15 @@ struct HUDSettingsView: View {
         }
         .onAppear {
             claudeSignIn.onSucceeded = {
-                settings.readsClaudeSignIn = true
                 Task { await refreshUsage() }
             }
         }
     }
 
-    /// The sign-in button is useful whenever no Claude plan sign-in is
-    /// readable yet; a connected or rate-limited tool doesn't need it.
+    /// usAIge reads an existing Claude Code sign-in on its own, so the
+    /// button only appears when there is no readable plan sign-in; a
+    /// connected or rate-limited tool, or one still being checked, doesn't
+    /// need it.
     static func offersClaudeSignIn(status: LocalToolStatus) -> Bool {
         switch status {
         case .connected, .rateLimited, .unknown: false
@@ -866,7 +851,7 @@ struct HUDSettingsView: View {
             }
         case .succeeded:
             HStack(spacing: 8) {
-                Label("Signed in. macOS may ask once to let usAIge read the sign-in.", systemImage: "checkmark.circle.fill")
+                Label("Signed in.", systemImage: "checkmark.circle.fill")
                     .font(.caption)
                     .foregroundStyle(.green)
                     .fixedSize(horizontal: false, vertical: true)

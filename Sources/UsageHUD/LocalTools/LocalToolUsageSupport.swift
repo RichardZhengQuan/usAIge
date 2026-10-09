@@ -36,12 +36,14 @@ enum LocalToolUsageError: LocalizedError, Equatable, Sendable {
 /// silently disappearing from the rail.
 enum LocalToolStatus: Equatable, Sendable {
     case unknown
-    case disabled
     case apiKeyOnly
     case connected
     case notInstalled
     case signedOut
     case credentialExpired
+    /// The Claude plan sign-in expired and Claude Code bills an API key
+    /// helper here, so Claude Code itself will never renew it.
+    case apiKeyHelperSignInExpired
     case missingScope
     case rateLimited
     case keychainAccessDenied
@@ -281,10 +283,9 @@ protocol ThrottledUsageProviding: CodexUsageProviding {
 /// denial.
 ///
 /// A refresh runs as its own task and callers wait for it only up to
-/// `waitLimit`. A provider that is blocked, for example on the macOS Keychain
-/// prompt shown the first time the Claude sign-in is read, therefore never
-/// holds up the Codex refresh: callers get the last known result and the
-/// pending refresh lands on the next cycle.
+/// `waitLimit`. A provider that is blocked, for example on a slow network
+/// request, therefore never holds up the Codex refresh: callers get the last
+/// known result and the pending refresh lands on the next cycle.
 actor ThrottledUsageProvider: ThrottledUsageProviding {
     private let base: any CodexUsageProviding
     private let minimumInterval: TimeInterval
@@ -350,7 +351,7 @@ actor ThrottledUsageProvider: ThrottledUsageProviding {
     }
 
     func stop() async {
-        // A refresh still running (say, behind a Keychain prompt) must not
+        // A refresh still running (say, behind a slow request) must not
         // write its gates into a provider that has since been stopped.
         generation += 1
         inFlight?.cancel()
@@ -392,8 +393,8 @@ actor ThrottledUsageProvider: ThrottledUsageProviding {
             case .authenticated: interval = minimumInterval
             }
             nextAutomaticRefresh = completedAt.addingTimeInterval(interval)
-            // A signed-out or disabled check costs nothing, so a manual refresh
-            // (Detect, or turning a tool on) may retry it immediately.
+            // A signed-out check costs nothing, so a manual refresh (Detect)
+            // may retry it immediately.
             nextManualRefresh = result == .signedOut
                 ? completedAt
                 : completedAt.addingTimeInterval(min(manualMinimumInterval, interval))
