@@ -140,7 +140,7 @@ export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: R
     const channelID = channelMatch[1];
     const tail = channelMatch[2] ?? "";
     const channel = await channelByID(env.DB, channelID);
-    if (!channel) return json({ error: "Not found." }, 404);
+    if (!channel) return json({ error: "This connection is no longer available.", code: "channel_not_found" }, 404);
 
     if (request.method === "POST" && tail === "pairings") {
       if (!await authorizeMac(request, channel)) return unauthorized();

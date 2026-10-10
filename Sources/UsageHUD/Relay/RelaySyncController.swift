@@ -197,16 +197,27 @@ final class RelaySyncController: ObservableObject {
         case disconnected, connecting, connected, uploading, failed(String)
     }
 
+    enum RemoteToolsState: Equatable {
+        case unconfigured, idle, loading, loaded, connectionUnavailable, failed(String)
+    }
+
+    enum RemoteToolActionState: Equatable {
+        case idle, connecting, failed(String)
+    }
+
     @Published private(set) var status: Status = .disconnected
     @Published private(set) var pairingCode: String?
     @Published private(set) var pairingExpiresAt: Date?
     @Published private(set) var devices: [RelayPhoneDevice] = []
     @Published private(set) var remoteTools: [RelayRemoteTool] = []
+    @Published private(set) var remoteToolsState: RemoteToolsState = .unconfigured
+    @Published private(set) var remoteToolActionState: RemoteToolActionState = .idle
+    @Published private(set) var canReconnectRemoteTools = false
     @Published private(set) var remotePairingCode: String?
     @Published private(set) var remotePairingExpiresAt: Date?
     @Published private(set) var lastUploadAt: Date?
 
-    private static let relayURL = URL(string: "https://usaige-macos.richardqz.chatgpt.site/api/v1/")!
+    private static let relayURL = URL(string: "https://pmrichq.com/project/usaige/api/v1/")!
     private static let channelKey = "usageHUD.relay.channelID"
     private static let macNameKey = "usageHUD.relay.macName"
     private static let heartbeatInterval: TimeInterval = 20 * 60
@@ -218,6 +229,11 @@ final class RelaySyncController: ObservableObject {
     private var uploadTask: Task<Void, Never>?
     private var heartbeatTask: Task<Void, Never>?
     private var remotePairingPollTask: Task<Void, Never>?
+    private var remotePairingPollID: UUID?
+    private var channelGeneration = UUID()
+    private var remoteToolsRequestID: UUID?
+    private var remoteToolsRefreshTask: Task<[QuotaSnapshot], Error>?
+    private var remoteToolsStateBeforeRefresh: RemoteToolsState?
     private var retryAttempt = 0
     private var isUploadInFlight = false
     private var hasPendingUpload = false
@@ -242,6 +258,7 @@ final class RelaySyncController: ObservableObject {
             defaults.removeObject(forKey: Self.macNameKey)
         }
         status = channelID == nil ? .disconnected : .connected
+        remoteToolsState = channelID == nil ? .unconfigured : .idle
     }
 
     var channelID: String? { defaults.string(forKey: Self.channelKey) }
@@ -299,7 +316,7 @@ final class RelaySyncController: ObservableObject {
     }
 
     func sendSessionEvent(for task: CodexAgentTask) {
-        guard isLinked, let payload = RelaySessionEventPayload(task: task),
+        guard let channelID, let payload = RelaySessionEventPayload(task: task),
               sentSessionEventIDs.insert(payload.eventID).inserted else { return }
         // Only recent IDs matter for de-duplication; keep the set bounded over
         // a long-running session.
@@ -307,12 +324,15 @@ final class RelaySyncController: ObservableObject {
             sentSessionEventIDs.removeAll()
             sentSessionEventIDs.insert(payload.eventID)
         }
+        let generation = channelGeneration
         Task { [weak self] in
-            await self?.postSessionEvent(payload)
+            guard let self, self.isCurrentChannel(channelID, generation: generation) else { return }
+            await self.postSessionEvent(payload)
         }
     }
 
     func createChannel() async {
+        let generation = channelGeneration
         status = .connecting
         do {
             var request = URLRequest(url: Self.relayURL.appendingPathComponent("channels"))
@@ -320,97 +340,206 @@ final class RelaySyncController: ObservableObject {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONEncoder().encode(["macName": macName])
             let response: CreateChannelResponse = try await send(request)
+            guard channelGeneration == generation else { return }
             try credentials.save(response.uploadToken)
             defaults.set(response.channelID, forKey: Self.channelKey)
             defaults.set(response.macName, forKey: Self.macNameKey)
+            channelGeneration = UUID()
+            remoteToolsState = .idle
             pairingCode = response.pairingCode
             pairingExpiresAt = response.expiresAt
             status = .connected
             retryAttempt = 0
             await uploadLatest(force: true)
         } catch {
+            guard channelGeneration == generation else { return }
             status = .failed(error.localizedDescription)
         }
     }
 
     func createPairingCode() async {
         guard let channelID else { await createChannel(); return }
+        let generation = channelGeneration
         do {
             let response: PairingResponse = try await authorizedRequest(method: "POST", path: "channels/\(channelID)/pairings")
+            guard isCurrentChannel(channelID, generation: generation) else { return }
             pairingCode = response.pairingCode
             pairingExpiresAt = response.expiresAt
             status = .connected
-        } catch { status = .failed(error.localizedDescription) }
+        } catch {
+            guard isCurrentChannel(channelID, generation: generation) else { return }
+            status = .failed(error.localizedDescription)
+        }
     }
 
     func refreshDevices() async {
         guard let channelID else { return }
+        let generation = channelGeneration
         do {
             let response: DeviceListResponse = try await authorizedRequest(method: "GET", path: "channels/\(channelID)/devices")
+            guard isCurrentChannel(channelID, generation: generation) else { return }
             devices = response.devices
             status = .connected
-        } catch { status = .failed(error.localizedDescription) }
+        } catch {
+            guard isCurrentChannel(channelID, generation: generation) else { return }
+            status = .failed(error.localizedDescription)
+        }
     }
 
     func createRemoteToolPairingCode() async {
-        status = .connecting
+        remoteToolActionState = .connecting
         if !isLinked {
             await createChannel()
         }
-        guard let channelID else { return }
-        status = .connecting
+        guard let channelID else {
+            guard status != .disconnected else { return }
+            if case let .failed(message) = status {
+                remoteToolActionState = .failed(message)
+            } else {
+                remoteToolActionState = .failed("The Mac relay connection could not be created.")
+            }
+            return
+        }
+        let generation = channelGeneration
         do {
             let response: PairingResponse = try await authorizedRequest(
                 method: "POST",
                 path: "channels/\(channelID)/tool-pairings"
             )
+            guard isCurrentChannel(channelID, generation: generation) else { return }
             remotePairingCode = response.pairingCode
             remotePairingExpiresAt = response.expiresAt
-            status = .connected
+            remoteToolActionState = .idle
             startRemotePairingPoll(expiresAt: response.expiresAt)
         } catch {
-            status = .failed(error.localizedDescription)
+            guard isCurrentChannel(channelID, generation: generation) else { return }
+            remoteToolActionState = .failed(error.localizedDescription)
         }
     }
 
     @discardableResult
     func refreshRemoteTools() async throws -> [QuotaSnapshot] {
-        guard let channelID else { throw RemoteUsageError.noSources }
-        let response: RemoteToolsResponse = try await authorizedRequest(
-            method: "GET",
-            path: "channels/\(channelID)/tools"
-        )
-        remoteTools = response.tools
-        if response.tools.isEmpty { throw RemoteUsageError.noSources }
-        status = .connected
-        return response.tools.flatMap { $0.quotaSnapshots() }
+        if let task = remoteToolsRefreshTask { return try await task.value }
+        guard let channelID else {
+            remoteToolsState = .unconfigured
+            throw RemoteUsageError.noSources
+        }
+        let requestID = UUID()
+        let generation = channelGeneration
+        remoteToolsRequestID = requestID
+        remoteToolsStateBeforeRefresh = remoteToolsState
+        remoteToolsState = .loading
+        let task = Task { @MainActor [weak self] () throws -> [QuotaSnapshot] in
+            guard let self else { throw CancellationError() }
+            let response: RemoteToolsResponse
+            do {
+                response = try await authorizedRequest(
+                    method: "GET",
+                    path: "channels/\(channelID)/tools"
+                )
+            } catch {
+                if remoteToolsRequestID == requestID, isCurrentChannel(channelID, generation: generation) {
+                    remoteToolsState = isMissingChannel(error) ? .connectionUnavailable : .failed(error.localizedDescription)
+                }
+                throw error
+            }
+            guard isCurrentChannel(channelID, generation: generation), remoteToolsRequestID == requestID else {
+                throw RemoteUsageError.noSources
+            }
+            remoteTools = response.tools
+            remoteToolsState = .loaded
+            canReconnectRemoteTools = false
+            // An empty response is a successfully loaded list, but supplies no
+            // authenticated usage source to the combined quota provider.
+            guard !response.tools.isEmpty else { throw RemoteUsageError.noSources }
+            return response.tools.flatMap { $0.quotaSnapshots() }
+        }
+        remoteToolsRefreshTask = task
+        defer {
+            if remoteToolsRequestID == requestID {
+                remoteToolsRefreshTask = nil
+                remoteToolsStateBeforeRefresh = nil
+            }
+        }
+        return try await task.value
+    }
+
+    func reconnectRemoteTools() async {
+        guard canReconnectRemoteTools, let channelID else { return }
+        let generation = channelGeneration
+        remoteToolActionState = .connecting
+        do {
+            _ = try await refreshRemoteTools()
+            guard isCurrentChannel(channelID, generation: generation) else { return }
+            remoteToolActionState = .idle
+            return
+        } catch {
+            guard isCurrentChannel(channelID, generation: generation) else { return }
+            guard isMissingChannel(error) else {
+                if case RemoteUsageError.noSources = error {
+                    remoteToolActionState = .idle
+                } else {
+                    remoteToolActionState = .failed(error.localizedDescription)
+                }
+                return
+            }
+        }
+        // The user requested recovery and a fresh response confirmed that the
+        // old channel is absent. No active server channel is being abandoned.
+        clearLocalLink()
+        await createRemoteToolPairingCode()
     }
 
     func revoke(_ tool: RelayRemoteTool) async {
         guard let channelID else { return }
+        let generation = channelGeneration
+        cancelRemoteToolsRefresh()
+        remoteToolActionState = .connecting
         do {
             try await authorizedVoid(
                 method: "DELETE",
                 path: "channels/\(channelID)/tools/\(tool.id)"
             )
+            guard isCurrentChannel(channelID, generation: generation) else { return }
+            cancelRemoteToolsRefresh()
             remoteTools.removeAll { $0.id == tool.id }
+            remoteToolActionState = .idle
         } catch {
-            status = .failed(error.localizedDescription)
+            guard isCurrentChannel(channelID, generation: generation) else { return }
+            remoteToolActionState = .failed(error.localizedDescription)
         }
     }
 
     func revoke(_ device: RelayPhoneDevice) async {
         guard let channelID else { return }
+        let generation = channelGeneration
         do {
             try await authorizedVoid(method: "DELETE", path: "channels/\(channelID)/devices/\(device.id)")
+            guard isCurrentChannel(channelID, generation: generation) else { return }
             devices.removeAll { $0.id == device.id }
-        } catch { status = .failed(error.localizedDescription) }
+        } catch {
+            guard isCurrentChannel(channelID, generation: generation) else { return }
+            status = .failed(error.localizedDescription)
+        }
     }
 
     func disconnectAll() async {
         guard let channelID else { return }
+        let generation = channelGeneration
         do { try await authorizedVoid(method: "DELETE", path: "channels/\(channelID)") }
-        catch { status = .failed(error.localizedDescription); return }
+        catch {
+            guard isCurrentChannel(channelID, generation: generation) else { return }
+            guard isMissingChannel(error) else {
+                status = .failed(error.localizedDescription)
+                return
+            }
+        }
+        guard isCurrentChannel(channelID, generation: generation) else { return }
+        clearLocalLink()
+    }
+
+    private func clearLocalLink() {
+        channelGeneration = UUID()
         try? credentials.delete()
         defaults.removeObject(forKey: Self.channelKey)
         defaults.removeObject(forKey: Self.macNameKey)
@@ -418,29 +547,49 @@ final class RelaySyncController: ObservableObject {
         pairingExpiresAt = nil
         devices = []
         remoteTools = []
+        remoteToolsRequestID = nil
+        remoteToolsRefreshTask?.cancel()
+        remoteToolsRefreshTask = nil
+        remoteToolsStateBeforeRefresh = nil
+        remoteToolsState = .unconfigured
+        remoteToolActionState = .idle
+        canReconnectRemoteTools = false
         remotePairingCode = nil
         remotePairingExpiresAt = nil
         remotePairingPollTask?.cancel()
         remotePairingPollTask = nil
+        remotePairingPollID = nil
         lastUploadAt = nil
         status = .disconnected
     }
 
     private func startRemotePairingPoll(expiresAt: Date) {
         remotePairingPollTask?.cancel()
+        guard let channelID else { return }
+        let generation = channelGeneration
+        let pollID = UUID()
+        remotePairingPollID = pollID
         let existingIDs = Set(remoteTools.map(\.id))
         remotePairingPollTask = Task { [weak self] in
             while !Task.isCancelled, Date() < expiresAt {
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                guard let self else { return }
+                do { try await Task.sleep(nanoseconds: 2_000_000_000) }
+                catch { return }
+                guard !Task.isCancelled, let self,
+                      self.isCurrentChannel(channelID, generation: generation),
+                      self.remotePairingPollID == pollID else { return }
                 _ = try? await self.refreshRemoteTools()
+                guard !Task.isCancelled,
+                      self.isCurrentChannel(channelID, generation: generation),
+                      self.remotePairingPollID == pollID else { return }
                 if Set(self.remoteTools.map(\.id)) != existingIDs {
                     self.remotePairingCode = nil
                     self.remotePairingExpiresAt = nil
                     return
                 }
             }
-            guard let self else { return }
+            guard !Task.isCancelled, let self,
+                  self.isCurrentChannel(channelID, generation: generation),
+                  self.remotePairingPollID == pollID else { return }
             self.remotePairingCode = nil
             self.remotePairingExpiresAt = nil
         }
@@ -448,6 +597,7 @@ final class RelaySyncController: ObservableObject {
 
     private func uploadLatest(force: Bool) async {
         guard let channelID else { return }
+        let generation = channelGeneration
         if isUploadInFlight {
             hasPendingUpload = true
             return
@@ -472,17 +622,20 @@ final class RelaySyncController: ObservableObject {
             request.httpBody = try encoder.encode(payload)
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             let _: UploadResponse = try await send(request)
+            guard isCurrentChannel(channelID, generation: generation) else { return }
             lastUploadAt = Date()
             status = .connected
             retryAttempt = 0
         } catch {
+            guard isCurrentChannel(channelID, generation: generation) else { return }
             status = .failed(error.localizedDescription)
             guard force || retryAttempt < 5 else { return }
             retryAttempt += 1
             let delay = min(300.0, pow(2.0, Double(retryAttempt)))
             Task { [weak self] in
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-                await self?.uploadLatest(force: false)
+                guard let self, self.isCurrentChannel(channelID, generation: generation) else { return }
+                await self.uploadLatest(force: false)
             }
         }
     }
@@ -492,6 +645,7 @@ final class RelaySyncController: ObservableObject {
         attempt: Int = 0
     ) async {
         guard let channelID else { return }
+        let generation = channelGeneration
         do {
             var request = try authorizedURLRequest(
                 method: "POST",
@@ -503,29 +657,68 @@ final class RelaySyncController: ObservableObject {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             try await sendVoid(request)
         } catch {
+            guard isCurrentChannel(channelID, generation: generation) else { return }
             guard attempt < 3 else {
                 sentSessionEventIDs.remove(payload.eventID)
                 return
             }
             let delay = UInt64(pow(2.0, Double(attempt)) * 1_000_000_000)
             try? await Task.sleep(nanoseconds: delay)
+            guard isCurrentChannel(channelID, generation: generation) else { return }
             await postSessionEvent(payload, attempt: attempt + 1)
         }
     }
 
+    private func isCurrentChannel(_ id: String, generation: UUID) -> Bool {
+        channelID == id && channelGeneration == generation
+    }
+
+    private func cancelRemoteToolsRefresh() {
+        remoteToolsRequestID = nil
+        remoteToolsRefreshTask?.cancel()
+        remoteToolsRefreshTask = nil
+        if remoteToolsState == .loading {
+            remoteToolsState = remoteToolsStateBeforeRefresh ?? (isLinked ? .idle : .unconfigured)
+        }
+        remoteToolsStateBeforeRefresh = nil
+    }
+
     private func authorizedRequest<T: Decodable>(method: String, path: String) async throws -> T {
-        try await send(authorizedURLRequest(method: method, path: path))
+        let requestChannelID = channelID
+        let generation = channelGeneration
+        do {
+            return try await send(authorizedURLRequest(method: method, path: path))
+        } catch {
+            noteMissingChannel(error, channelID: requestChannelID, generation: generation)
+            throw error
+        }
     }
 
     private func authorizedVoid(method: String, path: String) async throws {
-        try await sendVoid(authorizedURLRequest(method: method, path: path))
+        let requestChannelID = channelID
+        let generation = channelGeneration
+        do {
+            try await sendVoid(authorizedURLRequest(method: method, path: path))
+        } catch {
+            noteMissingChannel(error, channelID: requestChannelID, generation: generation)
+            throw error
+        }
+    }
+
+    private func isMissingChannel(_ error: Error) -> Bool {
+        if case RelaySyncError.channelMissing = error { true } else { false }
+    }
+
+    private func noteMissingChannel(_ error: Error, channelID: String?, generation: UUID) {
+        guard isMissingChannel(error), let channelID,
+              isCurrentChannel(channelID, generation: generation) else { return }
+        canReconnectRemoteTools = true
+        remoteToolsState = .connectionUnavailable
     }
 
     private func sendVoid(_ request: URLRequest) async throws {
-        let (_, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw RelaySyncError.requestFailed
-        }
+        let (data, response) = try await session.data(for: request)
+        try validateResponse(response, data: data)
     }
 
     private func authorizedURLRequest(method: String, path: String) throws -> URLRequest {
@@ -572,13 +765,26 @@ final class RelaySyncController: ObservableObject {
 
     private func send<T: Decodable>(_ request: URLRequest) async throws -> T {
         let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            let message = Self.sanitizedServerMessage(try? JSONDecoder().decode(ErrorResponse.self, from: data).error)
-            throw RelaySyncError.server(message)
-        }
+        try validateResponse(response, data: data)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(T.self, from: data)
+    }
+
+    private func validateResponse(_ response: URLResponse, data: Data) throws {
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            let serverError = try? JSONDecoder().decode(ErrorResponse.self, from: data)
+            if let http = response as? HTTPURLResponse,
+               http.statusCode == 404, http.mimeType?.lowercased() == "application/json",
+               serverError?.code == "channel_not_found" {
+                throw RelaySyncError.channelMissing
+            }
+            let fallback = "The sync service is unavailable. Try again later."
+            let sanitized = Self.sanitizedServerMessage(serverError?.error, fallback: fallback)
+            let genericMessages = ["Relay request failed.", "The relay request failed."]
+            let message = genericMessages.contains(sanitized) ? fallback : sanitized
+            throw RelaySyncError.server(message)
+        }
     }
 }
 
@@ -587,8 +793,8 @@ private struct PairingResponse: Decodable { let pairingCode: String; let expires
 private struct DeviceListResponse: Decodable { let devices: [RelayPhoneDevice] }
 private struct RemoteToolsResponse: Decodable { let tools: [RelayRemoteTool] }
 private struct UploadResponse: Decodable { let version: Int; let serverReceivedAt: Date; let changed: Bool }
-private struct ErrorResponse: Decodable { let error: String }
-private enum RelaySyncError: LocalizedError { case missingCredential, requestFailed, server(String); var errorDescription: String? { switch self { case .missingCredential: "The Mac relay key is missing. Disconnect and pair again."; case .requestFailed: "The relay request failed."; case let .server(message): message } } }
+private struct ErrorResponse: Decodable { let error: String; let code: String? }
+private enum RelaySyncError: LocalizedError { case missingCredential, requestFailed, channelMissing, server(String); var errorDescription: String? { switch self { case .missingCredential: "This Mac’s connection key is missing. Restart usAIge and connect again."; case .requestFailed: "The sync service is unavailable. Try again later."; case .channelMissing: "This Mac’s previous connection is no longer available. Reconnect to create a new connection."; case let .server(message): message } } }
 
 struct RelayMacCredentialStore: Sendable {
     private static let defaultFileURL = FileManager.default.homeDirectoryForCurrentUser

@@ -260,7 +260,7 @@ public enum RelayClientError: LocalizedError, Sendable {
 }
 
 public struct RelayClient: Sendable {
-    public static let baseURL = URL(string: "https://usaige-macos.richardqz.chatgpt.site/api/v1/")!
+    public static let baseURL = URL(string: "https://pmrichq.com/project/usaige/api/v1/")!
     private let session: URLSession
     public init(session: URLSession = .shared) { self.session = session }
 

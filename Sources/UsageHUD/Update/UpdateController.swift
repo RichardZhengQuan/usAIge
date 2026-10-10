@@ -185,10 +185,10 @@ final class UpdateController: ObservableObject {
     nonisolated static let notificationCategory = "USAGE_HUD_UPDATE"
     nonisolated static let notificationIdentifierPrefix = "usaige-update-"
     nonisolated static let currentManifestURL = URL(
-        string: "https://usaige-macos.richardqz.chatgpt.site/update.json"
+        string: "https://pmrichq.com/project/usaige/update.json"
     )!
     nonisolated static let legacyManifestURL = URL(
-        string: "https://pmrichq.com/project/usaige/update.json"
+        string: "https://usaige-macos.richardqz.chatgpt.site/update.json"
     )!
     nonisolated static let defaultManifestURLs = [currentManifestURL, legacyManifestURL]
     nonisolated static let automaticCheckIntervalNanoseconds: UInt64 =

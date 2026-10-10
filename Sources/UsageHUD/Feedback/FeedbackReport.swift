@@ -60,7 +60,7 @@ struct FeedbackReceipt: Decodable, Equatable, Sendable {
 
 struct FeedbackClient: Sendable {
     static let productionURL = URL(
-        string: "https://usaige-macos.richardqz.chatgpt.site/api/v1/feedback"
+        string: "https://pmrichq.com/project/usaige/api/v1/feedback"
     )!
 
     let endpoint: URL
