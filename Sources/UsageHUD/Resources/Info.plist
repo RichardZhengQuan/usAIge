@@ -19,9 +19,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.2.16</string>
+	<string>0.2.17</string>
 	<key>CFBundleVersion</key>
-	<string>38</string>
+	<string>39</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>11.0</string>
 	<key>NSHighResolutionCapable</key>
@@ -30,8 +30,8 @@
 	<string>NSApplication</string>
 	<key>UpdateManifestURLs</key>
 	<array>
-		<string>https://usaige-macos.richardqz.chatgpt.site/update.json</string>
 		<string>https://pmrichq.com/project/usaige/update.json</string>
+		<string>https://usaige-macos.richardqz.chatgpt.site/update.json</string>
 	</array>
 </dict>
 </plist>

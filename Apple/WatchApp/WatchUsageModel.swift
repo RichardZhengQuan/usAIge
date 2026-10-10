@@ -349,7 +349,7 @@ private struct WatchDirectSyncResult: Sendable {
 }
 
 private struct WatchRelayClient: Sendable {
-    private static let baseURL = URL(string: "https://usaige-macos.richardqz.chatgpt.site/api/v1/")!
+    private static let baseURL = URL(string: "https://pmrichq.com/project/usaige/api/v1/")!
     private static let maximumResponseBytes = 1_048_576
     private let session: URLSession
 

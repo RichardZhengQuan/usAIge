@@ -1,34 +1,34 @@
 {
-  "build" : 38,
-  "downloadURL" : "https://usaige-macos.richardqz.chatgpt.site/usAIge-0.2.16-alpha.dmg",
+  "build" : 39,
+  "downloadURL" : "https://pmrichq.com/project/usaige/usAIge-0.2.17-alpha.dmg",
   "minimumSystemVersion" : "11.0",
   "releaseNotes" : {
-    "headline" : "Claude app limits, a steadier rail",
+    "headline" : "Remote tools recover clearly",
     "highlights" : [
       {
-        "detail" : "Use recent readings from the running Claude app when Claude Code cannot supply limits.",
-        "systemImage" : "chart.pie",
-        "title" : "Claude desktop limits"
+        "detail" : "Pair remote AI tools and sync normalized limits through the pmrichq.com relay. Existing connections need to be paired again.",
+        "systemImage" : "network",
+        "title" : "Restored sync service"
       },
       {
-        "detail" : "Request and Keychain pauses stay in place while Claude app readings are shown.",
-        "systemImage" : "clock",
-        "title" : "Claude pauses preserved"
+        "detail" : "Loading, no paired tools, saved readings, and service errors each show their own status.",
+        "systemImage" : "checkmark.circle",
+        "title" : "Clear connection states"
       },
       {
-        "detail" : "Codex keeps newer push updates. Cursor waits for a busy database before reading sign-in.",
-        "systemImage" : "arrow.triangle.2.circlepath",
-        "title" : "Steadier live limits"
+        "detail" : "Retry temporary errors or reconnect a missing saved connection without losing an active link.",
+        "systemImage" : "arrow.clockwise",
+        "title" : "Retry and reconnect"
       },
       {
-        "detail" : "Docked positions survive unplugging, Settings fits its screen, and Sign In cancels cleanly.",
-        "systemImage" : "macwindow",
-        "title" : "More reliable windows"
+        "detail" : "Delayed requests cannot restore removed tools or overwrite a newer pairing code.",
+        "systemImage" : "link",
+        "title" : "Safer connection changes"
       }
     ],
-    "summary" : "Version 0.2.16 can use fresh readings from the running Claude app and improves quota refresh, docking, and connections."
+    "summary" : "Version 0.2.17 restores the sync service and makes remote AI tool connection states and recovery clearer."
   },
-  "sha256" : "2ea326cc9cc1b30afa635aa51f625bd02c200aabbca85079e6abc25ac7103f2b",
-  "signature" : "B2ajb7cg6p3ojq44B/DAXUp0c6ir0cc80e8JjPloy19jzbwaL7tpd4ZZKBJ36YnIYpMoVoPVvjzZpuU9AkNyDw==",
-  "version" : "0.2.16"
+  "sha256" : "521d62e1e1a9e76df5658fdbd9084a02abd18291f7d6dc87cfb27dbb5b0a15ca",
+  "signature" : "9gZPpP2dsq1Rli9sUwVEryapP0zLVYgWrJSjtgsZVUZzBkEE1vtHexrqfYKyqUjVqKP93D6Y8lds0yerLte5Bw==",
+  "version" : "0.2.17"
 }

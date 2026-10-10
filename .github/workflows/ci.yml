@@ -35,7 +35,7 @@ jobs:
           cache: npm
           cache-dependency-path: site/package-lock.json
       - run: npm ci
-      - name: Relay contract tests
-        run: node --experimental-strip-types --test tests/relay-contract.test.mjs
+      - name: Relay contract and VPS tests
+        run: node --experimental-strip-types --test tests/relay-contract.test.mjs tests/relay-server.test.mjs
       - name: Lint
         run: npm run lint

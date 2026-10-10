@@ -1,29 +1,29 @@
 {
-  "version": "0.2.16",
-  "build": 38,
+  "version": "0.2.17",
+  "build": 39,
   "releaseNotes": {
-    "headline": "Claude app limits, a steadier rail",
-    "summary": "Version 0.2.16 can use fresh readings from the running Claude app and improves quota refresh, docking, and connections.",
+    "headline": "Remote tools recover clearly",
+    "summary": "Version 0.2.17 restores the sync service and makes remote AI tool connection states and recovery clearer.",
     "highlights": [
       {
-        "title": "Claude desktop limits",
-        "detail": "Use recent readings from the running Claude app when Claude Code cannot supply limits.",
-        "systemImage": "chart.pie"
+        "title": "Restored sync service",
+        "detail": "Pair remote AI tools and sync normalized limits through the pmrichq.com relay. Existing connections need to be paired again.",
+        "systemImage": "network"
       },
       {
-        "title": "Claude pauses preserved",
-        "detail": "Request and Keychain pauses stay in place while Claude app readings are shown.",
-        "systemImage": "clock"
+        "title": "Clear connection states",
+        "detail": "Loading, no paired tools, saved readings, and service errors each show their own status.",
+        "systemImage": "checkmark.circle"
       },
       {
-        "title": "Steadier live limits",
-        "detail": "Codex keeps newer push updates. Cursor waits for a busy database before reading sign-in.",
-        "systemImage": "arrow.triangle.2.circlepath"
+        "title": "Retry and reconnect",
+        "detail": "Retry temporary errors or reconnect a missing saved connection without losing an active link.",
+        "systemImage": "arrow.clockwise"
       },
       {
-        "title": "More reliable windows",
-        "detail": "Docked positions survive unplugging, Settings fits its screen, and Sign In cancels cleanly.",
-        "systemImage": "macwindow"
+        "title": "Safer connection changes",
+        "detail": "Delayed requests cannot restore removed tools or overwrite a newer pairing code.",
+        "systemImage": "link"
       }
     ]
   }

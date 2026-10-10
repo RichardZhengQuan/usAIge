@@ -172,8 +172,8 @@ import Testing
         UpdateController.currentManifestURL,
         UpdateController.legacyManifestURL,
     ])
-    #expect(UpdateController.currentManifestURL.host == "usaige-macos.richardqz.chatgpt.site")
-    #expect(UpdateController.legacyManifestURL.host == "pmrichq.com")
+    #expect(UpdateController.currentManifestURL.host == "pmrichq.com")
+    #expect(UpdateController.legacyManifestURL.host == "usaige-macos.richardqz.chatgpt.site")
 }
 
 @Test func updateManifestRequestsBypassCachedReleaseData() throws {

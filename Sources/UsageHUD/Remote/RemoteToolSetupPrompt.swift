@@ -1,7 +1,7 @@
 import AppKit
 
 enum RemoteToolSetupPrompt {
-    static let claimURL = "https://usaige-macos.richardqz.chatgpt.site/api/v1/tool-pairings/claim"
+    static let claimURL = "https://pmrichq.com/project/usaige/api/v1/tool-pairings/claim"
 
     static func text(pairingCode: String) -> String {
         """

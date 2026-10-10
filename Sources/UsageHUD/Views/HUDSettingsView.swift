@@ -156,6 +156,8 @@ struct HUDSettingsView: View {
     let refreshUsage: () async -> Void
     @State private var remoteToolToDelete: RelayRemoteTool?
     @State private var isDetectingLocalTools = false
+    @State private var isRetryingRemoteTools = false
+    @State private var isReconnectingRemoteTools = false
     @State private var remotePromptCopied = false
     @State private var feedbackDraft = FeedbackDraft()
     @State private var feedbackState: FeedbackSubmissionState = .idle
@@ -181,6 +183,13 @@ struct HUDSettingsView: View {
 
     private var activeRemoteToolIDs: [AIToolID] {
         activeToolIDs.filter { !AIToolID.builtInIDs.contains($0) }
+    }
+
+    private var cachedRemoteToolIDs: [AIToolID] {
+        if case .loaded = relaySync.remoteToolsState { return [] }
+        return activeRemoteToolIDs.filter { id in
+            !relaySync.remoteTools.contains { $0.toolID == id }
+        }
     }
 
     var body: some View {
@@ -460,10 +469,7 @@ struct HUDSettingsView: View {
                 }
 
                 Section("Remote AI Tools") {
-                    if relaySync.remoteTools.isEmpty && activeRemoteToolIDs.isEmpty {
-                        Text("No remote tools connected.")
-                            .foregroundStyle(.secondary)
-                    }
+                    remoteToolsStatus
                     ForEach(orderedRemoteTools) { tool in
                         remoteToolRow(tool)
                             .reorderable(
@@ -480,13 +486,14 @@ struct HUDSettingsView: View {
                             }
                         }
                     }
-                    ForEach(activeRemoteToolIDs.filter { id in !relaySync.remoteTools.contains { $0.toolID == id } }, id: \.self) { id in
+                    ForEach(cachedRemoteToolIDs, id: \.self) { id in
                         toolRow(for: id)
                     }
-                    if let relayErrorMessage {
-                        Text(relayErrorMessage)
+                    if let remoteToolActionError {
+                        Text(remoteToolActionError)
                             .font(.caption)
                             .foregroundStyle(.red)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     HStack {
                         Spacer()
@@ -499,7 +506,124 @@ struct HUDSettingsView: View {
                     }
                 }
             }
+            .task { _ = try? await relaySync.refreshRemoteTools() }
         }
+    }
+
+    @ViewBuilder
+    private var remoteToolsStatus: some View {
+        switch relaySync.remoteToolsState {
+        case .unconfigured:
+            Text("Pair an AI tool to see its limits on this Mac.")
+                .foregroundStyle(.secondary)
+        case .idle, .loading:
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text(hasCachedRemoteTools ? "Refreshing remote tools…" : "Loading remote tools…")
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityElement(children: .combine)
+        case .loaded:
+            if relaySync.remoteTools.isEmpty {
+                Text("No remote tools paired.")
+                    .foregroundStyle(.secondary)
+            }
+        case .connectionUnavailable:
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Saved connection is no longer available", systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("Reconnect this Mac, then pair your iPhones and AI tools again.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                remoteToolsReconnectButton
+            }
+        case let .failed(message):
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Couldn’t load remote tools", systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.red)
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if hasCachedRemoteTools {
+                        Text("Showing saved tools and limits. They may be out of date.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer(minLength: 8)
+                remoteToolsRetryButton
+            }
+        }
+    }
+
+    private var remoteToolsRetryButton: some View {
+        Button {
+            Task {
+                guard !isRetryingRemoteTools, !isLoadingRemoteTools else { return }
+                isRetryingRemoteTools = true
+                defer { isRetryingRemoteTools = false }
+                await refreshUsage()
+            }
+        } label: {
+            if isRetryingRemoteTools {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Retrying…")
+                }
+            } else {
+                Text("Retry")
+            }
+        }
+        .disabled(isRetryingRemoteTools || isLoadingRemoteTools)
+        .fixedSize()
+        .accessibilityLabel("Retry loading remote AI tools")
+        .accessibilityHint("Checks the paired tools and refreshes their limits")
+    }
+
+    private var remoteToolsReconnectButton: some View {
+        Button {
+            Task {
+                guard relaySync.canReconnectRemoteTools,
+                      !isReconnectingRemoteTools,
+                      !isRemoteToolActionBusy else { return }
+                isReconnectingRemoteTools = true
+                defer { isReconnectingRemoteTools = false }
+                remotePromptCopied = false
+                if navigation.route.last != .remoteToolPairing {
+                    navigation.route.append(.remoteToolPairing)
+                }
+                await relaySync.reconnectRemoteTools()
+            }
+        } label: {
+            if isReconnectingRemoteTools {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Reconnecting…")
+                }
+            } else {
+                Text("Reconnect")
+            }
+        }
+        .disabled(!relaySync.canReconnectRemoteTools || isReconnectingRemoteTools || isRemoteToolActionBusy)
+        .fixedSize()
+        .accessibilityLabel("Reconnect this Mac to the sync service")
+        .accessibilityHint("Creates a new connection. Pair your iPhones and AI tools again.")
+    }
+
+    private var hasCachedRemoteTools: Bool {
+        !relaySync.remoteTools.isEmpty || !cachedRemoteToolIDs.isEmpty
+    }
+
+    private var isLoadingRemoteTools: Bool {
+        if case .loading = relaySync.remoteToolsState { true } else { false }
     }
 
     @ViewBuilder
@@ -665,16 +789,10 @@ struct HUDSettingsView: View {
         pageContainer(title: "Connect AI Tool") {
             settingsForm {
                 Section {
-                    if relaySync.remoteTools.isEmpty {
-                        ContentUnavailableView(
-                            "Not Connected",
-                            systemImage: "link.badge.plus",
-                            description: Text("Create a code, then give it to Codex, Claude Code, or another compatible AI tool.")
-                        )
-                    } else {
-                        LabeledContent("Mac", value: relaySync.macName)
-                        LabeledContent("Status", value: relayStatusText)
-                    }
+                    LabeledContent("Mac", value: relaySync.macName)
+                    Text("Create a code, then give it to Codex, Claude Code, or another compatible AI tool.")
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
 
                     if let code = relaySync.remotePairingCode,
                        let expiry = relaySync.remotePairingExpiresAt,
@@ -698,9 +816,10 @@ struct HUDSettingsView: View {
                             }
                             Spacer()
                             Button("Create New Code") {
+                                remotePromptCopied = false
                                 Task { await relaySync.createRemoteToolPairingCode() }
                             }
-                            .disabled(isRelayConnecting)
+                            .disabled(isRemoteToolActionBusy)
                         }
                     } else {
                         HStack {
@@ -709,23 +828,24 @@ struct HUDSettingsView: View {
                                 remotePromptCopied = false
                                 Task { await relaySync.createRemoteToolPairingCode() }
                             } label: {
-                                if isRelayConnecting {
+                                if isRemoteToolActionBusy {
                                     HStack(spacing: 8) {
                                         ProgressView().controlSize(.small)
                                         Text("Creating…")
                                     }
                                 } else {
-                                    Text(relaySync.remoteTools.isEmpty ? "Create Connection" : "Connect Another Tool")
+                                    Text("Create Pairing Code")
                                 }
                             }
                             .buttonStyle(.borderedProminent)
-                            .disabled(isRelayConnecting)
+                            .disabled(isRemoteToolActionBusy)
                         }
                     }
-                    if let relayErrorMessage {
-                        Text(relayErrorMessage)
+                    if let remoteToolActionError {
+                        Text(remoteToolActionError)
                             .font(.caption)
                             .foregroundStyle(.red)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 } header: {
                     Text("Connection")
@@ -738,27 +858,25 @@ struct HUDSettingsView: View {
                     .foregroundStyle(.secondary)
                 }
 
-                if !relaySync.remoteTools.isEmpty {
+                if relaySync.isLinked || !relaySync.remoteTools.isEmpty {
                     Section("Paired AI Tools") {
+                        remoteToolsStatus
                         ForEach(relaySync.remoteTools) { tool in
                             HStack {
-                                Label(tool.name, systemImage: tool.symbolName)
-                                Spacer()
-                                if let lastUploadAt = tool.lastUploadAt {
-                                    Text(lastUploadAt, style: .relative)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                } else {
-                                    Text("Waiting for limits")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                Image(systemName: tool.symbolName)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(tool.name)
+                                    remoteToolConnectionStatus(tool)
                                 }
+                                Spacer()
                                 Button("Revoke", role: .destructive) {
                                     Task {
                                         await relaySync.revoke(tool)
                                         await refreshUsage()
                                     }
                                 }
+                                .disabled(isRemoteToolActionBusy)
+                                .accessibilityLabel("Revoke \(tool.name)")
                             }
                         }
                     }
@@ -798,12 +916,12 @@ struct HUDSettingsView: View {
         }
     }
 
-    private var isRelayConnecting: Bool {
-        if case .connecting = relaySync.status { true } else { false }
+    private var isRemoteToolActionBusy: Bool {
+        if case .connecting = relaySync.remoteToolActionState { true } else { false }
     }
 
-    private var relayErrorMessage: String? {
-        if case let .failed(message) = relaySync.status { message } else { nil }
+    private var remoteToolActionError: String? {
+        if case let .failed(message) = relaySync.remoteToolActionState { message } else { nil }
     }
 
     private func pageContainer<Content: View>(
@@ -1061,9 +1179,7 @@ struct HUDSettingsView: View {
                 .frame(width: 24)
             VStack(alignment: .leading, spacing: 2) {
                 Text(tool.name)
-                Text(tool.lastUploadAt == nil ? "Waiting for limits" : "Connected")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                remoteToolConnectionStatus(tool)
             }
             Spacer()
             if !buckets.isEmpty {
@@ -1098,8 +1214,41 @@ struct HUDSettingsView: View {
                 Image(systemName: "trash")
             }
             .buttonStyle(.borderless)
+            .disabled(isRemoteToolActionBusy)
             .help("Remove \(tool.name)")
             .accessibilityLabel("Remove \(tool.name)")
+        }
+    }
+
+    @ViewBuilder
+    private func remoteToolConnectionStatus(_ tool: RelayRemoteTool) -> some View {
+        switch relaySync.remoteToolsState {
+        case .loaded:
+            if let lastUploadAt = tool.lastUploadAt {
+                Text("Last limits received \(lastUploadAt, style: .relative) ago")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("Paired · Waiting for limits")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        case .idle, .loading:
+            Text("Refreshing tool details…")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        case .failed:
+            Text("Saved tool · Details unavailable")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        case .connectionUnavailable:
+            Text("Saved tool · Pair again")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        case .unconfigured:
+            Text("Saved tool · Not linked")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
     }
 
