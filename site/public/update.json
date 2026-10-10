@@ -1,34 +1,34 @@
 {
-  "build" : 37,
-  "downloadURL" : "https://usaige-macos.richardqz.chatgpt.site/usAIge-0.2.15-alpha.dmg",
+  "build" : 38,
+  "downloadURL" : "https://usaige-macos.richardqz.chatgpt.site/usAIge-0.2.16-alpha.dmg",
   "minimumSystemVersion" : "11.0",
   "releaseNotes" : {
-    "headline" : "Claude without a switch, Settings that fit",
+    "headline" : "Claude app limits, a steadier rail",
     "highlights" : [
       {
-        "detail" : "usAIge reads Claude Code’s sign-in the way Claude Code saves it: nothing to turn on, and no Keychain prompt.",
-        "systemImage" : "key",
-        "title" : "Claude limits, no switch"
+        "detail" : "Use recent readings from the running Claude app when Claude Code cannot supply limits.",
+        "systemImage" : "chart.pie",
+        "title" : "Claude desktop limits"
       },
       {
-        "detail" : "The latest ChatGPT app moved its Codex tool. usAIge finds it there and looks again when Codex restarts.",
+        "detail" : "Request and Keychain pauses stay in place while Claude app readings are shown.",
+        "systemImage" : "clock",
+        "title" : "Claude pauses preserved"
+      },
+      {
+        "detail" : "Codex keeps newer push updates. Cursor waits for a busy database before reading sign-in.",
         "systemImage" : "arrow.triangle.2.circlepath",
-        "title" : "Codex limits are back"
+        "title" : "Steadier live limits"
       },
       {
-        "detail" : "The window fits the page you open, sliders show their values, and tools reorder from a Control-click.",
+        "detail" : "Docked positions survive unplugging, Settings fits its screen, and Sign In cancels cleanly.",
         "systemImage" : "macwindow",
-        "title" : "Settings fit every page"
-      },
-      {
-        "detail" : "Tags stay legible on any wallpaper, refresh shows progress, and VoiceOver can refresh or open Settings.",
-        "systemImage" : "eye",
-        "title" : "A clearer rail"
+        "title" : "More reliable windows"
       }
     ],
-    "summary" : "Version 0.2.15 reads Claude limits with nothing to turn on, finds Codex in the latest ChatGPT app, and sizes Settings to each page."
+    "summary" : "Version 0.2.16 can use fresh readings from the running Claude app and improves quota refresh, docking, and connections."
   },
-  "sha256" : "db752010a268731fb8691a414fb22fafa401a9537a159a07612a517d48500a96",
-  "signature" : "jvecNkPq4dx9jQjhq/pWtymFJR7uPqF91hM0aCXNOS3D5QfRXPwwQfA5guq/hrjgaoZ9ztvtfYhSg6NIKL5rBA==",
-  "version" : "0.2.15"
+  "sha256" : "2ea326cc9cc1b30afa635aa51f625bd02c200aabbca85079e6abc25ac7103f2b",
+  "signature" : "B2ajb7cg6p3ojq44B/DAXUp0c6ir0cc80e8JjPloy19jzbwaL7tpd4ZZKBJ36YnIYpMoVoPVvjzZpuU9AkNyDw==",
+  "version" : "0.2.16"
 }

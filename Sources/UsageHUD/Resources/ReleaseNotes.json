@@ -1,29 +1,29 @@
 {
-  "version": "0.2.15",
-  "build": 37,
+  "version": "0.2.16",
+  "build": 38,
   "releaseNotes": {
-    "headline": "Claude without a switch, Settings that fit",
-    "summary": "Version 0.2.15 reads Claude limits with nothing to turn on, finds Codex in the latest ChatGPT app, and sizes Settings to each page.",
+    "headline": "Claude app limits, a steadier rail",
+    "summary": "Version 0.2.16 can use fresh readings from the running Claude app and improves quota refresh, docking, and connections.",
     "highlights": [
       {
-        "title": "Claude limits, no switch",
-        "detail": "usAIge reads Claude Code’s sign-in the way Claude Code saves it: nothing to turn on, and no Keychain prompt.",
-        "systemImage": "key"
+        "title": "Claude desktop limits",
+        "detail": "Use recent readings from the running Claude app when Claude Code cannot supply limits.",
+        "systemImage": "chart.pie"
       },
       {
-        "title": "Codex limits are back",
-        "detail": "The latest ChatGPT app moved its Codex tool. usAIge finds it there and looks again when Codex restarts.",
+        "title": "Claude pauses preserved",
+        "detail": "Request and Keychain pauses stay in place while Claude app readings are shown.",
+        "systemImage": "clock"
+      },
+      {
+        "title": "Steadier live limits",
+        "detail": "Codex keeps newer push updates. Cursor waits for a busy database before reading sign-in.",
         "systemImage": "arrow.triangle.2.circlepath"
       },
       {
-        "title": "Settings fit every page",
-        "detail": "The window fits the page you open, sliders show their values, and tools reorder from a Control-click.",
+        "title": "More reliable windows",
+        "detail": "Docked positions survive unplugging, Settings fits its screen, and Sign In cancels cleanly.",
         "systemImage": "macwindow"
-      },
-      {
-        "title": "A clearer rail",
-        "detail": "Tags stay legible on any wallpaper, refresh shows progress, and VoiceOver can refresh or open Settings.",
-        "systemImage": "eye"
       }
     ]
   }
