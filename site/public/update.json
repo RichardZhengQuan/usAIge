@@ -1,34 +1,29 @@
 {
-  "build" : 39,
-  "downloadURL" : "https://pmrichq.com/project/usaige/usAIge-0.2.17-alpha.dmg",
+  "build" : 40,
+  "downloadURL" : "https://pmrichq.com/project/usaige/usAIge-0.2.18-alpha.dmg",
   "minimumSystemVersion" : "11.0",
   "releaseNotes" : {
-    "headline" : "Remote tools recover clearly",
+    "headline" : "Cursor shows your current plan",
     "highlights" : [
       {
-        "detail" : "Pair remote AI tools and sync normalized limits through the pmrichq.com relay. Existing connections need to be paired again.",
-        "systemImage" : "network",
-        "title" : "Restored sync service"
-      },
-      {
-        "detail" : "Loading, no paired tools, saved readings, and service errors each show their own status.",
-        "systemImage" : "checkmark.circle",
-        "title" : "Clear connection states"
-      },
-      {
-        "detail" : "Retry temporary errors or reconnect a missing saved connection without losing an active link.",
+        "detail" : "Cursor's plan label refreshes from its account service with each usage check.",
         "systemImage" : "arrow.clockwise",
-        "title" : "Retry and reconnect"
+        "title" : "Current account plan"
       },
       {
-        "detail" : "Delayed requests cannot restore removed tools or overwrite a newer pairing code.",
-        "systemImage" : "link",
-        "title" : "Safer connection changes"
+        "detail" : "An old Pro membership cached by the editor no longer determines the displayed plan.",
+        "systemImage" : "checkmark.circle",
+        "title" : "No stale Pro label"
+      },
+      {
+        "detail" : "If the plan lookup is unavailable, current usage remains visible and the plan label is omitted.",
+        "systemImage" : "chart.pie",
+        "title" : "Usage stays visible"
       }
     ],
-    "summary" : "Version 0.2.17 restores the sync service and makes remote AI tool connection states and recovery clearer."
+    "summary" : "Version 0.2.18 checks Cursor's current account plan instead of trusting the editor's saved membership."
   },
-  "sha256" : "521d62e1e1a9e76df5658fdbd9084a02abd18291f7d6dc87cfb27dbb5b0a15ca",
-  "signature" : "9gZPpP2dsq1Rli9sUwVEryapP0zLVYgWrJSjtgsZVUZzBkEE1vtHexrqfYKyqUjVqKP93D6Y8lds0yerLte5Bw==",
-  "version" : "0.2.17"
+  "sha256" : "26e94b82d41e5cc8a26e06587cbfe9b5881c5c3d667941fe5fdb82f47d62b5b5",
+  "signature" : "ZT+xAtMUh8xnQcGUNpAzCb0vlYa7sPGhjdM3iAAJZ8QR3taj+4JvqOYIaXFTcsGaUWKxBzYOupbARRJgNbuoBg==",
+  "version" : "0.2.18"
 }

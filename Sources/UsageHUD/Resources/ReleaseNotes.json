@@ -1,29 +1,24 @@
 {
-  "version": "0.2.17",
-  "build": 39,
+  "version": "0.2.18",
+  "build": 40,
   "releaseNotes": {
-    "headline": "Remote tools recover clearly",
-    "summary": "Version 0.2.17 restores the sync service and makes remote AI tool connection states and recovery clearer.",
+    "headline": "Cursor shows your current plan",
+    "summary": "Version 0.2.18 checks Cursor's current account plan instead of trusting the editor's saved membership.",
     "highlights": [
       {
-        "title": "Restored sync service",
-        "detail": "Pair remote AI tools and sync normalized limits through the pmrichq.com relay. Existing connections need to be paired again.",
-        "systemImage": "network"
-      },
-      {
-        "title": "Clear connection states",
-        "detail": "Loading, no paired tools, saved readings, and service errors each show their own status.",
-        "systemImage": "checkmark.circle"
-      },
-      {
-        "title": "Retry and reconnect",
-        "detail": "Retry temporary errors or reconnect a missing saved connection without losing an active link.",
+        "title": "Current account plan",
+        "detail": "Cursor's plan label refreshes from its account service with each usage check.",
         "systemImage": "arrow.clockwise"
       },
       {
-        "title": "Safer connection changes",
-        "detail": "Delayed requests cannot restore removed tools or overwrite a newer pairing code.",
-        "systemImage": "link"
+        "title": "No stale Pro label",
+        "detail": "An old Pro membership cached by the editor no longer determines the displayed plan.",
+        "systemImage": "checkmark.circle"
+      },
+      {
+        "title": "Usage stays visible",
+        "detail": "If the plan lookup is unavailable, current usage remains visible and the plan label is omitted.",
+        "systemImage": "chart.pie"
       }
     ]
   }
