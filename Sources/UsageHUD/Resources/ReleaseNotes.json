@@ -1,24 +1,24 @@
 {
-  "version": "0.2.18",
-  "build": 40,
+  "version": "0.2.19",
+  "build": 41,
   "releaseNotes": {
-    "headline": "Cursor shows your current plan",
-    "summary": "Version 0.2.18 checks Cursor's current account plan instead of trusting the editor's saved membership.",
+    "headline": "Clearer Claude connection and reset times",
+    "summary": "Version 0.2.19 keeps connected Claude accounts free of extra sign-in prompts and makes unavailable reset times clear.",
     "highlights": [
       {
-        "title": "Current account plan",
-        "detail": "Cursor's plan label refreshes from its account service with each usage check.",
-        "systemImage": "arrow.clockwise"
-      },
-      {
-        "title": "No stale Pro label",
-        "detail": "An old Pro membership cached by the editor no longer determines the displayed plan.",
+        "title": "No extra sign-in",
+        "detail": "Settings hides Sign In when the Claude desktop app is already supplying usage.",
         "systemImage": "checkmark.circle"
       },
       {
-        "title": "Usage stays visible",
-        "detail": "If the plan lookup is unavailable, current usage remains visible and the plan label is omitted.",
-        "systemImage": "chart.pie"
+        "title": "Honest reset countdowns",
+        "detail": "When a provider has no reset timestamp, usage shows — instead of the quota window length.",
+        "systemImage": "clock"
+      },
+      {
+        "title": "Clear unavailable state",
+        "detail": "Hover and accessibility text explain that the reset time is unavailable.",
+        "systemImage": "info.circle"
       }
     ]
   }

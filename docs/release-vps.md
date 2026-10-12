@@ -10,7 +10,7 @@ see [relay-vps.md](relay-vps.md).
 
 Update the app's version/build in `Sources/UsageHUD/Resources/Info.plist`, bundled release
 notes, the homepage release links/version, and their release assertions before
-building. For this release the next version is **0.2.18**, build **40**. The
+building. For this release the next version is **0.2.19**, build **41**. The
 update controller compares build numbers, so each subsequent release must
 increase the build.
 
@@ -117,11 +117,11 @@ planning disk cleanup; old versions of the app can hold earlier manifest URLs.
 
 After the PR is merged and required checks pass, create the tag/release against
 the exact merged commit. Use a release body file to preserve prose and newlines.
-For version 0.2.18, the native assets are:
+For version 0.2.19, the native assets are:
 
 ```text
-dist/usAIge-0.2.18-alpha.dmg
-dist/usAIge-0.2.18-alpha.dmg.sha256
+dist/usAIge-0.2.19-alpha.dmg
+dist/usAIge-0.2.19-alpha.dmg.sha256
 ```
 
 If attaching a website archive as a release asset, archive the contents of
