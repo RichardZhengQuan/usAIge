@@ -258,3 +258,81 @@ func cursorKeepsUsageWithoutGuessingPlanWhenMembershipIsUnavailable(
     // usAIge must leave Cursor's own cache and credentials untouched.
     #expect(try CursorStateDatabase(databaseURL: database).readValue(forKey: "cursorAuth/stripeMembershipType") == "pro")
 }
+
+
+@Test func cursorBacksOffMembershipWhileManualAndAutomaticUsageRefreshesContinue() async throws {
+    let clock = TestClockBox(testNow)
+    let http = ScriptedUsageHTTPClient(sequences: [
+        CursorUsageProvider.usageURL.absoluteString: [
+            .init(json: #"{"planUsage":{"totalPercentUsed":25}}"#),
+            .init(json: #"{"planUsage":{"totalPercentUsed":30}}"#),
+            .init(json: #"{"planUsage":{"totalPercentUsed":35}}"#),
+            .init(json: #"{"planUsage":{"totalPercentUsed":40}}"#),
+        ],
+        membershipURL: [
+            .init(status: 429, json: "{}"),
+            .init(json: #"{"membershipType":"free"}"#),
+        ],
+    ])
+    let registry = await LocalToolStatusRegistry()
+    let cursor = CursorUsageProvider(
+        session: StaticCursorSessionSource(session: liveSession()),
+        http: http,
+        statusRegistry: registry,
+        now: { clock.now }
+    )
+    let provider = ThrottledUsageProvider(
+        base: cursor,
+        minimumInterval: 120,
+        manualMinimumInterval: 20,
+        now: { clock.now }
+    )
+
+    #expect(try await provider.refresh().snapshots.first?.planType == nil)
+    clock.now.addTimeInterval(20)
+    let manual = try #require(try await provider.refresh(manual: true).snapshots.first)
+    #expect(manual.planType == nil)
+    #expect(manual.remainingPercent == 70)
+    clock.now.addTimeInterval(120)
+    let automatic = try #require(try await provider.refresh().snapshots.first)
+    #expect(automatic.planType == nil)
+    #expect(automatic.remainingPercent == 65)
+    #expect(await http.requests.filter { $0.url?.absoluteString == membershipURL }.count == 1)
+    #expect(await registry.status(for: .cursor) == .connected)
+
+    clock.now.addTimeInterval(460)
+    let recovered = try #require(try await provider.refresh().snapshots.first)
+    #expect(recovered.planType == "free")
+    #expect(recovered.remainingPercent == 60)
+    #expect(await http.requests.filter { $0.url?.absoluteString == membershipURL }.count == 2)
+}
+
+@Test func cursorMembershipRateLimitRestartsOnAnother429AndClearsOnStop() async throws {
+    let clock = TestClockBox(testNow)
+    let http = ScriptedUsageHTTPClient(sequences: [
+        CursorUsageProvider.usageURL.absoluteString: [
+            .init(json: #"{"planUsage":{"totalPercentUsed":25}}"#),
+        ],
+        membershipURL: [
+            .init(status: 429, json: "{}"),
+            .init(status: 429, json: "{}"),
+            .init(json: #"{"membershipType":"free"}"#),
+        ],
+    ])
+    let provider = CursorUsageProvider(
+        session: StaticCursorSessionSource(session: liveSession()),
+        http: http,
+        now: { clock.now }
+    )
+
+    #expect(try await provider.refresh().snapshots.first?.planType == nil)
+    clock.now.addTimeInterval(600)
+    #expect(try await provider.refresh().snapshots.first?.planType == nil)
+    clock.now.addTimeInterval(599)
+    #expect(try await provider.refresh().snapshots.first?.planType == nil)
+    #expect(await http.requests.filter { $0.url?.absoluteString == membershipURL }.count == 2)
+
+    await provider.stop()
+    #expect(try await provider.refresh().snapshots.first?.planType == "free")
+    #expect(await http.requests.filter { $0.url?.absoluteString == membershipURL }.count == 3)
+}

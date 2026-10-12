@@ -23,7 +23,7 @@
     ],
     "summary" : "Version 0.2.18 checks Cursor's current account plan instead of trusting the editor's saved membership."
   },
-  "sha256" : "26e94b82d41e5cc8a26e06587cbfe9b5881c5c3d667941fe5fdb82f47d62b5b5",
-  "signature" : "ZT+xAtMUh8xnQcGUNpAzCb0vlYa7sPGhjdM3iAAJZ8QR3taj+4JvqOYIaXFTcsGaUWKxBzYOupbARRJgNbuoBg==",
+  "sha256" : "718a552ce0326476f7d66fbae2560ac843fd3df448a2218c650cde67b7bc0de3",
+  "signature" : "uqmebLF21dwjY1j57rWxqRcnvE4XdwWpzp/ap+2mn0c0v53ruPMJM7LwVZkXI8qLSjA+d+dTWmpi1c1GPBWABw==",
   "version" : "0.2.18"
 }

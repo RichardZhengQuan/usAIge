@@ -95,6 +95,7 @@ actor CursorUsageProvider: CodexUsageProviding {
     private let http: any UsageHTTPClient
     private let statusRegistry: LocalToolStatusRegistry?
     private let now: @Sendable () -> Date
+    private var membershipRateLimitedUntil: Date?
 
     init(
         session: any CursorSessionSource = CursorStateDatabase(),
@@ -123,7 +124,9 @@ actor CursorUsageProvider: CodexUsageProviding {
         AsyncStream { $0.finish() }
     }
 
-    func stop() async {}
+    func stop() async {
+        membershipRateLimitedUntil = nil
+    }
 
     private func performRefresh() async throws -> AccountUsageResult {
         guard let session = try session.load() else { return .signedOut }
@@ -161,6 +164,7 @@ actor CursorUsageProvider: CodexUsageProviding {
     }
 
     private func currentPlanType(accessToken: String) async throws -> String? {
+        if let membershipRateLimitedUntil, now() < membershipRateLimitedUntil { return nil }
         var request = URLRequest(url: Self.membershipURL)
         request.httpMethod = "GET"
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
@@ -170,6 +174,13 @@ actor CursorUsageProvider: CodexUsageProviding {
         do {
             let (status, body) = try await http.send(request)
             try Task.checkCancellation()
+            if status == 429 {
+                // Match Cursor's ten-minute usage backoff without discarding
+                // the fresh usage result or retaining an old plan label.
+                membershipRateLimitedUntil = now().addingTimeInterval(600)
+                return nil
+            }
+            membershipRateLimitedUntil = nil
             guard (200..<300).contains(status),
                   let membership = JSONValue.parse(body)?["membershipType"]?.stringValue else {
                 return nil
