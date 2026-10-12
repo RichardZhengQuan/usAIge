@@ -154,7 +154,7 @@ The packaged application includes the custom usAIge icon in Finder, the Dock, Sp
 
 ## Install the public alpha
 
-Download `usAIge-0.2.17-alpha.dmg` and its checksum from the website. Open the disk image, then drag `usAIge.app` onto the Applications shortcut.
+Download `usAIge-0.2.18-alpha.dmg` and its checksum from the website. Open the disk image, then drag `usAIge.app` onto the Applications shortcut.
 
 This alpha is ad-hoc signed and is not notarized because the project does not yet have a Developer ID Application certificate. On first launch:
 
@@ -168,7 +168,7 @@ To build and verify the installer locally:
 
 ```bash
 scripts/package-dmg.sh
-(cd dist && shasum -a 256 -c usAIge-0.2.17-alpha.dmg.sha256)
+(cd dist && shasum -a 256 -c usAIge-0.2.18-alpha.dmg.sha256)
 ```
 
 ## Usage data
@@ -187,8 +187,8 @@ The app prefers `rateLimitsByLimitId` and falls back to the legacy single `rateL
 ### Local Claude Code, Cursor, and Grok Build
 
 These three tools are read directly by the Mac app. Each provider reads the
-sign-in its own client already stores on this Mac, holds it in memory for a
-single request to that provider's account usage endpoint, and keeps only the
+sign-in its own client already stores on this Mac, holds it in memory for
+requests to that provider's account endpoints, and keeps only the
 normalized percentages and reset times. usAIge never writes, logs, or relays
 a token, and it never refreshes or rotates one; when a sign-in expires, the
 rail keeps the last values and **Settings → AI Tools** says which tool
@@ -200,6 +200,11 @@ to open.
 | Claude app (fallback) | None | `~/Library/Application Support/Claude/plan-usage-history.json`, where the Claude desktop app records its own plan usage every few minutes while it runs | **All models** (5-hour inner ring, 7-day outer ring), without reset times |
 | Cursor | `cursorAuth/accessToken` in Cursor's own state store | `api2.cursor.sh` `DashboardService/GetCurrentPeriodUsage`, the request the editor makes for Plan & Usage | **Cursor models** and **Other models** for the current billing cycle, or the blended included-usage percentage when the split is not reported |
 | Grok Build | `~/.grok/auth.json` (or `$GROK_HOME/auth.json`) | `grok.com` credits configuration and task usage, the requests Grok Build makes for its own usage view | Included credits for the current cycle, plus task limits when the account reports them |
+
+Cursor's plan label comes from its live `auth/full_stripe_profile` account
+endpoint on each usage refresh, because the editor's locally cached membership
+can remain unchanged after cancellation. If that lookup is unavailable, usAIge
+omits the plan label while still showing the current usage.
 
 Polling is deliberately slow because these are account endpoints rather than
 a local server: Claude every 5 minutes, Cursor and Grok Build every 2 minutes,

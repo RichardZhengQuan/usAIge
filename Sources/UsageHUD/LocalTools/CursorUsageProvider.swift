@@ -3,7 +3,6 @@ import SQLite3
 
 struct CursorSession: Equatable, Sendable {
     let accessToken: String
-    let membershipType: String?
     let expiresAt: Date?
 }
 
@@ -14,10 +13,11 @@ protocol CursorSessionSource: Sendable {
 
 /// Reads the live session token Cursor keeps in its own state store
 /// (`state.vscdb`), the same value the editor sends to `api2.cursor.sh`.
-/// The database is opened read-only and only two keys are read.
+/// The database is opened read-only and only the sign-in token is read.
+/// Cursor's cached membership can outlive a canceled subscription, so the
+/// current plan must come from the account endpoint on each usage refresh.
 struct CursorStateDatabase: CursorSessionSource {
     static let accessTokenKey = "cursorAuth/accessToken"
-    static let membershipTypeKey = "cursorAuth/stripeMembershipType"
 
     let databaseURL: URL
 
@@ -33,10 +33,8 @@ struct CursorStateDatabase: CursorSessionSource {
     func load() throws -> CursorSession? {
         guard FileManager.default.fileExists(atPath: databaseURL.path) else { return nil }
         guard let token = try readValue(forKey: Self.accessTokenKey), !token.isEmpty else { return nil }
-        let membership = try? readValue(forKey: Self.membershipTypeKey)
         return CursorSession(
             accessToken: token,
-            membershipType: membership.flatMap { $0.isEmpty ? nil : $0 },
             expiresAt: JSONWebToken.expiry(of: token)
         )
     }
@@ -88,12 +86,16 @@ actor CursorUsageProvider: CodexUsageProviding {
     static let usageURL = URL(
         string: "https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage"
     )!
+    /// The same live membership lookup Cursor's editor uses. Usage does not
+    /// include a plan, and the local stripeMembershipType has no freshness.
+    static let membershipURL = URL(string: "https://api2.cursor.sh/auth/full_stripe_profile")!
     static let primaryBucketID = "cursor"
 
     private let session: any CursorSessionSource
     private let http: any UsageHTTPClient
     private let statusRegistry: LocalToolStatusRegistry?
     private let now: @Sendable () -> Date
+    private var membershipRateLimitedUntil: Date?
 
     init(
         session: any CursorSessionSource = CursorStateDatabase(),
@@ -122,7 +124,9 @@ actor CursorUsageProvider: CodexUsageProviding {
         AsyncStream { $0.finish() }
     }
 
-    func stop() async {}
+    func stop() async {
+        membershipRateLimitedUntil = nil
+    }
 
     private func performRefresh() async throws -> AccountUsageResult {
         guard let session = try session.load() else { return .signedOut }
@@ -151,11 +155,44 @@ actor CursorUsageProvider: CodexUsageProviding {
         guard let response = JSONValue.parse(body), response.objectValue != nil else {
             throw LocalToolUsageError.invalidResponse
         }
+        let planType = try await currentPlanType(accessToken: session.accessToken)
         return .authenticated(Self.snapshots(
             from: response,
-            planType: session.membershipType,
+            planType: planType,
             updatedAt: now()
         ))
+    }
+
+    private func currentPlanType(accessToken: String) async throws -> String? {
+        if let membershipRateLimitedUntil, now() < membershipRateLimitedUntil { return nil }
+        var request = URLRequest(url: Self.membershipURL)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(UsAIgeUserAgent.value, forHTTPHeaderField: "User-Agent")
+
+        do {
+            let (status, body) = try await http.send(request)
+            try Task.checkCancellation()
+            if status == 429 {
+                // Match Cursor's ten-minute usage backoff without discarding
+                // the fresh usage result or retaining an old plan label.
+                membershipRateLimitedUntil = now().addingTimeInterval(600)
+                return nil
+            }
+            membershipRateLimitedUntil = nil
+            guard (200..<300).contains(status),
+                  let membership = JSONValue.parse(body)?["membershipType"]?.stringValue else {
+                return nil
+            }
+            let plan = membership.trimmingCharacters(in: .whitespacesAndNewlines)
+            return plan.isEmpty ? nil : plan
+        } catch {
+            if error is CancellationError || Task.isCancelled { throw CancellationError() }
+            // A missing plan must not discard fresh usage or keep an earlier
+            // Pro label through the composite provider's failure cache.
+            return nil
+        }
     }
 
     private func report(_ status: LocalToolStatus) async {
