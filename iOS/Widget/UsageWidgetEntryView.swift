@@ -162,7 +162,6 @@ private struct HUDQuotaTile: View {
                 HUDWindowTag(
                     text: WidgetQuotaFormat.resetTag(
                         resetAt: snapshot.resetAt,
-                        fallback: snapshot.typeTag,
                         now: now
                     ),
                     severity: primarySeverity,
@@ -173,7 +172,6 @@ private struct HUDQuotaTile: View {
                     HUDWindowTag(
                         text: WidgetQuotaFormat.resetTag(
                             resetAt: secondary.resetAt,
-                            fallback: secondary.typeTag,
                             now: now
                         ),
                         severity: secondarySeverity ?? .abundant,
@@ -461,8 +459,9 @@ private enum WidgetQuotaFormat {
         "\(Int(min(max(remainingPercent, 0), 100).rounded()))%"
     }
 
-    static func resetTag(resetAt: Date?, fallback: String, now: Date) -> String {
-        guard let resetAt else { return fallback }
+    static func resetTag(resetAt: Date?, now: Date) -> String {
+        // The window duration is not a countdown when the reset date is missing.
+        guard let resetAt else { return "—" }
         let remaining = resetAt.timeIntervalSince(now)
         guard remaining > 0 else { return "NOW" }
         if remaining >= 86_400 {

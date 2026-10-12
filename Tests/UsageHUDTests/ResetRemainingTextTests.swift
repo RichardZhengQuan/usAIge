@@ -7,13 +7,15 @@ import Testing
 
     #expect(ResetRemainingText.compact(until: now.addingTimeInterval(5 * 86_400 + 1), now: now) == "6D")
     #expect(ResetRemainingText.compact(until: now.addingTimeInterval(5 * 3_600 + 1), now: now) == "6H")
+    #expect(ResetRemainingText.compact(until: now.addingTimeInterval(16 * 3_600), now: now) == "16H")
     #expect(ResetRemainingText.compact(until: now.addingTimeInterval(44 * 60 + 1), now: now) == "45M")
 }
 
 @Test func resetRemainingTextHandlesMissingAndElapsedDates() {
     let now = Date(timeIntervalSince1970: 1_800_000_000)
 
-    #expect(ResetRemainingText.compact(until: nil, now: now) == nil)
+    #expect(ResetRemainingText.compact(until: nil, now: now) == "—")
+    #expect(ResetRemainingText.accessibilityLabel(until: nil, now: now) == "Reset time unavailable")
     #expect(ResetRemainingText.compact(until: now, now: now) == "NOW")
     #expect(ResetRemainingText.accessibilityLabel(until: now, now: now) == "Resetting now")
 }

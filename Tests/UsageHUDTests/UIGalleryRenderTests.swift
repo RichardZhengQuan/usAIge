@@ -180,7 +180,23 @@ struct UIGalleryRenderTests {
 
     @Test func rendersTheRail() async throws {
         guard #available(macOS 14.0, *) else { return }
+        let now = Date()
+        var claudeWithReset = QuotaSnapshot.make(
+            from: RateLimitBucket(
+                limitID: "claude", limitName: "All models", usedPercent: 26,
+                windowDurationMinutes: 300, resetsAt: now.addingTimeInterval(2 * 3_600).timeIntervalSince1970,
+                planType: "max", secondaryUsedPercent: 96, secondaryWindowDurationMinutes: 10_080,
+                secondaryResetsAt: now.addingTimeInterval(16 * 3_600).timeIntervalSince1970
+            ), updatedAt: now
+        )
+        claudeWithReset.toolID = .claude
+        let claudeWithoutReset = ClaudeUsageProvider.snapshots(
+            fromClaudeApp: ClaudeAppUsageSample(recordedAt: now, sessionPercent: 26, weeklyPercent: 96),
+            planType: "max"
+        )
         let scenes = [
+            RailScene(name: "claude-reset-known", result: .success(.authenticated([claudeWithReset]))),
+            RailScene(name: "claude-reset-unavailable", result: .success(.authenticated(claudeWithoutReset))),
             RailScene(
                 name: "mixed",
                 result: .success(.authenticated(mixedSnapshots)),
@@ -246,6 +262,7 @@ struct UIGalleryRenderTests {
         ]
         let claudeStatuses: [(String, LocalToolStatus, [QuotaSnapshot])] = [
             ("connected", .connected, mixedSnapshots),
+            ("claude-app-reset-unavailable", .connectedThroughClaudeApp, mixedSnapshots),
             ("claude-expired-api-key-helper", .apiKeyHelperSignInExpired, mixedSnapshots.filter { $0.toolID != .claude }),
             ("nothing-connected", .signedOut, []),
         ]

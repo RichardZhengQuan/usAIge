@@ -1086,13 +1086,11 @@ struct HUDSettingsView: View {
         }
     }
 
-    /// usAIge reads an existing Claude Code sign-in, or the running Claude
-    /// app's own readings, on its own, so the button only appears when
-    /// neither gives limits; a connected or rate-limited tool, or one still
-    /// being checked, doesn't need it.
+    /// The desktop fallback provides percentages but no reset times. Offer
+    /// Claude Code's sign-in there too, so the countdown can be restored.
     static func offersClaudeSignIn(status: LocalToolStatus) -> Bool {
         switch status {
-        case .connected, .connectedThroughClaudeApp, .rateLimited, .unknown: false
+        case .connected, .rateLimited, .unknown: false
         default: true
         }
     }
