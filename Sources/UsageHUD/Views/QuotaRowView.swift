@@ -274,7 +274,6 @@ struct QuotaRowView: View {
 
             HStack(spacing: 4) {
                 typeTag(
-                    fallbackText: snapshot.typeTag,
                     resetAt: snapshot.resetAt,
                     availableResetCount: ResetCreditPresentation.displayedCount(
                         showsResetCredits: showsResetCredits,
@@ -285,7 +284,6 @@ struct QuotaRowView: View {
                 )
                 if let secondaryWindow = snapshot.secondaryWindow {
                     typeTag(
-                        fallbackText: secondaryWindow.typeTag,
                         resetAt: secondaryWindow.resetAt,
                         availableResetCount: nil,
                         isCondensed: true,
@@ -437,7 +435,6 @@ struct QuotaRowView: View {
     }
 
     private func typeTag(
-        fallbackText: String,
         resetAt: Date?,
         availableResetCount: Int?,
         isCondensed: Bool,
@@ -447,7 +444,7 @@ struct QuotaRowView: View {
             let resetText = ResetRemainingText.compact(until: resetAt, now: context.date)
 
             HStack(alignment: .center, spacing: isCondensed ? 1 : 2) {
-                Text(resetText ?? fallbackText)
+                Text(resetText)
                     .font(.system(
                         size: isCondensed ? 9 : 11,
                         weight: .bold,
@@ -480,11 +477,11 @@ struct QuotaRowView: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(
                 ResetRemainingText.accessibilityLabel(until: resetAt, now: context.date)
-                    ?? fallbackText
             )
             .accessibilityValue(
                 availableResetCount.map { "\($0) reset credits available" } ?? ""
             )
+            .help(ResetRemainingText.accessibilityLabel(until: resetAt, now: context.date))
         }
     }
 
@@ -568,9 +565,9 @@ struct QuotaRowView: View {
     }
 
     private var accessibilitySummary: String {
-        var text = "\(tool.name), \(snapshot.displayName), \(snapshot.typeTag) \(Int(snapshot.remainingPercent.rounded())) percent remaining"
+        var text = "\(tool.name), \(snapshot.displayName), \(snapshot.typeTag) window, \(Int(snapshot.remainingPercent.rounded())) percent remaining, \(ResetRemainingText.accessibilityLabel(until: snapshot.resetAt))"
         if let secondaryWindow = snapshot.secondaryWindow {
-            text += ", \(secondaryWindow.typeTag) \(Int(secondaryWindow.remainingPercent.rounded())) percent remaining"
+            text += ", \(secondaryWindow.typeTag) window, \(Int(secondaryWindow.remainingPercent.rounded())) percent remaining, \(ResetRemainingText.accessibilityLabel(until: secondaryWindow.resetAt))"
         }
         if agentPhase.showsLight {
             text += ", \(tool.name) sessions \(agentPhase.label)"
@@ -708,8 +705,9 @@ enum ResetDateText {
 }
 
 enum ResetRemainingText {
-    static func compact(until resetAt: Date?, now: Date = Date()) -> String? {
-        guard let resetAt else { return nil }
+    static func compact(until resetAt: Date?, now: Date = Date()) -> String {
+        // A quota's window length (such as 7D) is not its time until reset.
+        guard let resetAt else { return "—" }
         let seconds = resetAt.timeIntervalSince(now)
         guard seconds > 0 else { return "NOW" }
 
@@ -722,8 +720,9 @@ enum ResetRemainingText {
         return "\(max(1, Int(ceil(seconds / 60))))M"
     }
 
-    static func accessibilityLabel(until resetAt: Date?, now: Date = Date()) -> String? {
-        guard let compactValue = compact(until: resetAt, now: now) else { return nil }
+    static func accessibilityLabel(until resetAt: Date?, now: Date = Date()) -> String {
+        guard resetAt != nil else { return "Reset time unavailable" }
+        let compactValue = compact(until: resetAt, now: now)
         return compactValue == "NOW" ? "Resetting now" : "Resets in \(compactValue)"
     }
 }

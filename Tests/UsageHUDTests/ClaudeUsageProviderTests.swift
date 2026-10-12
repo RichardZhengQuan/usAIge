@@ -26,6 +26,21 @@ private func liveCredentials(scopes: [String] = ["user:inference", "user:profile
 
 private let testNow = Date(timeIntervalSince1970: 1_800_000_000)
 
+@Test(arguments: [
+    #"{"seven_day":{"utilization":96,"resets_at":"2026-10-13T12:00:00.123456+08:00"}}"#,
+    #"{"limits":[{"kind":"weekly_all","group":"weekly","percent":96,"resets_at":"2026-10-13T04:00:00.123456Z"}]}"#,
+])
+func claudeWeeklyResetCountdownUsesTimestampInsteadOfWindowLength(payload: String) throws {
+    let now = try #require(LocalToolDates.parse("2026-10-12T12:00:00.123456Z"))
+    let response = try #require(JSONValue.parse(Data(payload.utf8)))
+    let snapshot = try #require(ClaudeUsageProvider.snapshots(from: response, planType: "max", updatedAt: now).first)
+
+    #expect(snapshot.typeTag == "7D")
+    #expect(snapshot.remainingPercent == 4)
+    #expect(ResetRemainingText.compact(until: snapshot.resetAt, now: now) == "16H")
+    #expect(ResetRemainingText.accessibilityLabel(until: snapshot.resetAt, now: now) == "Resets in 16H")
+}
+
 @Test func claudeCredentialsParseKeychainBlob() throws {
     let raw = """
     {"claudeAiOauth":{"accessToken":" sk-ant-oat01-abc ","refreshToken":"sk-ant-ort01-x","expiresAt":1748276587173,"scopes":["user:inference","user:profile"],"subscriptionType":"max"}}
@@ -508,6 +523,9 @@ private struct StaticClaudeAppUsage: ClaudeAppUsageSource {
         #expect(main.resetAt == nil)
         #expect(main.secondaryWindow?.remainingPercent == 74)
         #expect(main.secondaryWindow?.typeTag == "7D")
+        #expect(ResetRemainingText.compact(until: main.resetAt, now: testNow) == "—")
+        #expect(ResetRemainingText.compact(until: main.secondaryWindow?.resetAt, now: testNow) == "—")
+        #expect(ResetRemainingText.accessibilityLabel(until: main.secondaryWindow?.resetAt, now: testNow) == "Reset time unavailable")
         #expect(main.updatedAt == reading.recordedAt)
         #expect(main.planType == credentials?.subscriptionType)
         #expect(await http.requests.isEmpty)
