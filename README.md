@@ -229,9 +229,9 @@ minutes old. The Claude app keeps that file current on its own, so having it
 open is enough. Its readings have no reset times and no limits scoped to one
 model; those appear whenever the Claude Code sign-in works again.
 When a reset time is unavailable, the countdown shows **—**, rather than
-the quota's full window length (such as 7D). To restore reset times, use
-**Settings → AI Tools → Claude → Sign In** to add or renew the Claude plan
-sign-in, including while the desktop app is supplying percentages.
+the quota's full window length (such as 7D). A connected Claude app does
+not require another sign-in, so Settings does not offer **Sign In** while
+it is supplying percentages.
 
 If Claude Code is configured with an `apiKeyHelper`, it bills an API key
 rather than a Claude plan and never renews its plan sign-in, so the Claude

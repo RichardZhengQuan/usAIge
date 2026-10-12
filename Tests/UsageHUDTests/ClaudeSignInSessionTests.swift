@@ -148,13 +148,13 @@ private func waitUntil(_ condition: @MainActor () async -> Bool) async {
 }
 
 @MainActor
-@Test func signInButtonIsOfferedWhenPlanResetTimesAreUnavailable() {
+@Test func signInButtonIsOfferedOnlyWhenNoPlanSignInIsReadable() {
     #expect(HUDSettingsView.offersClaudeSignIn(status: .signedOut))
     #expect(HUDSettingsView.offersClaudeSignIn(status: .apiKeyOnly))
     #expect(HUDSettingsView.offersClaudeSignIn(status: .credentialExpired))
     #expect(HUDSettingsView.offersClaudeSignIn(status: .apiKeyHelperSignInExpired))
     #expect(!HUDSettingsView.offersClaudeSignIn(status: .connected))
-    #expect(HUDSettingsView.offersClaudeSignIn(status: .connectedThroughClaudeApp))
+    #expect(!HUDSettingsView.offersClaudeSignIn(status: .connectedThroughClaudeApp))
     #expect(!HUDSettingsView.offersClaudeSignIn(status: .rateLimited))
     #expect(!HUDSettingsView.offersClaudeSignIn(status: .unknown))
 }
