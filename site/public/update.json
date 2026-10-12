@@ -1,29 +1,29 @@
 {
-  "build" : 40,
-  "downloadURL" : "https://pmrichq.com/project/usaige/usAIge-0.2.18-alpha.dmg",
+  "build" : 41,
+  "downloadURL" : "https://pmrichq.com/project/usaige/usAIge-0.2.19-alpha.dmg",
   "minimumSystemVersion" : "11.0",
   "releaseNotes" : {
-    "headline" : "Cursor shows your current plan",
+    "headline" : "Clearer Claude connection and reset times",
     "highlights" : [
       {
-        "detail" : "Cursor's plan label refreshes from its account service with each usage check.",
-        "systemImage" : "arrow.clockwise",
-        "title" : "Current account plan"
-      },
-      {
-        "detail" : "An old Pro membership cached by the editor no longer determines the displayed plan.",
+        "detail" : "Settings hides Sign In when the Claude desktop app is already supplying usage.",
         "systemImage" : "checkmark.circle",
-        "title" : "No stale Pro label"
+        "title" : "No extra sign-in"
       },
       {
-        "detail" : "If the plan lookup is unavailable, current usage remains visible and the plan label is omitted.",
-        "systemImage" : "chart.pie",
-        "title" : "Usage stays visible"
+        "detail" : "When a provider has no reset timestamp, usage shows — instead of the quota window length.",
+        "systemImage" : "clock",
+        "title" : "Honest reset countdowns"
+      },
+      {
+        "detail" : "Hover and accessibility text explain that the reset time is unavailable.",
+        "systemImage" : "info.circle",
+        "title" : "Clear unavailable state"
       }
     ],
-    "summary" : "Version 0.2.18 checks Cursor's current account plan instead of trusting the editor's saved membership."
+    "summary" : "Version 0.2.19 keeps connected Claude accounts free of extra sign-in prompts and makes unavailable reset times clear."
   },
-  "sha256" : "718a552ce0326476f7d66fbae2560ac843fd3df448a2218c650cde67b7bc0de3",
-  "signature" : "uqmebLF21dwjY1j57rWxqRcnvE4XdwWpzp/ap+2mn0c0v53ruPMJM7LwVZkXI8qLSjA+d+dTWmpi1c1GPBWABw==",
-  "version" : "0.2.18"
+  "sha256" : "1ac45b3dd0cdb7b44168c7a4ed943189508d369bf6a14ff16f5e255626ac1e6b",
+  "signature" : "3DR0meDYBzGxQtNBE5bbTo5YIIAZ4DsVy+gAN5R6MczVKH1Endp0nV5b/B0BTpFPvqrolb2gGRa67SpRQ95vBA==",
+  "version" : "0.2.19"
 }
