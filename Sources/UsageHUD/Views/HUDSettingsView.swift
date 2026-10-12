@@ -1086,11 +1086,11 @@ struct HUDSettingsView: View {
         }
     }
 
-    /// The desktop fallback provides percentages but no reset times. Offer
-    /// Claude Code's sign-in there too, so the countdown can be restored.
+    /// A connected tool needs no additional sign-in, including when the
+    /// Claude desktop app supplies percentages without reset times.
     static func offersClaudeSignIn(status: LocalToolStatus) -> Bool {
         switch status {
-        case .connected, .rateLimited, .unknown: false
+        case .connected, .connectedThroughClaudeApp, .rateLimited, .unknown: false
         default: true
         }
     }

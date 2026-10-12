@@ -78,7 +78,7 @@ struct LocalToolGuidance: Identifiable, Sendable {
             )
         case .connected: Presentation(text: "Connected · \(source)", isProblem: false)
         case .connectedThroughClaudeApp:
-            Presentation(text: "Connected · Claude app on this Mac. Reset times need a Claude Code sign-in.", isProblem: false)
+            Presentation(text: "Connected · Claude app on this Mac. Reset times unavailable.", isProblem: false)
         case .notInstalled: Presentation(text: "Not installed.", isProblem: false)
         case .signedOut: Presentation(text: "Not connected. \(signInHint)", isProblem: false)
         case .credentialExpired: Presentation(text: expiredHint, isProblem: true)
