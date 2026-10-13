@@ -1,23 +1,23 @@
 {
-  "version": "0.2.19",
-  "build": 41,
+  "version": "0.2.20",
+  "build": 42,
   "releaseNotes": {
-    "headline": "Clearer Claude connection and reset times",
-    "summary": "Version 0.2.19 keeps connected Claude accounts free of extra sign-in prompts and makes unavailable reset times clear.",
+    "headline": "Claude reset times without another sign-in",
+    "summary": "Version 0.2.20 reads Claude's fresh local usage cache to show reported reset times, without an extra login or Keychain permission.",
     "highlights": [
       {
-        "title": "No extra sign-in",
-        "detail": "Settings hides Sign In when the Claude desktop app is already supplying usage.",
-        "systemImage": "checkmark.circle"
-      },
-      {
-        "title": "Honest reset countdowns",
-        "detail": "When a provider has no reset timestamp, usage shows — instead of the quota window length.",
+        "title": "Reported reset times",
+        "detail": "Recent cached Claude responses supply exact reset timestamps and limits scoped to a model or surface.",
         "systemImage": "clock"
       },
       {
-        "title": "Clear unavailable state",
-        "detail": "Hover and accessibility text explain that the reset time is unavailable.",
+        "title": "Silent local reads",
+        "detail": "Reading Claude's desktop usage cache makes no network request and needs no extra login, cookies, or Keychain permission.",
+        "systemImage": "checkmark.circle"
+      },
+      {
+        "title": "Fresh data only",
+        "detail": "Only recent, validated cache data supplies resets. Other usage sources remain available, and missing reset times stay — instead of being estimated.",
         "systemImage": "info.circle"
       }
     ]

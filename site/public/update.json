@@ -1,29 +1,29 @@
 {
-  "build" : 41,
-  "downloadURL" : "https://pmrichq.com/project/usaige/usAIge-0.2.19-alpha.dmg",
+  "build" : 42,
+  "downloadURL" : "https://pmrichq.com/project/usaige/usAIge-0.2.20-alpha.dmg",
   "minimumSystemVersion" : "11.0",
   "releaseNotes" : {
-    "headline" : "Clearer Claude connection and reset times",
+    "headline" : "Claude reset times without another sign-in",
     "highlights" : [
       {
-        "detail" : "Settings hides Sign In when the Claude desktop app is already supplying usage.",
-        "systemImage" : "checkmark.circle",
-        "title" : "No extra sign-in"
-      },
-      {
-        "detail" : "When a provider has no reset timestamp, usage shows — instead of the quota window length.",
+        "detail" : "Recent cached Claude responses supply exact reset timestamps and limits scoped to a model or surface.",
         "systemImage" : "clock",
-        "title" : "Honest reset countdowns"
+        "title" : "Reported reset times"
       },
       {
-        "detail" : "Hover and accessibility text explain that the reset time is unavailable.",
+        "detail" : "Reading Claude's desktop usage cache makes no network request and needs no extra login, cookies, or Keychain permission.",
+        "systemImage" : "checkmark.circle",
+        "title" : "Silent local reads"
+      },
+      {
+        "detail" : "Only recent, validated cache data supplies resets. Other usage sources remain available, and missing reset times stay — instead of being estimated.",
         "systemImage" : "info.circle",
-        "title" : "Clear unavailable state"
+        "title" : "Fresh data only"
       }
     ],
-    "summary" : "Version 0.2.19 keeps connected Claude accounts free of extra sign-in prompts and makes unavailable reset times clear."
+    "summary" : "Version 0.2.20 reads Claude's fresh local usage cache to show reported reset times, without an extra login or Keychain permission."
   },
-  "sha256" : "1ac45b3dd0cdb7b44168c7a4ed943189508d369bf6a14ff16f5e255626ac1e6b",
-  "signature" : "3DR0meDYBzGxQtNBE5bbTo5YIIAZ4DsVy+gAN5R6MczVKH1Endp0nV5b/B0BTpFPvqrolb2gGRa67SpRQ95vBA==",
-  "version" : "0.2.19"
+  "sha256" : "daa51ca2157a5cb1f32f8da33fc52c14a09f2e5f503a61211fde7acaac8b0313",
+  "signature" : "4DMSrLXJvk93wy9lcdYuTDAjwi+9SlqeUVUlPCdMaS/CRt4TEQDJQy2H98pWtv4eHXu7N2ZfScL9Jj+GypziAQ==",
+  "version" : "0.2.20"
 }
