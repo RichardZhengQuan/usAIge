@@ -541,6 +541,7 @@ actor UpdateInstaller {
                 == manifest.version else {
             throw UpdateError.invalidApplication
         }
+        try Self.validateExecutable(ofApplicationAt: mountedApplicationURL)
         _ = try Self.run(
             "/usr/bin/codesign",
             arguments: ["--verify", "--deep", "--strict", mountedApplicationURL.path]
@@ -559,6 +560,7 @@ actor UpdateInstaller {
             "/usr/bin/ditto",
             arguments: [mountedApplicationURL.path, stagedApplicationURL.path]
         )
+        try Self.validateExecutable(ofApplicationAt: stagedApplicationURL)
 
         let helperScript = """
         set -euo pipefail
@@ -595,6 +597,20 @@ actor UpdateInstaller {
             workDirectory.path,
         ]
         try helper.run()
+    }
+
+    /// Code-signature verification can succeed after packaging loses execute
+    /// permissions, so require a runnable regular file before replacement.
+    static func validateExecutable(ofApplicationAt url: URL) throws {
+        guard let bundle = Bundle(url: url),
+              let executableName = bundle.object(forInfoDictionaryKey: "CFBundleExecutable") as? String,
+              !executableName.isEmpty,
+              let executableURL = bundle.executableURL,
+              let attributes = try? FileManager.default.attributesOfItem(atPath: executableURL.path),
+              attributes[.type] as? FileAttributeType == .typeRegular,
+              FileManager.default.isExecutableFile(atPath: executableURL.path) else {
+            throw UpdateError.invalidApplication
+        }
     }
 
     /// The Developer ID team of a signed bundle, or nil for ad-hoc and

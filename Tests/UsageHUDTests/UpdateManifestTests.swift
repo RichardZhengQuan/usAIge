@@ -283,3 +283,76 @@ import Testing
     // and CI runner, so the check must not misreport a team there.
     #expect(UpdateInstaller.teamIdentifier(ofApplicationAt: Bundle.main.bundleURL) == nil)
 }
+
+@Test func updateInstallerAcceptsExecutableRegularFile() throws {
+    let app = try makeUpdateExecutableFixture(.executable)
+    defer { try? FileManager.default.removeItem(at: app) }
+
+    #expect(throws: Never.self) {
+        try UpdateInstaller.validateExecutable(ofApplicationAt: app)
+    }
+}
+
+@Test(arguments: [UpdateExecutableFixture.nonExecutable, .missing, .directory])
+private func updateInstallerRejectsUnlaunchableExecutable(fixture: UpdateExecutableFixture) throws {
+    let app = try makeUpdateExecutableFixture(fixture)
+    defer { try? FileManager.default.removeItem(at: app) }
+
+    #expect(throws: UpdateError.self) {
+        try UpdateInstaller.validateExecutable(ofApplicationAt: app)
+    }
+}
+
+@Test func updateInstallerRechecksChangedExecutablePermissions() throws {
+    let app = try makeUpdateExecutableFixture(.executable)
+    defer { try? FileManager.default.removeItem(at: app) }
+    try UpdateInstaller.validateExecutable(ofApplicationAt: app)
+
+    let executable = app.appendingPathComponent("Contents/MacOS/usAIge")
+    try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: executable.path)
+
+    #expect(throws: UpdateError.self) {
+        try UpdateInstaller.validateExecutable(ofApplicationAt: app)
+    }
+}
+
+private enum UpdateExecutableFixture: Equatable, Sendable {
+    case executable
+    case nonExecutable
+    case missing
+    case directory
+}
+
+private func makeUpdateExecutableFixture(_ fixture: UpdateExecutableFixture) throws -> URL {
+    let app = FileManager.default.temporaryDirectory
+        .appendingPathComponent("usaige-update-executable-\(UUID().uuidString).app", isDirectory: true)
+    let contents = app.appendingPathComponent("Contents", isDirectory: true)
+    let macOS = contents.appendingPathComponent("MacOS", isDirectory: true)
+    try FileManager.default.createDirectory(at: macOS, withIntermediateDirectories: true)
+    let plist: [String: Any] = [
+        "CFBundleIdentifier": "com.richardzhengquan.usaige",
+        "CFBundlePackageType": "APPL",
+        "CFBundleExecutable": "usAIge",
+    ]
+    let plistData = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+    try plistData.write(to: contents.appendingPathComponent("Info.plist"))
+    let executable = macOS.appendingPathComponent("usAIge")
+    switch fixture {
+    case .executable, .nonExecutable:
+        // This temporary shell file is only inspected; no fixture is launched.
+        try Data("#!/bin/sh\nexit 0\n".utf8).write(to: executable)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: fixture == .executable ? 0o755 : 0o644],
+            ofItemAtPath: executable.path
+        )
+    case .missing:
+        break
+    case .directory:
+        try FileManager.default.createDirectory(
+            at: executable,
+            withIntermediateDirectories: false,
+            attributes: [.posixPermissions: 0o755]
+        )
+    }
+    return app
+}
