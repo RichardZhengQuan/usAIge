@@ -45,8 +45,10 @@ import Testing
     let guidance = LocalToolGuidance.supported.first { $0.id == .claude }!
     #expect(guidance.presentation(for: .credentialExpired).isProblem)
     #expect(guidance.presentation(for: .connected).text.hasPrefix("Connected"))
-    #expect(guidance.presentation(for: .connectedThroughClaudeApp).text == "Connected · Claude app on this Mac. Reset times unavailable.")
-    #expect(!guidance.presentation(for: .connectedThroughClaudeApp).isProblem)
+    #expect(guidance.presentation(for: .connectedThroughClaudeApp).text.contains("Reset times unavailable"))
+    #expect(!guidance.presentation(for: .connectedThroughClaudeApp).text.contains("Claude Code sign-in"))
+    #expect(guidance.presentation(for: .connectedThroughClaudeAppCache).text.contains("Claude app cache"))
+    #expect(!guidance.presentation(for: .connectedThroughClaudeAppCache).isProblem)
     #expect(guidance.presentation(for: .apiKeyOnly).text.contains("API key"))
     #expect(guidance.presentation(for: .keychainAccessDenied).isProblem)
     #expect(guidance.presentation(for: .apiKeyHelperSignInExpired).text.contains("sign in again"))

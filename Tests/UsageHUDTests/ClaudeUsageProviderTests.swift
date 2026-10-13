@@ -527,7 +527,7 @@ private struct StaticClaudeAppUsage: ClaudeAppUsageSource {
         #expect(ResetRemainingText.compact(until: main.secondaryWindow?.resetAt, now: testNow) == "—")
         #expect(ResetRemainingText.accessibilityLabel(until: main.secondaryWindow?.resetAt, now: testNow) == "Reset time unavailable")
         #expect(main.updatedAt == reading.recordedAt)
-        #expect(main.planType == credentials?.subscriptionType)
+        #expect(main.planType == nil)
         #expect(await http.requests.isEmpty)
         #expect(await registry.status(for: .claude) == .connectedThroughClaudeApp)
     }
