@@ -20,6 +20,8 @@ jobs:
         run: swift build --build-tests
       - name: Test
         run: swift test --skip-build
+      - name: Installer staging regression
+        run: python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 
   relay:
     name: Relay worker

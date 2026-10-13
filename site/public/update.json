@@ -1,19 +1,19 @@
 {
-  "build" : 42,
-  "downloadURL" : "https://pmrichq.com/project/usaige/usAIge-0.2.20-alpha.dmg",
+  "build" : 43,
+  "downloadURL" : "https://pmrichq.com/project/usaige/usAIge-0.2.21-alpha.dmg",
   "minimumSystemVersion" : "11.0",
   "releaseNotes" : {
-    "headline" : "Claude reset times without another sign-in",
+    "headline" : "Fix macOS launch permissions",
     "highlights" : [
       {
-        "detail" : "Recent cached Claude responses supply exact reset timestamps and limits scoped to a model or surface.",
-        "systemImage" : "clock",
-        "title" : "Reported reset times"
+        "detail" : "The packaged app preserves executable permissions so macOS can launch usAIge after installation.",
+        "systemImage" : "checkmark.circle",
+        "title" : "Corrected installer"
       },
       {
-        "detail" : "Reading Claude's desktop usage cache makes no network request and needs no extra login, cookies, or Keychain permission.",
-        "systemImage" : "checkmark.circle",
-        "title" : "Silent local reads"
+        "detail" : "Fresh, validated local Claude usage responses still supply exact reset timestamps without a network request.",
+        "systemImage" : "clock",
+        "title" : "Claude cache resets retained"
       },
       {
         "detail" : "Only recent, validated cache data supplies resets. Other usage sources remain available, and missing reset times stay — instead of being estimated.",
@@ -21,9 +21,9 @@
         "title" : "Fresh data only"
       }
     ],
-    "summary" : "Version 0.2.20 reads Claude's fresh local usage cache to show reported reset times, without an extra login or Keychain permission."
+    "summary" : "Version 0.2.21 corrects app executable permissions in the installer so usAIge can launch, while retaining Claude reset times from fresh local cache data."
   },
-  "sha256" : "daa51ca2157a5cb1f32f8da33fc52c14a09f2e5f503a61211fde7acaac8b0313",
-  "signature" : "4DMSrLXJvk93wy9lcdYuTDAjwi+9SlqeUVUlPCdMaS/CRt4TEQDJQy2H98pWtv4eHXu7N2ZfScL9Jj+GypziAQ==",
-  "version" : "0.2.20"
+  "sha256" : "f3c3941dc092e0b2016270b11c8400aa6a28af79da2ac7362fab1b51dadfa453",
+  "signature" : "qzNnNqzskGcaDNdF/YgWNTgMGZCA4noBIGiBCJ9TSrleU84SF9EW269mTYlnAnLMIhU59czg8SbFR4A6ySRgBQ==",
+  "version" : "0.2.21"
 }

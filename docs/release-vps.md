@@ -10,7 +10,7 @@ see [relay-vps.md](relay-vps.md).
 
 Update the app's version/build in `Sources/UsageHUD/Resources/Info.plist`, bundled release
 notes, the homepage release links/version, and their release assertions before
-building. For this release the next version is **0.2.20**, build **42**. The
+building. For this release the next version is **0.2.21**, build **43**. The
 update controller compares build numbers, so each subsequent release must
 increase the build.
 
@@ -19,6 +19,23 @@ From the repository root, package the actual app and disk image:
 ```sh
 ./scripts/package-dmg.sh
 ```
+
+For a headless release, reuse a trusted previous DMG's Finder layout. The app
+bundle is replaced completely, and alias validation does not open Finder:
+
+```sh
+./scripts/package-dmg.sh --headless --template /absolute/path/to/trusted-previous.dmg
+```
+
+Choose a template with enough filesystem space for the new app and its existing
+layout. A failed copy or verification retains the previous final DMG.
+
+If the checkout's default Swift build directory is unavailable, set
+`USAIGE_SWIFT_SCRATCH_PATH` and `USAIGE_SWIFT_CACHE_PATH` to writable absolute
+paths. The packager uses that scratch directory's release executable.
+For a cloud-managed Documents checkout that adds Finder metadata during signing,
+also set `USAIGE_APP_OUTPUT_PATH=/private/tmp/usaige-release/usAIge.app` to build
+and sign the app in a temporary directory. Both packaging scripts use that app.
 
 The packager builds the release executable, assembles and verifies the app's
 code signature, creates `dist/usAIge-<version>-alpha.dmg`, writes its SHA-256
@@ -117,11 +134,11 @@ planning disk cleanup; old versions of the app can hold earlier manifest URLs.
 
 After the PR is merged and required checks pass, create the tag/release against
 the exact merged commit. Use a release body file to preserve prose and newlines.
-For version 0.2.20, the native assets are:
+For version 0.2.21, the native assets are:
 
 ```text
-dist/usAIge-0.2.20-alpha.dmg
-dist/usAIge-0.2.20-alpha.dmg.sha256
+dist/usAIge-0.2.21-alpha.dmg
+dist/usAIge-0.2.21-alpha.dmg.sha256
 ```
 
 If attaching a website archive as a release asset, archive the contents of
@@ -133,5 +150,9 @@ Verify the GitHub release tag commit and asset digests, the public homepage
 version/download/checksum links, the public signed `update.json`, the actual
 downloaded DMG hash, and relay health. Retain the exact version/build, commit,
 release URL, activated VPS directory, and verification results as evidence.
-The current packaging process uses an ad-hoc macOS signature; publication does
-not establish Developer ID notarization or an installed-client update test.
+Before publication, copy the app from the compressed DMG into a temporary
+Applications folder and verify that it launches. The packager checks executable
+permissions, bytes, and code signing inside the DMG, but an actual launch remains
+a separate release gate. The current packaging process uses an ad-hoc macOS
+signature; publication does not establish Developer ID notarization or an
+installed-client update test.
