@@ -260,9 +260,15 @@ struct UIGalleryRenderTests {
             ("settings-iphone-sync", [.iphoneSync]),
             ("settings-feedback", [.feedback]),
         ]
+        let historyOnlySnapshots = mixedSnapshots.filter { $0.toolID != .claude }
+            + ClaudeUsageProvider.snapshots(
+                fromClaudeApp: ClaudeAppUsageSample(recordedAt: Date(), sessionPercent: 55, weeklyPercent: 30),
+                planType: nil
+            )
         let claudeStatuses: [(String, LocalToolStatus, [QuotaSnapshot])] = [
             ("connected", .connected, mixedSnapshots),
-            ("claude-app-reset-unavailable", .connectedThroughClaudeApp, mixedSnapshots),
+            ("claude-app-reset-unavailable", .connectedThroughClaudeApp, historyOnlySnapshots),
+            ("claude-app-cache-reset-known", .connectedThroughClaudeAppCache, mixedSnapshots),
             ("claude-expired-api-key-helper", .apiKeyHelperSignInExpired, mixedSnapshots.filter { $0.toolID != .claude }),
             ("nothing-connected", .signedOut, []),
         ]

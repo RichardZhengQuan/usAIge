@@ -8,17 +8,19 @@ swift build -c release
 
 app="$root/dist/usAIge.app"
 rm -rf "$app"
-mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/ThirdPartyNotices"
 cp "$root/.build/release/usAIge" "$app/Contents/MacOS/usAIge"
 cp "$root/Sources/UsageHUD/Resources/Info.plist" "$app/Contents/Info.plist"
 cp "$root/Sources/UsageHUD/Resources/AppIcon.icns" "$app/Contents/Resources/AppIcon.icns"
 cp "$root/Sources/UsageHUD/Resources/ReleaseNotes.json" "$app/Contents/Resources/ReleaseNotes.json"
 cp -R "$root/Sources/UsageHUD/Resources/ToolMarks" "$app/Contents/Resources/ToolMarks"
+cp "$root/Sources/CZstd/LICENSE.txt" "$app/Contents/Resources/ThirdPartyNotices/Zstandard.txt"
 
 plutil -lint "$app/Contents/Info.plist"
 test -x "$app/Contents/MacOS/usAIge"
 test -s "$app/Contents/Resources/AppIcon.icns"
 test -s "$app/Contents/Resources/ReleaseNotes.json"
+test -s "$app/Contents/Resources/ThirdPartyNotices/Zstandard.txt"
 for mark in claude cursor grok; do test -s "$app/Contents/Resources/ToolMarks/$mark.png"; done
 xattr -cr "$app"
 codesign --force --sign - "$app"

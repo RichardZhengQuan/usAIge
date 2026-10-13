@@ -41,6 +41,9 @@ enum LocalToolStatus: Equatable, Sendable {
     /// Limits come from the Claude desktop app's own recent reading because
     /// the Claude Code sign-in can't provide them.
     case connectedThroughClaudeApp
+    /// Limits and exact reset timestamps come from the desktop app's recent,
+    /// validated local usage response cache; no sign-in is read.
+    case connectedThroughClaudeAppCache
     case notInstalled
     case signedOut
     case credentialExpired

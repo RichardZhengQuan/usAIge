@@ -279,7 +279,6 @@ actor ClaudeUsageProvider: CodexUsageProviding {
     private let usesAPIKeyHelper: @Sendable () -> Bool
     private let now: @Sendable () -> Date
     private var cachedUserAgent: String?
-    private var planType: String?
     /// After a 429 or a blocked Keychain read, the sign-in isn't tried again
     /// until this date. The Claude app reading hides those failures from the
     /// throttle, so the provider keeps the back-off itself.
@@ -309,12 +308,14 @@ actor ClaudeUsageProvider: CodexUsageProviding {
         self.now = now
     }
 
-    /// Prefers the Claude Code sign-in, which has reset times and limits
-    /// scoped to one model. When it can't produce limits (no plan sign-in,
-    /// an expired one Claude Code won't renew, a Keychain or network
-    /// failure), the Claude app's own recent reading is used instead, so a
-    /// running Claude app is enough and nobody has to sign in for usAIge.
+    /// A recent, validated desktop cache response supplies exact reset times
+    /// before any credential read or request. Otherwise the existing Claude
+    /// Code source remains available, with local percentage history as fallback.
     func refresh() async throws -> AccountUsageResult {
+        if let fromCache = claudeAppResult(requireCachedUsage: true) {
+            await report(.connectedThroughClaudeAppCache)
+            return fromCache
+        }
         if let pause = signInPause {
             if now() < pause.until {
                 if let fromApp = claudeAppResult() {
@@ -357,10 +358,20 @@ actor ClaudeUsageProvider: CodexUsageProviding {
         }
     }
 
-    private func claudeAppResult() -> AccountUsageResult? {
+    private func claudeAppResult(requireCachedUsage: Bool = false) -> AccountUsageResult? {
+        let date = now()
         guard let sample = claudeApp.latestSample(),
-              now().timeIntervalSince(sample.recordedAt) <= Self.claudeAppMaximumAge else { return nil }
-        let snapshots = Self.snapshots(fromClaudeApp: sample, planType: planType)
+              (0...Self.claudeAppMaximumAge).contains(date.timeIntervalSince(sample.recordedAt)) else { return nil }
+        if requireCachedUsage {
+            guard let cache = sample.cachedUsage,
+                  (0...Self.claudeAppMaximumAge).contains(date.timeIntervalSince(cache.recordedAt)),
+                  let payload = ClaudeDesktopUsageCache.validatedPayload(cache.payload, now: date) else { return nil }
+            let snapshots = Self.snapshots(from: payload, planType: nil, updatedAt: cache.recordedAt)
+            return snapshots.isEmpty ? nil : .authenticated(snapshots)
+        }
+        var historyOnly = sample
+        historyOnly.cachedUsage = nil
+        let snapshots = Self.snapshots(fromClaudeApp: historyOnly, planType: nil)
         return snapshots.isEmpty ? nil : .authenticated(snapshots)
     }
 
@@ -372,7 +383,6 @@ actor ClaudeUsageProvider: CodexUsageProviding {
 
     private func performRefresh() async throws -> AccountUsageResult {
         guard let credentials = try await credentials.load() else { return .signedOut }
-        planType = credentials.subscriptionType ?? credentials.rateLimitTier
         if credentials.isExpired(at: now()) { throw LocalToolUsageError.credentialExpired }
         guard credentials.canReadUsage else { throw LocalToolUsageError.missingScope }
 
@@ -447,9 +457,13 @@ actor ClaudeUsageProvider: CodexUsageProviding {
         }
     }
 
-    /// The Claude app records only the session and all-models weekly
-    /// percentages, without reset times.
+    /// History alone supplies percentages without estimated reset times.
+    /// A separately validated cache response carries the provider's timestamps
+    /// and any model-scoped windows.
     static func snapshots(fromClaudeApp sample: ClaudeAppUsageSample, planType: String?) -> [QuotaSnapshot] {
+        if let cached = sample.cachedUsage {
+            return snapshots(from: cached.payload, planType: planType, updatedAt: cached.recordedAt)
+        }
         let clamp = { (value: Double) in Window(usedPercent: min(100, max(0, value)), resetsAt: nil) }
         guard let bucket = mainBucket(
             session: sample.sessionPercent.map(clamp),
@@ -482,9 +496,12 @@ actor ClaudeUsageProvider: CodexUsageProviding {
             default:
                 let scope = limit["scope"]
                 let model = scope?["model"]
+                let surface = scope?["surface"]
                 let scopeName = model?["display_name"]?.stringValue
                     ?? model?["id"]?.stringValue
-                    ?? scope?["surface"]?.stringValue
+                    ?? surface?["display_name"]?.stringValue
+                    ?? surface?["id"]?.stringValue
+                    ?? surface?.stringValue
                 let name = scopeName ?? kind
                 // Two limits that slug to the same id are still two limits.
                 var id = "claude_\(slug(name))"
@@ -502,7 +519,7 @@ actor ClaudeUsageProvider: CodexUsageProviding {
                 }
                 scoped.append(RateLimitBucket(
                     limitID: id,
-                    limitName: model?["display_name"]?.stringValue ?? LocalToolText.humanized(name),
+                    limitName: model?["display_name"]?.stringValue ?? surface?["display_name"]?.stringValue ?? LocalToolText.humanized(name),
                     usedPercent: window.usedPercent,
                     windowDurationMinutes: minutes,
                     resetsAt: window.resetsAt,

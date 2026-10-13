@@ -1086,11 +1086,11 @@ struct HUDSettingsView: View {
         }
     }
 
-    /// A connected tool needs no additional sign-in, including when the
-    /// Claude desktop app supplies percentages without reset times.
+    /// A connected tool needs no additional sign-in, including when either
+    /// Claude desktop source supplies its usage readings.
     static func offersClaudeSignIn(status: LocalToolStatus) -> Bool {
         switch status {
-        case .connected, .connectedThroughClaudeApp, .rateLimited, .unknown: false
+        case .connected, .connectedThroughClaudeApp, .connectedThroughClaudeAppCache, .rateLimited, .unknown: false
         default: true
         }
     }
