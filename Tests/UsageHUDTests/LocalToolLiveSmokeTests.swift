@@ -2,11 +2,11 @@ import Foundation
 import Testing
 @testable import UsageHUD
 
-// Opt-in smoke tests against the real sign-ins on this Mac. They print the
+// Opt-in smoke tests against local usage sources on this Mac. They print the
 // normalized limits and never print tokens. Run with:
 //   USAIGE_LIVE_LOCAL_TOOLS=1 swift test --filter LiveLocalTools
-// Claude is included only with USAIGE_LIVE_CLAUDE=1 because Anthropic rate
-// limits its usage endpoint aggressively.
+// Claude is included only with USAIGE_LIVE_CLAUDE=1; its default collector
+// reads existing desktop usage files without credentials or network requests.
 
 private let liveEnabled = ProcessInfo.processInfo.environment["USAIGE_LIVE_LOCAL_TOOLS"] == "1"
 private let liveClaudeEnabled = ProcessInfo.processInfo.environment["USAIGE_LIVE_CLAUDE"] == "1"

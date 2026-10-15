@@ -269,6 +269,8 @@ struct UIGalleryRenderTests {
             ("connected", .connected, mixedSnapshots),
             ("claude-app-reset-unavailable", .connectedThroughClaudeApp, historyOnlySnapshots),
             ("claude-app-cache-reset-known", .connectedThroughClaudeAppCache, mixedSnapshots),
+            ("claude-api-key-only", .apiKeyOnly, mixedSnapshots.filter { $0.toolID != .claude }),
+            ("claude-waiting-automatically", .waitingForClaudeUsage, mixedSnapshots.filter { $0.toolID != .claude }),
             ("claude-expired-api-key-helper", .apiKeyHelperSignInExpired, mixedSnapshots.filter { $0.toolID != .claude }),
             ("nothing-connected", .signedOut, []),
         ]

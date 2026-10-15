@@ -1,0 +1,4 @@
+{
+  "description": "Start and stop a background usage collector with the existing Claude Code session.",
+  "modules": ["./register.mjs"]
+}

@@ -55,6 +55,79 @@ private func providerCacheSample(
 
 @Suite("ClaudeDesktopCacheProvider")
 struct ClaudeDesktopCacheProviderTests {
+    @Test func automaticLocalReadTracksChangesWithoutCredentialsOrRequests() async throws {
+        let credentials = CacheProviderCredentialProbe(error: .keychainAccessDenied)
+        let http = ScriptedUsageHTTPClient(responses: [:])
+        let registry = await LocalToolStatusRegistry()
+        let source = CacheProviderSampleSource(nil)
+        let provider = ClaudeUsageProvider(
+            credentials: credentials, http: http, statusRegistry: registry,
+            claudeApp: source, usesAPIKeyHelper: { true }, now: { cacheProviderNow }
+        )
+        #expect(await provider.refreshLocalUsage() == .authenticated([]))
+        source.replace(with: providerCacheSample())
+        #expect(await provider.refreshLocalUsage()?.snapshots.first?.usedPercent == 4)
+        let changed = try #require(JSONValue.parse(Data(#"{"five_hour":{"utilization":19,"resets_at":"2026-10-12T17:00:00Z"},"seven_day":{"utilization":98,"resets_at":"2026-10-13T05:00:00Z"}}"#.utf8)))
+        source.replace(with: providerCacheSample(payload: changed))
+        let refreshed = try #require(await provider.refreshLocalUsage())
+        #expect(refreshed.snapshots.first?.usedPercent == 19)
+        #expect(refreshed.snapshots.first?.secondaryWindow?.usedPercent == 98)
+        #expect(refreshed.snapshots.first?.resetAt != nil)
+        #expect(await credentials.loads == 0)
+        #expect(await http.requests.isEmpty)
+        #expect(await registry.status(for: .claude) == .connectedThroughClaudeAppCache)
+    }
+
+    @Test func automaticLocalReadDropsExpiredUsageWithoutReadingCredentials() async throws {
+        let credentials = CacheProviderCredentialProbe(error: .keychainAccessDenied)
+        let http = ScriptedUsageHTTPClient(responses: [:])
+        let registry = await LocalToolStatusRegistry()
+        let clock = TestClockBox(cacheProviderNow)
+        let provider = ClaudeUsageProvider(
+            credentials: credentials, http: http, statusRegistry: registry,
+            claudeApp: CacheProviderSampleSource(providerCacheSample()),
+            now: { clock.now }
+        )
+        #expect(await provider.refreshLocalUsage()?.snapshots.isEmpty == false)
+        clock.now.addTimeInterval(ClaudeUsageProvider.claudeAppMaximumAge + 1)
+        #expect(await provider.refreshLocalUsage() == .authenticated([]))
+        #expect(await registry.status(for: .claude) == .waitingForClaudeUsage)
+        #expect(await credentials.loads == 0)
+        #expect(await http.requests.isEmpty)
+    }
+
+    @Test func automaticLocalReadDropsPreviousOrganizationAfterAnEmptySwitch() async throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("usaige-local-switch-\(UUID())")
+        let directory = home.appendingPathComponent("Library/Application Support/Claude")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let history = directory.appendingPathComponent("plan-usage-history.json")
+        let observed = cacheProviderNow.addingTimeInterval(-10).timeIntervalSince1970 * 1_000
+        let original = #"{"samples":[{"t":\#(observed),"org":"\#(cacheProviderOrganization)","u":{"fh":4,"sd":97}}]}"#
+        try Data(original.utf8).write(to: history)
+        let source = ClaudeAppUsageHistory(
+            homeDirectory: home,
+            readCachedUsage: { id, _ in
+                id == cacheProviderOrganization
+                    ? ClaudeDesktopCachedUsage(payload: cacheProviderPayload, recordedAt: cacheProviderNow.addingTimeInterval(-5))
+                    : nil
+            },
+            now: { cacheProviderNow }
+        )
+        let credentials = CacheProviderCredentialProbe(error: .keychainAccessDenied)
+        let http = ScriptedUsageHTTPClient(responses: [:])
+        let registry = await LocalToolStatusRegistry()
+        let provider = ClaudeUsageProvider(credentials: credentials, http: http, statusRegistry: registry,
+                                          claudeApp: source, now: { cacheProviderNow })
+        #expect(await provider.refreshLocalUsage()?.snapshots.isEmpty == false)
+        let switched = original.replacingOccurrences(of: "]}", with: #",{"t":\#(cacheProviderNow.timeIntervalSince1970 * 1_000),"org":"44444444-4444-4444-8444-444444444444","u":{}}]}"#)
+        try Data(switched.utf8).write(to: history)
+        #expect(await provider.refreshLocalUsage() == .authenticated([]))
+        #expect(await registry.status(for: .claude) == .waitingForClaudeUsage)
+        #expect(await credentials.loads == 0)
+        #expect(await http.requests.isEmpty)
+    }
+
     @Test func recentCacheProvidesExactResetsWithoutCredentialReadsOrHTTP() async throws {
         let credentials = CacheProviderCredentialProbe(error: .keychainAccessDenied)
         let http = ScriptedUsageHTTPClient(responses: [:])

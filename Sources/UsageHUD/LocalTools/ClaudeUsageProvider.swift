@@ -51,6 +51,12 @@ protocol ClaudeCredentialSource: Sendable {
     func load() async throws -> ClaudeCredentials?
 }
 
+/// Desktop usage tracking needs only already-recorded usage files. No secret
+/// or password-key read is allowed in the app's automatic Claude collector.
+struct NoClaudeCredentialSource: ClaudeCredentialSource {
+    func load() async throws -> ClaudeCredentials? { nil }
+}
+
 /// Reads the sign-in Claude Code stores in the login Keychain (service
 /// `Claude Code-credentials`), falling back to `~/.claude/.credentials.json`
 /// for installs that predate Keychain storage. Read-only: the token is used
@@ -257,7 +263,7 @@ enum ClaudeCodeVersion {
     }
 }
 
-actor ClaudeUsageProvider: CodexUsageProviding {
+actor ClaudeUsageProvider: LocalUsageProviding {
     static let usageURL = URL(string: "https://api.anthropic.com/api/oauth/usage")!
     static let primaryBucketID = "claude"
 
@@ -287,11 +293,11 @@ actor ClaudeUsageProvider: CodexUsageProviding {
     private let accessDeniedPause: TimeInterval
 
     init(
-        credentials: any ClaudeCredentialSource = ClaudeCodeCredentialStore(),
+        credentials: any ClaudeCredentialSource = NoClaudeCredentialSource(),
         http: any UsageHTTPClient = URLSessionUsageHTTPClient(),
         statusRegistry: LocalToolStatusRegistry? = nil,
         userAgentVersion: @escaping @Sendable () -> String = { ClaudeCodeVersion.resolve() },
-        claudeApp: any ClaudeAppUsageSource = ClaudeAppUsageHistory(),
+        claudeApp: any ClaudeAppUsageSource = ClaudeAutomaticUsageSource(),
         usesAPIKeyHelper: @escaping @Sendable () -> Bool = { ClaudeCodeConfiguration.usesAPIKeyHelper() },
         rateLimitedPause: TimeInterval = 900,
         accessDeniedPause: TimeInterval = 3_600,
@@ -312,15 +318,18 @@ actor ClaudeUsageProvider: CodexUsageProviding {
     /// before any credential read or request. Otherwise the existing Claude
     /// Code source remains available, with local percentage history as fallback.
     func refresh() async throws -> AccountUsageResult {
+        if credentials is NoClaudeCredentialSource {
+            return await refreshLocalUsage() ?? .authenticated([])
+        }
         if let fromCache = claudeAppResult(requireCachedUsage: true) {
-            await report(.connectedThroughClaudeAppCache)
-            return fromCache
+            await report(fromCache.status)
+            return fromCache.result
         }
         if let pause = signInPause {
             if now() < pause.until {
                 if let fromApp = claudeAppResult() {
-                    await report(.connectedThroughClaudeApp)
-                    return fromApp
+                    await report(fromApp.status)
+                    return fromApp.result
                 }
                 await report(LocalToolStatus(error: pause.error))
                 throw pause.error
@@ -334,8 +343,8 @@ actor ClaudeUsageProvider: CodexUsageProviding {
                 return result
             }
             if let fromApp = claudeAppResult() {
-                await report(.connectedThroughClaudeApp)
-                return fromApp
+                await report(fromApp.status)
+                return fromApp.result
             }
             await report(usesAPIKeyHelper() ? .apiKeyOnly : .signedOut)
             return result
@@ -346,8 +355,8 @@ actor ClaudeUsageProvider: CodexUsageProviding {
             default: break
             }
             if let fromApp = claudeAppResult() {
-                await report(.connectedThroughClaudeApp)
-                return fromApp
+                await report(fromApp.status)
+                return fromApp.result
             }
             if case LocalToolUsageError.credentialExpired = error, usesAPIKeyHelper() {
                 await report(.apiKeyHelperSignInExpired)
@@ -358,7 +367,22 @@ actor ClaudeUsageProvider: CodexUsageProviding {
         }
     }
 
-    private func claudeAppResult(requireCachedUsage: Bool = false) -> AccountUsageResult? {
+    func refreshLocalUsage() async -> AccountUsageResult? {
+        if let fromCache = claudeAppResult(requireCachedUsage: true) {
+            await report(fromCache.status)
+            return fromCache.result
+        }
+        if let fromApp = claudeAppResult() {
+            await report(fromApp.status)
+            return fromApp.result
+        }
+        // Expired readings and organization switches invalidate this tool's
+        // prior values immediately, even while the normal refresh is gated.
+        await report(.waitingForClaudeUsage)
+        return .authenticated([])
+    }
+
+    private func claudeAppResult(requireCachedUsage: Bool = false) -> (result: AccountUsageResult, status: LocalToolStatus)? {
         let date = now()
         guard let sample = claudeApp.latestSample(),
               (0...Self.claudeAppMaximumAge).contains(date.timeIntervalSince(sample.recordedAt)) else { return nil }
@@ -367,12 +391,13 @@ actor ClaudeUsageProvider: CodexUsageProviding {
                   (0...Self.claudeAppMaximumAge).contains(date.timeIntervalSince(cache.recordedAt)),
                   let payload = ClaudeDesktopUsageCache.validatedPayload(cache.payload, now: date) else { return nil }
             let snapshots = Self.snapshots(from: payload, planType: nil, updatedAt: cache.recordedAt)
-            return snapshots.isEmpty ? nil : .authenticated(snapshots)
+            return snapshots.isEmpty ? nil : (.authenticated(snapshots),
+                sample.origin == .bridge ? .connectedThroughClaudeBridge : .connectedThroughClaudeAppCache)
         }
         var historyOnly = sample
         historyOnly.cachedUsage = nil
         let snapshots = Self.snapshots(fromClaudeApp: historyOnly, planType: nil)
-        return snapshots.isEmpty ? nil : .authenticated(snapshots)
+        return snapshots.isEmpty ? nil : (.authenticated(snapshots), .connectedThroughClaudeApp)
     }
 
     func updates() async -> AsyncStream<[QuotaSnapshot]> {

@@ -32,9 +32,10 @@ private func withCacheHistory<T>(
     return try body(source)
 }
 
-@Test func claudeCacheNewerResponseUpdatesHistoryPercentagesAndObservation() throws {
+@Test(arguments: [60.0, 1_801.0, 10_800.0])
+func claudeCacheNewerResponseUpdatesHistoryPercentagesAndObservation(historyAge: TimeInterval) throws {
     let cache = ClaudeDesktopCachedUsage(payload: historyPayload(session: 8, weekly: 27), recordedAt: cacheHistoryNow)
-    try withCacheHistory(historyDate: cacheHistoryNow.addingTimeInterval(-60), cache: cache) { source in
+    try withCacheHistory(historyDate: cacheHistoryNow.addingTimeInterval(-historyAge), cache: cache) { source in
         let sample = try #require(source.latestSample())
         #expect(sample.recordedAt == cacheHistoryNow)
         #expect(sample.sessionPercent == 8)
@@ -69,13 +70,10 @@ func claudeCacheHistoryRejectsStaleAndFutureCache(age: Double) throws {
     }
 }
 
-@Test func claudeCacheHistoryNeedsRecentCurrentOrganizationEvidence() throws {
+@Test func claudeCacheHistoryNeedsValidCurrentOrganizationEvidence() throws {
     let cache = ClaudeDesktopCachedUsage(payload: historyPayload(), recordedAt: cacheHistoryNow)
     try withCacheHistory(organization: "not-an-organization", cache: cache) { source in
         #expect(source.latestSample()?.organizationID == nil)
-        #expect(source.latestSample()?.cachedUsage == nil)
-    }
-    try withCacheHistory(historyDate: cacheHistoryNow.addingTimeInterval(-1_801), cache: cache) { source in
         #expect(source.latestSample()?.cachedUsage == nil)
     }
     try withCacheHistory(historyDate: cacheHistoryNow.addingTimeInterval(1), cache: cache) { source in

@@ -44,6 +44,8 @@ enum LocalToolStatus: Equatable, Sendable {
     /// Limits and exact reset timestamps come from the desktop app's recent,
     /// validated local usage response cache; no sign-in is read.
     case connectedThroughClaudeAppCache
+    case connectedThroughClaudeBridge
+    case waitingForClaudeUsage
     case notInstalled
     case signedOut
     case credentialExpired
@@ -282,6 +284,12 @@ protocol ThrottledUsageProviding: CodexUsageProviding {
     func refresh(manual: Bool) async throws -> AccountUsageResult
 }
 
+/// A passive read of usage the tool has already recorded. It must not read
+/// credentials, make requests, or wait on a provider's network polling gate.
+protocol LocalUsageProviding: CodexUsageProviding {
+    func refreshLocalUsage() async -> AccountUsageResult?
+}
+
 /// Rate-limit guard for providers that talk to a provider account endpoint.
 /// The composite provider polls on a one-minute cadence; this wrapper returns
 /// the last result until the tool's own minimum interval elapses, backs off
@@ -292,7 +300,7 @@ protocol ThrottledUsageProviding: CodexUsageProviding {
 /// `waitLimit`. A provider that is blocked, for example on a slow network
 /// request, therefore never holds up the Codex refresh: callers get the last
 /// known result and the pending refresh lands on the next cycle.
-actor ThrottledUsageProvider: ThrottledUsageProviding {
+actor ThrottledUsageProvider: ThrottledUsageProviding, LocalUsageProviding {
     private let base: any CodexUsageProviding
     private let minimumInterval: TimeInterval
     private let manualMinimumInterval: TimeInterval
@@ -332,6 +340,17 @@ actor ThrottledUsageProvider: ThrottledUsageProviding {
 
     func refresh() async throws -> AccountUsageResult {
         try await refresh(manual: false)
+    }
+
+    func refreshLocalUsage() async -> AccountUsageResult? {
+        let startedGeneration = generation
+        guard let local = base as? any LocalUsageProviding,
+              let result = await local.refreshLocalUsage(),
+              startedGeneration == generation else { return nil }
+        // A later full tick may still be inside the network gate. Keep its
+        // cached result current without shortening that gate or its backoff.
+        lastResult = result
+        return result
     }
 
     func refresh(manual: Bool) async throws -> AccountUsageResult {

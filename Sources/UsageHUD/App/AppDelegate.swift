@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     private var hasRepliedToTermination = false
     private var relaySettingsObserver: AnyCancellable?
     private var relayAgentObserver: AnyCancellable?
+    private var claudeBridgeRecovery: ClaudeBridgeRecoveryController?
 
     override init() {
         let configuredSettings = HUDSettings()
@@ -148,6 +149,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         }
         panel.orderFrontRegardless()
         store.start()
+        let claudeBridgeRecovery = ClaudeBridgeRecoveryController { [settings] in
+            !settings.hiddenToolIDs.contains(.claude)
+        }
+        self.claudeBridgeRecovery = claudeBridgeRecovery
+        claudeBridgeRecovery.start()
         relaySync.start()
         relaySettingsObserver = settings.objectWillChange.sink { [weak self] in
             DispatchQueue.main.async {
@@ -188,6 +194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        claudeBridgeRecovery?.stop()
         if updateController.isReplacementPrepared {
             updateController.stop()
             usageLimitNotifications.stop()

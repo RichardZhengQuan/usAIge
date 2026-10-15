@@ -1,8 +1,8 @@
 # usAIge
 
 usAIge has native clients for macOS, iPhone, iPad, and Apple Watch. The Mac is
-the trusted limit collector: it reads the local Codex app-server, the Claude
-Code, Cursor, and Grok Build sign-ins already on the Mac, and paired remote
+the trusted limit collector: it reads the local Codex app-server, Claude
+desktop usage data, Cursor and Grok Build sign-ins already on the Mac, and paired remote
 tools, then relays only normalized percentages and reset times to paired
 iPhones.
 
@@ -110,7 +110,7 @@ families, sync behavior, and device signing are documented in
 
 ## macOS app
 
-usAIge is a native macOS floating AI usage rail. It shows real usage limits from the local Codex app-server, from the Claude Code, Cursor, and Grok Build sign-ins already on this Mac, and from remote AI tools you explicitly configure. When a limit has two windows, the inner ring shows its primary window and the outer ring shows its secondary window.
+usAIge is a native macOS floating AI usage rail. It shows real usage limits from the local Codex app-server, from local Claude desktop usage data and the Cursor and Grok Build sign-ins already on this Mac, and from remote AI tools you explicitly configure. When a limit has two windows, the inner ring shows its primary window and the outer ring shows its secondary window.
 
 macOS can notify you whenever a primary or secondary usage window crosses a new 5% used boundary. Selecting the notification brings the live limits rail forward.
 
@@ -123,7 +123,7 @@ While idle, the panel surface is fully transparent and every visible control is 
 - macOS 11 or later on an Apple-silicon Mac.
 - Swift 6.2 and Xcode 26 for source builds.
 - For local Codex limits: the ChatGPT or Codex macOS app, or a `codex` executable on `PATH`, with an existing Codex-managed ChatGPT sign-in.
-- For Claude limits: the Claude app running and signed in on this Mac, or Claude Code signed in to a Claude plan (run `claude` once). The desktop fallback reads local usage history and cached usage responses silently, without reading Desktop's sign-in or asking for Keychain access. Reset times appear when a recent, valid cached response is available; an extra Claude Code login is not required.
+- For Claude limits: the Claude desktop app with its existing sign-in, installed before or after usAIge. No setup, extension, or Claude Code session is required: once Claude has recorded a usage reading, usAIge keeps it current by asking Claude to reload its own Usage page. The optional usage extension can also refresh from an idle Claude Code session. usAIge never offers sign-in or reads Claude's passwords, keys, tokens, or cookies.
 - For Cursor limits: the Cursor app installed and signed in on this Mac.
 - For Grok Build limits: the Grok Build CLI signed in with `grok login`.
 - For remote limits: a compatible adapter that can claim a one-time usAIge pairing code and upload normalized limits.
@@ -154,9 +154,9 @@ The packaged application includes the custom usAIge icon in Finder, the Dock, Sp
 
 ## Install the public alpha
 
-Download `usAIge-0.2.21-alpha.dmg` and its checksum from the website. Open the disk image, then drag `usAIge.app` onto the Applications shortcut.
+Download `usAIge-0.2.22-alpha.dmg` and its checksum from the website. Open the disk image, then drag `usAIge.app` onto the Applications shortcut.
 
-Version 0.2.21 fixes the installer permissions that prevented the 0.2.20 app from launching. Claude reset times from fresh local cache data remain available.
+Version 0.2.22 detects Claude usage automatically in either installation order and keeps refreshing when Claude pauses its own polling. Open Claude and complete its normal account setup; usAIge needs no extra sign-in, Keychain access, Detect, or manual configuration. Automatic recovery can bring Claude’s Usage page to the front.
 
 This alpha is ad-hoc signed and is not notarized because the project does not yet have a Developer ID Application certificate. On first launch:
 
@@ -170,7 +170,7 @@ To build and verify the installer locally:
 
 ```bash
 scripts/package-dmg.sh
-(cd dist && shasum -a 256 -c usAIge-0.2.21-alpha.dmg.sha256)
+(cd dist && shasum -a 256 -c usAIge-0.2.22-alpha.dmg.sha256)
 ```
 
 For headless packaging, reuse the layout from a trusted previous installer:
@@ -194,20 +194,60 @@ usAIge starts `codex app-server` locally and uses its documented JSON-RPC method
 
 The app prefers `rateLimitsByLimitId` and falls back to the legacy single `rateLimits` bucket. It reads both the primary and secondary windows for each bucket and never estimates a missing limit.
 
-### Local Claude Code, Cursor, and Grok Build
+### Local Claude, Cursor, and Grok Build
 
-These three tools are read directly by the Mac app. Each provider reads the
-sign-in its own client already stores on this Mac, holds it in memory for
-requests to that provider's account endpoints, and keeps only the
-normalized percentages and reset times. usAIge never writes, logs, or relays
-a token, and it never refreshes or rotates one; when a sign-in expires, the
-rail keeps the last values and **Settings → AI Tools** says which tool
-to open.
+Claude usage comes from the local usage extension report, desktop history,
+or validated HTTP-cache responses. usAIge reads those files automatically;
+it never reads a Claude password key, Keychain item, OAuth token, or cookie
+store, and makes no authenticated Claude usage request.
+
+The included [Claude usage extension](Integrations/ClaudeUsageBridge/README.md)
+runs inside a Claude Code subscription session. Claude supplies an opaque
+authorization handle and performs its own first-party usage requests. The
+extension refreshes at session start and every five minutes while idle,
+independently of Desktop's tray polling. Only filtered usage figures, reset
+timestamps, organization identity, and collector status are written to
+`~/Library/Application Support/usAIge/claude-usage/`. Failed requests retain
+their previous observation time, and account switches invalidate old reports.
+The host session's engine must remain running; its timer stops if Claude
+ends or evicts that engine. usAIge expires old reports rather than treating
+them as fresh after the collector stops.
+
+Claude usage refreshes automatically, whichever app was installed first. Every
+30 seconds, while Claude is open and visible in the usAIge rail, one check
+chooses at most one route:
+
+1. For an established collector with automatic reopening enabled, usAIge
+   checks Claude's local lifecycle log for that exact session. An idle timeout
+   or memory eviction reopens its existing session through Claude's normal
+   continuation link. Recovery honors the collector's retry deadline, does not
+   reopen after a later explicit stop, and attempts each pause once, with at
+   least 15 minutes between attempts, including across usAIge restarts.
+2. Otherwise, when Claude has recorded a reading for its signed-in
+   organization and no reading is newer than 6.5 minutes, usAIge opens
+   Claude's public `claude://claude.ai/settings/usage` link. Claude reloads its
+   own Usage page with its own session, and usAIge reads the validated cache
+   response on its next tick. The page waits for a collector's rate-limit or
+   in-progress retry deadline. A Code session without a subscription, or one
+   whose requests keep failing, does not hold it back. Without a newer
+   reading, the page is retried at most every 15 minutes.
+
+Either route can bring Claude to the front. After either one opens, both wait
+at least 90 seconds, including across usAIge restarts, so the reopened
+session and the Usage page never compete. If a reopened collector writes a
+new status during that time, the page also waits for its retry deadline.
+usAIge never launches Claude, signs in, or opens anything while Claude is
+hidden in the rail. Before Claude records its first reading, usAIge waits for
+one. An incomplete status file defers both routes until its retry deadline can
+be read safely.
+
+Cursor and Grok Build reuse the sign-ins their own clients already store on
+this Mac. usAIge holds those credentials in memory only for usage requests;
+it never writes, logs, relays, refreshes, or rotates them.
 
 | Tool | Sign-in read | Usage source | Buckets |
 | --- | --- | --- | --- |
-| Claude Code | Keychain item `Claude Code-credentials` (or `~/.claude/.credentials.json`) | `api.anthropic.com/api/oauth/usage`, the request Claude Code itself makes for `/usage` | **All models** (5-hour session inner ring, 7-day outer ring), plus one bucket per limit scoped to a model or surface (for example a weekly Fable or Opus limit), OAuth apps, and extra usage |
-| Claude app (local) | None | `~/Library/Application Support/Claude/plan-usage-history.json` and validated usage responses already stored in its local HTTP cache | **All models** (5-hour inner ring, 7-day outer ring), with exact reported reset times and any model-scoped limits when a recent cache entry is available |
+| Claude app (local) | None | Usage-extension report, `~/Library/Application Support/Claude/plan-usage-history.json`, and validated native usage-cache responses | **All models** (5-hour inner ring, 7-day outer ring), with exact reported reset times and any reported model-scoped limits |
 | Cursor | `cursorAuth/accessToken` in Cursor's own state store | `api2.cursor.sh` `DashboardService/GetCurrentPeriodUsage`, the request the editor makes for Plan & Usage | **Cursor models** and **Other models** for the current billing cycle, or the blended included-usage percentage when the split is not reported |
 | Grok Build | `~/.grok/auth.json` (or `$GROK_HOME/auth.json`) | `grok.com` credits configuration and task usage, the requests Grok Build makes for its own usage view | Included credits for the current cycle, plus task limits when the account reports them |
 
@@ -216,8 +256,9 @@ endpoint on each usage refresh, because the editor's locally cached membership
 can remain unchanged after cancellation. If that lookup is unavailable, usAIge
 omits the plan label while still showing the current usage.
 
-Polling is deliberately slow because these are account endpoints rather than
-a local server: Claude every 5 minutes, Cursor and Grok Build every 2 minutes,
+Claude local files are checked every five seconds, including while other
+providers are waiting on a network retry. Cursor and Grok Build poll their
+account endpoints every two minutes,
 with automatic back-off after any failure and a longer pause after an HTTP
 429. A manual refresh may run sooner but never faster than a per-tool floor. A
 source that is waiting on something, such as a slow network request, never
@@ -228,21 +269,13 @@ publicly documented contracts, so a provider change can pause a tool until
 usAIge is updated. When that happens the rail keeps the last accepted values
 and marks them stale rather than inventing numbers.
 
-usAIge reads the Claude Code sign-in through `/usr/bin/security`, the same
-tool Claude Code uses to save it. The Claude desktop fallback is separate:
-it reads local usage data without accessing Desktop's Keychain item,
-OAuth tokens, cookie store, or browser session.
-
-usAIge first checks Desktop's local HTTP cache for a recent, complete usage
-response for the organization in its current usage history. Both observations
-must be under 30 minutes old. The cached JSON contains
-the server's own percentages and reset timestamps; reading it makes no
-network request and needs no sign-in or Keychain permission. Newer accepted
-cache observations can supply current percentages alongside the timestamps.
-The cache format is internal and may change or be evicted, so unsupported,
-expired, inconsistent, or incomplete entries are ignored. Without an accepted
-cache response, the existing Claude Code source is tried. If that cannot
-produce limits, recent desktop history still supplies usage percentages.
+usAIge checks Desktop's local HTTP cache for a validated usage response
+for the most recently recorded organization. The response must be under
+30 minutes old. Its server percentages and reset timestamps can advance an
+older history observation for that same organization; stale history numbers
+are never substituted for a current response. Future, conflicting,
+unsupported, expired, or incomplete responses are ignored. Without an accepted
+cache response, recent desktop history supplies percentages without reset times.
 
 **AI Tools** says **Connected · Claude app cache on this Mac** when that
 validated cache supplies limits. History-only readings have no reset times:
@@ -250,17 +283,17 @@ their recording time is not a quota reset time. usAIge never estimates a
 reset from usage drops or fixed window lengths. When no accepted source
 reports a reset, the countdown shows **—** and the status says **Reset times
 unavailable**. Keep Claude open so it can refresh its own usage data.
-Settings does not offer **Sign In** while either desktop source is connected.
+No sign-in or **Detect** action is required. usAIge picks up new local readings
+on its next automatic tick and retries when no current data is available.
+With the extension loaded, **AI Tools** says **Connected · Refreshing
+automatically through Claude**. Its timer continues when Desktop pauses its
+normal usage poller. Without an active extension session, usAIge asks Claude
+to reload its Usage page when the native reading goes stale, as described
+above. usAIge itself never sends a usage request. Missing or expired data
+remains unavailable.
 
-If Claude Code is configured with an `apiKeyHelper`, it bills an API key
-rather than a Claude plan and never renews its plan sign-in, so the Claude
-app is the usual source there. With neither available, AI Tools says so
-instead of showing a Claude row. **Sign In** on that row runs Claude
-Code's own `claude auth login --claudeai`, opens the Claude sign-in page, and
-takes the code you paste back; Claude Code stores the resulting plan sign-in
-in its Keychain item and usAIge only reads it. Claude Code keeps using the
-`apiKeyHelper` for its own requests, so adding the plan sign-in changes
-nothing about how the CLI works.
+If Claude Code uses an API key helper, the desktop app still supplies the
+Claude plan readings; usAIge does not access that helper or its credentials.
 
 Grok Build's sign-in is a six-hour token that only its CLI renews. When it has
 expired, usAIge runs `grok models` without a terminal so the CLI refreshes its
@@ -346,7 +379,7 @@ Use the gear button on the panel to open native macOS Settings. Available prefer
 
 Drag the panel by its background. Its safe position is stored separately for each display. If a display disappears, the panel is clamped onto an available screen the next time it is positioned.
 
-The built-in Codex, Claude Code, Cursor, and Grok Build sources read sign-ins already on this Mac; **AI Tools** shows each one's connection state. Other tools appear only after a paired adapter uploads valid normalized usage data; usAIge does not scrape provider websites or invent missing values.
+The built-in Codex, Cursor, and Grok Build sources reuse existing sign-ins, while Claude reads only local usage data; **AI Tools** shows each one's connection state. Other tools appear only after a paired adapter uploads valid normalized usage data; usAIge does not scrape provider websites or invent missing values.
 
 ## Updates
 
@@ -364,8 +397,8 @@ When a quota resets, the new window starts its own notification cycle. Selecting
 
 ## macOS privacy
 
-- No browser cookies, cookie stores, or web pages are read. From the Claude desktop app, usAIge reads only `plan-usage-history.json` and validated local usage-cache responses, never its sign-in, OAuth tokens, or Keychain item. Desktop cache reads make no network request and request no permission.
-- No provider credentials are copied or stored by usAIge. The Claude Code, Cursor, and Grok Build sign-ins already on this Mac are read into memory only to request each provider's current limits, and are never written to disk, logged, refreshed, or relayed.
+- No browser cookies, cookie stores, or web pages are read. For Claude, usAIge reads filtered extension reports, `plan-usage-history.json`, and validated local usage-cache responses, never its sign-in, OAuth tokens, or Keychain item. When automatic reopening is configured, it also checks a bounded tail of Claude's local log for the collector's exact lifecycle markers without retaining log lines. Claude itself performs the extension's first-party usage requests with a host-owned opaque handle. When a reading is stale, usAIge only opens Claude's public Usage-page link; Claude loads the page with its own session, and usAIge reads no page content.
+- No provider credentials are copied or stored by usAIge. The Cursor and Grok Build sign-ins already on this Mac are read into memory only to request each provider's current limits, and are never written to disk, logged, refreshed, or relayed.
 - The Mac relay credential is stored in an owner-only local application-support file. Each remote tool keeps its own write credential outside usAIge.
 - No screen pixels are captured or inspected.
 - Preferences contain visual settings, bucket identifiers, and display positions; they do not contain remote-tool bearer tokens.
@@ -391,10 +424,10 @@ Start the ChatGPT or Codex app, confirm that it is signed in, then press the ref
 ### Claude, Cursor, or Grok Build is missing from the rail
 
 Open **Settings → AI Tools**. The **Local AI Tools** list shows
-each tool's state and the fix: open the Claude app, sign in to the tool, or
-run `claude` or `grok login` to refresh an expired sign-in. Anthropic rate limits
-its usage endpoint; when that happens usAIge keeps the last values and retries
-later instead of polling harder.
+each tool's state. Claude usage is checked automatically without a sign-in or
+**Detect** action. Cursor may need its own sign-in refreshed; Grok Build uses
+`grok login`. A provider failure keeps the last accepted values while usAIge
+retries.
 
 ### Stale values
 
@@ -416,13 +449,19 @@ codesign --verify --deep --strict 'dist/usAIge.app'
 
 The automated suite covers quota normalization, JSON-RPC framing, account/rate-limit parsing, Claude Code, Cursor, and Grok Build decoding and throttling, one-time remote pairing payloads, state recovery, countdowns, notification thresholds and routing, settings persistence, panel geometry, and severity thresholds.
 
-Opt-in smoke tests exercise the real sign-ins on this Mac and print only normalized limits:
+Opt-in smoke tests exercise local usage sources on this Mac and print only normalized limits:
 
 ```bash
 USAIGE_LIVE_LOCAL_TOOLS=1 swift test --filter LiveLocalTools
 ```
 
-Add `USAIGE_LIVE_CLAUDE=1` to include Claude; it is opt-in because Anthropic rate limits its usage endpoint aggressively.
+Add `USAIGE_LIVE_CLAUDE=1` to include Claude's local usage files. A separate
+cache smoke test verifies real reset timestamps with credential and network
+dependencies explicitly blocked:
+
+```bash
+USAIGE_LIVE_CLAUDE_CACHE=1 swift test --filter ClaudeLocalCacheLive
+```
 
 ## TODO
 

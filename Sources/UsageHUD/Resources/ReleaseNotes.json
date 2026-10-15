@@ -1,24 +1,24 @@
 {
-  "version": "0.2.21",
-  "build": 43,
+  "version": "0.2.22",
+  "build": 44,
   "releaseNotes": {
-    "headline": "Fix macOS launch permissions",
-    "summary": "Version 0.2.21 corrects app executable permissions in the installer so usAIge can launch, while retaining Claude reset times from fresh local cache data.",
+    "headline": "Automatic Claude setup and refresh",
+    "summary": "Claude usage connects automatically from your existing Claude session, whichever app you install first. usAIge keeps usage current when Claude pauses its own polling, without extra sign-in or setup.",
     "highlights": [
       {
-        "title": "Corrected installer",
-        "detail": "The packaged app preserves executable permissions so macOS can launch usAIge after installation.",
+        "title": "Works in either install order",
+        "detail": "Install usAIge or Claude first. Once Claude is open with its normal account setup complete, usAIge detects local usage automatically without Detect or configuration.",
         "systemImage": "checkmark.circle"
       },
       {
-        "title": "Claude cache resets retained",
-        "detail": "Fresh, validated local Claude usage responses still supply exact reset timestamps without a network request.",
-        "systemImage": "clock"
+        "title": "Automatic usage refresh",
+        "detail": "usAIge checks local usage continuously and can open Claude’s Usage page or resume its existing collector when readings become stale. Claude must remain open; refresh respects retry limits.",
+        "systemImage": "arrow.clockwise"
       },
       {
-        "title": "Fresh data only",
-        "detail": "Only recent, validated cache data supplies resets. Other usage sources remain available, and missing reset times stay — instead of being estimated.",
-        "systemImage": "info.circle"
+        "title": "No extra sign-in or password keys",
+        "detail": "Claude keeps its own session. usAIge reads validated local usage and reset times without accessing Keychain, passwords, tokens, or cookies.",
+        "systemImage": "lock.shield"
       }
     ]
   }

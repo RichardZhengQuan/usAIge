@@ -1,0 +1,12 @@
+{
+  "name": "usaige-local",
+  "metadata": { "description": "Local usAIge extensions for automatic Claude usage collection." },
+  "owner": { "name": "usAIge" },
+  "plugins": [
+    {
+      "name": "usaige-usage-bridge",
+      "source": "./ClaudeUsageBridge",
+      "description": "Refreshes Claude subscription usage while idle using Claude's own session."
+    }
+  ]
+}
