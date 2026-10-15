@@ -50,7 +50,9 @@ optional usAIge recovery monitor reopens that existing session when Claude's
 local lifecycle log confirms an idle timeout or governor eviction. It does
 not send a prompt, start a new session, or launch Claude after the user quits it.
 A module reload cancels the old timer and starts a new collector through the
-host's replayed `session.start` event. The app package includes the same mod under
+host's replayed `session.start` event. `/clear`, `/resume`, and `/branch` end the
+session without another `session.start`, so the collector restarts on the
+settings `SessionStart` event that follows each of them. The app package includes the same mod under
 `Contents/Resources/ClaudeUsageBridge`; validation and tests do not enable it.
 
 For a project-scoped Desktop Code installation, register the bundled local

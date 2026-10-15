@@ -206,15 +206,28 @@ export function createUsageCollector($) {
   }
 }
 
+/** Stop the previous collector, if any, and start one for this session. */
+function restartCollector($, previous) {
+  previous?.stop()
+  const collector = createUsageCollector($)
+  void collector.start().catch(() => {})
+  return collector
+}
+
 /** @type {import('claude-code').Register} */
 export function register(on) {
   let collector
   on('session.start', async ($, event, next) => {
     const started = await next(event)
-    collector?.stop()
-    collector = createUsageCollector($)
-    void collector.start().catch(() => {})
+    collector = restartCollector($, collector)
     return started
+  })
+  // /clear, /resume, and /branch end the session without a new session.start.
+  // The settings SessionStart event follows each of them (/branch reports fork).
+  // Restarting first keeps a later handler's failure from stopping collection.
+  on('classic.SessionStart', { source: ['clear', 'resume', 'fork'] }, ($, event, next) => {
+    collector = restartCollector($, collector)
+    return next(event)
   })
   on('session.end', ($, event, next) => {
     collector?.stop()
