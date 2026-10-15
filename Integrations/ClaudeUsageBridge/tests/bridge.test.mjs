@@ -202,14 +202,58 @@ test('malformed modern limits cannot downgrade to legacy usage, and invalid meta
   assert.equal(filterUsage({ limits: [{ kind: 'session', percent: 12, resets_at: 'tomorrow' }] }), null)
 })
 
-test('registration touches only session start and end, preserving the native chain', async () => {
-  const f = fixture(), hooks = new Map()
-  register((name, hook) => hooks.set(name, hook))
-  assert.deepEqual([...hooks.keys()], ['session.start', 'session.end'])
-  const started = await hooks.get('session.start')(f.engine, { cwd: '/project' }, async event => ({ cwd: event.cwd }))
+function registered() {
+  const hooks = new Map()
+  register((name, ...rest) => hooks.set(name, { matcher: rest.length > 1 ? rest[0] : undefined, hook: rest.at(-1) }))
+  return hooks
+}
+
+test('registration touches only session start, restart, and end, preserving the native chain', async () => {
+  const f = fixture(), hooks = registered()
+  assert.deepEqual([...hooks.keys()], ['session.start', 'classic.SessionStart', 'session.end'])
+  assert.equal(hooks.get('session.start').matcher, undefined)
+  assert.equal(hooks.get('session.end').matcher, undefined)
+  // Startup is covered by session.start and compaction keeps the session, so
+  // neither may start a second collector.
+  assert.deepEqual(hooks.get('classic.SessionStart').matcher, { source: ['clear', 'resume', 'fork'] })
+  const started = await hooks.get('session.start').hook(f.engine, { cwd: '/project' }, async event => ({ cwd: event.cwd }))
   assert.deepEqual(started, { cwd: '/project' })
   await f.settle()
-  const ended = await hooks.get('session.end')(f.engine, {}, async () => ({ sessionId: 'test' }))
+  const ended = await hooks.get('session.end').hook(f.engine, {}, async () => ({ sessionId: 'test' }))
   assert.deepEqual(ended, { sessionId: 'test' })
   assert.equal(f.timers[0].canceled, true)
+})
+
+test('the collector restarts after /clear, /resume, or /branch ends the session', async () => {
+  for (const source of ['clear', 'resume', 'fork']) {
+    const f = fixture(), hooks = registered()
+    await hooks.get('session.start').hook(f.engine, { cwd: '/project' }, async event => event)
+    await f.settle()
+    assert.equal(f.requests.length, 2)
+    await hooks.get('session.end').hook(f.engine, { reason: source === 'fork' ? 'resume' : source }, async event => event)
+    assert.equal(f.timers[0].canceled, true)
+
+    // No session.start follows; the settings SessionStart event does.
+    const result = await hooks.get('classic.SessionStart').hook(f.engine, { source }, async event => ({ continued: event.source }))
+    assert.deepEqual(result, { continued: source })
+    await f.settle()
+    assert.equal(f.requests.length, 4)
+    assert.equal(f.timers.length, 2)
+    assert.equal(f.timers[1].canceled, false)
+    f.advance(5 * 60_000); f.tick(); await f.settle()
+    assert.equal(f.requests.length, 6)
+  }
+})
+
+test('a restart without a preceding session end still leaves one running collector', async () => {
+  const f = fixture(), hooks = registered()
+  await hooks.get('session.start').hook(f.engine, {}, async event => event)
+  await f.settle()
+  await hooks.get('classic.SessionStart').hook(f.engine, { source: 'resume' }, async event => event)
+  await f.settle()
+  assert.deepEqual(f.timers.map(timer => timer.canceled), [true, false])
+  assert.equal(f.requests.length, 4)
+  f.advance(5 * 60_000); f.tick(); await f.settle()
+  // Only the replacement refreshes; the replaced collector never runs again.
+  assert.equal(f.requests.length, 6)
 })
