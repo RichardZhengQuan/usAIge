@@ -9,7 +9,10 @@ enum LocalToolProviders {
     static func make(statusRegistry: LocalToolStatusRegistry) -> [any CodexUsageProviding] {
         [
             ThrottledUsageProvider(
-                base: ClaudeUsageProvider(statusRegistry: statusRegistry),
+                base: ClaudeUsageProvider(
+                    credentials: NoClaudeCredentialSource(),
+                    statusRegistry: statusRegistry
+                ),
                 minimumInterval: 300,
                 manualMinimumInterval: 60,
                 rateLimitedInterval: 900
@@ -45,9 +48,9 @@ struct LocalToolGuidance: Identifiable, Sendable {
         ),
         LocalToolGuidance(
             id: .claude,
-            source: "Claude Code sign-in on this Mac",
-            signInHint: "Open the Claude app, or use Sign In.",
-            expiredHint: "Sign-in expired. Open the Claude app, or run `claude` in Terminal to refresh it."
+            source: "Claude Code on this Mac",
+            signInHint: "No Claude session found on this Mac. usAIge checks automatically.",
+            expiredHint: "Waiting for Claude usage. usAIge retries automatically."
         ),
         LocalToolGuidance(
             id: .cursor,
@@ -73,7 +76,7 @@ struct LocalToolGuidance: Identifiable, Sendable {
         case .unknown: Presentation(text: "Checking…", isProblem: false)
         case .apiKeyOnly:
             Presentation(
-                text: "Claude Code uses an API key here, which has no plan limits. Open the Claude app to show them, or sign in with your Claude plan.",
+                text: "Claude Code uses an API key. usAIge checks the Claude app session automatically for plan limits.",
                 isProblem: false
             )
         case .connected: Presentation(text: "Connected · \(source)", isProblem: false)
@@ -81,20 +84,31 @@ struct LocalToolGuidance: Identifiable, Sendable {
             Presentation(text: "Connected · Claude app on this Mac. Reset times unavailable.", isProblem: false)
         case .connectedThroughClaudeAppCache:
             Presentation(text: "Connected · Claude app cache on this Mac", isProblem: false)
+        case .connectedThroughClaudeBridge:
+            Presentation(text: "Connected · Refreshing automatically through Claude", isProblem: false)
+        case .waitingForClaudeUsage:
+            Presentation(text: "Waiting for Claude usage. usAIge checks automatically.", isProblem: false)
         case .notInstalled: Presentation(text: "Not installed.", isProblem: false)
-        case .signedOut: Presentation(text: "Not connected. \(signInHint)", isProblem: false)
+        case .signedOut:
+            Presentation(
+                text: id == .claude ? signInHint : "Not connected. \(signInHint)",
+                isProblem: false
+            )
         case .credentialExpired: Presentation(text: expiredHint, isProblem: true)
         case .apiKeyHelperSignInExpired:
             Presentation(
-                text: "Your Claude plan sign-in expired and Claude Code runs on an API key here, so it won't renew it. Open the Claude app to show limits, or sign in again.",
+                text: "Claude Code uses an API key. usAIge checks the Claude app session automatically for plan limits.",
                 isProblem: true
             )
         case .missingScope:
-            Presentation(text: "This sign-in cannot read limits. Sign out and sign in again.", isProblem: true)
+            Presentation(
+                text: id == .claude ? "Waiting for Claude usage. usAIge retries automatically." : "This sign-in cannot read limits. Sign out and sign in again.",
+                isProblem: true
+            )
         case .rateLimited:
             Presentation(text: "The provider is rate limiting usage checks. usAIge will retry later.", isProblem: true)
         case .keychainAccessDenied:
-            Presentation(text: "macOS blocked reading the Claude Code sign-in from Keychain. Press Detect to try again.", isProblem: true)
+            Presentation(text: "macOS blocked reading local Claude credentials. usAIge retries automatically.", isProblem: true)
         case let .failed(message): Presentation(text: message, isProblem: true)
         }
     }

@@ -6,6 +6,8 @@ import Foundation
 /// - `throttled` sources are the built-in local tool providers (Claude Code,
 ///   Cursor, Grok Build). They talk to provider account endpoints, so they
 ///   are polled on the remote cadence and each one throttles itself further.
+///   Providers with passive local usage also read that data on every tick,
+///   independently of their account-request gates.
 /// - `remote` is the relay of paired adapters.
 ///
 /// A failing source keeps its last successful result so one provider outage
@@ -54,7 +56,8 @@ actor CompositeUsageProvider: AutomaticUsageProviding {
         async let localOutcome = capture { try await self.local.refresh() }
         async let remoteOutcome = capture { try await self.remote.refresh() }
         async let throttledOutcomes = refreshThrottledSources(manual: manual)
-        let outcomes = await (localOutcome, throttledOutcomes, remoteOutcome)
+        async let localToolResults: [(Int, AccountUsageResult)] = manual ? [] : refreshLocalToolSources()
+        let outcomes = await (localOutcome, throttledOutcomes, remoteOutcome, localToolResults)
         var succeeded = false
         var firstError: Error?
 
@@ -73,6 +76,10 @@ actor CompositeUsageProvider: AutomaticUsageProviding {
             case let .failure(error):
                 firstError = firstError ?? error
             }
+        }
+        for (index, result) in outcomes.3 {
+            succeeded = true
+            throttledResults[index] = result
         }
         switch outcomes.2 {
         case let .success(result):
@@ -113,8 +120,13 @@ actor CompositeUsageProvider: AutomaticUsageProviding {
     }
 
     private func refreshLocalSource() async throws -> AccountUsageResult {
-        let outcome = await capture { try await self.local.refresh() }
-        switch outcome {
+        async let localOutcome = capture { try await self.local.refresh() }
+        async let toolResults = refreshLocalToolSources()
+        let outcomes = await (localOutcome, toolResults)
+        for (index, result) in outcomes.1 {
+            throttledResults[index] = result
+        }
+        switch outcomes.0 {
         case let .success(result):
             localResult = result
         case let .failure(error):
@@ -122,6 +134,23 @@ actor CompositeUsageProvider: AutomaticUsageProviding {
             throw error
         }
         return combinedResult() ?? .authenticated([])
+    }
+
+    private func refreshLocalToolSources() async -> [(Int, AccountUsageResult)] {
+        let providers = throttled
+        return await withTaskGroup(of: (Int, AccountUsageResult?).self) { group in
+            for (index, provider) in providers.enumerated() {
+                guard let localProvider = provider as? any LocalUsageProviding else { continue }
+                group.addTask {
+                    (index, await localProvider.refreshLocalUsage())
+                }
+            }
+            var results: [(Int, AccountUsageResult)] = []
+            for await (index, result) in group {
+                if let result { results.append((index, result)) }
+            }
+            return results
+        }
     }
 
     func updates() async -> AsyncStream<[QuotaSnapshot]> {

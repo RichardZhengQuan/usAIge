@@ -481,10 +481,12 @@ private struct StaticClaudeAppUsage: ClaudeAppUsageSource {
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: home) }
 
-    #expect(ClaudeAppUsageHistory(homeDirectory: home).latestSample() == nil)
+    let fixtureNow = Date(timeIntervalSince1970: 1_800_000_000)
+    let source = ClaudeAppUsageHistory(homeDirectory: home, now: { fixtureNow })
+    #expect(source.latestSample() == nil)
     try Data(#"{"samples":[{"t":1799999700000,"u":{"fh":6,"sd":26}}]}"#.utf8)
         .write(to: dir.appendingPathComponent("plan-usage-history.json"))
-    #expect(ClaudeAppUsageHistory(homeDirectory: home).latestSample()?.weeklyPercent == 26)
+    #expect(source.latestSample()?.weeklyPercent == 26)
 }
 
 @Test func claudeFallsBackToTheClaudeAppWhenTheSignInCantReadLimits() async throws {

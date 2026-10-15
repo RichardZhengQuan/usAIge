@@ -10,7 +10,7 @@ see [relay-vps.md](relay-vps.md).
 
 Update the app's version/build in `Sources/UsageHUD/Resources/Info.plist`, bundled release
 notes, the homepage release links/version, and their release assertions before
-building. For this release the next version is **0.2.21**, build **43**. The
+building. For this release the next version is **0.2.22**, build **44**. The
 update controller compares build numbers, so each subsequent release must
 increase the build.
 
@@ -132,13 +132,24 @@ planning disk cleanup; old versions of the app can hold earlier manifest URLs.
 
 ## Publish GitHub assets and verify the release
 
-After the PR is merged and required checks pass, create the tag/release against
-the exact merged commit. Use a release body file to preserve prose and newlines.
-For version 0.2.21, the native assets are:
+After the PR is merged and required checks pass, push a version tag against
+the exact merged commit. `.github/workflows/release.yml` validates the tag,
+metadata, signed manifest, and disk image, then publishes the native assets
+and website archive using GitHub Actions’ repository token. This does not
+require local GitHub CLI authentication or Keychain access.
+
+```sh
+git tag v0.2.22 <exact-merged-commit>
+git push origin refs/tags/v0.2.22
+```
+
+Wait for the release workflow to succeed before activating the VPS. For a
+manual publication, use a release body file to preserve prose and newlines.
+For version 0.2.22, the native assets are:
 
 ```text
-dist/usAIge-0.2.21-alpha.dmg
-dist/usAIge-0.2.21-alpha.dmg.sha256
+dist/usAIge-0.2.22-alpha.dmg
+dist/usAIge-0.2.22-alpha.dmg.sha256
 ```
 
 If attaching a website archive as a release asset, archive the contents of

@@ -27,6 +27,7 @@ elif [[ -n "$template" ]]; then
 fi
 
 app="${USAIGE_APP_OUTPUT_PATH:-$root/dist/usAIge.app}"
+mkdir -p "$root/dist"
 "$root/scripts/package-app.sh"
 app="${app:A}"
 test -x "$app/Contents/MacOS/usAIge"

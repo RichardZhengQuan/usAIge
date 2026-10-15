@@ -161,7 +161,6 @@ struct HUDSettingsView: View {
     @State private var remotePromptCopied = false
     @State private var feedbackDraft = FeedbackDraft()
     @State private var feedbackState: FeedbackSubmissionState = .idle
-    @StateObject private var claudeSignIn = ClaudeSignInSession()
     @State private var expandedToolIDs: Set<AIToolID> = []
     @State private var draggedTool: DraggedTool?
     @AccessibilityFocusState private var isPageTitleFocused: Bool
@@ -1031,11 +1030,6 @@ struct HUDSettingsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 8)
-                if guidance.id == .claude, Self.offersClaudeSignIn(status: status), !claudeSignIn.isActive {
-                    Button("Sign In…") { claudeSignIn.start() }
-                        .controlSize(.small)
-                        .accessibilityHint("Runs Claude Code's own sign-in and opens the Claude sign-in page")
-                }
                 if !buckets.isEmpty {
                     Toggle(
                         "Show \(tool.name)",
@@ -1073,91 +1067,6 @@ struct HUDSettingsView: View {
                     usageTypeRow(snapshot)
                 }
                 .padding(.leading, 34)
-            }
-
-            if guidance.id == .claude {
-                claudeSignInPanel
-            }
-        }
-        .onAppear {
-            claudeSignIn.onSucceeded = {
-                Task { await refreshUsage() }
-            }
-        }
-    }
-
-    /// A connected tool needs no additional sign-in, including when either
-    /// Claude desktop source supplies its usage readings.
-    static func offersClaudeSignIn(status: LocalToolStatus) -> Bool {
-        switch status {
-        case .connected, .connectedThroughClaudeApp, .connectedThroughClaudeAppCache, .rateLimited, .unknown: false
-        default: true
-        }
-    }
-
-    @ViewBuilder
-    private var claudeSignInPanel: some View {
-        switch claudeSignIn.state {
-        case .idle:
-            EmptyView()
-        case .starting:
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text("Starting Claude Code's sign-in…").font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                Button("Cancel") { claudeSignIn.cancel() }.controlSize(.small)
-            }
-        case .waitingForCode:
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Approve the sign-in in your browser, then paste the code it shows here.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 8) {
-                    TextField("Paste the code", text: $claudeSignIn.code)
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit { claudeSignIn.submit() }
-                    Button("Continue") { claudeSignIn.submit() }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(claudeSignIn.code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-                HStack(spacing: 12) {
-                    Button("Open sign-in page again") { claudeSignIn.openSignInPage() }.buttonStyle(.link)
-                    Button("Cancel") { claudeSignIn.cancel() }.buttonStyle(.link)
-                }
-                .font(.caption)
-            }
-        case .submitting:
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text("Finishing the sign-in…").font(.caption).foregroundStyle(.secondary)
-            }
-        case .succeeded:
-            HStack(spacing: 8) {
-                Label("Signed in.", systemImage: "checkmark.circle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.green)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer()
-                Button("Done") { claudeSignIn.reset() }.controlSize(.small)
-            }
-        case let .failed(message):
-            HStack(spacing: 8) {
-                Label(message, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .lineLimit(3)
-                Spacer()
-                Button("Try Again") { claudeSignIn.reset(); claudeSignIn.start() }.controlSize(.small)
-            }
-        case .unavailable:
-            HStack(spacing: 8) {
-                Text("Claude Code isn’t installed. Install it, run `claude` once, then try again.")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer()
-                Button("Dismiss") { claudeSignIn.reset() }.controlSize(.small)
             }
         }
     }

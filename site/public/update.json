@@ -1,29 +1,29 @@
 {
-  "build" : 43,
-  "downloadURL" : "https://pmrichq.com/project/usaige/usAIge-0.2.21-alpha.dmg",
+  "build" : 44,
+  "downloadURL" : "https://pmrichq.com/project/usaige/usAIge-0.2.22-alpha.dmg",
   "minimumSystemVersion" : "11.0",
   "releaseNotes" : {
-    "headline" : "Fix macOS launch permissions",
+    "headline" : "Automatic Claude setup and refresh",
     "highlights" : [
       {
-        "detail" : "The packaged app preserves executable permissions so macOS can launch usAIge after installation.",
+        "detail" : "Install usAIge or Claude first. Once Claude is open with its normal account setup complete, usAIge detects local usage automatically without Detect or configuration.",
         "systemImage" : "checkmark.circle",
-        "title" : "Corrected installer"
+        "title" : "Works in either install order"
       },
       {
-        "detail" : "Fresh, validated local Claude usage responses still supply exact reset timestamps without a network request.",
-        "systemImage" : "clock",
-        "title" : "Claude cache resets retained"
+        "detail" : "usAIge checks local usage continuously and can open Claude’s Usage page or resume its existing collector when readings become stale. Claude must remain open; refresh respects retry limits.",
+        "systemImage" : "arrow.clockwise",
+        "title" : "Automatic usage refresh"
       },
       {
-        "detail" : "Only recent, validated cache data supplies resets. Other usage sources remain available, and missing reset times stay — instead of being estimated.",
-        "systemImage" : "info.circle",
-        "title" : "Fresh data only"
+        "detail" : "Claude keeps its own session. usAIge reads validated local usage and reset times without accessing Keychain, passwords, tokens, or cookies.",
+        "systemImage" : "lock.shield",
+        "title" : "No extra sign-in or password keys"
       }
     ],
-    "summary" : "Version 0.2.21 corrects app executable permissions in the installer so usAIge can launch, while retaining Claude reset times from fresh local cache data."
+    "summary" : "Claude usage connects automatically from your existing Claude session, whichever app you install first. usAIge keeps usage current when Claude pauses its own polling, without extra sign-in or setup."
   },
-  "sha256" : "f3c3941dc092e0b2016270b11c8400aa6a28af79da2ac7362fab1b51dadfa453",
-  "signature" : "qzNnNqzskGcaDNdF/YgWNTgMGZCA4noBIGiBCJ9TSrleU84SF9EW269mTYlnAnLMIhU59czg8SbFR4A6ySRgBQ==",
-  "version" : "0.2.21"
+  "sha256" : "6bac89627748908daf301071ef37c3c284043a6334642393964c401144ce54a7",
+  "signature" : "ivgv0t1Ad1jansfXxetsPEAK7HZnSAQSe6CkBTgqRG2If7/M21puz+pFg/FvpMrmM4Tt/sUGf8LPlCPqm3mMDg==",
+  "version" : "0.2.22"
 }

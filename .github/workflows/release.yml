@@ -1,0 +1,73 @@
+name: Publish macOS release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - name: Check release identity
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          node --input-type=module <<'JAVASCRIPT'
+          import assert from "node:assert/strict";
+          import { readFileSync, writeFileSync, appendFileSync } from "node:fs";
+          const manifest = JSON.parse(readFileSync("site/public/update.json", "utf8"));
+          const notes = JSON.parse(readFileSync("Sources/UsageHUD/Resources/ReleaseNotes.json", "utf8"));
+          const info = readFileSync("Sources/UsageHUD/Resources/Info.plist", "utf8");
+          assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
+          assert.equal(process.env.RELEASE_TAG, `v${manifest.version}`);
+          assert.equal(notes.version, manifest.version);
+          assert.equal(notes.build, manifest.build);
+          assert.deepEqual(notes.releaseNotes, manifest.releaseNotes);
+          assert.equal(info.match(/<key>CFBundleShortVersionString<\/key>\s*<string>([^<]+)<\/string>/)?.[1], manifest.version);
+          assert.equal(info.match(/<key>CFBundleVersion<\/key>\s*<string>([^<]+)<\/string>/)?.[1], String(manifest.build));
+          const body = `${notes.releaseNotes.summary}\n\n${notes.releaseNotes.highlights.map(item => `- **${item.title}:** ${item.detail}`).join("\n")}\n\nDownload the DMG below or visit https://pmrichq.com/project/usaige/.\n\nThis public alpha uses an ad-hoc macOS signature and is not Developer ID notarized.\n`;
+          writeFileSync(`${process.env.RUNNER_TEMP}/release-notes.md`, body);
+          appendFileSync(process.env.GITHUB_ENV, `RELEASE_VERSION=${manifest.version}\n`);
+          JAVASCRIPT
+      - name: Build website export
+        working-directory: site
+        run: |
+          npm ci
+          npm run build:vps
+      - name: Verify signed release and assets
+        run: bash scripts/deploy-site-vps.sh --validate-only
+      - name: Package website archive
+        run: |
+          archive="usaige-site-${RELEASE_VERSION}.tar.gz"
+          tar -C site/out/project/usaige -czf "$RUNNER_TEMP/$archive" .
+          (cd "$RUNNER_TEMP" && sha256sum "$archive" > "$archive.sha256")
+      - name: Publish immutable release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" --verify-tag --target "$GITHUB_SHA" \
+            --title "usAIge ${RELEASE_VERSION} alpha" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
+            "site/public/usAIge-${RELEASE_VERSION}-alpha.dmg" \
+            "site/public/usAIge-${RELEASE_VERSION}-alpha.dmg.sha256" \
+            "$RUNNER_TEMP/usaige-site-${RELEASE_VERSION}.tar.gz" \
+            "$RUNNER_TEMP/usaige-site-${RELEASE_VERSION}.tar.gz.sha256"

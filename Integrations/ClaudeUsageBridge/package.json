@@ -1,0 +1,6 @@
+{
+  "private": true,
+  "name": "usaige-claude-usage-bridge-tests",
+  "type": "module",
+  "scripts": { "test": "node --test tests/*.test.mjs" }
+}

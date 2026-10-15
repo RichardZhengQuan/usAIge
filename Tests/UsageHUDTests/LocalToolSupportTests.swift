@@ -51,9 +51,25 @@ import Testing
     #expect(!guidance.presentation(for: .connectedThroughClaudeAppCache).isProblem)
     #expect(guidance.presentation(for: .apiKeyOnly).text.contains("API key"))
     #expect(guidance.presentation(for: .keychainAccessDenied).isProblem)
-    #expect(guidance.presentation(for: .apiKeyHelperSignInExpired).text.contains("sign in again"))
+    #expect(guidance.presentation(for: .apiKeyHelperSignInExpired).text.contains("checks the Claude app session automatically"))
     #expect(!guidance.presentation(for: .apiKeyHelperSignInExpired).text.contains("`claude`"))
     #expect(LocalToolGuidance.supported.map(\.id) == [.chatGPT, .claude, .cursor, .grok])
+}
+
+@Test func claudeGuidanceExplainsAutomaticRecoveryWithoutSetupActions() {
+    let guidance = LocalToolGuidance.supported.first { $0.id == .claude }!
+    let unavailableStatuses: [LocalToolStatus] = [
+        .signedOut, .apiKeyOnly, .credentialExpired, .apiKeyHelperSignInExpired,
+        .missingScope, .keychainAccessDenied,
+    ]
+    for status in unavailableStatuses {
+        let text = guidance.presentation(for: status).text
+        #expect(text.contains("automatically"))
+        #expect(!text.contains("Detect"))
+        #expect(!text.contains("Open Claude"))
+        #expect(!text.lowercased().contains("sign in"))
+    }
+    #expect(guidance.presentation(for: .signedOut).text.hasPrefix("No Claude session found on this Mac."))
 }
 
 @MainActor

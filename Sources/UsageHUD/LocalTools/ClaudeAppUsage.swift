@@ -7,6 +7,9 @@ struct ClaudeAppUsageSample: Equatable, Sendable {
     let weeklyPercent: Double?
     var organizationID: String? = nil
     var cachedUsage: ClaudeDesktopCachedUsage? = nil
+    var origin: Origin = .desktop
+
+    enum Origin: Sendable { case desktop, bridge }
 }
 
 protocol ClaudeAppUsageSource: Sendable {
@@ -44,8 +47,15 @@ struct ClaudeAppUsageHistory: ClaudeAppUsageSource {
         guard let data = FileManager.default.contents(atPath: fileURL.path) else { return nil }
         guard var sample = Self.latestSample(from: data) else { return nil }
         let date = now()
-        guard (0...ClaudeDesktopUsageCache.maximumAge).contains(date.timeIntervalSince(sample.recordedAt)),
-              let organizationID = sample.organizationID,
+        // A clock correction can leave native history ahead of the current
+        // time. It must not outrank a usable bridge response and then cause
+        // the provider to discard both sources as future data.
+        guard sample.recordedAt <= date else { return nil }
+        // History identifies the most recently observed organization. Its
+        // percentages can be stale even while Claude writes a new response.
+        // Freshness is required of the response we display, not that older
+        // observation; a future history record still cannot select a cache.
+        guard let organizationID = sample.organizationID,
               let usage = readCachedUsage(organizationID, date),
               (0...ClaudeDesktopUsageCache.maximumAge).contains(date.timeIntervalSince(usage.recordedAt))
         else { return sample }
@@ -93,6 +103,19 @@ struct ClaudeAppUsageHistory: ClaudeAppUsageSource {
             if latest.map({ reading.recordedAt >= $0.recordedAt }) ?? true { latest = reading }
         }
         return latest
+    }
+
+    /// Includes empty observations, which can identify an account switch
+    /// before that account has any usage to display.
+    static func latestOrganization(from data: Data) -> (id: String, recordedAt: Date)? {
+        guard let samples = JSONValue.parse(data)?["samples"]?.arrayValue,
+              let newest = samples.enumerated().compactMap({ index, sample -> (Double, Int, String)? in
+                  guard let time = sample["t"]?.lenientNumber, time.isFinite,
+                        let id = sample["org"]?.stringValue.flatMap(UUID.init(uuidString:)) else { return nil }
+                  return (time, index, id.uuidString.lowercased())
+              }).max(by: { $0.0 == $1.0 ? $0.1 < $1.1 : $0.0 < $1.0 })
+        else { return nil }
+        return (newest.2, Date(timeIntervalSince1970: newest.0 / 1_000))
     }
 
     private static func percentages(from payload: JSONValue) -> (session: Double?, weekly: Double?) {
