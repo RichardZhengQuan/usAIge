@@ -348,6 +348,18 @@ test('a reloaded module adopts its session task, even while requests fail, inste
   assert.deepEqual(s.lease(), { schemaVersion: 1, sessionID: 'session-a', renewedAt: '2026-10-14T00:01:00.000Z', taskID: 'session-a-task-1' })
 })
 
+test('a session resumed after an unclean stop starts its own task instead of adopting its expired lease', async () => {
+  const f = fixture(), s = inSession(f, 'session-a')
+  // Claude was killed before session.end could stop the task or reset the lease.
+  s.files.set(LEASE, JSON.stringify({ schemaVersion: 1, sessionID: 'session-a', renewedAt: '2026-10-13T23:57:59.000Z', taskID: 'stopped-engine-task' }))
+  await createUsageCollector(f.engine).start()
+  assert.deepEqual(s.calls.map(call => call.tool), ['Bash'])
+  assert.deepEqual(s.lease(), { schemaVersion: 1, sessionID: 'session-a', renewedAt: '2026-10-14T00:00:00.000Z', taskID: 'session-a-task-1' })
+  f.advance(30_000); f.tick(); await flush()
+  assert.equal(s.calls.length, 1)
+  assert.deepEqual(s.lease(), { schemaVersion: 1, sessionID: 'session-a', renewedAt: '2026-10-14T00:00:30.000Z', taskID: 'session-a-task-1' })
+})
+
 test('a refused keep-alive start never asks again until the session restarts', async () => {
   const refusals = [async () => ({ deny: 'Bash is not allowed here' }), async () => { throw new Error('denied') }]
   for (const refusal of refusals) {

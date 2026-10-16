@@ -79,7 +79,10 @@ the usage directory on every 30-second check. Other collecting sessions start
 no task while that lease is younger than two minutes, so they still pause
 normally. When the holder's engine stops, the lease expires and the next
 collecting session with a running engine takes over. After a module reload the
-new module adopts its session's running task instead of starting another.
+new module adopts its session's running task, named in a lease renewed within
+the last two minutes, instead of starting another. A session resumed after its
+engine stopped without ending it (a crash or a forced quit) finds only an
+expired lease, so it starts its own task.
 
 The Bash call goes through Claude's normal permission check. Depending on the
 session's permission mode, the start may show a permission prompt in that
