@@ -24,20 +24,21 @@ test("server-renders the current usAIge release", async () => {
   assert.match(html, /<title>usAIge — AI usage and agent status, always in sight<\/title>/i);
   assert.match(
     html,
-    /https:\/\/pmrichq\.com\/project\/usaige\/usAIge-0\.2\.22-alpha\.dmg/,
+    /https:\/\/pmrichq\.com\/project\/usaige\/usAIge-0\.2\.23-alpha\.dmg/,
   );
   assert.match(
     html,
-    /https:\/\/pmrichq\.com\/project\/usaige\/usAIge-0\.2\.22-alpha\.dmg\.sha256/,
+    /https:\/\/pmrichq\.com\/project\/usaige\/usAIge-0\.2\.23-alpha\.dmg\.sha256/,
   );
   assert.match(html, /Up to 100 active tasks/i);
   assert.match(html, /Pink error, green recent completion, yellow needs input, blue running/i);
   assert.match(html, /Click the ring to reopen the exact task/i);
   assert.match(html, /10–100%/i);
   assert.match(html, /50–250%/i);
-  assert.match(html, /New in v0\.2\.22/i);
-  assert.match(html, /Install usAIge or Claude first/i);
-  assert.match(html, /no extra sign-in, password keys, Detect, or extension setup/i);
+  assert.match(html, /New in v0\.2\.23/i);
+  assert.match(html, /Claude usage refreshes quietly in the background/i);
+  assert.match(html, /without opening Settings or bringing Claude forward/i);
+  assert.match(html, /The optional bridge keeps one existing Claude Code subscription session running/i);
   assert.match(html, /product-hud-status\.png/i);
   assert.match(html, /product-settings\.png/i);
   assert.doesNotMatch(html, /codex-preview|starter loading skeleton/i);
@@ -76,21 +77,21 @@ test("loads the domain-locked VibeLoft telemetry client", async () => {
 });
 
 test("publishes a checksum matching the current disk image", async () => {
-  const dmg = await readFile(new URL("../public/usAIge-0.2.22-alpha.dmg", import.meta.url));
+  const dmg = await readFile(new URL("../public/usAIge-0.2.23-alpha.dmg", import.meta.url));
   const checksum = await readFile(
-    new URL("../public/usAIge-0.2.22-alpha.dmg.sha256", import.meta.url),
+    new URL("../public/usAIge-0.2.23-alpha.dmg.sha256", import.meta.url),
     "utf8",
   );
   const digest = createHash("sha256").update(dmg).digest("hex");
 
-  assert.equal(checksum.trim(), `${digest}  usAIge-0.2.22-alpha.dmg`);
+  assert.equal(checksum.trim(), `${digest}  usAIge-0.2.23-alpha.dmg`);
 });
 
 test("publishes a valid automatic update manifest", async () => {
   const manifest = JSON.parse(
     await readFile(new URL("../public/update.json", import.meta.url), "utf8"),
   );
-  const dmg = await readFile(new URL(`../public/usAIge-0.2.22-alpha.dmg`, import.meta.url));
+  const dmg = await readFile(new URL(`../public/usAIge-0.2.23-alpha.dmg`, import.meta.url));
   const digest = createHash("sha256").update(dmg).digest("hex");
 
   assert.deepEqual(
@@ -101,15 +102,15 @@ test("publishes a valid automatic update manifest", async () => {
       sha256: manifest.sha256,
     },
     {
-      version: "0.2.22",
-      build: 44,
+      version: "0.2.23",
+      build: 45,
       minimumSystemVersion: "11.0",
       sha256: digest,
     },
   );
   assert.equal(
     manifest.downloadURL,
-    "https://pmrichq.com/project/usaige/usAIge-0.2.22-alpha.dmg",
+    "https://pmrichq.com/project/usaige/usAIge-0.2.23-alpha.dmg",
   );
   // The app pins the release key, so an unsigned manifest blocks every update.
   assert.match(manifest.signature ?? "", /^[A-Za-z0-9+/]{86}==$/);
@@ -119,20 +120,20 @@ test("exports the same migration release for the legacy host", async () => {
   const legacyRoot = new URL("../out/project/usaige/", import.meta.url);
   const html = await readFile(new URL("index.html", legacyRoot), "utf8");
   const manifest = JSON.parse(await readFile(new URL("update.json", legacyRoot), "utf8"));
-  const dmg = await readFile(new URL("usAIge-0.2.22-alpha.dmg", legacyRoot));
+  const dmg = await readFile(new URL("usAIge-0.2.23-alpha.dmg", legacyRoot));
   const digest = createHash("sha256").update(dmg).digest("hex");
 
   assert.match(
     html,
-    /https:\/\/pmrichq\.com\/project\/usaige\/usAIge-0\.2\.22-alpha\.dmg/,
+    /https:\/\/pmrichq\.com\/project\/usaige\/usAIge-0\.2\.23-alpha\.dmg/,
   );
   assert.deepEqual(
     { version: manifest.version, build: manifest.build, sha256: manifest.sha256 },
-    { version: "0.2.22", build: 44, sha256: digest },
+    { version: "0.2.23", build: 45, sha256: digest },
   );
   assert.equal(
     manifest.downloadURL,
-    "https://pmrichq.com/project/usaige/usAIge-0.2.22-alpha.dmg",
+    "https://pmrichq.com/project/usaige/usAIge-0.2.23-alpha.dmg",
   );
   // The signature covers version, build, and sha256, so the rewritten URL keeps it valid.
   const source = JSON.parse(await readFile(new URL("../public/update.json", import.meta.url), "utf8"));

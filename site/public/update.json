@@ -1,29 +1,34 @@
 {
-  "build" : 44,
-  "downloadURL" : "https://pmrichq.com/project/usaige/usAIge-0.2.22-alpha.dmg",
+  "build" : 45,
+  "downloadURL" : "https://pmrichq.com/project/usaige/usAIge-0.2.23-alpha.dmg",
   "minimumSystemVersion" : "11.0",
   "releaseNotes" : {
-    "headline" : "Automatic Claude setup and refresh",
+    "headline" : "Quiet Claude refresh and steadier connections",
     "highlights" : [
       {
-        "detail" : "Install usAIge or Claude first. Once Claude is open with its normal account setup complete, usAIge detects local usage automatically without Detect or configuration.",
-        "systemImage" : "checkmark.circle",
-        "title" : "Works in either install order"
+        "detail" : "usAIge checks local Claude usage every five seconds without opening the Usage page or reopening Code sessions. No separate usAIge sign-in, Keychain access, or browser helper is needed.",
+        "systemImage" : "moon",
+        "title" : "Claude stays in the background"
       },
       {
-        "detail" : "usAIge checks local usage continuously and can open Claude’s Usage page or resume its existing collector when readings become stale. Claude must remain open; refresh respects retry limits.",
+        "detail" : "The optional usage bridge holds one existing Claude Code subscription session open with a silent background task. Claude must stay open, and starting the task follows the session’s normal permission checks.",
         "systemImage" : "arrow.clockwise",
-        "title" : "Automatic usage refresh"
+        "title" : "Keep collecting while Claude is idle"
       },
       {
-        "detail" : "Claude keeps its own session. usAIge reads validated local usage and reset times without accessing Keychain, passwords, tokens, or cookies.",
-        "systemImage" : "lock.shield",
-        "title" : "No extra sign-in or password keys"
+        "detail" : "Collection restarts after /clear, /resume, and /branch. A resumed session replaces an expired keep-alive lease so a stopped task cannot prevent background collection.",
+        "systemImage" : "arrow.triangle.2.circlepath",
+        "title" : "Reliable collector restarts"
+      },
+      {
+        "detail" : "Fixes a transport crash that could occur when a Codex connection stopped while reading a response.",
+        "systemImage" : "checkmark.shield",
+        "title" : "Safer Codex disconnects"
       }
     ],
-    "summary" : "Claude usage connects automatically from your existing Claude session, whichever app you install first. usAIge keeps usage current when Claude pauses its own polling, without extra sign-in or setup."
+    "summary" : "Claude usage refreshes without opening Settings or bringing Claude forward. The optional bridge keeps an existing Claude Code subscription session running for background collection, and Codex connections stop safely."
   },
-  "sha256" : "6bac89627748908daf301071ef37c3c284043a6334642393964c401144ce54a7",
-  "signature" : "ivgv0t1Ad1jansfXxetsPEAK7HZnSAQSe6CkBTgqRG2If7/M21puz+pFg/FvpMrmM4Tt/sUGf8LPlCPqm3mMDg==",
-  "version" : "0.2.22"
+  "sha256" : "6985ff5b70f2d9f588d8ca5b533961ab465cbeed9db33175772de690eed79fc2",
+  "signature" : "0Cs0Gj9AVZKUMcX0z47Wme6TJATXm2nR27bpFql0fYFixJujZetFqAjw9K+v+f85J0y0nJSstIe9WQLB6UKgDg==",
+  "version" : "0.2.23"
 }
