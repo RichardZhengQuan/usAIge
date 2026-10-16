@@ -123,7 +123,7 @@ While idle, the panel surface is fully transparent and every visible control is 
 - macOS 11 or later on an Apple-silicon Mac.
 - Swift 6.2 and Xcode 26 for source builds.
 - For local Codex limits: the ChatGPT or Codex macOS app, or a `codex` executable on `PATH`, with an existing Codex-managed ChatGPT sign-in.
-- For Claude limits: the Claude desktop app with its existing sign-in, installed before or after usAIge. No setup, extension, or Claude Code session is required: once Claude has recorded a usage reading, usAIge keeps it current by asking Claude to reload its own Usage page. The optional usage extension can also refresh from an idle Claude Code session. usAIge never offers sign-in or reads Claude's passwords, keys, tokens, or cookies.
+- For Claude limits: the Claude desktop app with its existing sign-in, installed before or after usAIge. usAIge reads its recorded usage in the background without setup, an extension, or a Claude Code session. The optional usage extension can fetch fresh readings every five minutes while its Claude Code subscription session's engine remains active, and holds a background task so Claude Desktop keeps one such engine running. usAIge never opens Claude's Usage page, brings Claude forward, offers sign-in, or reads Claude's passwords, keys, tokens, or cookies to refresh usage. If Claude stops producing readings, expired observations become unavailable.
 - For Cursor limits: the Cursor app installed and signed in on this Mac.
 - For Grok Build limits: the Grok Build CLI signed in with `grok login`.
 - For remote limits: a compatible adapter that can claim a one-time usAIge pairing code and upload normalized limits.
@@ -156,7 +156,7 @@ The packaged application includes the custom usAIge icon in Finder, the Dock, Sp
 
 Download `usAIge-0.2.22-alpha.dmg` and its checksum from the website. Open the disk image, then drag `usAIge.app` onto the Applications shortcut.
 
-Version 0.2.22 detects Claude usage automatically in either installation order and keeps refreshing when Claude pauses its own polling. Open Claude and complete its normal account setup; usAIge needs no extra sign-in, Keychain access, Detect, or manual configuration. Automatic recovery can bring Claude’s Usage page to the front.
+The published 0.2.22 alpha introduced automatic Claude usage detection and a refresh fallback that could bring Claude's Usage page or an existing Code session to the front. The current source removes that automatic navigation and uses background collection as described below. No extra sign-in, Keychain access, or **Detect** action is required to read Claude's recorded usage.
 
 This alpha is ad-hoc signed and is not notarized because the project does not yet have a Developer ID Application certificate. On first launch:
 
@@ -210,36 +210,27 @@ timestamps, organization identity, and collector status are written to
 `~/Library/Application Support/usAIge/claude-usage/`. Failed requests retain
 their previous observation time, and account switches invalidate old reports.
 The host session's engine must remain running; its timer stops if Claude
-ends or evicts that engine. usAIge expires old reports rather than treating
-them as fresh after the collector stops.
+ends that engine. Claude Desktop does not idle-pause or memory-evict a
+session that runs a background task, so after its first report one collecting
+session on the Mac holds a silent keep-alive task, coordinated through a
+lease in the same folder. That session stays in memory until it is stopped,
+archived, or Claude quits; other sessions pause normally. The task goes
+through Claude's normal permission check. usAIge expires old reports rather
+than treating them as fresh after the collector stops.
 
-Claude usage refreshes automatically, whichever app was installed first. Every
-30 seconds, while Claude is open and visible in the usAIge rail, one check
-chooses at most one route:
+usAIge checks Claude's local usage files every five seconds, whichever app was
+installed first, including while other providers wait on a network retry.
+These checks run without opening Settings or the Usage page, switching Claude
+pages, reopening Code sessions, or bringing Claude to the front. A new native
+reading or extension report appears on the next automatic tick. Before Claude
+records its first reading, usAIge waits for one.
 
-1. For an established collector with automatic reopening enabled, usAIge
-   checks Claude's local lifecycle log for that exact session. An idle timeout
-   or memory eviction reopens its existing session through Claude's normal
-   continuation link. Recovery honors the collector's retry deadline, does not
-   reopen after a later explicit stop, and attempts each pause once, with at
-   least 15 minutes between attempts, including across usAIge restarts.
-2. Otherwise, when Claude has recorded a reading for its signed-in
-   organization and no reading is newer than 6.5 minutes, usAIge opens
-   Claude's public `claude://claude.ai/settings/usage` link. Claude reloads its
-   own Usage page with its own session, and usAIge reads the validated cache
-   response on its next tick. The page waits for a collector's rate-limit or
-   in-progress retry deadline. A Code session without a subscription, or one
-   whose requests keep failing, does not hold it back. Without a newer
-   reading, the page is retried at most every 15 minutes.
-
-Either route can bring Claude to the front. After either one opens, both wait
-at least 90 seconds, including across usAIge restarts, so the reopened
-session and the Usage page never compete. If a reopened collector writes a
-new status during that time, the page also waits for its retry deadline.
-usAIge never launches Claude, signs in, or opens anything while Claude is
-hidden in the rail. Before Claude records its first reading, usAIge waits for
-one. An incomplete status file defers both routes until its retry deadline can
-be read safely.
+Background file checks cannot make Claude produce a new reading. If Desktop
+pauses its own usage poller, the extension's held engine continues fetching
+usage. If that engine is also stopped, usAIge waits for
+Claude to produce fresh data through normal use. Accepted observations retain
+their original timestamps; observations older than 30 minutes become
+unavailable. usAIge does not open Claude to recover missing data.
 
 Cursor and Grok Build reuse the sign-ins their own clients already store on
 this Mac. usAIge holds those credentials in memory only for usage requests;
@@ -256,9 +247,7 @@ endpoint on each usage refresh, because the editor's locally cached membership
 can remain unchanged after cancellation. If that lookup is unavailable, usAIge
 omits the plan label while still showing the current usage.
 
-Claude local files are checked every five seconds, including while other
-providers are waiting on a network retry. Cursor and Grok Build poll their
-account endpoints every two minutes,
+Cursor and Grok Build poll their account endpoints every two minutes,
 with automatic back-off after any failure and a longer pause after an HTTP
 429. A manual refresh may run sooner but never faster than a per-tool floor. A
 source that is waiting on something, such as a slow network request, never
@@ -285,12 +274,12 @@ reports a reset, the countdown shows **—** and the status says **Reset times
 unavailable**. Keep Claude open so it can refresh its own usage data.
 No sign-in or **Detect** action is required. usAIge picks up new local readings
 on its next automatic tick and retries when no current data is available.
-With the extension loaded, **AI Tools** says **Connected · Refreshing
-automatically through Claude**. Its timer continues when Desktop pauses its
-normal usage poller. Without an active extension session, usAIge asks Claude
-to reload its Usage page when the native reading goes stale, as described
-above. usAIge itself never sends a usage request. Missing or expired data
-remains unavailable.
+When a current extension report supplies limits, **AI Tools** identifies the
+Claude usage bridge. Its timer continues when Desktop pauses its normal usage
+poller, as long as the host engine remains active. Without an active extension
+engine, usAIge continues checking local files for fresh native readings.
+usAIge itself never sends a usage request. Missing or expired data remains
+unavailable.
 
 If Claude Code uses an API key helper, the desktop app still supplies the
 Claude plan readings; usAIge does not access that helper or its credentials.
@@ -397,7 +386,7 @@ When a quota resets, the new window starts its own notification cycle. Selecting
 
 ## macOS privacy
 
-- No browser cookies, cookie stores, or web pages are read. For Claude, usAIge reads filtered extension reports, `plan-usage-history.json`, and validated local usage-cache responses, never its sign-in, OAuth tokens, or Keychain item. When automatic reopening is configured, it also checks a bounded tail of Claude's local log for the collector's exact lifecycle markers without retaining log lines. Claude itself performs the extension's first-party usage requests with a host-owned opaque handle. When a reading is stale, usAIge only opens Claude's public Usage-page link; Claude loads the page with its own session, and usAIge reads no page content.
+- No browser cookies, cookie stores, or web pages are read. For Claude, usAIge reads filtered extension reports, `plan-usage-history.json`, and validated local usage-cache responses, never its sign-in, OAuth tokens, or Keychain item. Claude itself performs the extension's first-party usage requests with a host-owned opaque handle. Usage collection does not open Claude's Usage page, reopen Code sessions, or bring Claude to the front.
 - No provider credentials are copied or stored by usAIge. The Cursor and Grok Build sign-ins already on this Mac are read into memory only to request each provider's current limits, and are never written to disk, logged, refreshed, or relayed.
 - The Mac relay credential is stored in an owner-only local application-support file. Each remote tool keeps its own write credential outside usAIge.
 - No screen pixels are captured or inspected.

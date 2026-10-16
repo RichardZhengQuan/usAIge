@@ -7,6 +7,19 @@ const REFRESH_MS = 5 * 60_000
 const FAILURE_MS = 2 * 60_000
 const RATE_LIMIT_MS = 15 * 60_000
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+// Claude Desktop neither idle-pauses nor memory-evicts a Code session while
+// it runs a background task. One collecting session on this Mac holds such a
+// task, named in a lease that every collector renews or respects.
+const LEASE_MS = 2 * 60_000
+// Silent, and never finishes while its engine runs: a finished task would wake
+// the model. It exits only once its shell is orphaned, so no process outlives
+// a Claude that was killed without stopping its tasks. An unreadable parent
+// keeps it waiting. Absolute paths keep a changed PATH from making it spin.
+export const KEEP_ALIVE_COMMAND = `until /bin/ps -o ppid= -p $$ | /usr/bin/grep -qx ' *1'; do /bin/sleep 60; done`
+const KEEP_ALIVE_DESCRIPTION = 'Keep Claude usage refreshing for usAIge'
+// Tasks a stopped collector is still stopping; a replacement in the same
+// session must start its own rather than adopt one of these.
+const releasing = new Set()
 
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value)
 const finite = value => typeof value === 'number' && Number.isFinite(value)
@@ -93,7 +106,8 @@ function retryDelay(response, now) {
 
 /**
  * @param {import('claude-code').EngineInterface} $
- * No configuration, credential, cookie, transcript, process, or model access.
+ * No configuration, credential, cookie, transcript, or model access. The only
+ * command is the keep-alive task, run through the session's own Bash tool.
  * HOME is the sole environment read: this SDK provides no home-directory API.
  */
 export function createUsageCollector($) {
@@ -103,6 +117,13 @@ export function createUsageCollector($) {
   let directory
   let timer
   let generation = 0
+  // True once this collector has reported, false without a subscription
+  // session; undefined until either is known, which keeps but never starts a task.
+  let canHold
+  let holding = false
+  let sessionID
+  let keepAliveTaskID
+  let keepAliveRefused = false
 
   async function writeStatus(state, reason, retryAt, current, organizationID) {
     if (!active || generation !== current || !directory) return
@@ -134,6 +155,7 @@ export function createUsageCollector($) {
       if (!active || generation !== current) return
       if (auth?.kind !== 'bearer' || typeof auth.handle !== 'string' || !auth.handle) {
         nextAttemptAt = now + FAILURE_MS
+        canHold = false
         await writeStatus('unavailable', 'no_subscription_session', nextAttemptAt, current)
         return
       }
@@ -173,6 +195,7 @@ export function createUsageCollector($) {
         organizationID: boundOrganizationID, usage,
       }))
       nextAttemptAt = observedAt + REFRESH_MS
+      canHold = true
       // The response is already current. A status-write failure must not
       // shorten the successful network request's five-minute floor.
       await writeStatus('ready', undefined, nextAttemptAt, current, boundOrganizationID).catch(() => {})
@@ -187,22 +210,106 @@ export function createUsageCollector($) {
     }
   }
 
+  async function readLease() {
+    try {
+      const lease = JSON.parse(await $.fs.read(`${directory}/keep-alive.json`))
+      const renewedAt = Date.parse(lease?.renewedAt)
+      if (lease?.schemaVersion !== 1 || typeof lease.sessionID !== 'string' || !Number.isFinite(renewedAt)) return undefined
+      return { sessionID: lease.sessionID, taskID: typeof lease.taskID === 'string' ? lease.taskID : undefined, renewedAt }
+    } catch {
+      return undefined
+    }
+  }
+
+  function writeLease(taskID, renewedAt) {
+    const lease = { schemaVersion: 1, sessionID, renewedAt: new Date(renewedAt).toISOString() }
+    if (taskID) lease.taskID = taskID
+    return $.fs.write(`${directory}/keep-alive.json`, JSON.stringify(lease))
+  }
+
+  /** TaskStop ends the task without notifying the model, unlike its exit. */
+  async function release(taskID) {
+    releasing.add(taskID)
+    try {
+      await $.tool.call({ tool: 'TaskStop', task_id: taskID }).catch(() => {})
+      const lease = await readLease()
+      if (lease?.sessionID === sessionID && (!lease.taskID || lease.taskID === taskID)) await writeLease(undefined, 0)
+    } finally {
+      releasing.delete(taskID)
+    }
+  }
+
+  /** Hold, renew, adopt after a module reload, or yield the session's task. */
+  async function hold() {
+    if (!active || holding || !directory) return
+    holding = true
+    const current = generation
+    try {
+      sessionID ??= await $.session.id()
+      const now = await $.clock.now()
+      if (!active || generation !== current || typeof sessionID !== 'string' || !sessionID) return
+      const lease = await readLease()
+      if (!active || generation !== current) return
+      const ours = lease?.sessionID === sessionID
+      const live = lease !== undefined && Math.abs(now - lease.renewedAt) < LEASE_MS
+      if (!keepAliveTaskID && ours && !releasing.has(lease.taskID)) keepAliveTaskID = lease.taskID
+      if (canHold === false || (live && !ours)) {
+        const taskID = keepAliveTaskID
+        keepAliveTaskID = undefined
+        if (taskID) await release(taskID)
+        return
+      }
+      if (!keepAliveTaskID) {
+        if (canHold !== true || keepAliveRefused) return
+        const ran = await $.tool.call({
+          tool: 'Bash', command: KEEP_ALIVE_COMMAND, description: KEEP_ALIVE_DESCRIPTION, run_in_background: true,
+        }).catch(() => undefined)
+        const taskID = ran?.result?.backgroundTaskId
+        if (typeof taskID !== 'string' || !taskID) {
+          // Another start would ask again. A denied or failed start waits for
+          // the session to restart, which creates a new collector.
+          keepAliveRefused = true
+          return
+        }
+        if (!active || generation !== current) {
+          await release(taskID)
+          return
+        }
+        keepAliveTaskID = taskID
+      }
+      await writeLease(keepAliveTaskID, now)
+    } catch {
+      // The next check reads the lease again.
+    } finally {
+      holding = false
+    }
+  }
+
+  async function tick() {
+    await refresh()
+    await hold()
+  }
+
   return {
     start() {
       timer?.cancel()
       active = true
       generation += 1
       nextAttemptAt = 0
-      timer = $.clock.every(CHECK_MS, () => { void refresh().catch(() => {}) })
-      return refresh()
+      timer = $.clock.every(CHECK_MS, () => { void tick().catch(() => {}) })
+      return tick()
     },
     stop() {
       active = false
       generation += 1
       timer?.cancel()
       timer = undefined
+      const taskID = keepAliveTaskID
+      keepAliveTaskID = undefined
+      if (taskID) void release(taskID).catch(() => {})
     },
     refresh,
+    hold,
   }
 }
 
