@@ -10,7 +10,7 @@ see [relay-vps.md](relay-vps.md).
 
 Update the app's version/build in `Sources/UsageHUD/Resources/Info.plist`, bundled release
 notes, the homepage release links/version, and their release assertions before
-building. For this release the next version is **0.2.22**, build **44**. The
+building. For this release the next version is **0.2.23**, build **45**. The
 update controller compares build numbers, so each subsequent release must
 increase the build.
 
@@ -139,17 +139,17 @@ and website archive using GitHub Actions’ repository token. This does not
 require local GitHub CLI authentication or Keychain access.
 
 ```sh
-git tag v0.2.22 <exact-merged-commit>
-git push origin refs/tags/v0.2.22
+git tag v0.2.23 <exact-merged-commit>
+git push origin refs/tags/v0.2.23
 ```
 
 Wait for the release workflow to succeed before activating the VPS. For a
 manual publication, use a release body file to preserve prose and newlines.
-For version 0.2.22, the native assets are:
+For version 0.2.23, the native assets are:
 
 ```text
-dist/usAIge-0.2.22-alpha.dmg
-dist/usAIge-0.2.22-alpha.dmg.sha256
+dist/usAIge-0.2.23-alpha.dmg
+dist/usAIge-0.2.23-alpha.dmg.sha256
 ```
 
 If attaching a website archive as a release asset, archive the contents of

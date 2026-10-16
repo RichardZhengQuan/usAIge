@@ -3,8 +3,8 @@ import { SectionLink } from "./section-link";
 const basePath = "/project/usaige";
 const assetUrl = (path: string) => `${basePath}/${path}`;
 const releaseBaseUrl = "https://pmrichq.com/project/usaige";
-const downloadUrl = `${releaseBaseUrl}/usAIge-0.2.22-alpha.dmg`;
-const checksumUrl = `${releaseBaseUrl}/usAIge-0.2.22-alpha.dmg.sha256`;
+const downloadUrl = `${releaseBaseUrl}/usAIge-0.2.23-alpha.dmg`;
+const checksumUrl = `${releaseBaseUrl}/usAIge-0.2.23-alpha.dmg.sha256`;
 
 const statusColors = [
   { key: "error", label: "Error", color: "#ff5284", detail: "Always wins" },
@@ -19,7 +19,7 @@ const usageEffects = [
   ["Critical quota signal", "Five usage bands culminate in a focused deep-red remaining arc while the unused track stays transparent."],
   ["Hover focus", "The rail returns to full opacity, reveals controls, refreshes stale data, and shows detailed reset context."],
   ["Your size and opacity", "Set resting opacity from 10–100% and scale the compact rail from 50–250%."],
-  ["New in v0.2.22", "Install usAIge or Claude first. Once Claude’s normal account setup is complete, keep Claude open and usage refreshes automatically—no extra sign-in, password keys, Detect, or extension setup."],
+  ["New in v0.2.23", "Claude usage refreshes quietly in the background, without opening Settings or bringing Claude forward. The optional bridge keeps one existing Claude Code subscription session running while Claude stays open."],
 ];
 
 export default function Home() {
@@ -40,7 +40,7 @@ export default function Home() {
 
       <section className="hero shell" id="top">
         <div className="hero__copy">
-          <p className="eyebrow"><span /> v0.2.22 · Native macOS utility</p>
+          <p className="eyebrow"><span /> v0.2.23 · Native macOS utility</p>
           <h1>Your AI work,<br /><em>still breathing.</em></h1>
           <p className="hero__lede">
             usAIge keeps usage limits and Codex task health in one quiet floating rail. One glance tells you whether agents are running, finished, waiting, or broken.
@@ -48,7 +48,7 @@ export default function Home() {
           <div className="hero__actions">
             <a className="button button--primary" href={downloadUrl} download>
               <span className="button__icon" aria-hidden="true">↓</span>
-              <span><strong>Download for macOS</strong><small>v0.2.22 alpha · macOS 11+ · Apple silicon</small></span>
+              <span><strong>Download for macOS</strong><small>v0.2.23 alpha · macOS 11+ · Apple silicon</small></span>
             </a>
             <SectionLink className="text-link" targetId="agent-status">See the status system <span aria-hidden="true">→</span></SectionLink>
           </div>
@@ -142,7 +142,7 @@ export default function Home() {
           <h2>You choose<br /><em>every source.</em></h2>
         </div>
         <div className="privacy__copy">
-          <p>Claude refreshes through its own existing session. usAIge reads local usage data and may bring Claude’s Usage page to the front when readings go stale. Optional iPhone Sync relays normalized usage and task status—never provider credentials, prompts, or task content.</p>
+          <p>Claude refreshes through its own existing session. usAIge reads local usage data without opening pages or bringing Claude forward. The optional background collector uses an existing Claude Code subscription session; its keep-alive task follows Claude’s normal permission checks. Optional iPhone Sync relays normalized usage and task status—never provider credentials, prompts, or task content.</p>
           <ul>
             <li><span>✓</span> No browser cookies read</li>
             <li><span>✓</span> No separate account login</li>
@@ -166,7 +166,7 @@ export default function Home() {
         <div className="install__cta">
           <a className="button button--primary" href={downloadUrl} download>
             <span className="button__icon" aria-hidden="true">↓</span>
-            <span><strong>Download usAIge</strong><small>v0.2.22 alpha · macOS 11 or later · Apple silicon</small></span>
+            <span><strong>Download usAIge</strong><small>v0.2.23 alpha · macOS 11 or later · Apple silicon</small></span>
           </a>
           <a className="checksum" href={checksumUrl} download>SHA-256 checksum</a>
         </div>
@@ -175,7 +175,7 @@ export default function Home() {
       <footer className="footer shell">
         <SectionLink className="brand" targetId="top"><img src={assetUrl("app-icon.png")} alt="" /><span>us<span>AI</span>ge</span></SectionLink>
         <p>Built for people who would rather make things than monitor dashboards.</p>
-        <span>v0.2.22 public alpha · 2026</span>
+        <span>v0.2.23 public alpha · 2026</span>
       </footer>
     </main>
   );

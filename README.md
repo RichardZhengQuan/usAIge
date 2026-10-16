@@ -154,9 +154,9 @@ The packaged application includes the custom usAIge icon in Finder, the Dock, Sp
 
 ## Install the public alpha
 
-Download `usAIge-0.2.22-alpha.dmg` and its checksum from the website. Open the disk image, then drag `usAIge.app` onto the Applications shortcut.
+Download `usAIge-0.2.23-alpha.dmg` and its checksum from the website. Open the disk image, then drag `usAIge.app` onto the Applications shortcut.
 
-The published 0.2.22 alpha introduced automatic Claude usage detection and a refresh fallback that could bring Claude's Usage page or an existing Code session to the front. The current source removes that automatic navigation and uses background collection as described below. No extra sign-in, Keychain access, or **Detect** action is required to read Claude's recorded usage.
+The 0.2.23 alpha removes automatic navigation to Claude’s Usage page and Code sessions, and uses background collection as described below. No extra sign-in, Keychain access, or **Detect** action is required to read Claude's recorded usage.
 
 This alpha is ad-hoc signed and is not notarized because the project does not yet have a Developer ID Application certificate. On first launch:
 
@@ -170,7 +170,7 @@ To build and verify the installer locally:
 
 ```bash
 scripts/package-dmg.sh
-(cd dist && shasum -a 256 -c usAIge-0.2.22-alpha.dmg.sha256)
+(cd dist && shasum -a 256 -c usAIge-0.2.23-alpha.dmg.sha256)
 ```
 
 For headless packaging, reuse the layout from a trusted previous installer:
