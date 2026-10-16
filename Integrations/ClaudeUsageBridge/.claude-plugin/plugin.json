@@ -1,6 +1,6 @@
 {
   "name": "usaige-usage-bridge",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Lets Claude Code refresh its own subscription usage in the background and share only usage figures with usAIge.",
   "author": { "name": "usAIge" }
 }

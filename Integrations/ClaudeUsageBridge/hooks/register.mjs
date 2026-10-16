@@ -252,7 +252,9 @@ export function createUsageCollector($) {
       if (!active || generation !== current) return
       const ours = lease?.sessionID === sessionID
       const live = lease !== undefined && Math.abs(now - lease.renewedAt) < LEASE_MS
-      if (!keepAliveTaskID && ours && !releasing.has(lease.taskID)) keepAliveTaskID = lease.taskID
+      // Adopt only a lease the reloaded module renewed while this engine ran. An
+      // expired one may name the task of an engine that stopped uncleanly.
+      if (!keepAliveTaskID && ours && live && !releasing.has(lease.taskID)) keepAliveTaskID = lease.taskID
       if (canHold === false || (live && !ours)) {
         const taskID = keepAliveTaskID
         keepAliveTaskID = undefined

@@ -74,6 +74,37 @@ describe('register', () => {
     expect(calls).toEqual(['Bash background=true', 'TaskStop task-1'])
   })
 
+  test('native resumed session replaces the task named by its own expired lease', async ($, on) => {
+    const clock = mock.clock(on, { now: Date.parse('2026-10-14T00:00:00Z') })
+    mock.env(on, { HOME: '/bridge-test' })
+    const path = '/bridge-test/Library/Application Support/usAIge/claude-usage/keep-alive.json'
+    // An earlier engine for this session stopped without session.end.
+    const files = new Map([[path, JSON.stringify({
+      schemaVersion: 1, sessionID: 'test-session', renewedAt: '2026-10-13T23:50:00.000Z', taskID: 'stopped-engine-task',
+    })]])
+    const calls: string[] = []
+    on('session.start', (_, e) => ({ cwd: e.cwd }))
+    on('session.id', () => ({ value: 'test-session' }))
+    on('session.authorize', () => ({ value: { kind: 'bearer', handle: 'opaque' } }))
+    on('http.fetch', (_, e) => ({ value: {
+      status: 200, ok: true, headers: {},
+      text: JSON.stringify(e.url.endsWith('/profile') ? { organization: { uuid: ORGANIZATION } } : USAGE),
+    } }))
+    on('fs.write', (_, e) => { files.set(e.path, e.text); return { value: undefined } })
+    on('fs.read', (_, e) => files.has(e.path) ? { value: files.get(e.path) as string } : { deny: 'missing' })
+    on('tool.call', (_, e) => {
+      calls.push(String((e as Record<string, unknown>).tool))
+      return { result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: 'task-1' } }
+    })
+
+    await $.session.start({ cwd: '/project', surface: 'terminal', isInteractive: true })
+    await clock.settle()
+    expect(calls).toEqual(['Bash'])
+    expect(JSON.parse(files.get(path) as string)).toEqual({
+      schemaVersion: 1, sessionID: 'test-session', renewedAt: '2026-10-14T00:00:00.000Z', taskID: 'task-1',
+    })
+  })
+
   test('native denied keep-alive start is not asked again while the session runs', async ($, on) => {
     const clock = mock.clock(on, { now: Date.parse('2026-10-14T00:00:00Z') })
     mock.env(on, { HOME: '/bridge-test' })
