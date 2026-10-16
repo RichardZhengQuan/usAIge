@@ -147,20 +147,39 @@ private func claudeSnapshot(remaining: Double) -> QuotaSnapshot {
     #expect(await base.stopCount == 1)
 }
 
-private actor SlowUsageProvider: CodexUsageProviding {
-    private let delayNanoseconds: UInt64
+/// Holds every refresh until the test releases it, so the test decides when a
+/// blocked provider answers instead of racing a sleep against the wait limit.
+private actor HeldUsageProvider: CodexUsageProviding {
     private let result: AccountUsageResult
     private(set) var refreshCount = 0
+    private var isReleased = false
+    private var heldRefreshes: [CheckedContinuation<Void, Never>] = []
+    private var heldWaiters: [CheckedContinuation<Void, Never>] = []
 
-    init(delay: TimeInterval, result: AccountUsageResult) {
-        delayNanoseconds = UInt64(delay * 1_000_000_000)
+    init(result: AccountUsageResult) {
         self.result = result
     }
 
     func refresh() async throws -> AccountUsageResult {
         refreshCount += 1
-        try await Task.sleep(nanoseconds: delayNanoseconds)
+        heldWaiters.forEach { $0.resume() }
+        heldWaiters = []
+        if !isReleased {
+            await withCheckedContinuation { heldRefreshes.append($0) }
+        }
         return result
+    }
+
+    /// Returns once a refresh has reached this provider.
+    func waitUntilHeld() async {
+        guard refreshCount == 0 else { return }
+        await withCheckedContinuation { heldWaiters.append($0) }
+    }
+
+    func release() {
+        isReleased = true
+        heldRefreshes.forEach { $0.resume() }
+        heldRefreshes = []
     }
 
     func updates() async -> AsyncStream<[QuotaSnapshot]> {
@@ -170,8 +189,22 @@ private actor SlowUsageProvider: CodexUsageProviding {
     func stop() async {}
 }
 
+/// Calls `refresh()` until a released refresh has landed. A call that still
+/// finds it running waits out the wait limit before timing out, so this never
+/// spins; the attempt cap only keeps a refresh that never lands from hanging
+/// the suite.
+private func refreshUntilLanded(
+    _ provider: ThrottledUsageProvider,
+    attempts: Int = 200
+) async throws -> AccountUsageResult? {
+    for _ in 0..<attempts {
+        do { return try await provider.refresh() } catch LocalToolUsageError.timedOut {}
+    }
+    return nil
+}
+
 @Test func aBlockedRefreshDoesNotHoldUpCallersAndLandsLater() async throws {
-    let base = SlowUsageProvider(delay: 0.5, result: .authenticated([claudeSnapshot(remaining: 64)]))
+    let base = HeldUsageProvider(result: .authenticated([claudeSnapshot(remaining: 64)]))
     let provider = ThrottledUsageProvider(base: base, minimumInterval: 300, waitLimit: 0.05)
 
     await #expect(throws: LocalToolUsageError.timedOut) {
@@ -181,11 +214,14 @@ private actor SlowUsageProvider: CodexUsageProviding {
     await #expect(throws: LocalToolUsageError.timedOut) {
         try await provider.refresh(manual: true)
     }
+    await base.waitUntilHeld()
     #expect(await base.refreshCount == 1)
 
-    try await Task.sleep(nanoseconds: 700_000_000)
-    let landed = try await provider.refresh()
+    await base.release()
+    let landed = try #require(await refreshUntilLanded(provider))
     #expect(landed.snapshots.first?.remainingPercent == 64)
+    // The landed result is cached, so the next caller gets it straight away.
+    #expect(try await provider.refresh() == landed)
     #expect(await base.refreshCount == 1)
 }
 
