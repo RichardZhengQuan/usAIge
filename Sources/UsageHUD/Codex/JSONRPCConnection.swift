@@ -158,9 +158,8 @@ actor ProcessLineTransport: LineTransport {
     private let arguments: [String]
     private var process: Process?
     private var input: Pipe?
-    private var output: Pipe?
-    private var errorOutput: Pipe?
-    private var readerTask: Task<Void, Never>?
+    private var outputReader: PipeReader?
+    private var errorReader: PipeReader?
     private var lineStream: AsyncStream<String>?
     private var lineContinuation: AsyncStream<String>.Continuation?
 
@@ -187,46 +186,25 @@ actor ProcessLineTransport: LineTransport {
         process.standardInput = input
         process.standardOutput = output
         process.standardError = error
-        // Nothing reads the app-server's stderr, so drain it as it arrives.
-        // A pipe nobody reads fills after about 64 KB and then blocks the
-        // app-server on its next log line, which stalls stdout and every
-        // request with it.
-        error.fileHandleForReading.readabilityHandler = { handle in
-            autoreleasepool { _ = handle.availableData }
-        }
         try process.run()
         let streamPair = AsyncStream.makeStream(of: String.self)
         self.process = process
         self.input = input
-        self.output = output
-        self.errorOutput = error
         lineStream = streamPair.stream
         lineContinuation = streamPair.continuation
 
-        let handle = output.fileHandleForReading
         let continuation = streamPair.continuation
-        readerTask = Task.detached {
-            var buffer = Data()
-            while !Task.isCancelled {
-                // FileHandle returns autoreleased NSData. This detached task has no
-                // run-loop pool, so drain one explicitly after every pipe read.
-                let receivedChunk = autoreleasepool {
-                    let data = handle.availableData
-                    guard !data.isEmpty else { return false }
-                    buffer.append(data)
-                    while let newline = buffer.firstIndex(of: 0x0A) {
-                        let frame = buffer[..<newline]
-                        buffer.removeSubrange(...newline)
-                        if let line = String(data: frame, encoding: .utf8), !line.isEmpty {
-                            continuation.yield(line)
-                        }
-                    }
-                    return true
-                }
-                if !receivedChunk { break }
-            }
-            continuation.finish()
-        }
+        outputReader = PipeReader(
+            output.fileHandleForReading,
+            label: "com.usaige.app-server.stdout",
+            onLine: { continuation.yield($0) },
+            onEnd: { continuation.finish() }
+        )
+        // Nothing reads the app-server's stderr, so drain it as it arrives.
+        // A pipe nobody reads fills after about 64 KB and then blocks the
+        // app-server on its next log line, which stalls stdout and every
+        // request with it.
+        errorReader = PipeReader(error.fileHandleForReading, label: "com.usaige.app-server.stderr")
     }
 
     func write(_ line: String) async throws {
@@ -239,19 +217,89 @@ actor ProcessLineTransport: LineTransport {
     }
 
     func stop() async {
-        readerTask?.cancel()
-        readerTask = nil
+        // The readers close stdout and stderr themselves. Closing either
+        // here could land just before a read the reader has already begun.
+        outputReader?.cancel()
+        errorReader?.cancel()
+        outputReader = nil
+        errorReader = nil
         try? input?.fileHandleForWriting.close()
-        try? output?.fileHandleForReading.close()
-        errorOutput?.fileHandleForReading.readabilityHandler = nil
-        try? errorOutput?.fileHandleForReading.close()
         if process?.isRunning == true { process?.terminate() }
         process = nil
         input = nil
-        output = nil
-        errorOutput = nil
         lineContinuation?.finish()
         lineStream = nil
         lineContinuation = nil
+    }
+}
+
+/// Drains one pipe end on a dispatch read source, framing it into lines when
+/// `onLine` is set and discarding it otherwise.
+///
+/// The cancel handler is the only place the pipe is closed. Dispatch runs it
+/// after the last read handler has returned and starts no read after it, so
+/// `cancel()` is safe at any moment. Closing the handle from outside is not:
+/// a read that starts on the closed descriptor makes FileHandle raise an
+/// Objective-C exception that Swift can't catch, and a plain read(2) could
+/// land on whatever reused the descriptor number.
+private final class PipeReader: @unchecked Sendable {
+    private let descriptor: Int32
+    private let source: DispatchSourceRead
+    private let onLine: (@Sendable (String) -> Void)?
+    // Only the read handler touches these, and it runs on one serial queue.
+    private var chunk = [UInt8](repeating: 0, count: 65_536)
+    private var buffer = Data()
+
+    /// `onEnd` runs once, after the pipe is closed, whether it reached end of
+    /// file or `cancel()` stopped it.
+    init(
+        _ handle: FileHandle,
+        label: String,
+        onLine: (@Sendable (String) -> Void)? = nil,
+        onEnd: @escaping @Sendable () -> Void = {}
+    ) {
+        descriptor = handle.fileDescriptor
+        self.onLine = onLine
+        source = DispatchSource.makeReadSource(
+            fileDescriptor: descriptor,
+            queue: DispatchQueue(label: label)
+        )
+        // The event handler keeps the reader alive until the pipe closes.
+        // Dispatch releases it once the source is cancelled.
+        source.setEventHandler { [self] in readAvailable() }
+        source.setCancelHandler {
+            try? handle.close()
+            onEnd()
+        }
+        source.activate()
+    }
+
+    func cancel() {
+        source.cancel()
+    }
+
+    private func readAvailable() {
+        // Dispatch threads drain their autorelease pools only now and then,
+        // and a busy pipe fires this many times a second, so drain one after
+        // every read.
+        autoreleasepool {
+            let count = chunk.withUnsafeMutableBytes { Darwin.read(descriptor, $0.baseAddress, $0.count) }
+            if count < 0, errno == EINTR || errno == EAGAIN { return }
+            guard count > 0 else {
+                // End of file or a broken pipe. A read source keeps firing
+                // at end of file, so stop it.
+                source.cancel()
+                return
+            }
+            guard let onLine else { return }
+            buffer.append(contentsOf: chunk[..<count])
+            while let newline = buffer.firstIndex(of: 0x0A) {
+                let frame = buffer[..<newline]
+                buffer.removeSubrange(...newline)
+                if let line = String(data: frame, encoding: .utf8), !line.isEmpty {
+                    onLine(line)
+                }
+            }
+        }
     }
 }

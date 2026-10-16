@@ -100,6 +100,57 @@ import Testing
     #expect(calls.count == 2)
 }
 
+@Test func processTransportEndsItsLinesWhenTheProcessExits() async throws {
+    let transport = ProcessLineTransport(
+        executableURL: URL(fileURLWithPath: "/bin/echo"),
+        arguments: ["only line"]
+    )
+
+    try await transport.start()
+    var lines = await transport.lines().makeAsyncIterator()
+    #expect(await lines.next() == "only line")
+    #expect(await lines.next() == nil)
+    await transport.stop()
+}
+
+@Test func processTransportDrainsStderrSoStdoutKeepsFlowing() async throws {
+    // 256 KB of stderr is several times what an unread pipe holds, so the
+    // child only reaches its stdout line if stderr is drained.
+    let transport = ProcessLineTransport(
+        executableURL: URL(fileURLWithPath: "/bin/sh"),
+        arguments: ["-c", "head -c 262144 /dev/zero >&2; echo ready"]
+    )
+
+    try await transport.start()
+    var lines = await transport.lines().makeAsyncIterator()
+    #expect(await lines.next() == "ready")
+    await transport.stop()
+}
+
+@Test func processTransportStopsSafelyWhileItsPipesAreBusy() async throws {
+    // The child floods stdout and stderr, so every stop lands while a read
+    // is in flight or about to start. Closing a pipe under such a read used
+    // to abort the whole test process with NSFileHandleOperationException
+    // ("Bad file descriptor") in almost every run of this loop.
+    try await withThrowingTaskGroup(of: Void.self) { group in
+        for _ in 0..<4 {
+            group.addTask {
+                let transport = ProcessLineTransport(
+                    executableURL: URL(fileURLWithPath: "/bin/sh"),
+                    arguments: ["-c", "while :; do echo out; echo err >&2; done"]
+                )
+                for _ in 0..<150 {
+                    try await transport.start()
+                    var lines = await transport.lines().makeAsyncIterator()
+                    #expect(await lines.next() == "out")
+                    await transport.stop()
+                }
+            }
+        }
+        try await group.waitForAll()
+    }
+}
+
 private final class ResolveCounter: @unchecked Sendable {
     private let lock = NSLock()
     private var calls = 0
