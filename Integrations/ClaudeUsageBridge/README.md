@@ -1,13 +1,15 @@
 # Claude usage bridge
 
 This optional local usAIge mod runs in an existing Claude Code subscription
-session. usAIge does not need it on first run: whichever app is installed first,
-once Claude Desktop has recorded a usage reading, usAIge refreshes stale readings
-by opening Claude's public `claude://claude.ai/settings/usage` link. When a
-current report from this mod is available, that page stays closed.
+session. usAIge reads Claude Desktop's recorded usage without the mod,
+whichever app is installed first. The mod can produce fresh usage readings in
+the background while its host engine stays active. usAIge checks the local
+reports and native usage files every five seconds without opening Claude's
+Usage page, reopening a Code session, or bringing Claude to the front.
 Claude Code owns authentication and supplies an opaque authorization handle;
 the bridge does not read passwords, keys, credentials, cookies, or settings.
-It makes no model requests and adds no prompts or commands.
+It makes no model requests and sends no prompts. Its only shell command is the
+silent keep-alive task described below, whose start can ask for permission.
 
 The collector refreshes immediately on session start, checks every 30 seconds
 while the session stays open, and fetches at most every five minutes after a
@@ -45,10 +47,59 @@ does not expose a home-directory method.
 
 Requires Claude Code 2.1.287 or later with a subscription session. An API-key
 session cannot supply subscription limits. The collector stops when its
-session's engine stops, including host eviction under memory pressure. The
-optional usAIge recovery monitor reopens that existing session when Claude's
-local lifecycle log confirms an idle timeout or governor eviction. It does
-not send a prompt, start a new session, or launch Claude after the user quits it.
+session's engine stops. usAIge keeps checking local usage files and waits for
+a fresh report or native reading; it does not reopen the session. Accepted
+observations keep their original timestamps, and observations older than 30
+minutes become unavailable. Collection resumes when Claude runs the host engine
+again.
+
+## Keeping one session's engine running
+
+Claude Desktop stops idle Code session engines in two ways. Its memory governor
+evicts idle engines when too many are running; this is what stopped
+interactive sessions when observed. Its 15-minute idle timeout has so far been
+seen pausing only scheduled-task sessions. Desktop's code skips both while the
+session runs a background task. After a collector has written its first
+report, it starts one such task through the session's own Bash tool:
+
+```sh
+until /bin/ps -o ppid= -p $$ | /usr/bin/grep -qx ' *1'; do /bin/sleep 60; done
+```
+
+The task prints nothing and never finishes while Claude runs it, because a
+finished background task would wake the model. It exits by itself only when
+Claude has gone without stopping it and its shell has been orphaned. The
+collector stops it with Claude's TaskStop tool, which does not notify the
+model, when the session ends or restarts, when the session has no subscription,
+or when another session holds the lease.
+
+Only one session on the Mac holds a task. The holder renews
+`keep-alive.json` (its Claude Code session id, task id, and renewal time) in
+the usage directory on every 30-second check. Other collecting sessions start
+no task while that lease is younger than two minutes, so they still pause
+normally. When the holder's engine stops, the lease expires and the next
+collecting session with a running engine takes over. After a module reload the
+new module adopts its session's running task instead of starting another.
+
+The Bash call goes through Claude's normal permission check. Depending on the
+session's permission mode, the start may show a permission prompt in that
+session, or auto mode may decide it. To allow it without asking, add the exact
+command above as a `Bash(...)` allow rule in the project's local settings. A
+refused or failed start is not tried again until the collector restarts (a new
+or resumed session, `/clear`, `/branch`, or a module reload); the collector
+keeps refreshing usage without the task meanwhile.
+
+The held session stays in memory (roughly 160 to 330 MB per Claude Code engine
+here) and Claude's memory governor evicts other idle sessions instead. The
+task appears in that session's background tasks; stopping it there lets Claude
+pause the session normally, and the collector does not start another until the
+session restarts. Claude still ends the engine when it quits, when the person
+stops or archives the session, on sign-out, or on an account switch. Claude does
+not start Code sessions at launch, so collection resumes only after a session
+with the bridge runs again.
+
+## Reloads and restarts
+
 A module reload cancels the old timer and starts a new collector through the
 host's replayed `session.start` event. `/clear`, `/resume`, and `/branch` end the
 session without another `session.start`, so the collector restarts on the
@@ -75,36 +126,15 @@ collector can run. An existing session loads the installation with
 The Desktop usage popup alone does not start a Code engine. No global Claude
 settings, credentials, or API-key helper need to be changed.
 
-After the collector has produced a successful report, automatic reopening can
-be explicitly enabled in
-`~/Library/Application Support/usAIge/claude-usage/recovery.json`:
+Background collection does not use automatic session recovery or Usage-page
+navigation. If both native polling and every collecting engine are stopped,
+file checks alone cannot fetch new account data. usAIge waits quietly for
+Claude to produce a fresh reading and leaves missing or expired data
+unavailable.
 
-```json
-{
-  "schemaVersion": 1,
-  "desktopSessionID": "local_00000000-0000-0000-0000-000000000000",
-  "enabled": true
-}
-```
-
-Use the existing Desktop session's `local_…` ID from its continuation URL,
-not the CLI's separate session UUID. Recovery can bring Claude to the front.
-It runs in the same 30-second usAIge check as the Usage-page refresh and takes
-precedence: the page is used only when no configured session needs reopening.
-After either route opens, both wait at least 90 seconds, including across usAIge
-restarts. If the reopened collector writes a new status in that time, its retry
-deadline also holds the page back. Otherwise the page is the fallback.
-It requires an exact native idle/eviction marker after the last successful
-report, respects `nextAttemptAt` plus 90 seconds for in-flight work, and ignores
-later stops, starts, or warm resumes. Missing or incomplete status files defer
-recovery so they cannot hide a retry deadline. Attempts are persisted in `recovery-attempt.json` so
-restarting usAIge cannot repeat a pause; different pauses have a 15-minute
-cooldown. Hiding Claude in the rail or setting `enabled` to `false` prevents
-automatic reopening. A missing marker, quit app, archived session, or host
-resume restriction remains unavailable instead of triggering sign-in.
-
-Run the tests with `node --test tests/*.test.mjs`. Validate the mod with the
-supported Claude Code executable using `--bare plugin validate <directory>`.
+Run the tests with `node --test tests/*.test.mjs` and the mod tests with
+`claude plugin test <directory>`. Validate the mod with the supported Claude
+Code executable using `--bare plugin validate <directory>`.
 
 API references: [Anthropic mods API](https://code.claude.com/docs/en/plugins/mods/api),
 [Anthropic mods declarations](https://github.com/anthropics/claude-code/blob/main/mods/types/claude-code.d.ts).
