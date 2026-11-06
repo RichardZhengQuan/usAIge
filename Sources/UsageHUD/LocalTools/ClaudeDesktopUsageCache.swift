@@ -10,38 +10,79 @@ struct ClaudeDesktopCachedUsage: Equatable, Sendable {
 /// Reads only Claude's locally cached usage responses. The supported layout is
 /// Chromium Simple cache v5 / index v9, independently implemented from its BSD
 /// format definitions. No cookies, credentials, or network requests are used.
+///
+/// This runs on every refresh and the cache can hold thousands of entries, so
+/// it opens each entry only once to learn its key. An entry's file name is a
+/// hash of its key, so an entry that isn't a usage response never becomes one.
+/// Later reads open only the usage entries, and re-read the index only after
+/// it changes.
 struct ClaudeDesktopUsageCache: Sendable {
     static let maximumEntryBytes = 2 * 1_024 * 1_024
     static let maximumAge: TimeInterval = 30 * 60
     private let directory: URL
+    private let memory = ScanMemory()
 
     init(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) {
         directory = homeDirectory.appendingPathComponent("Library/Application Support/Claude/Cache/Cache_Data")
     }
 
+    /// How many entries have been opened to read their key.
+    var keysReadForTesting: Int { memory.lock.withLock { memory.keysRead } }
+
     func latestUsage(organizationID: String, now: Date) -> ClaudeDesktopCachedUsage? {
-        let indexURL = directory.appendingPathComponent("index-dir/the-real-index")
-        guard let index = Self.readBounded(indexURL, limit: 4 * 1_024 * 1_024),
-              let hashes = Self.indexHashes(index),
-              let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
-        else { return nil }
-        var newest: ClaudeDesktopCachedUsage?
-        for file in files {
-            let name = file.lastPathComponent
-            guard name.count == 18, name.hasSuffix("_0"),
-                  let hash = UInt64(name.prefix(16), radix: 16), hashes.contains(hash),
-                  let key = Self.readKey(file), Self.isUsageKey(key, organizationID: organizationID),
-                  let data = Self.readBounded(file, limit: Self.maximumEntryBytes),
-                  let usage = Self.parseEntry(data, filename: name, organizationID: organizationID, now: now),
-                  // Reject partial/in-flight replacement rather than locking or
-                  // copying any of Claude's cache files.
-                  Self.readBounded(file, limit: Self.maximumEntryBytes) == data,
-                  let currentIndex = Self.readBounded(indexURL, limit: 4 * 1_024 * 1_024),
-                  Self.indexHashes(currentIndex)?.contains(hash) == true
-            else { continue }
-            if newest.map({ usage.recordedAt > $0.recordedAt }) ?? true { newest = usage }
+        memory.lock.withLock {
+            let indexURL = directory.appendingPathComponent("index-dir/the-real-index")
+            guard let hashes = currentHashes(indexURL) else { return nil }
+            findUsageEntries(among: hashes, organizationID: organizationID)
+            var newest: ClaudeDesktopCachedUsage?
+            for hash in memory.usageHashes where hashes.contains(hash) {
+                let name = Self.entryFilename(hash: hash)
+                let file = directory.appendingPathComponent(name)
+                guard let data = Self.readBounded(file, limit: Self.maximumEntryBytes),
+                      let usage = Self.parseEntry(data, filename: name, organizationID: organizationID, now: now),
+                      // Reject partial/in-flight replacement rather than locking or
+                      // copying any of Claude's cache files.
+                      Self.readBounded(file, limit: Self.maximumEntryBytes) == data,
+                      currentHashes(indexURL)?.contains(hash) == true
+                else { continue }
+                if newest.map({ usage.recordedAt > $0.recordedAt }) ?? true { newest = usage }
+            }
+            return newest
         }
-        return newest
+    }
+
+    /// The index's entries, parsed again only when the index file has changed.
+    private func currentHashes(_ indexURL: URL) -> Set<UInt64>? {
+        guard let stamp = FileStamp(indexURL) else {
+            memory.index = nil
+            return nil
+        }
+        if let index = memory.index, index.stamp == stamp { return index.hashes }
+        memory.index = nil
+        guard let data = Self.readBounded(indexURL, limit: 4 * 1_024 * 1_024),
+              let hashes = Self.indexHashes(data) else { return nil }
+        memory.index = (stamp, hashes)
+        memory.checkedHashes.formIntersection(hashes)
+        memory.usageHashes.formIntersection(hashes)
+        return hashes
+    }
+
+    /// Reads the key of each entry not checked yet. An entry whose key can't
+    /// be confirmed, such as one still being written, is tried again next time.
+    private func findUsageEntries(among hashes: Set<UInt64>, organizationID: String) {
+        if memory.organizationID != organizationID {
+            memory.organizationID = organizationID
+            memory.checkedHashes = []
+            memory.usageHashes = []
+        }
+        for hash in hashes where !memory.checkedHashes.contains(hash) {
+            let name = Self.entryFilename(hash: hash)
+            memory.keysRead += 1
+            guard let key = Self.readKey(directory.appendingPathComponent(name)),
+                  name == Self.entryFilename(key: key) else { continue }
+            memory.checkedHashes.insert(hash)
+            if Self.isUsageKey(key, organizationID: organizationID) { memory.usageHashes.insert(hash) }
+        }
     }
 
     static func indexHashes(_ data: Data) -> Set<UInt64>? {
@@ -112,7 +153,11 @@ struct ClaudeDesktopUsageCache: Sendable {
     static func entryFilename(key: String) -> String {
         let digest = Array(Insecure.SHA1.hash(data: Data(key.utf8)))
         let hash = digest.prefix(8).enumerated().reduce(UInt64(0)) { $0 | UInt64($1.element) << ($1.offset * 8) }
-        return String(format: "%016llx_0", hash)
+        return entryFilename(hash: hash)
+    }
+
+    private static func entryFilename(hash: UInt64) -> String {
+        String(format: "%016llx_0", hash)
     }
 
     private static func isUsageKey(_ key: String, organizationID: String) -> Bool {
@@ -240,6 +285,34 @@ struct ClaudeDesktopUsageCache: Sendable {
             for _ in 0..<8 { crc = (crc >> 1) ^ (crc & 1 == 1 ? 0xedb88320 : 0) }
         }
         return ~crc
+    }
+}
+
+/// What earlier reads learned about the cache, guarded by `lock`.
+private final class ScanMemory: @unchecked Sendable {
+    let lock = NSLock()
+    var index: (stamp: FileStamp, hashes: Set<UInt64>)?
+    var organizationID: String?
+    var checkedHashes = Set<UInt64>()
+    var usageHashes = Set<UInt64>()
+    var keysRead = 0
+}
+
+/// Identifies one version of a regular file without reading it. A symbolic
+/// link has no stamp, matching how the cache's files are opened.
+private struct FileStamp: Equatable {
+    let inode: UInt64
+    let size: Int64
+    let modifiedSeconds: Int
+    let modifiedNanoseconds: Int
+
+    init?(_ url: URL) {
+        var information = stat()
+        guard lstat(url.path, &information) == 0, information.st_mode & S_IFMT == S_IFREG else { return nil }
+        inode = information.st_ino
+        size = information.st_size
+        modifiedSeconds = information.st_mtimespec.tv_sec
+        modifiedNanoseconds = information.st_mtimespec.tv_nsec
     }
 }
 

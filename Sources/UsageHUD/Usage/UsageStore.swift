@@ -17,7 +17,7 @@ final class UsageStore: ObservableObject {
     private var automaticRefreshTask: Task<Void, Never>?
     private var wakeObserver: NSObjectProtocol?
     private var clockObserver: NSObjectProtocol?
-    private var resetTask: Task<Void, Never>?
+    private var nextResetAt: Date?
     private var retryTask: Task<Void, Never>?
     private var networkMonitor: NWPathMonitor?
     private var wasNetworkAvailable: Bool?
@@ -61,7 +61,7 @@ final class UsageStore: ObservableObject {
                     return
                 }
                 guard !Task.isCancelled else { return }
-                await self.refreshAutomatically()
+                await self.runAutomaticTick()
             }
         }
 
@@ -91,8 +91,15 @@ final class UsageStore: ObservableObject {
         await refresh(automatic: false)
     }
 
-    private func refreshAutomatically() async {
-        await refresh(automatic: true)
+    /// A quota window that just reset gets a full refresh; every other tick
+    /// takes the cheaper automatic path.
+    private func runAutomaticTick() async {
+        if let nextResetAt, now() >= nextResetAt {
+            self.nextResetAt = nil
+            await refresh()
+        } else {
+            await refresh(automatic: true)
+        }
     }
 
     private func refresh(automatic: Bool) async {
@@ -171,14 +178,13 @@ final class UsageStore: ObservableObject {
         automaticRefreshTask?.cancel()
         if let wakeObserver { workspaceNotificationCenter.removeObserver(wakeObserver) }
         if let clockObserver { NotificationCenter.default.removeObserver(clockObserver) }
-        resetTask?.cancel()
         retryTask?.cancel()
         networkMonitor?.cancel()
         updateTask = nil
         automaticRefreshTask = nil
         wakeObserver = nil
         clockObserver = nil
-        resetTask = nil
+        nextResetAt = nil
         retryTask = nil
         networkMonitor = nil
         wasNetworkAvailable = nil
@@ -225,21 +231,16 @@ final class UsageStore: ObservableObject {
         }
     }
 
+    /// Records the soonest future reset for the automatic tick to act on.
+    /// This runs on every refresh, so it must not start a sleep: a cancelled
+    /// `Task.sleep` keeps its timer until the original deadline, which can be
+    /// days away, and tens of thousands of them pile up.
     private func scheduleReset(for snapshots: [QuotaSnapshot]) {
-        resetTask?.cancel()
-        let resetDates = snapshots.flatMap { snapshot in
-            [snapshot.resetAt, snapshot.secondaryWindow?.resetAt].compactMap { $0 }
-        }
-        guard let resetAt = resetDates.filter({ $0 > now() }).min() else {
-            resetTask = nil
-            return
-        }
-        let delay = resetAt.timeIntervalSince(now())
-        resetTask = Task { [weak self] in
-            try? await Self.sleep(seconds: delay)
-            guard let self, !Task.isCancelled else { return }
-            await self.refresh()
-        }
+        let current = now()
+        nextResetAt = snapshots
+            .flatMap { [$0.resetAt, $0.secondaryWindow?.resetAt].compactMap { $0 } }
+            .filter { $0 > current }
+            .min()
     }
 
     private func scheduleRetry() {

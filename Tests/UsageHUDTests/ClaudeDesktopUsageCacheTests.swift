@@ -299,4 +299,63 @@ private func simpleIndex(filenames: [String], packedInfo: UInt64 = 256) -> Data 
         try Data("corrupt".utf8).write(to: indexURL)
         #expect(reader.latestUsage(organizationID: cacheOrganization, now: cacheTestNow) == nil)
     }
+
+    @Test func repeatedReadsOpenEachEntryOnlyOnceAndStayFresh() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("usaige-simple-cache-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let directory = home.appendingPathComponent("Library/Application Support/Claude/Cache/Cache_Data")
+        try FileManager.default.createDirectory(at: directory.appendingPathComponent("index-dir"), withIntermediateDirectories: true)
+        let usage = SimpleUsageFixture(fetchedAt: cacheTestNow.addingTimeInterval(-20))
+        let others = (0..<20).map { SimpleUsageFixture(key: "1/0/https://claude.ai/assets/\($0).js") }
+        for entry in [usage] + others {
+            try entry.data.write(to: directory.appendingPathComponent(entry.filename))
+        }
+        let indexURL = directory.appendingPathComponent("index-dir/the-real-index")
+        let filenames = ([usage] + others).map(\.filename)
+        try simpleIndex(filenames: filenames).write(to: indexURL)
+        let reader = ClaudeDesktopUsageCache(homeDirectory: home)
+        func newest(_ organization: String = cacheOrganization) -> Date? {
+            reader.latestUsage(organizationID: organization, now: cacheTestNow)?.recordedAt
+        }
+
+        #expect(newest() == cacheTestNow.addingTimeInterval(-20))
+        #expect(reader.keysReadForTesting == 21)
+
+        // Later reads open no other entries.
+        #expect(newest() == cacheTestNow.addingTimeInterval(-20))
+        #expect(reader.keysReadForTesting == 21)
+
+        // Claude overwrites the same file; the new response needs no index change.
+        let refreshed = SimpleUsageFixture(fetchedAt: cacheTestNow.addingTimeInterval(-5))
+        try refreshed.data.write(to: directory.appendingPathComponent(refreshed.filename))
+        #expect(newest() == cacheTestNow.addingTimeInterval(-5))
+        #expect(reader.keysReadForTesting == 21)
+
+        // A newly indexed entry is opened once.
+        let added = SimpleUsageFixture(key: fixtureKey(query: "?skip_spend=1"), fetchedAt: cacheTestNow.addingTimeInterval(-1))
+        try added.data.write(to: directory.appendingPathComponent(added.filename))
+        try simpleIndex(filenames: filenames + [added.filename]).write(to: indexURL)
+        #expect(newest() == cacheTestNow.addingTimeInterval(-1))
+        #expect(reader.keysReadForTesting == 22)
+
+        // Another organization's usage lives under different keys.
+        #expect(newest("44444444-4444-4444-8444-444444444444") == nil)
+        #expect(reader.keysReadForTesting == 44)
+    }
+
+    @Test func anEntryStillBeingWrittenIsCheckedAgain() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("usaige-simple-cache-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let directory = home.appendingPathComponent("Library/Application Support/Claude/Cache/Cache_Data")
+        try FileManager.default.createDirectory(at: directory.appendingPathComponent("index-dir"), withIntermediateDirectories: true)
+        let usage = SimpleUsageFixture()
+        let file = directory.appendingPathComponent(usage.filename)
+        try usage.data.prefix(10).write(to: file)
+        try simpleIndex(filenames: [usage.filename]).write(to: directory.appendingPathComponent("index-dir/the-real-index"))
+        let reader = ClaudeDesktopUsageCache(homeDirectory: home)
+
+        #expect(reader.latestUsage(organizationID: cacheOrganization, now: cacheTestNow) == nil)
+        try usage.data.write(to: file)
+        #expect(reader.latestUsage(organizationID: cacheOrganization, now: cacheTestNow) != nil)
+    }
 }

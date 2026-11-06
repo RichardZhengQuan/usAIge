@@ -1,126 +1,4 @@
-import AppKit
-import QuartzCore
 import SwiftUI
-
-@MainActor
-private struct PopoverGlassStrengthTuner: NSViewRepresentable {
-    let opacity: Double
-    let showsCriticalBorder: Bool
-
-    func makeNSView(context: Context) -> TuningView {
-        let view = TuningView()
-        view.opacity = opacity
-        view.showsCriticalBorder = showsCriticalBorder
-        return view
-    }
-
-    func updateNSView(_ nsView: TuningView, context: Context) {
-        nsView.opacity = opacity
-        nsView.showsCriticalBorder = showsCriticalBorder
-        nsView.applyAppearance()
-    }
-
-    final class TuningView: NSView {
-        var opacity = 1.0
-        var showsCriticalBorder = false
-
-        private static let criticalBorderLayerName = "usAIgeCriticalPopoverBorder"
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            applyAppearance()
-        }
-
-        func applyAppearance() {
-            DispatchQueue.main.async { [weak self] in
-                guard let self,
-                      let contentView = window?.contentView,
-                      let popoverFrame = contentView.superview,
-                      let glassView = popoverFrame.subviews.first(where: { $0 !== contentView })
-                else { return }
-
-                glassView.alphaValue = opacity
-                applyBorders(to: popoverFrame)
-            }
-        }
-
-        private func applyBorders(to popoverFrame: NSView) {
-            popoverFrame.wantsLayer = true
-
-            let existingCriticalLayer = popoverFrame.layer?.sublayers?.first {
-                $0.name == Self.criticalBorderLayerName
-            }
-
-            guard showsCriticalBorder else {
-                existingCriticalLayer?.removeFromSuperlayer()
-                return
-            }
-
-            let borderLayer = (existingCriticalLayer as? CAShapeLayer) ?? CAShapeLayer()
-            borderLayer.name = Self.criticalBorderLayerName
-            borderLayer.frame = popoverFrame.bounds
-            borderLayer.path = Self.popoverOutlinePath(
-                bodyRect: convert(bounds, to: popoverFrame),
-                in: popoverFrame.bounds
-            )
-            borderLayer.fillColor = NSColor.clear.cgColor
-            borderLayer.strokeColor = NSColor.systemRed.cgColor
-            borderLayer.lineWidth = 2.25
-            borderLayer.lineJoin = .round
-            borderLayer.shadowColor = NSColor.systemRed.cgColor
-            borderLayer.shadowOpacity = 0.55
-            borderLayer.shadowRadius = 6
-            borderLayer.shadowOffset = .zero
-            borderLayer.shadowPath = nil
-            borderLayer.zPosition = 1_000
-            borderLayer.contentsScale = window?.backingScaleFactor ?? 2
-
-            if existingCriticalLayer == nil {
-                popoverFrame.layer?.addSublayer(borderLayer)
-            }
-        }
-
-        private static func popoverOutlinePath(bodyRect: CGRect, in bounds: CGRect) -> CGPath {
-            let outline = bodyRect.insetBy(dx: 1, dy: 1)
-            let arrowHalfHeight: CGFloat = 11
-            let radius: CGFloat = 18
-            let minX = outline.minX
-            let minY = outline.minY
-            let maxY = outline.maxY
-            let bodyMaxX = outline.maxX
-            let tipX = bounds.maxX - 1
-            let midY = outline.midY
-            let path = CGMutablePath()
-
-            path.move(to: CGPoint(x: minX + radius, y: minY))
-            path.addLine(to: CGPoint(x: bodyMaxX - radius, y: minY))
-            path.addQuadCurve(
-                to: CGPoint(x: bodyMaxX, y: minY + radius),
-                control: CGPoint(x: bodyMaxX, y: minY)
-            )
-            path.addLine(to: CGPoint(x: bodyMaxX, y: midY - arrowHalfHeight))
-            path.addLine(to: CGPoint(x: tipX, y: midY))
-            path.addLine(to: CGPoint(x: bodyMaxX, y: midY + arrowHalfHeight))
-            path.addLine(to: CGPoint(x: bodyMaxX, y: maxY - radius))
-            path.addQuadCurve(
-                to: CGPoint(x: bodyMaxX - radius, y: maxY),
-                control: CGPoint(x: bodyMaxX, y: maxY)
-            )
-            path.addLine(to: CGPoint(x: minX + radius, y: maxY))
-            path.addQuadCurve(
-                to: CGPoint(x: minX, y: maxY - radius),
-                control: CGPoint(x: minX, y: maxY)
-            )
-            path.addLine(to: CGPoint(x: minX, y: minY + radius))
-            path.addQuadCurve(
-                to: CGPoint(x: minX + radius, y: minY),
-                control: CGPoint(x: minX, y: minY)
-            )
-            path.closeSubpath()
-            return path
-        }
-    }
-}
 
 enum QuotaSeverity: Equatable, Sendable {
     case abundant
@@ -180,6 +58,22 @@ enum ResetCreditPresentation {
     }
 }
 
+/// How often the rail's slow, continuous animations redraw. Each update
+/// re-renders the rail on the main thread, so running them at the display's
+/// full rate would use a steady share of a CPU core for no visible gain.
+enum RailMotion {
+    static let updatesPerSecond = 20.0
+}
+
+enum CriticalPulseMotion {
+    static let period: TimeInterval = 1.24
+
+    /// Eases between 0 and 1 and back over one period.
+    static func value(at time: TimeInterval) -> Double {
+        (1 - cos(2 * .pi * time / period)) / 2
+    }
+}
+
 enum AgentBreathingMotion {
     static let minimumThickness: CGFloat = 2
     static let midpointThickness: CGFloat = 4
@@ -189,6 +83,23 @@ enum AgentBreathingMotion {
     static let minimumOpacity = 0.52
     static let midpointOpacity = 0.66
     static let maximumOpacity = 0.80
+
+    /// The ring's thickness at `time`: from the midpoint down to the minimum,
+    /// up to the maximum, and back, easing through each step.
+    static func thickness(at time: TimeInterval) -> CGFloat {
+        let stops = [
+            midpointThickness,
+            minimumThickness,
+            midpointThickness,
+            maximumThickness,
+            midpointThickness,
+        ]
+        let position = time.truncatingRemainder(dividingBy: keyframeDuration * 4) / keyframeDuration
+        let step = min(Int(position), 3)
+        let progress = CGFloat(position - Double(step))
+        let eased = progress * progress * (3 - 2 * progress)
+        return stops[step] + (stops[step + 1] - stops[step]) * eased
+    }
 
     static func baseDiameter(
         outsideQuotaRing quotaDiameter: CGFloat,
@@ -235,11 +146,12 @@ struct QuotaRowView: View {
     let agentTaskID: String?
     let openTool: (AIToolDescriptor) -> Void
     let openAgentTask: (String) -> Void
-    let onDetailHoverChanged: (Bool) -> Void
+    /// Reports hover changes with the row's frame in the rail's coordinates.
+    let onDetailHoverChanged: (Bool, CGRect) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @State private var isHovered = false
-    @State private var criticalPulse = false
+    @State private var rowFrame = CGRect.zero
 
     private var tool: AIToolDescriptor {
         .descriptor(for: snapshot)
@@ -257,15 +169,6 @@ struct QuotaRowView: View {
 
     private var hasCriticalSeverity: Bool {
         primarySeverity.showsScaryGlow || secondarySeverity?.showsScaryGlow == true
-    }
-
-    private var detailSeverity: QuotaSeverity {
-        QuotaSeverity(
-            remainingPercent: min(
-                snapshot.remainingPercent,
-                snapshot.secondaryWindow?.remainingPercent ?? 100
-            )
-        )
     }
 
     var body: some View {
@@ -294,25 +197,17 @@ struct QuotaRowView: View {
         }
         .frame(width: 76, height: HUDMetrics.quotaRowHeight)
         .contentShape(Rectangle())
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
+            rowFrame = frame
+            if isHovered { onDetailHoverChanged(true, frame) }
+        }
         .onHover { hoverState in
             isHovered = hoverState
-            onDetailHoverChanged(hoverState)
+            onDetailHoverChanged(hoverState, rowFrame)
         }
-        .onDisappear { onDetailHoverChanged(false) }
-        .popover(isPresented: $isHovered, attachmentAnchor: .rect(.bounds), arrowEdge: .trailing) {
-            detailPopover
-        }
+        .onDisappear { onDetailHoverChanged(false, rowFrame) }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilitySummary)
-        .onAppear {
-            updateCriticalPulse()
-        }
-        .onDisappear {
-            // Stop the repeat-forever glow when the row leaves the screen.
-            criticalPulse = false
-        }
-        .onChange(of: hasCriticalSeverity) { _, _ in updateCriticalPulse() }
-        .onChange(of: reduceMotion) { _, _ in updateCriticalPulse() }
     }
 
     private var usageRing: some View {
@@ -397,18 +292,23 @@ struct QuotaRowView: View {
         let fraction = QuotaRingPresentation.arcFraction(remainingPercent: remainingPercent)
 
         if severity.showsScaryGlow {
-            Circle()
-                .trim(from: 0, to: fraction)
-                .stroke(
-                    Color.red.opacity(0.28),
-                    style: StrokeStyle(lineWidth: lineWidth + 8, lineCap: .round)
-                )
-                .rotationEffect(.degrees(-90))
-                .frame(width: diameter, height: diameter)
-                .scaleEffect(criticalPulse ? 1.18 : 1.04)
-                .blur(radius: criticalPulse ? 3 : 4)
-                .shadow(color: Color.red.opacity(0.28), radius: 4)
-                .accessibilityHidden(true)
+            TimelineView(.animation(minimumInterval: 1 / RailMotion.updatesPerSecond, paused: reduceMotion)) { context in
+                let pulse = reduceMotion
+                    ? 1
+                    : CriticalPulseMotion.value(at: context.date.timeIntervalSinceReferenceDate)
+                Circle()
+                    .trim(from: 0, to: fraction)
+                    .stroke(
+                        Color.red.opacity(0.28),
+                        style: StrokeStyle(lineWidth: lineWidth + 8, lineCap: .round)
+                    )
+                    .rotationEffect(.degrees(-90))
+                    .frame(width: diameter, height: diameter)
+                    .scaleEffect(1.04 + 0.14 * pulse)
+                    .blur(radius: 4 - pulse)
+                    .shadow(color: Color.red.opacity(0.28), radius: 4)
+                    .accessibilityHidden(true)
+            }
         }
 
         Circle()
@@ -419,19 +319,6 @@ struct QuotaRowView: View {
             .shadow(color: severity.glowColor, radius: severity.glowRadius / 3)
             .shadow(color: severity.glowColor.opacity(0.9), radius: severity.glowRadius * 0.7)
             .shadow(color: severity.glowColor.opacity(0.72), radius: severity.glowRadius)
-    }
-
-    private func updateCriticalPulse() {
-        criticalPulse = false
-        guard hasCriticalSeverity else { return }
-
-        if reduceMotion {
-            criticalPulse = true
-        } else {
-            withAnimation(.easeInOut(duration: 0.62).repeatForever(autoreverses: true)) {
-                criticalPulse = true
-            }
-        }
     }
 
     private func typeTag(
@@ -485,7 +372,107 @@ struct QuotaRowView: View {
         }
     }
 
-    private var detailPopover: some View {
+    private var accessibilitySummary: String {
+        var text = "\(tool.name), \(snapshot.displayName), \(snapshot.typeTag) window, \(Int(snapshot.remainingPercent.rounded())) percent remaining, \(ResetRemainingText.accessibilityLabel(until: snapshot.resetAt))"
+        if let secondaryWindow = snapshot.secondaryWindow {
+            text += ", \(secondaryWindow.typeTag) window, \(Int(secondaryWindow.remainingPercent.rounded())) percent remaining, \(ResetRemainingText.accessibilityLabel(until: secondaryWindow.resetAt))"
+        }
+        if agentPhase.showsLight {
+            text += ", \(tool.name) sessions \(agentPhase.label)"
+        }
+        return text
+    }
+
+}
+
+/// A rounded card with an arrow pointing at the hovered row. `rect` includes
+/// room for the arrow on both sides, so either side takes the same space.
+@available(macOS 14.0, *)
+struct QuotaDetailCardShape: Shape {
+    static let arrowLength: CGFloat = 9
+    private static let arrowHalfHeight: CGFloat = 10
+    private static let cornerRadius: CGFloat = 18
+
+    var arrowEdge: HorizontalEdge
+    /// How far below the card's centre the arrow points.
+    var arrowOffset: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let body = rect.insetBy(dx: Self.arrowLength, dy: 0)
+        let radius = Self.cornerRadius
+        let halfHeight = Self.arrowHalfHeight
+        let margin = radius + halfHeight
+        let arrowY = min(max(body.midY + arrowOffset, body.minY + margin), body.maxY - margin)
+
+        var path = Path()
+        path.move(to: CGPoint(x: body.minX + radius, y: body.minY))
+        path.addArc(
+            tangent1End: CGPoint(x: body.maxX, y: body.minY),
+            tangent2End: CGPoint(x: body.maxX, y: body.maxY),
+            radius: radius
+        )
+        if arrowEdge == .trailing {
+            path.addLine(to: CGPoint(x: body.maxX, y: arrowY - halfHeight))
+            path.addArc(
+                tangent1End: CGPoint(x: rect.maxX, y: arrowY),
+                tangent2End: CGPoint(x: body.maxX, y: arrowY + halfHeight),
+                radius: 2
+            )
+            path.addLine(to: CGPoint(x: body.maxX, y: arrowY + halfHeight))
+        }
+        path.addArc(
+            tangent1End: CGPoint(x: body.maxX, y: body.maxY),
+            tangent2End: CGPoint(x: body.minX, y: body.maxY),
+            radius: radius
+        )
+        path.addArc(
+            tangent1End: CGPoint(x: body.minX, y: body.maxY),
+            tangent2End: CGPoint(x: body.minX, y: body.minY),
+            radius: radius
+        )
+        if arrowEdge == .leading {
+            path.addLine(to: CGPoint(x: body.minX, y: arrowY + halfHeight))
+            path.addArc(
+                tangent1End: CGPoint(x: rect.minX, y: arrowY),
+                tangent2End: CGPoint(x: body.minX, y: arrowY - halfHeight),
+                radius: 2
+            )
+            path.addLine(to: CGPoint(x: body.minX, y: arrowY - halfHeight))
+        }
+        path.addArc(
+            tangent1End: CGPoint(x: body.minX, y: body.minY),
+            tangent2End: CGPoint(x: body.maxX, y: body.minY),
+            radius: radius
+        )
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// The details shown beside the rail for the hovered row.
+@available(macOS 14.0, *)
+struct QuotaDetailCard: View {
+    /// Room around the card so its window doesn't clip the shadow or critical glow.
+    static let windowInset: CGFloat = 28
+
+    let snapshot: QuotaSnapshot
+    var arrowEdge: HorizontalEdge = .leading
+    var arrowOffset: CGFloat = 0
+
+    private var tool: AIToolDescriptor {
+        .descriptor(for: snapshot)
+    }
+
+    private var lowestSeverity: QuotaSeverity {
+        QuotaSeverity(
+            remainingPercent: min(
+                snapshot.remainingPercent,
+                snapshot.secondaryWindow?.remainingPercent ?? 100
+            )
+        )
+    }
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 9) {
                 AIToolIcon(tool: tool, size: 30)
@@ -512,7 +499,7 @@ struct QuotaRowView: View {
             windowDetail(
                 title: snapshot.typeTag,
                 window: snapshot.primaryWindow,
-                severity: primarySeverity
+                severity: QuotaSeverity(remainingPercent: snapshot.remainingPercent)
             )
 
             if let secondaryWindow = snapshot.secondaryWindow {
@@ -527,19 +514,31 @@ struct QuotaRowView: View {
         .font(.caption)
         .padding(14)
         .frame(width: 260)
-        .presentationBackground {
-            HUDGlassSurface(
-                severity: detailSeverity,
-                isActive: true,
-                showsCriticalOutline: hasCriticalSeverity
-            )
-        }
         .background {
-            PopoverGlassStrengthTuner(
-                opacity: 0,
-                showsCriticalBorder: hasCriticalSeverity
-            )
+            surface.padding(.horizontal, -QuotaDetailCardShape.arrowLength)
         }
+        .shadow(color: .black.opacity(0.18), radius: 12, y: 4)
+        .padding(Self.windowInset)
+    }
+
+    private var surface: some View {
+        let shape = QuotaDetailCardShape(arrowEdge: arrowEdge, arrowOffset: arrowOffset)
+        return ZStack {
+            // Regular glass, unlike the rail's clear glass, keeps the text
+            // legible over whatever window sits behind the card.
+            if #available(macOS 26.0, *) {
+                Color.clear.glassEffect(.regular, in: shape)
+            } else {
+                shape.fill(.regularMaterial)
+            }
+            shape.stroke(Color.primary.opacity(0.18), lineWidth: 0.5)
+            if lowestSeverity.showsScaryGlow {
+                shape.stroke(Color.red.opacity(0.92), lineWidth: 2)
+                    .shadow(color: .red.opacity(0.9), radius: 7)
+                    .shadow(color: .red.opacity(0.55), radius: 16)
+            }
+        }
+        .accessibilityHidden(true)
     }
 
     private func windowDetail(
@@ -563,18 +562,6 @@ struct QuotaRowView: View {
             }
         }
     }
-
-    private var accessibilitySummary: String {
-        var text = "\(tool.name), \(snapshot.displayName), \(snapshot.typeTag) window, \(Int(snapshot.remainingPercent.rounded())) percent remaining, \(ResetRemainingText.accessibilityLabel(until: snapshot.resetAt))"
-        if let secondaryWindow = snapshot.secondaryWindow {
-            text += ", \(secondaryWindow.typeTag) window, \(Int(secondaryWindow.remainingPercent.rounded())) percent remaining, \(ResetRemainingText.accessibilityLabel(until: secondaryWindow.resetAt))"
-        }
-        if agentPhase.showsLight {
-            text += ", \(tool.name) sessions \(agentPhase.label)"
-        }
-        return text
-    }
-
 }
 
 @available(macOS 14.0, *)
@@ -590,12 +577,11 @@ private struct AgentStatusRingLight: View {
 
     var body: some View {
         let lightColor = color
-        Color.clear
-            .frame(width: diameter, height: diameter)
-        .keyframeAnimator(
-            initialValue: AgentBreathingMotion.midpointThickness,
-            repeating: phase.showsLight && !reduceMotion
-        ) { _, thickness in
+        let isAnimating = phase.showsLight && !reduceMotion
+        TimelineView(.animation(minimumInterval: 1 / RailMotion.updatesPerSecond, paused: !isAnimating)) { context in
+            let thickness = isAnimating
+                ? AgentBreathingMotion.thickness(at: context.date.timeIntervalSinceReferenceDate)
+                : AgentBreathingMotion.midpointThickness
             let opacity = AgentBreathingMotion.opacity(for: thickness)
             ZStack {
                 Circle()
@@ -623,27 +609,6 @@ private struct AgentStatusRingLight: View {
                     )
                     .blur(radius: thickness * 0.48)
             }
-        } keyframes: { _ in
-            LinearKeyframe(
-                AgentBreathingMotion.minimumThickness,
-                duration: AgentBreathingMotion.keyframeDuration,
-                timingCurve: .easeInOut
-            )
-            LinearKeyframe(
-                AgentBreathingMotion.midpointThickness,
-                duration: AgentBreathingMotion.keyframeDuration,
-                timingCurve: .easeInOut
-            )
-            LinearKeyframe(
-                AgentBreathingMotion.maximumThickness,
-                duration: AgentBreathingMotion.keyframeDuration,
-                timingCurve: .easeInOut
-            )
-            LinearKeyframe(
-                AgentBreathingMotion.midpointThickness,
-                duration: AgentBreathingMotion.keyframeDuration,
-                timingCurve: .easeInOut
-            )
         }
         .frame(width: diameter + 10, height: diameter + 10)
         .allowsHitTesting(false)
