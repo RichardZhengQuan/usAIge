@@ -1,29 +1,29 @@
 {
-  "version": "0.2.23",
-  "build": 45,
+  "version": "0.2.24",
+  "build": 46,
   "releaseNotes": {
-    "headline": "Quiet Claude refresh and steadier connections",
-    "summary": "Claude usage refreshes without opening Settings or bringing Claude forward. The optional bridge keeps an existing Claude Code subscription session running for background collection, and Codex connections stop safely.",
+    "headline": "A lighter, steadier rail",
+    "summary": "Fixes memory growth from hover details and quota reset scheduling, reduces idle animation and Claude cache work, and cleans up the rail’s corners.",
     "highlights": [
       {
-        "title": "Claude stays in the background",
-        "detail": "usAIge checks local Claude usage every five seconds without opening the Usage page or reopening Code sessions. No separate usAIge sign-in, Keychain access, or browser helper is needed.",
-        "systemImage": "moon"
+        "title": "Lightweight hover details",
+        "detail": "Hover details reuse one card, preventing the memory growth caused by repeatedly opening and closing the previous popover.",
+        "systemImage": "rectangle.on.rectangle"
       },
       {
-        "title": "Keep collecting while Claude is idle",
-        "detail": "The optional usage bridge holds one existing Claude Code subscription session open with a silent background task. Claude must stay open, and starting the task follows the session’s normal permission checks.",
-        "systemImage": "arrow.clockwise"
+        "title": "Steady quota resets",
+        "detail": "Quota resets use the existing refresh tick so cancelled reset timers no longer accumulate in the background.",
+        "systemImage": "clock.arrow.circlepath"
       },
       {
-        "title": "Reliable collector restarts",
-        "detail": "Collection restarts after /clear, /resume, and /branch. A resumed session replaces an expired keep-alive lease so a stopped task cannot prevent background collection.",
-        "systemImage": "arrow.triangle.2.circlepath"
+        "title": "Less idle work",
+        "detail": "Status and critical-limit animations update at a bounded rate, and Claude cache entries are opened only once per read.",
+        "systemImage": "leaf"
       },
       {
-        "title": "Safer Codex disconnects",
-        "detail": "Fixes a transport crash that could occur when a Codex connection stopped while reading a response.",
-        "systemImage": "checkmark.shield"
+        "title": "Cleaner rail corners",
+        "detail": "Removes the rail shadow that could leave square pockets around its rounded corners.",
+        "systemImage": "rectangle"
       }
     ]
   }
