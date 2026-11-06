@@ -113,6 +113,41 @@ import Testing
 }
 
 @MainActor
+@Test func runsOneFullRefreshOnceTheNextResetPasses() async throws {
+    let clock = TestClock(Date(timeIntervalSince1970: 1_800_000_000))
+    let provider = AutomaticCountingProvider()
+    let store = UsageStore(
+        provider: provider,
+        now: { clock.now },
+        automaticRefreshInterval: 0.01,
+        monitorsNetworkChanges: false
+    )
+
+    store.start()
+    defer { store.stop() }
+    // The launch refresh is the only full one while the reset is in the future.
+    for _ in 0..<200 where await provider.automaticCount < 3 {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(await provider.automaticCount >= 3)
+    #expect(await provider.fullCount == 1)
+
+    clock.now = Fixtures.codexSnapshot.resetAt!.addingTimeInterval(1)
+    for _ in 0..<200 where await provider.fullCount < 2 {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(await provider.fullCount == 2)
+
+    // That reset has been handled: later ticks go back to the automatic path.
+    let automaticBefore = await provider.automaticCount
+    for _ in 0..<200 where await provider.automaticCount < automaticBefore + 3 {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(await provider.automaticCount >= automaticBefore + 3)
+    #expect(await provider.fullCount == 2)
+}
+
+@MainActor
 @Test func refreshesImmediatelyAfterWakeNotification() async throws {
     let provider = CountingUsageProvider()
     let notificationCenter = NotificationCenter()
@@ -177,6 +212,27 @@ private actor CountingUsageProvider: CodexUsageProviding {
 
     func refresh() async throws -> AccountUsageResult {
         refreshCount += 1
+        return .authenticated([Fixtures.codexSnapshot])
+    }
+
+    func updates() async -> AsyncStream<[QuotaSnapshot]> {
+        AsyncStream { _ in }
+    }
+
+    func stop() async {}
+}
+
+private actor AutomaticCountingProvider: AutomaticUsageProviding {
+    private(set) var fullCount = 0
+    private(set) var automaticCount = 0
+
+    func refresh() async throws -> AccountUsageResult {
+        fullCount += 1
+        return .authenticated([Fixtures.codexSnapshot])
+    }
+
+    func refreshAutomatically() async throws -> AccountUsageResult {
+        automaticCount += 1
         return .authenticated([Fixtures.codexSnapshot])
     }
 

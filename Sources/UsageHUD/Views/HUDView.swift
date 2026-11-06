@@ -15,6 +15,7 @@ struct HUDView: View {
     let openSettings: () -> Void
     let resizePanel: (CGSize) -> Void
     @ObservedObject var screenState: PanelScreenState
+    var quotaDetail: QuotaDetailPanelController? = nil
     @State private var isPanelHovered = false
     @State private var detailHoveredSnapshotIDs: Set<String> = []
     @State private var isRefreshing = false
@@ -96,19 +97,17 @@ struct HUDView: View {
                             lineWidth: 0.5
                         )
                     if hasCriticalQuota && isPanelHovered {
+                        // The window ends at the rail's edge, so anything drawn
+                        // past its rounded corners shows as a square pocket.
                         panelShape
                             .stroke(Color.red.opacity(0.86), lineWidth: 1.5)
                             .shadow(color: .red, radius: 8)
                             .shadow(color: .red.opacity(0.8), radius: 18)
+                            .clipShape(panelShape)
                             .accessibilityHidden(true)
                     }
                 }
             }
-            .shadow(
-                color: .black.opacity(showsStatusSurface ? 0.2 : (isPanelHovered ? 0.16 : 0)),
-                radius: 18,
-                y: 8
-            )
             .contentShape(panelShape)
             .onHover { isHovered in
                 isPanelHovered = isHovered
@@ -141,6 +140,7 @@ struct HUDView: View {
             .accessibilityAction(named: "Refresh usage and session status") { refreshAll() }
             .accessibilityAction(named: "Open Settings") { openSettings() }
             .onChange(of: scaledSize) { _, size in resizePanel(size) }
+            .onChange(of: snapshots) { _, values in quotaDetail?.update(values) }
     }
 
     private var panelShape: RoundedRectangle {
@@ -226,11 +226,13 @@ struct HUDView: View {
                                         openTool(.descriptor(for: snapshot))
                                     }
                                 },
-                                onDetailHoverChanged: { isHovered in
+                                onDetailHoverChanged: { isHovered, rowFrame in
                                     if isHovered {
                                         detailHoveredSnapshotIDs.insert(snapshot.id)
+                                        quotaDetail?.show(snapshot, rowFrame: rowFrame)
                                     } else {
                                         detailHoveredSnapshotIDs.remove(snapshot.id)
+                                        quotaDetail?.hide(snapshotID: snapshot.id)
                                     }
                                 }
                             )
@@ -457,7 +459,6 @@ struct HUDView: View {
 struct HUDGlassSurface: View {
     let severity: QuotaSeverity
     let isActive: Bool
-    var showsCriticalOutline = false
 
     var body: some View {
         ZStack {
@@ -478,15 +479,6 @@ struct HUDGlassSurface: View {
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .fill(.ultraThinMaterial)
                     .opacity(isActive ? 1 : 0)
-            }
-
-            if isActive && showsCriticalOutline && severity.showsScaryGlow {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .strokeBorder(Color.red.opacity(0.92), lineWidth: 2)
-                    .shadow(color: .red.opacity(0.9), radius: 7)
-                    .shadow(color: .red.opacity(0.55), radius: 16)
-                    .accessibilityHidden(true)
-                    .allowsHitTesting(false)
             }
         }
     }

@@ -104,7 +104,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
                 openCodex: AIToolLauncher.openCodex,
                 openSettings: { [weak self] in self?.showSettings() },
                 resizePanel: { [weak self] size in self?.resizePanel(to: size) },
-                screenState: screenState
+                screenState: screenState,
+                quotaDetail: QuotaDetailPanelController(rail: { [weak self] in self?.panel })
             ))
         } else {
             content = AnyView(LegacyHUDView(
