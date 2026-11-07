@@ -84,7 +84,8 @@ actor CursorAgentProvider: CodexAgentProviding {
                 workspaceName: Self.workspaceName(from: header),
                 phase: CodexAgentSessionDecoder.settledPhase(phase, updatedAt: updatedAt, now: currentDate),
                 updatedAt: updatedAt,
-                toolID: .cursor
+                toolID: .cursor,
+                folder: Self.workspacePath(from: header)
             ))
         }
         return tasks
@@ -95,10 +96,43 @@ actor CursorAgentProvider: CodexAgentProviding {
     }
 
     private static func workspaceName(from header: JSONValue) -> String {
-        let path = header["draftTarget"]?["environment"]?["uri"]?["fsPath"]?.stringValue
-            ?? header["workspaceFolderPath"]?.stringValue
-        let name = path.map { URL(fileURLWithPath: $0).lastPathComponent } ?? ""
+        let name = workspacePath(from: header).map { URL(fileURLWithPath: $0).lastPathComponent } ?? ""
         return name.isEmpty ? "Cursor" : name
+    }
+
+    private static func workspacePath(from header: JSONValue) -> String? {
+        header["draftTarget"]?["environment"]?["uri"]?["fsPath"]?.stringValue
+            ?? header["workspaceFolderPath"]?.stringValue
+    }
+
+    /// The folders of recent conversations, for the Branches window. It opens
+    /// the database read-only for this one query and reads no message text.
+    static func recentConversationFolders(
+        databaseURL: URL,
+        limit: Int
+    ) -> [(id: String, folder: String, updatedAt: Date, title: String?)] {
+        guard FileManager.default.fileExists(atPath: databaseURL.path) else { return [] }
+        var handle: OpaquePointer?
+        defer { if let handle { sqlite3_close(handle) } }
+        guard sqlite3_open_v2(databaseURL.path, &handle, SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX, nil) == SQLITE_OK,
+              let handle else { return [] }
+        sqlite3_busy_timeout(handle, 200)
+        let rows = (try? query(
+            handle,
+            sql: """
+            SELECT composerId, lastUpdatedAt, value FROM composerHeaders
+            WHERE isSubagent = 0 ORDER BY lastUpdatedAt DESC LIMIT \(limit)
+            """,
+            bindings: []
+        )) ?? []
+        return rows.compactMap { row in
+            guard case let .text(id)? = row[0], case let .integer(updated)? = row[1],
+                  case let .text(text)? = row[2],
+                  let header = try? JSONDecoder().decode(JSONValue.self, from: Data(text.utf8)),
+                  let folder = workspacePath(from: header), folder.hasPrefix("/") else { return nil }
+            let title = header["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (id, folder, Date(timeIntervalSince1970: TimeInterval(updated) / 1000), title?.isEmpty == false ? title : nil)
+        }
     }
 
     // MARK: SQLite

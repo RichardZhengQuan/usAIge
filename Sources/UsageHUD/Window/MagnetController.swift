@@ -13,6 +13,9 @@ final class MagnetController {
     /// Called when the rail docks, undocks, or is dragged while docked, with
     /// the edge (nil when undocked), the docked frame, and the display.
     var onDockingChanged: ((MagnetEdge?, CGRect, NSScreen) -> Void)?
+    /// True while something beside the rail needs it to stay out, such as a
+    /// card the pointer is on, which would otherwise slide away with it.
+    var keepsRevealed: () -> Bool = { false }
 
     private(set) var edge: MagnetEdge?
     private(set) var isRevealed = true
@@ -179,7 +182,7 @@ final class MagnetController {
     func hide() {
         guard let panel, let edge, isRevealed, !isDragging,
               let screen = dockedScreen else { return }
-        guard MagnetGeometry.pointerIsClear(of: dockedFrame, pointer: pointerLocation()) else {
+        guard MagnetGeometry.pointerIsClear(of: dockedFrame, pointer: pointerLocation()), !keepsRevealed() else {
             scheduleHide()
             return
         }
@@ -194,7 +197,7 @@ final class MagnetController {
             if MagnetGeometry.pointerReveals(pointer: pointer, edge: edge, screenFrame: screen.frame) {
                 reveal()
             }
-        } else if MagnetGeometry.pointerIsClear(of: dockedFrame, pointer: pointer) {
+        } else if MagnetGeometry.pointerIsClear(of: dockedFrame, pointer: pointer), !keepsRevealed() {
             if hideTask == nil { scheduleHide() }
         } else {
             hideTask?.cancel()

@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     let settings: HUDSettings
     let store: UsageStore
     let agentStore: CodexAgentStore
+    let liveWork: LiveWorkMonitor
     let launchAtLogin: LaunchAtLoginController
     let updateController: UpdateController
     let usageLimitNotifications: UsageLimitNotificationController
@@ -21,12 +22,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     private var magnetSettingsObserver: AnyCancellable?
     private var screenObserver: NSObjectProtocol?
     private var whatsNewWindowController: WhatsNewWindowController?
+    private var branchesWindowController: NSWindowController?
     private var codexAttentionMonitor: CodexAttentionMonitor?
     var settingsSceneOpener: @MainActor () -> Void = SettingsScenePresenter.open
     private var isTerminationPending = false
     private var hasRepliedToTermination = false
     private var relaySettingsObserver: AnyCancellable?
     private var relayAgentObserver: AnyCancellable?
+    private var liveWorkObserver: AnyCancellable?
 
     override init() {
         let configuredSettings = HUDSettings()
@@ -65,12 +68,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         ))
         // Every rail row gets a session light: Codex through its app-server,
         // Claude Code, Cursor, and Grok Build through the files they keep.
-        agentStore = CodexAgentStore(sources: [
+        let configuredAgentStore = CodexAgentStore(sources: [
             .init(toolID: .chatGPT, provider: agentProvider),
             .init(toolID: .claude, provider: ClaudeCodeAgentProvider()),
             .init(toolID: .cursor, provider: CursorAgentProvider()),
             .init(toolID: .grok, provider: GrokBuildAgentProvider()),
         ])
+        agentStore = configuredAgentStore
+        liveWork = LiveWorkMonitor(currentTasks: { configuredAgentStore.currentTasks() })
         launchAtLogin = LaunchAtLoginController()
         updateController = UpdateController()
         usageLimitNotifications = UsageLimitNotificationController()
@@ -95,6 +100,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         }
         let content: AnyView
         if #available(macOS 14.0, *) {
+            let quotaDetail = QuotaDetailPanelController(rail: { [weak self] in self?.panel })
+            quotaDetail.onVisibilityChanged = { [weak liveWork] isShown in
+                liveWork?.detailVisibilityChanged(isShown)
+            }
+            liveWorkObserver = liveWork.$summary.sink { [weak quotaDetail] summary in
+                quotaDetail?.update(liveWork: summary)
+            }
+            quotaDetail.openBranches = { [weak self] in self?.showBranches() }
+            magnet.keepsRevealed = { [weak quotaDetail] in quotaDetail?.isPointerOnCard ?? false }
             content = AnyView(HUDView(
                 store: store,
                 agentStore: agentStore,
@@ -105,7 +119,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
                 openSettings: { [weak self] in self?.showSettings() },
                 resizePanel: { [weak self] size in self?.resizePanel(to: size) },
                 screenState: screenState,
-                quotaDetail: QuotaDetailPanelController(rail: { [weak self] in self?.panel })
+                quotaDetail: quotaDetail,
+                liveWork: liveWork,
+                openBranches: { [weak self] in self?.showBranches() }
             ))
         } else {
             content = AnyView(LegacyHUDView(
@@ -171,6 +187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
                 }
             }
         agentStore.start()
+        if Self.branchesAreAvailable { liveWork.start() }
         let codexAttentionMonitor = CodexAttentionMonitor { [weak self] toolID in
             self?.agentStore.acknowledgeAttentionStates(for: toolID)
         }
@@ -180,6 +197,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         if updateController.shouldPresentWhatsNewAfterLaunch
             || ProcessInfo.processInfo.arguments.contains("--show-whats-new") {
             showWhatsNew()
+        }
+        if ProcessInfo.processInfo.arguments.contains("--show-branches") {
+            showBranches()
         }
     }
 
@@ -194,6 +214,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if updateController.isReplacementPrepared {
             updateController.stop()
+            liveWork.stop()
             usageLimitNotifications.stop()
             codexAttentionMonitor?.stop()
             return .terminateNow
@@ -202,6 +223,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         guard !isTerminationPending else { return .terminateLater }
         isTerminationPending = true
         updateController.stop()
+        liveWork.stop()
         usageLimitNotifications.stop()
         codexAttentionMonitor?.stop()
         Task { [weak self] in
@@ -290,6 +312,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         )
         item.target = self
         appMenu.insertItem(item, at: min(1, appMenu.items.count))
+    }
+
+    static var branchesAreAvailable: Bool {
+        if #available(macOS 14.0, *) { return true }
+        return false
+    }
+
+    /// Opens the Branches window. Nothing about it runs until this is called,
+    /// and closing the window lets all of it go.
+    func showBranches() {
+        guard #available(macOS 14.0, *) else { return }
+        if let existing = branchesWindowController as? BranchesWindowController {
+            existing.present()
+            return
+        }
+        let controller = BranchesWindowController(liveWork: liveWork) { [weak self] in
+            self?.branchesWindowController = nil
+        }
+        branchesWindowController = controller
+        controller.present()
     }
 
     func showLimits() {
@@ -487,6 +529,7 @@ enum SettingsScenePresenter {
         !(window is NSPanel)
             && window.styleMask.contains(.titled)
             && window.identifier != WhatsNewWindowController.windowIdentifier
+            && window.identifier != AppWindowIdentifiers.branches
     }
 
     private static func looksLikeSettingsScene(_ window: NSWindow) -> Bool {

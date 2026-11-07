@@ -29,5 +29,13 @@ struct UsAIgeApp: App {
                 }
             }
         }
+        .commands {
+            // A menu item added through AppKit at launch doesn't survive
+            // SwiftUI rebuilding the menu bar, so this one is declared here.
+            CommandGroup(after: .appInfo) {
+                Button("Branches and Worktrees…") { appDelegate.showBranches() }
+                    .disabled(!AppDelegate.branchesAreAvailable)
+            }
+        }
     }
 }

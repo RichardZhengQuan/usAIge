@@ -3,8 +3,8 @@ import Foundation
 /// Session activity for Claude Code. Claude Code registers every running
 /// session in `~/.claude/sessions/<pid>.json` and appends the conversation
 /// to `~/.claude/projects/<cwd>/<session>.jsonl`. The provider reads only
-/// the record types and stop reasons at the end of that transcript, never
-/// the text, to tell a working session from one waiting on the user.
+/// the record types, stop reasons, and branch at the end of that transcript,
+/// never the text, to tell a working session from one waiting on the user.
 actor ClaudeCodeAgentProvider: CodexAgentProviding {
     private struct LiveSession: Decodable {
         let pid: Int32
@@ -17,6 +17,7 @@ actor ClaudeCodeAgentProvider: CodexAgentProviding {
         let attributes: AgentActivityFiles.Attributes
         let phase: CodexAgentPhase
         let title: String?
+        let branch: String?
     }
 
     static let maximumTailBytes: UInt64 = 128 * 1024
@@ -106,9 +107,11 @@ actor ClaudeCodeAgentProvider: CodexAgentProviding {
         let cached = transcriptCache[transcript.path]
         let phase: CodexAgentPhase
         let title: String?
+        let branch: String?
         if let cached, cached.attributes == attributes {
             phase = cached.phase
             title = cached.title
+            branch = cached.branch
         } else {
             let decoded = AgentActivityFiles.tail(of: transcript, maximumBytes: Self.maximumTailBytes)
                 .map { ClaudeCodeSessionDecoder.decode($0.data, startsMidLine: $0.startsMidLine) }
@@ -117,10 +120,12 @@ actor ClaudeCodeAgentProvider: CodexAgentProviding {
             // the last known phase stands.
             phase = decoded.phase ?? cached?.phase ?? .idle
             title = decoded.title ?? cached?.title
+            branch = decoded.branch ?? cached?.branch
             transcriptCache[transcript.path] = CachedTranscript(
                 attributes: attributes,
                 phase: phase,
-                title: title
+                title: title,
+                branch: branch
             )
         }
         let workspace = URL(fileURLWithPath: session.cwd).lastPathComponent
@@ -130,7 +135,10 @@ actor ClaudeCodeAgentProvider: CodexAgentProviding {
             workspaceName: workspace.isEmpty ? "Claude Code" : workspace,
             phase: CodexAgentSessionDecoder.settledPhase(phase, updatedAt: attributes.modifiedAt, now: now),
             updatedAt: attributes.modifiedAt,
-            toolID: .claude
+            toolID: .claude,
+            folder: session.cwd,
+            branch: branch,
+            processID: session.pid
         )
     }
 }
@@ -146,6 +154,7 @@ enum ClaudeCodeSessionDecoder {
     struct Result: Equatable {
         let phase: CodexAgentPhase?
         let title: String?
+        var branch: String? = nil
     }
 
     /// Tool calls that stop and wait for the person to answer.
@@ -162,9 +171,13 @@ enum ClaudeCodeSessionDecoder {
         var phase: CodexAgentPhase?
         var customTitle: String?
         var generatedTitle: String?
+        var branch: String?
         for line in AgentActivityFiles.lines(in: data, startsMidLine: startsMidLine) {
             guard let record = try? JSONDecoder().decode(JSONValue.self, from: line),
                   let type = record["type"]?.stringValue else { continue }
+            if let recorded = record["gitBranch"]?.stringValue, !recorded.isEmpty {
+                branch = recorded == "HEAD" ? nil : recorded
+            }
             switch type {
             case "user", "queue-operation":
                 phase = .thinking
@@ -186,6 +199,6 @@ enum ClaudeCodeSessionDecoder {
         let title = [customTitle, generatedTitle]
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty }
-        return Result(phase: phase, title: title)
+        return Result(phase: phase, title: title, branch: branch)
     }
 }
