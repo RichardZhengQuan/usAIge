@@ -560,7 +560,8 @@ func delayedPhoneRemovalCannotChangeStateAfterDisconnect(shouldFail: Bool) async
 }
 
 @MainActor
-@Test func replacingAPairingCodeCancelsTheOldPollWithoutClearingTheNewCode() async throws {
+@Test(.timeLimit(.minutes(1)))
+func replacingAPairingCodeCancelsTheOldPollWithoutClearingTheNewCode() async throws {
     let fixture = try RelayControllerFixture(
         responses: [.pairing("OLD"), .emptyTools, .pairing("NEW"), .deleted],
         heldPathSuffix: "/tools"
@@ -568,7 +569,9 @@ func delayedPhoneRemovalCannotChangeStateAfterDisconnect(shouldFail: Bool) async
     defer { fixture.stub.releaseResponses(); fixture.cleanup() }
     await fixture.controller.createRemoteToolPairingCode()
     fixture.stub.holdResponses()
-    try await waitForRelayRequests(fixture.stub, count: 2)
+    // The first poll sleeps on the main actor. Other UI tests can keep that
+    // actor busy longer than a wall-clock deadline, so wait for its request.
+    try await fixture.stub.waitForRequests(count: 2)
 
     await fixture.controller.createRemoteToolPairingCode()
     #expect(fixture.controller.remotePairingCode == "NEW")
@@ -797,6 +800,7 @@ private final class RelayRequestStub: @unchecked Sendable {
     private var heldCompletions: [@Sendable () -> Void] = []
     private var responses: [RelayTestResponse]
     private var recordedRequests: [URLRequest] = []
+    private var requestWaiters: [UUID: (count: Int, continuation: CheckedContinuation<Void, Error>)] = [:]
 
     init(responses: [RelayTestResponse], holdResponses: Bool, heldPathSuffix: String?) {
         self.responses = responses
@@ -816,8 +820,39 @@ private final class RelayRequestStub: @unchecked Sendable {
         let response = responses.isEmpty
             ? .failure("Unexpected request in isolated relay test")
             : responses.removeFirst()
+        let ready = requestWaiters.filter { recordedRequests.count >= $0.value.count }
+        for identifier in ready.keys { requestWaiters.removeValue(forKey: identifier) }
         lock.unlock()
+        for waiter in ready.values { waiter.continuation.resume() }
         return response
+    }
+
+    func waitForRequests(count: Int) async throws {
+        let identifier = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                lock.lock()
+                if Task.isCancelled {
+                    lock.unlock()
+                    continuation.resume(throwing: CancellationError())
+                } else if recordedRequests.count >= count {
+                    lock.unlock()
+                    continuation.resume()
+                } else {
+                    requestWaiters[identifier] = (count, continuation)
+                    lock.unlock()
+                }
+            }
+        } onCancel: {
+            self.cancelRequestWait(identifier)
+        }
+    }
+
+    private func cancelRequestWait(_ identifier: UUID) {
+        lock.lock()
+        let waiter = requestWaiters.removeValue(forKey: identifier)
+        lock.unlock()
+        waiter?.continuation.resume(throwing: CancellationError())
     }
 
     func deliver(for request: URLRequest, completion: @escaping @Sendable () -> Void) {
