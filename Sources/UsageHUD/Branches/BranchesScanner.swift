@@ -509,9 +509,16 @@ actor BranchesScanner {
                 outcomes.append(.refused(name: item.displayName, reason: reason))
                 continue
             }
-            let outcome = await WorkDeleter.perform(
-                git: git, item: item, repository: item.repositoryID, now: environment.now()
-            )
+            // Stop cancels this loop, but must not terminate a destructive
+            // command halfway through a row or lose its restoration record.
+            // An unstructured task finishes the row independently; the next
+            // iteration observes cancellation before starting another one.
+            let now = environment.now()
+            let outcome = await Task.detached(priority: .utility) {
+                await WorkDeleter.perform(
+                    git: git, item: item, repository: item.repositoryID, now: now
+                )
+            }.value
             if let record = outcome.record { remember(record) }
             outcomes.append(outcome)
             if case .deleted = outcome { rows[item.id] = nil }

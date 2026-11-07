@@ -905,4 +905,77 @@ private func finishedWorktree(_ fixture: GitFixture, ignored: String? = nil) asy
     #expect(try fixture.git(["branch", "--list", "two"]).contains("two"))
 }
 
+@Test func stoppingDuringRemovalFinishesTheRowAndKeepsItsUndoRecord() async throws {
+    let fixture = try GitFixture()
+    for name in ["one", "two"] {
+        try fixture.squashMerged(name, pullRequest: nil)
+        try fixture.git(["worktree", "add", "--quiet", fixture.worktreePath(name), name])
+    }
+    let git = try #require(GitClient.locate())
+    let started = fixture.root + "/removal-started"
+    let resume = fixture.root + "/resume-removal"
+    let wrapper = fixture.root + "/blocking-git"
+    // Hold the actual removal command open, after all safety reads finished.
+    // Cancellation must not terminate it before it can complete its row.
+    try fixture.write("blocking-git", """
+        #!/bin/sh
+        trap 'exit 143' TERM
+        previous=
+        for argument do
+            if [ "$previous:$argument" = "worktree:remove" ]; then
+                : > '\(started)'
+                attempts=0
+                while [ ! -f '\(resume)' ] && [ "$attempts" -lt 1000 ]; do
+                    /bin/sleep 0.01
+                    attempts=$((attempts + 1))
+                done
+                [ -f '\(resume)' ] || exit 124
+            fi
+            previous=$argument
+        done
+        exec '\(git.executable.path)' "$@"
+        """, in: fixture.root)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wrapper)
+    let repository = fixture.repository
+    let deletionLog = URL(fileURLWithPath: fixture.root + "/support/deletions.json")
+    let scanner = BranchesScanner(environment: .init(
+        home: URL(fileURLWithPath: fixture.home),
+        cacheFile: URL(fileURLWithPath: fixture.root + "/cache/branches.json"),
+        deletionLogFile: deletionLog,
+        git: GitClient(executable: URL(fileURLWithPath: wrapper)),
+        cursorDatabase: nil,
+        addedFolders: { [repository] },
+        processes: { [] },
+        now: { Date().addingTimeInterval(3600) }
+    ))
+    let snapshot = await fixture.scan(with: scanner)
+    let first = try #require(snapshot.row(worktree: fixture.worktreePath("one")))
+    let second = try #require(snapshot.row(worktree: fixture.worktreePath("two")))
+    let task = Task { await scanner.delete([first, second]) { _ in } }
+    for _ in 0..<1000 {
+        if FileManager.default.fileExists(atPath: started) { break }
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    let removalStarted = FileManager.default.fileExists(atPath: started)
+    task.cancel()
+    try Data().write(to: URL(fileURLWithPath: resume))
+    let outcomes = await task.value
+    try #require(removalStarted)
+    #expect(outcomes.count == 1)
+    guard case let .deleted(record) = outcomes.first else {
+        Issue.record("The active row should finish after Stop, got \(outcomes)")
+        return
+    }
+    #expect(!FileManager.default.fileExists(atPath: fixture.worktreePath("one")))
+    #expect(try fixture.git(["branch", "--list", "one"]).isEmpty)
+    #expect(FileManager.default.fileExists(atPath: fixture.worktreePath("two")))
+    #expect(try fixture.git(["branch", "--list", "two"]).contains("two"))
+    #expect(record.canUndo)
+    let persisted = try JSONDecoder().decode([DeletionRecord].self, from: Data(contentsOf: deletionLog))
+    #expect(persisted.contains(record))
+    #expect(await scanner.undo(record) == nil)
+    #expect(FileManager.default.fileExists(atPath: fixture.worktreePath("one") + "/one.txt"))
+    #expect(try fixture.head("one") == first.tip)
+}
+
 }
