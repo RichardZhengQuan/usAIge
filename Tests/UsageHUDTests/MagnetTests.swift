@@ -94,8 +94,11 @@ private let size = CGSize(width: 260, height: 220)
 
     // The pointer is away from the rail, so the scheduled hide fires. The
     // hide task shares the main actor with every other test, so wait for the
-    // state instead of racing its timer.
-    let deadline = Date().addingTimeInterval(MagnetController.hideDelay + 3)
+    // state instead of racing its timer. Other tests can hold the main actor
+    // for seconds at a time, and when it frees up this loop may wake before
+    // the hide does, so the limit is generous; the loop stops as soon as the
+    // rail hides.
+    let deadline = Date().addingTimeInterval(MagnetController.hideDelay + 30)
     while controller.isRevealed, Date() < deadline {
         try await Task.sleep(nanoseconds: 50_000_000)
     }
