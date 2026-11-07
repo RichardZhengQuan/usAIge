@@ -1,34 +1,34 @@
 {
-  "build" : 46,
-  "downloadURL" : "https://pmrichq.com/project/usaige/usAIge-0.2.24-alpha.dmg",
+  "build" : 47,
+  "downloadURL" : "https://pmrichq.com/project/usaige/usAIge-0.2.25-alpha.dmg",
   "minimumSystemVersion" : "11.0",
   "releaseNotes" : {
-    "headline" : "A lighter, steadier rail",
+    "headline" : "See your AI work in one place",
     "highlights" : [
       {
-        "detail" : "Hover details reuse one card, preventing the memory growth caused by repeatedly opening and closing the previous popover.",
-        "systemImage" : "rectangle.on.rectangle",
-        "title" : "Lightweight hover details"
+        "detail" : "A Memory tile shows AI tools’ share of this Mac’s memory and their branch and worktree counts. Hover the tile or a tool row for work details, processes, and ports.",
+        "systemImage" : "memorychip",
+        "title" : "Memory and work in the rail"
       },
       {
-        "detail" : "Quota resets use the existing refresh tick so cancelled reset timers no longer accumulate in the background.",
-        "systemImage" : "clock.arrow.circlepath",
-        "title" : "Steady quota resets"
+        "detail" : "The new Branches window groups running work, items that need a look, and candidates to clear. Open a card to review commits, changed-file names, and disk usage before choosing what to remove.",
+        "systemImage" : "arrow.triangle.branch",
+        "title" : "Review local branches and worktrees"
       },
       {
-        "detail" : "Status and critical-limit animations update at a bounded rate, and Claude cache entries are opened only once per read.",
+        "detail" : "Review individual items before clearing them. Recent work starts unchecked, each item is checked again before removal, and Undo can restore branches and folders.",
+        "systemImage" : "arrow.uturn.backward",
+        "title" : "Clear with review and Undo"
+      },
+      {
+        "detail" : "Reused hover details and reset scheduling prevent accumulated memory and timers, while animations and Claude cache reads do less idle work. Rail corners are cleaner.",
         "systemImage" : "leaf",
-        "title" : "Less idle work"
-      },
-      {
-        "detail" : "Removes the rail shadow that could leave square pockets around its rounded corners.",
-        "systemImage" : "rectangle",
-        "title" : "Cleaner rail corners"
+        "title" : "A lighter, steadier rail"
       }
     ],
-    "summary" : "Fixes memory growth from hover details and quota reset scheduling, reduces idle animation and Claude cache work, and cleans up the rail’s corners."
+    "summary" : "The rail now shows AI tools’ memory share and active work. Review local branches and worktrees in the new Branches window, alongside fixes for rail memory growth and idle CPU use."
   },
-  "sha256" : "365f85411dfed0bcbbdbf7d52fb786e945df202a8231cd0dbf0251479cb3e116",
-  "signature" : "88cNFQtn7n7GyCTRmob+5SR8nuUYtZ3hIMIJKuFzpMMDRh5KMdPa2ileSa0SFtssvDaBJgYBXSfkjD/wS822DQ==",
-  "version" : "0.2.24"
+  "sha256" : "4a0cf23cf5ccec20e5aec5fe4b118d76cb0353a940f9e40bd197109864a70bce",
+  "signature" : "9u06OUWfpNGCmydKUpoL9eRIE8fTe0txkJO9N3IWFGXkWwzovQlV0MJfU2uXIqqcGYtB7KnfU/xFRyb68mU3BA==",
+  "version" : "0.2.25"
 }

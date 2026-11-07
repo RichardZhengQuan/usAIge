@@ -186,19 +186,18 @@ import Testing
 }
 
 @MainActor
-@Test func overlappingRemoteToolsRefreshesShareOneRequest() async throws {
+@Test(.timeLimit(.minutes(1)))
+func overlappingRemoteToolsRefreshesShareOneRequest() async throws {
     let fixture = try RelayControllerFixture(responses: [.tools], holdResponses: true)
     defer {
         fixture.stub.releaseResponses()
         fixture.cleanup()
     }
-    let first = Task { try await fixture.controller.refreshRemoteTools() }
-    let waitDeadline = Date().addingTimeInterval(5)
-    while fixture.stub.requests.isEmpty, Date() < waitDeadline { await Task.yield() }
-    try #require(!fixture.stub.requests.isEmpty)
+    let first = fixture.throwingTask { try await fixture.controller.refreshRemoteTools() }
+    try await waitForRelayRequests(fixture.stub, count: 1)
     #expect(fixture.controller.remoteToolsState == .loading)
     var startedSecond = false
-    let second = Task {
+    let second = fixture.throwingTask {
         startedSecond = true
         return try await fixture.controller.refreshRemoteTools()
     }
@@ -376,7 +375,8 @@ func genericRelayDeletionErrorsUseFriendlySyncServiceCopy(message: String) async
 }
 
 @MainActor
-@Test func revokedToolCannotReturnFromAnOlderListRequest() async throws {
+@Test(.timeLimit(.minutes(1)))
+func revokedToolCannotReturnFromAnOlderListRequest() async throws {
     let fixture = try RelayControllerFixture(
         responses: [.tools, .tools, .deleted, .emptyTools],
         heldPathSuffix: "/tools"
@@ -385,7 +385,7 @@ func genericRelayDeletionErrorsUseFriendlySyncServiceCopy(message: String) async
     _ = try await fixture.controller.refreshRemoteTools()
     let tool = try #require(fixture.controller.remoteTools.first)
     fixture.stub.holdResponses()
-    let staleRefresh = Task { try? await fixture.controller.refreshRemoteTools() }
+    let staleRefresh = fixture.task { try? await fixture.controller.refreshRemoteTools() }
     try await waitForRelayRequests(fixture.stub, count: 2)
 
     await fixture.controller.revoke(tool)
@@ -405,7 +405,7 @@ func genericRelayDeletionErrorsUseFriendlySyncServiceCopy(message: String) async
 }
 
 @MainActor
-@Test(arguments: [false, true])
+@Test(.timeLimit(.minutes(1)), arguments: [false, true])
 func delayedPhoneListCannotChangeStateAfterDisconnect(shouldFail: Bool) async throws {
     let fixture = try RelayControllerFixture(
         responses: [shouldFail ? .failure("Old phone request failed") : .devices, .deleted],
@@ -413,7 +413,7 @@ func delayedPhoneListCannotChangeStateAfterDisconnect(shouldFail: Bool) async th
         heldPathSuffix: "/devices"
     )
     defer { fixture.stub.releaseResponses(); fixture.cleanup() }
-    let refresh = Task { await fixture.controller.refreshDevices() }
+    let refresh = fixture.task { await fixture.controller.refreshDevices() }
     try await waitForRelayRequests(fixture.stub, count: 1)
 
     await fixture.controller.disconnectAll()
@@ -426,7 +426,7 @@ func delayedPhoneListCannotChangeStateAfterDisconnect(shouldFail: Bool) async th
 }
 
 @MainActor
-@Test(arguments: [false, true])
+@Test(.timeLimit(.minutes(1)), arguments: [false, true])
 func delayedPhonePairingCannotChangeStateAfterDisconnect(shouldFail: Bool) async throws {
     let fixture = try RelayControllerFixture(
         responses: [shouldFail ? .failure("Old phone pairing failed") : .pairing("PHONE"), .deleted],
@@ -434,7 +434,7 @@ func delayedPhonePairingCannotChangeStateAfterDisconnect(shouldFail: Bool) async
         heldPathSuffix: "/pairings"
     )
     defer { fixture.stub.releaseResponses(); fixture.cleanup() }
-    let pairing = Task { await fixture.controller.createPairingCode() }
+    let pairing = fixture.task { await fixture.controller.createPairingCode() }
     try await waitForRelayRequests(fixture.stub, count: 1)
 
     await fixture.controller.disconnectAll()
@@ -446,7 +446,7 @@ func delayedPhonePairingCannotChangeStateAfterDisconnect(shouldFail: Bool) async
 }
 
 @MainActor
-@Test(arguments: [false, true])
+@Test(.timeLimit(.minutes(1)), arguments: [false, true])
 func delayedRemotePairingCannotChangeStateAfterDisconnect(shouldFail: Bool) async throws {
     let fixture = try RelayControllerFixture(
         responses: [shouldFail ? .failure("Old tool pairing failed") : .pairing("TOOL"), .deleted],
@@ -454,7 +454,7 @@ func delayedRemotePairingCannotChangeStateAfterDisconnect(shouldFail: Bool) asyn
         heldPathSuffix: "/tool-pairings"
     )
     defer { fixture.stub.releaseResponses(); fixture.cleanup() }
-    let pairing = Task { await fixture.controller.createRemoteToolPairingCode() }
+    let pairing = fixture.task { await fixture.controller.createRemoteToolPairingCode() }
     try await waitForRelayRequests(fixture.stub, count: 1)
 
     await fixture.controller.disconnectAll()
@@ -467,7 +467,7 @@ func delayedRemotePairingCannotChangeStateAfterDisconnect(shouldFail: Bool) asyn
 }
 
 @MainActor
-@Test(arguments: [false, true])
+@Test(.timeLimit(.minutes(1)), arguments: [false, true])
 func delayedToolRemovalCannotChangeStateAfterDisconnect(shouldFail: Bool) async throws {
     let fixture = try RelayControllerFixture(
         responses: [.tools, shouldFail ? .failure("Old removal failed") : .deleted, .deleted],
@@ -477,7 +477,7 @@ func delayedToolRemovalCannotChangeStateAfterDisconnect(shouldFail: Bool) async 
     _ = try await fixture.controller.refreshRemoteTools()
     let tool = try #require(fixture.controller.remoteTools.first)
     fixture.stub.holdResponses()
-    let removal = Task { await fixture.controller.revoke(tool) }
+    let removal = fixture.task { await fixture.controller.revoke(tool) }
     try await waitForRelayRequests(fixture.stub, count: 2)
 
     await fixture.controller.disconnectAll()
@@ -491,7 +491,7 @@ func delayedToolRemovalCannotChangeStateAfterDisconnect(shouldFail: Bool) async 
 }
 
 @MainActor
-@Test(arguments: [false, true])
+@Test(.timeLimit(.minutes(1)), arguments: [false, true])
 func delayedInitialRemoteConnectionAndUploadCannotChangeStateAfterDisconnect(shouldFail: Bool) async throws {
     let fixture = try RelayControllerFixture(
         linked: false,
@@ -500,7 +500,7 @@ func delayedInitialRemoteConnectionAndUploadCannotChangeStateAfterDisconnect(sho
         heldPathSuffix: "/snapshot"
     )
     defer { fixture.stub.releaseResponses(); fixture.cleanup() }
-    let channelCreation = Task { await fixture.controller.createRemoteToolPairingCode() }
+    let channelCreation = fixture.task { await fixture.controller.createRemoteToolPairingCode() }
     try await waitForRelayRequests(fixture.stub, count: 2)
 
     await fixture.controller.disconnectAll()
@@ -515,7 +515,7 @@ func delayedInitialRemoteConnectionAndUploadCannotChangeStateAfterDisconnect(sho
 }
 
 @MainActor
-@Test(arguments: [false, true])
+@Test(.timeLimit(.minutes(1)), arguments: [false, true])
 func oldDeviceCallbackCannotChangeAReconnectedChannelWithTheSameID(shouldFail: Bool) async throws {
     let fixture = try RelayControllerFixture(
         responses: [shouldFail ? .failure("Old device request failed") : .devices, .deleted, .createdChannel, .uploaded],
@@ -523,7 +523,7 @@ func oldDeviceCallbackCannotChangeAReconnectedChannelWithTheSameID(shouldFail: B
         heldPathSuffix: "/devices"
     )
     defer { fixture.stub.releaseResponses(); fixture.cleanup() }
-    let oldRefresh = Task { await fixture.controller.refreshDevices() }
+    let oldRefresh = fixture.task { await fixture.controller.refreshDevices() }
     try await waitForRelayRequests(fixture.stub, count: 1)
 
     await fixture.controller.disconnectAll()
@@ -538,7 +538,7 @@ func oldDeviceCallbackCannotChangeAReconnectedChannelWithTheSameID(shouldFail: B
 }
 
 @MainActor
-@Test(arguments: [false, true])
+@Test(.timeLimit(.minutes(1)), arguments: [false, true])
 func delayedPhoneRemovalCannotChangeStateAfterDisconnect(shouldFail: Bool) async throws {
     let fixture = try RelayControllerFixture(
         responses: [.devices, shouldFail ? .failure("Old phone removal failed") : .deleted, .deleted],
@@ -548,7 +548,7 @@ func delayedPhoneRemovalCannotChangeStateAfterDisconnect(shouldFail: Bool) async
     await fixture.controller.refreshDevices()
     let device = try #require(fixture.controller.devices.first)
     fixture.stub.holdResponses()
-    let oldRemoval = Task { await fixture.controller.revoke(device) }
+    let oldRemoval = fixture.task { await fixture.controller.revoke(device) }
     try await waitForRelayRequests(fixture.stub, count: 2)
 
     await fixture.controller.disconnectAll()
@@ -560,7 +560,8 @@ func delayedPhoneRemovalCannotChangeStateAfterDisconnect(shouldFail: Bool) async
 }
 
 @MainActor
-@Test func replacingAPairingCodeCancelsTheOldPollWithoutClearingTheNewCode() async throws {
+@Test(.timeLimit(.minutes(1)))
+func replacingAPairingCodeCancelsTheOldPollWithoutClearingTheNewCode() async throws {
     let fixture = try RelayControllerFixture(
         responses: [.pairing("OLD"), .emptyTools, .pairing("NEW"), .deleted],
         heldPathSuffix: "/tools"
@@ -568,7 +569,9 @@ func delayedPhoneRemovalCannotChangeStateAfterDisconnect(shouldFail: Bool) async
     defer { fixture.stub.releaseResponses(); fixture.cleanup() }
     await fixture.controller.createRemoteToolPairingCode()
     fixture.stub.holdResponses()
-    try await waitForRelayRequests(fixture.stub, count: 2)
+    // The first poll sleeps on the main actor. Other UI tests can keep that
+    // actor busy longer than a wall-clock deadline, so wait for its request.
+    try await fixture.stub.waitForRequests(count: 2)
 
     await fixture.controller.createRemoteToolPairingCode()
     #expect(fixture.controller.remotePairingCode == "NEW")
@@ -706,11 +709,7 @@ func unverifiedChannelDeleteFailuresKeepTheLocalLink(failure: RelayRecoveryFailu
 
 @MainActor
 private func waitForRelayRequests(_ stub: RelayRequestStub, count: Int) async throws {
-    let waitDeadline = Date().addingTimeInterval(5)
-    while stub.requests.count < count, Date() < waitDeadline {
-        try await Task.sleep(nanoseconds: 1_000_000)
-    }
-    try #require(stub.requests.count >= count)
+    try await stub.waitForRequests(count: count)
 }
 
 @MainActor
@@ -797,6 +796,7 @@ private final class RelayRequestStub: @unchecked Sendable {
     private var heldCompletions: [@Sendable () -> Void] = []
     private var responses: [RelayTestResponse]
     private var recordedRequests: [URLRequest] = []
+    private var requestWaiters: [UUID: (count: Int, continuation: CheckedContinuation<Void, Error>)] = [:]
 
     init(responses: [RelayTestResponse], holdResponses: Bool, heldPathSuffix: String?) {
         self.responses = responses
@@ -816,8 +816,39 @@ private final class RelayRequestStub: @unchecked Sendable {
         let response = responses.isEmpty
             ? .failure("Unexpected request in isolated relay test")
             : responses.removeFirst()
+        let ready = requestWaiters.filter { recordedRequests.count >= $0.value.count }
+        for identifier in ready.keys { requestWaiters.removeValue(forKey: identifier) }
         lock.unlock()
+        for waiter in ready.values { waiter.continuation.resume() }
         return response
+    }
+
+    func waitForRequests(count: Int) async throws {
+        let identifier = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                lock.lock()
+                if Task.isCancelled {
+                    lock.unlock()
+                    continuation.resume(throwing: CancellationError())
+                } else if recordedRequests.count >= count {
+                    lock.unlock()
+                    continuation.resume()
+                } else {
+                    requestWaiters[identifier] = (count, continuation)
+                    lock.unlock()
+                }
+            }
+        } onCancel: {
+            self.cancelRequestWait(identifier)
+        }
+    }
+
+    private func cancelRequestWait(_ identifier: UUID) {
+        lock.lock()
+        let waiter = requestWaiters.removeValue(forKey: identifier)
+        lock.unlock()
+        waiter?.continuation.resume(throwing: CancellationError())
     }
 
     func deliver(for request: URLRequest, completion: @escaping @Sendable () -> Void) {
@@ -911,6 +942,7 @@ private final class RelayControllerFixture {
     let session: URLSession
     let stub: RelayRequestStub
     let controller: RelaySyncController
+    private var pendingTasks: [(cancel: () -> Void, drain: () async -> Void)] = []
 
     init(
         linked: Bool = true,
@@ -936,12 +968,55 @@ private final class RelayControllerFixture {
         controller = RelaySyncController(defaults: defaults, session: session, credentials: credentials)
     }
 
-    func cleanup() {
-        session.invalidateAndCancel()
-        RelayStubRegistry.shared.set(nil, for: identifier)
-        defaults.removePersistentDomain(forName: "RelaySyncTests.\(identifier)")
-        try? FileManager.default.removeItem(at: directory)
+    func task<Success: Sendable>(
+        _ operation: @escaping @MainActor () async -> Success
+    ) -> Task<Success, Never> {
+        let task = Task { await operation() }
+        pendingTasks.append(({ task.cancel() }, { _ = await task.value }))
+        return task
     }
+
+    func throwingTask<Success: Sendable>(
+        _ operation: @escaping @MainActor () async throws -> Success
+    ) -> Task<Success, Error> {
+        let task = Task { try await operation() }
+        pendingTasks.append(({ task.cancel() }, { _ = try? await task.value }))
+        return task
+    }
+
+    @discardableResult
+    func cleanup() -> Task<Void, Never> {
+        let tasks = pendingTasks
+        pendingTasks.removeAll()
+        for task in tasks { task.cancel() }
+        stub.releaseResponses()
+        return Task {
+            // Failed assertions can leave an operation between its requests.
+            // Drain it before invalidating the session it still owns.
+            for task in tasks { await task.drain() }
+            session.invalidateAndCancel()
+            RelayStubRegistry.shared.set(nil, for: identifier)
+            defaults.removePersistentDomain(forName: "RelaySyncTests.\(identifier)")
+            try? FileManager.default.removeItem(at: directory)
+        }
+    }
+}
+
+@MainActor
+@Test(.timeLimit(.minutes(1)))
+func relayFixtureCleanupDrainsOperationsBeforeInvalidatingTheirSession() async throws {
+    let fixture = try RelayControllerFixture(linked: false, responses: [.createdChannel, .uploaded])
+    var finished = false
+    fixture.task {
+        // Simulate an operation that was still queued when an assertion failed.
+        await Task.yield()
+        await fixture.controller.createChannel()
+        finished = true
+    }
+
+    await fixture.cleanup().value
+
+    #expect(finished)
 }
 
 @MainActor
