@@ -1,29 +1,29 @@
 {
-  "version": "0.2.24",
-  "build": 46,
+  "version": "0.2.25",
+  "build": 47,
   "releaseNotes": {
-    "headline": "A lighter, steadier rail",
-    "summary": "Fixes memory growth from hover details and quota reset scheduling, reduces idle animation and Claude cache work, and cleans up the rail’s corners.",
+    "headline": "See your AI work in one place",
+    "summary": "The rail now shows AI tools’ memory share and active work. Review local branches and worktrees in the new Branches window, alongside fixes for rail memory growth and idle CPU use.",
     "highlights": [
       {
-        "title": "Lightweight hover details",
-        "detail": "Hover details reuse one card, preventing the memory growth caused by repeatedly opening and closing the previous popover.",
-        "systemImage": "rectangle.on.rectangle"
+        "title": "Memory and work in the rail",
+        "detail": "A Memory tile shows AI tools’ share of this Mac’s memory and their branch and worktree counts. Hover the tile or a tool row for work details, processes, and ports.",
+        "systemImage": "memorychip"
       },
       {
-        "title": "Steady quota resets",
-        "detail": "Quota resets use the existing refresh tick so cancelled reset timers no longer accumulate in the background.",
-        "systemImage": "clock.arrow.circlepath"
+        "title": "Review local branches and worktrees",
+        "detail": "The new Branches window groups running work, items that need a look, and candidates to clear. Open a card to review commits, changed-file names, and disk usage before choosing what to remove.",
+        "systemImage": "arrow.triangle.branch"
       },
       {
-        "title": "Less idle work",
-        "detail": "Status and critical-limit animations update at a bounded rate, and Claude cache entries are opened only once per read.",
+        "title": "Clear with review and Undo",
+        "detail": "Review individual items before clearing them. Recent work starts unchecked, each item is checked again before removal, and Undo can restore branches and folders.",
+        "systemImage": "arrow.uturn.backward"
+      },
+      {
+        "title": "A lighter, steadier rail",
+        "detail": "Reused hover details and reset scheduling prevent accumulated memory and timers, while animations and Claude cache reads do less idle work. Rail corners are cleaner.",
         "systemImage": "leaf"
-      },
-      {
-        "title": "Cleaner rail corners",
-        "detail": "Removes the rail shadow that could leave square pockets around its rounded corners.",
-        "systemImage": "rectangle"
       }
     ]
   }

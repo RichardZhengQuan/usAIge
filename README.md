@@ -154,9 +154,9 @@ The packaged application includes the custom usAIge icon in Finder, the Dock, Sp
 
 ## Install the public alpha
 
-Download `usAIge-0.2.24-alpha.dmg` and its checksum from the website. Open the disk image, then drag `usAIge.app` onto the Applications shortcut.
+Download `usAIge-0.2.25-alpha.dmg` and its checksum from the website. Open the disk image, then drag `usAIge.app` onto the Applications shortcut.
 
-The 0.2.24 alpha fixes memory growth from hover details and quota reset scheduling, reduces idle animation and Claude cache work, and cleans up the rail’s corners. Claude usage still refreshes quietly in the background. No extra sign-in, Keychain access, or **Detect** action is required to read Claude's recorded usage.
+The 0.2.25 alpha adds the rail’s Memory tile and per-tool work details, plus a local Branches window for reviewing and clearing finished branches and worktrees. Undo restores Git branches and folders, but not ignored files; review lists those before deletion. It also includes the hover-memory and reset-timer fixes, leaner idle updates, and cleaner rail corners. Claude usage still refreshes quietly in the background without an extra sign-in, Keychain access, or **Detect** action.
 
 This alpha is ad-hoc signed and is not notarized because the project does not yet have a Developer ID Application certificate. On first launch:
 
@@ -170,7 +170,7 @@ To build and verify the installer locally:
 
 ```bash
 scripts/package-dmg.sh
-(cd dist && shasum -a 256 -c usAIge-0.2.24-alpha.dmg.sha256)
+(cd dist && shasum -a 256 -c usAIge-0.2.25-alpha.dmg.sha256)
 ```
 
 For headless packaging, reuse the layout from a trusted previous installer:
