@@ -16,6 +16,8 @@ struct HUDView: View {
     let resizePanel: (CGSize) -> Void
     @ObservedObject var screenState: PanelScreenState
     var quotaDetail: QuotaDetailPanelController? = nil
+    var liveWork: LiveWorkMonitor? = nil
+    var openBranches: () -> Void = {}
     @State private var isPanelHovered = false
     @State private var detailHoveredSnapshotIDs: Set<String> = []
     @State private var isRefreshing = false
@@ -43,7 +45,8 @@ struct HUDView: View {
                     maximumHeight: HUDMetrics.maximumRailHeight(
                         visibleHeight: screenState.visibleHeight,
                         scale: settings.scale
-                    )
+                    ),
+                    showsWorkTile: liveWork != nil
                 )
             )
         default:
@@ -139,6 +142,7 @@ struct HUDView: View {
             .accessibilityValue(isRefreshing ? "Refreshing" : "")
             .accessibilityAction(named: "Refresh usage and session status") { refreshAll() }
             .accessibilityAction(named: "Open Settings") { openSettings() }
+            .accessibilityAction(named: "Open Branches and Worktrees") { openBranches() }
             .onChange(of: scaledSize) { _, size in resizePanel(size) }
             .onChange(of: snapshots) { _, values in quotaDetail?.update(values) }
     }
@@ -232,7 +236,7 @@ struct HUDView: View {
                                         quotaDetail?.show(snapshot, rowFrame: rowFrame)
                                     } else {
                                         detailHoveredSnapshotIDs.remove(snapshot.id)
-                                        quotaDetail?.hide(snapshotID: snapshot.id)
+                                        quotaDetail?.pointerLeft(snapshotID: snapshot.id)
                                     }
                                 }
                             )
@@ -242,6 +246,19 @@ struct HUDView: View {
                 }
                 .scrollIndicators(.never)
                 .opacity(isStale ? 0.62 : 1)
+            }
+
+            if let liveWork {
+                LiveWorkTile(monitor: liveWork, open: openBranches) { isHovered, frame in
+                    let id = QuotaDetailPanelController.liveWorkID
+                    if isHovered {
+                        detailHoveredSnapshotIDs.insert(id)
+                        quotaDetail?.showLiveWork(rowFrame: frame)
+                    } else {
+                        detailHoveredSnapshotIDs.remove(id)
+                        quotaDetail?.pointerLeft(snapshotID: id)
+                    }
+                }
             }
 
             Divider().opacity(isPanelHovered ? 0.45 : 0)
@@ -502,15 +519,25 @@ enum HUDMetrics {
     static let messageSize = CGSize(width: railWidth, height: 120)
     static let itemSpacing: CGFloat = 10
     static let quotaRowHeight: CGFloat = 84
+    static let waterTankHeight: CGFloat = 38
+    static let workTagGap: CGFloat = 4
+    static let workTagHeight: CGFloat = 16
+    static let workTileHeight: CGFloat = waterTankHeight + workTagGap + workTagHeight
     static let hoveredGlassOpacity = 1.0
 
     static let defaultMaximumRailHeight: CGFloat = 450
     static let screenInset: CGFloat = 32
 
-    static func railHeight(rowCount: Int, maximumHeight: CGFloat = defaultMaximumRailHeight) -> CGFloat {
+    static func railHeight(
+        rowCount: Int,
+        maximumHeight: CGFloat = defaultMaximumRailHeight,
+        showsWorkTile: Bool = false
+    ) -> CGFloat {
         let rowsHeight = CGFloat(rowCount) * quotaRowHeight
         let gapsHeight = CGFloat(max(0, rowCount - 1)) * itemSpacing
-        return min(max(120, maximumHeight), max(120, 65 + rowsHeight + gapsHeight))
+        // The tile sits in the rail's column, one of its 7-point gaps away.
+        let tileHeight = showsWorkTile ? workTileHeight + 7 : 0
+        return min(max(120, maximumHeight), max(120, 65 + rowsHeight + gapsHeight + tileHeight))
     }
 
     /// The tallest unscaled rail that still fits the display once the user's

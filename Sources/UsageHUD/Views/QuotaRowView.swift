@@ -456,8 +456,12 @@ struct QuotaDetailCard: View {
     static let windowInset: CGFloat = 28
 
     let snapshot: QuotaSnapshot
+    /// What this tool is doing now, and the memory it and that work use.
+    var work: [LiveSessionWork] = []
+    var memoryBytes: UInt64 = 0
     var arrowEdge: HorizontalEdge = .leading
     var arrowOffset: CGFloat = 0
+    var openBranches: (() -> Void)? = nil
 
     private var tool: AIToolDescriptor {
         .descriptor(for: snapshot)
@@ -510,35 +514,32 @@ struct QuotaDetailCard: View {
                     severity: QuotaSeverity(remainingPercent: secondaryWindow.remainingPercent)
                 )
             }
+
+            if !work.isEmpty || memoryBytes > 0 {
+                Divider()
+                HStack {
+                    Text(work.isEmpty ? "Memory" : "Working now").fontWeight(.semibold)
+                    Spacer()
+                    if memoryBytes > 0 {
+                        Text(LiveWorkText.memory(memoryBytes)).monospacedDigit()
+                    }
+                }
+                if !work.isEmpty {
+                    LiveSessionList(sessions: work)
+                    if let openBranches {
+                        Button("All branches and worktrees…", action: openBranches)
+                            .buttonStyle(.link)
+                    }
+                }
+            }
         }
         .font(.caption)
-        .padding(14)
-        .frame(width: 260)
-        .background {
-            surface.padding(.horizontal, -QuotaDetailCardShape.arrowLength)
-        }
-        .shadow(color: .black.opacity(0.18), radius: 12, y: 4)
-        .padding(Self.windowInset)
-    }
-
-    private var surface: some View {
-        let shape = QuotaDetailCardShape(arrowEdge: arrowEdge, arrowOffset: arrowOffset)
-        return ZStack {
-            // Regular glass, unlike the rail's clear glass, keeps the text
-            // legible over whatever window sits behind the card.
-            if #available(macOS 26.0, *) {
-                Color.clear.glassEffect(.regular, in: shape)
-            } else {
-                shape.fill(.regularMaterial)
-            }
-            shape.stroke(Color.primary.opacity(0.18), lineWidth: 0.5)
-            if lowestSeverity.showsScaryGlow {
-                shape.stroke(Color.red.opacity(0.92), lineWidth: 2)
-                    .shadow(color: .red.opacity(0.9), radius: 7)
-                    .shadow(color: .red.opacity(0.55), radius: 16)
-            }
-        }
-        .accessibilityHidden(true)
+        .railDetailCardChrome(
+            width: work.isEmpty ? 260 : 300,
+            showsCriticalGlow: lowestSeverity.showsScaryGlow,
+            arrowEdge: arrowEdge,
+            arrowOffset: arrowOffset
+        )
     }
 
     private func windowDetail(
@@ -561,6 +562,57 @@ struct QuotaDetailCard: View {
                 Text(ResetDateText.format(window.resetAt))
             }
         }
+    }
+}
+
+/// The surface every card beside the rail shares.
+@available(macOS 14.0, *)
+private struct RailDetailCardSurface: View {
+    let showsCriticalGlow: Bool
+    let arrowEdge: HorizontalEdge
+    let arrowOffset: CGFloat
+
+    var body: some View {
+        let shape = QuotaDetailCardShape(arrowEdge: arrowEdge, arrowOffset: arrowOffset)
+        ZStack {
+            // Regular glass, unlike the rail's clear glass, keeps the text
+            // legible over whatever window sits behind the card.
+            if #available(macOS 26.0, *) {
+                Color.clear.glassEffect(.regular, in: shape)
+            } else {
+                shape.fill(.regularMaterial)
+            }
+            shape.stroke(Color.primary.opacity(0.18), lineWidth: 0.5)
+            if showsCriticalGlow {
+                shape.stroke(Color.red.opacity(0.92), lineWidth: 2)
+                    .shadow(color: .red.opacity(0.9), radius: 7)
+                    .shadow(color: .red.opacity(0.55), radius: 16)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+@available(macOS 14.0, *)
+extension View {
+    func railDetailCardChrome(
+        width: CGFloat,
+        showsCriticalGlow: Bool = false,
+        arrowEdge: HorizontalEdge,
+        arrowOffset: CGFloat
+    ) -> some View {
+        padding(14)
+            .frame(width: width)
+            .background {
+                RailDetailCardSurface(
+                    showsCriticalGlow: showsCriticalGlow,
+                    arrowEdge: arrowEdge,
+                    arrowOffset: arrowOffset
+                )
+                .padding(.horizontal, -QuotaDetailCardShape.arrowLength)
+            }
+            .shadow(color: .black.opacity(0.18), radius: 12, y: 4)
+            .padding(QuotaDetailCard.windowInset)
     }
 }
 

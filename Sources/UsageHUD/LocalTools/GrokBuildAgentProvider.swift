@@ -14,7 +14,7 @@ actor GrokBuildAgentProvider: CodexAgentProviding {
     private let now: @Sendable () -> Date
     private var logAttributes: AgentActivityFiles.Attributes?
     private var sessions: [String: GrokBuildLogDecoder.SessionState] = [:]
-    private var workspaceNames: [String: String] = [:]
+    private var workspaceFolders: [String: String] = [:]
 
     init(
         grokDirectory: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".grok", isDirectory: true),
@@ -45,13 +45,17 @@ actor GrokBuildAgentProvider: CodexAgentProviding {
         sessions = sessions.filter { isProcessAlive($0.value.pid) }
         let currentDate = now()
         return sessions.map { sid, state in
-            CodexAgentTask(
+            let folder = workspaceFolder(for: sid)
+            let name = folder.map { URL(fileURLWithPath: $0).lastPathComponent } ?? ""
+            return CodexAgentTask(
                 id: sid,
                 title: "Grok Build session",
-                workspaceName: workspaceName(for: sid),
+                workspaceName: name.isEmpty ? "Grok Build" : name,
                 phase: CodexAgentSessionDecoder.settledPhase(state.phase, updatedAt: state.updatedAt, now: currentDate),
                 updatedAt: state.updatedAt,
-                toolID: .grok
+                toolID: .grok,
+                folder: folder,
+                processID: state.pid
             )
         }
         .sorted { $0.updatedAt > $1.updatedAt }
@@ -60,26 +64,24 @@ actor GrokBuildAgentProvider: CodexAgentProviding {
     func stop() async {
         logAttributes = nil
         sessions = [:]
-        workspaceNames = [:]
+        workspaceFolders = [:]
     }
 
     /// Grok Build stores each session under a directory named after its
     /// percent-encoded working directory: `sessions/%2FUsers%2Fme%2Fapp/<sid>`.
-    private func workspaceName(for sid: String) -> String {
-        if let known = workspaceNames[sid] { return known }
+    private func workspaceFolder(for sid: String) -> String? {
+        if let known = workspaceFolders[sid] { return known }
         guard let projects = try? FileManager.default.contentsOfDirectory(
             at: sessionsDirectory,
             includingPropertiesForKeys: nil
-        ) else { return "Grok Build" }
+        ) else { return nil }
         for project in projects
         where FileManager.default.fileExists(atPath: project.appendingPathComponent(sid).path) {
-            let decoded = project.lastPathComponent.removingPercentEncoding ?? project.lastPathComponent
-            let name = URL(fileURLWithPath: decoded).lastPathComponent
-            let workspace = name.isEmpty ? "Grok Build" : name
-            workspaceNames[sid] = workspace
-            return workspace
+            let folder = project.lastPathComponent.removingPercentEncoding ?? project.lastPathComponent
+            workspaceFolders[sid] = folder
+            return folder
         }
-        return "Grok Build"
+        return nil
     }
 }
 

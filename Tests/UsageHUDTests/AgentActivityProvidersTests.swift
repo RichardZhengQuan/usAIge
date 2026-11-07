@@ -100,6 +100,33 @@ private func claudeRecord(_ type: String, extra: String = "") -> String {
     #expect(try await provider.refresh().first?.phase == .thinking)
 }
 
+/// The rail shows these, and they're read from Claude Code's own files.
+@Test func claudeCodeTasksSayWhereTheyWork() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("usaige-claude-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let sessions = root.appendingPathComponent("sessions", isDirectory: true)
+    let project = root.appendingPathComponent("projects/-Users-me-app", isDirectory: true)
+    try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+    try Data("{\"pid\":11,\"sessionId\":\"s\",\"cwd\":\"/Users/me/app\"}".utf8)
+        .write(to: sessions.appendingPathComponent("11.json"))
+    try Data((
+        claudeRecord("user", extra: ",\"gitBranch\":\"first\",\"message\":{\"role\":\"user\",\"content\":\"go\"}")
+        + claudeRecord("user", extra: ",\"gitBranch\":\"latest\",\"message\":{\"role\":\"user\",\"content\":\"more\"}")
+    ).utf8).write(to: project.appendingPathComponent("s.jsonl"))
+
+    let provider = ClaudeCodeAgentProvider(claudeDirectory: root, isProcessAlive: { _ in true }, now: { Date() })
+    let found = try #require(try await provider.refresh().first)
+    #expect(found.folder == "/Users/me/app")
+    #expect(found.branch == "latest")
+    #expect(found.processID == 11)
+}
+
+@Test func claudeCodeDecoderDoesntCallADetachedHeadABranch() {
+    let detached = Data(claudeRecord("user", extra: ",\"gitBranch\":\"HEAD\"").utf8)
+    #expect(ClaudeCodeSessionDecoder.decode(detached).branch == nil)
+}
+
 // MARK: Grok Build
 
 private func grokLine(_ message: String, pid: Int = 500, sid: String? = "sid-1", ctx: String = "{}", level: String = "info", at seconds: Int = 0) -> String {
@@ -291,4 +318,21 @@ private actor FailingActivityProvider: CodexAgentProviding {
     let payload = try #require(RelaySessionEventPayload(task: task))
     #expect(payload.sessionTitle == "Claude session")
     #expect(payload.eventID.hasPrefix("claude:s1:complete:"))
+}
+
+@Test func grokBuildTasksSayWhereTheyWork() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("usaige-grok-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root.appendingPathComponent("logs"), withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(
+        at: root.appendingPathComponent("sessions/%2FUsers%2Fme%2Fapp/sid-1"),
+        withIntermediateDirectories: true
+    )
+    try Data(grokLine("prompt received", pid: 500, sid: "sid-1").utf8)
+        .write(to: root.appendingPathComponent("logs/unified.jsonl"))
+    let provider = GrokBuildAgentProvider(grokDirectory: root, isProcessAlive: { _ in true }, now: { Date() })
+    let found = try #require(try await provider.refresh().first)
+    #expect(found.folder == "/Users/me/app")
+    #expect(found.workspaceName == "app")
+    #expect(found.processID == 500)
 }

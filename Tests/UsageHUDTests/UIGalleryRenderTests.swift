@@ -147,6 +147,10 @@ private func render<V: View>(_ view: V, size: CGSize?, appearance: GalleryAppear
     let window = NSWindow(contentRect: hosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
     window.appearance = NSAppearance(named: appearance.name)
     window.contentView = hosting
+    // Ordering a window animates on a shared worker thread, and while the
+    // screen is locked that never ends. The gallery opens enough windows to
+    // use up those threads, which stops everything else in the process.
+    window.animationBehavior = .none
     window.orderBack(nil)
     for _ in 0..<8 { RunLoop.main.run(until: Date().addingTimeInterval(0.1)) }
     if size == nil {
@@ -321,6 +325,232 @@ struct UIGalleryRenderTests {
         for appearance in GalleryAppearance.allCases {
             try render(WhatsNewView(updateController: controller, close: {}), size: CGSize(width: 560, height: 600),
                        appearance: appearance, name: "whats-new-\(appearance.rawValue)")
+        }
+    }
+
+    private func sampleLiveWork() -> [CodexAgentTask] {
+        func task(_ id: String, _ tool: AIToolID, _ title: String, _ phase: CodexAgentPhase, _ folder: String, _ branch: String, pid: Int32? = nil) -> CodexAgentTask {
+            CodexAgentTask(
+                id: id, title: title, workspaceName: "app", phase: phase, updatedAt: Date(),
+                toolID: tool, folder: folder, branch: branch, processID: pid
+            )
+        }
+        return [
+            task("a", .chatGPT, "Build the Branches page", .thinking, "/Users/me/Developer/OneMind/.codex/worktrees/branches-page", "codex/branches-page-1529"),
+            task("b", .chatGPT, "Fix the folder privacy leak", .needsInput, "/Users/me/Developer/OneMind/.codex/worktrees/folder-privacy", "codex/folder-path-privacy-20261106"),
+            task("c", .claude, "Stop the rail's memory leaks", .thinking, "/Users/me/Documents/GPTUsage", "main", pid: 11),
+            task("d", .cursor, "Tidy the settings copy", .complete, "/Users/me/Developer/site", "polish-settings"),
+        ]
+    }
+
+    private func sampleProcesses() -> [WorkProcess] {
+        func process(_ id: Int32, _ name: String, _ folder: String, _ megabytes: UInt64, ports: [Int] = [], executable: String? = nil) -> WorkProcess {
+            WorkProcess(id: id, name: name, folder: folder, memoryBytes: megabytes * 1024 * 1024, startedAt: nil, ports: ports, executablePath: executable)
+        }
+        return [
+            process(1, "codex", "/Users/me/Developer/OneMind/.codex/worktrees/branches-page", 210),
+            process(2, "node", "/Users/me/Developer/OneMind/.codex/worktrees/branches-page", 340, ports: [4296]),
+            process(3, "swift-build", "/Users/me/Developer/OneMind/.codex/worktrees/branches-page", 610),
+            process(4, "codex", "/Users/me/Developer/OneMind/.codex/worktrees/folder-privacy", 190),
+            process(11, "claude", "/Users/me/Documents/GPTUsage", 480),
+            process(21, "Claude", "/", 900, executable: "/Applications/Claude.app/Contents/MacOS/Claude"),
+        ]
+    }
+
+    /// The rail's tile, the card beside it, and a row's card with its tool's
+    /// work, from sample sessions.
+    @Test func rendersLiveWork() async throws {
+        guard #available(macOS 14.0, *) else { return }
+        let tasks = sampleLiveWork()
+        let processes = sampleProcesses()
+        let monitor = LiveWorkMonitor(
+            currentTasks: { tasks },
+            runningApplications: { [.claude: ["/Applications/Claude.app"]] },
+            locator: { RepositoryLocator(home: "/Users/me") },
+            scan: { _, _ in processes }
+        )
+        await monitor.refresh()
+        let idleMonitor = LiveWorkMonitor(currentTasks: { [] }, runningApplications: { [:] }, locator: { RepositoryLocator(home: "/Users/me") }, scan: { _, _ in [] })
+        await idleMonitor.refresh()
+
+        let snapshots = Array(mixedSnapshots.prefix(4))
+        let store = UsageStore(provider: FixedUsageProvider(.success(.authenticated(snapshots))), monitorsNetworkChanges: false)
+        await store.refresh()
+        let agentStore = CodexAgentStore(sources: [
+            .init(toolID: .chatGPT, provider: FixedAgentProvider(tasks.filter { $0.toolID == .chatGPT })),
+            .init(toolID: .claude, provider: FixedAgentProvider(tasks.filter { $0.toolID == .claude })),
+        ])
+        await agentStore.refresh()
+        let railHeight = HUDMetrics.railHeight(rowCount: snapshots.count, maximumHeight: 2_000, showsWorkTile: true)
+        let canvas = CGSize(width: HUDMetrics.railWidth + 56, height: railHeight + 56)
+        for appearance in GalleryAppearance.allCases {
+            let wallpaper: GalleryWallpaper = appearance == .light ? .light : .dark
+            for (name, tile) in [("working", monitor), ("idle", idleMonitor)] {
+                for hovered in [false, true] {
+                    let (settings, _) = makeSettings()
+                    try render(
+                        ZStack {
+                            wallpaper.view
+                            HUDView(
+                                store: store,
+                                agentStore: agentStore,
+                                settings: settings,
+                                updateController: UpdateController(),
+                                openTool: { _ in },
+                                openCodex: {},
+                                openSettings: {},
+                                resizePanel: { _ in },
+                                screenState: PanelScreenState(visibleHeight: 2_000),
+                                liveWork: tile
+                            )
+                            .environment(\.hudPreviewsHover, hovered)
+                        },
+                        size: canvas, appearance: appearance,
+                        name: "live-rail-\(name)-\(appearance.rawValue)-\(hovered ? "hover" : "idle")"
+                    )
+                }
+            }
+            try render(
+                ZStack {
+                    wallpaper.view
+                    QuotaDetailCard(
+                        snapshot: mixedSnapshots[0],
+                        work: monitor.summary.sessions(for: .chatGPT),
+                        memoryBytes: monitor.summary.memoryBytes(for: .chatGPT)
+                    )
+                },
+                size: nil, appearance: appearance, name: "live-row-card-\(appearance.rawValue)"
+            )
+            try render(
+                ZStack {
+                    wallpaper.view
+                    LiveWorkCard(summary: monitor.summary)
+                },
+                size: nil, appearance: appearance, name: "live-tile-card-\(appearance.rawValue)"
+            )
+            try render(
+                ZStack {
+                    wallpaper.view
+                    LiveWorkCard(summary: idleMonitor.summary)
+                },
+                size: nil, appearance: appearance, name: "live-tile-card-idle-\(appearance.rawValue)"
+            )
+        }
+    }
+
+    /// The same cards from the sessions really running on this Mac, read the
+    /// way the app reads them, with how long a sample takes.
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["USAIGE_LIVE_BRANCHES"] == "1"))
+    func rendersLiveWorkFromThisMac() async throws {
+        guard #available(macOS 14.0, *) else { return }
+        var sources: [CodexAgentStore.Source] = [
+            .init(toolID: .claude, provider: ClaudeCodeAgentProvider()),
+            .init(toolID: .cursor, provider: CursorAgentProvider()),
+            .init(toolID: .grok, provider: GrokBuildAgentProvider()),
+        ]
+        if CodexExecutableResolver.resolve() != nil {
+            let transport = ProcessLineTransport(executableURL: { CodexExecutableResolver.resolve() })
+            sources.append(.init(toolID: .chatGPT, provider: CodexAgentProvider(rpc: JSONRPCConnection(transport: transport))))
+        }
+        let agentStore = CodexAgentStore(sources: sources)
+        await agentStore.refresh()
+        let monitor = LiveWorkMonitor(currentTasks: { agentStore.currentTasks() })
+        monitor.detailVisibilityChanged(true)
+        await monitor.refresh()
+        let summary = monitor.summary
+        await agentStore.shutdown()
+
+        let tasks = agentStore.currentTasks()
+        let applications = LiveWorkMonitor.runningToolApplications()
+        let locator = LiveWorkMonitor.defaultLocator()
+        let clock = ContinuousClock()
+        for includePorts in [false, true] {
+            var total = Duration.zero
+            for _ in 0..<20 {
+                total += clock.measure {
+                    _ = LiveWorkReader.read(tasks: tasks, applications: applications, locator: locator, includePorts: includePorts)
+                }
+            }
+            print("LIVE sample with ports \(includePorts): \(total / 20) on average")
+        }
+        print("LIVE \(summary.sessions.count) sessions in \(summary.placeCount) places, \(LiveWorkText.memory(summary.memoryBytes))")
+        for tool in AIToolDescriptor.all {
+            print("LIVE \(tool.name): \(summary.sessions(for: tool.id).count) sessions, \(LiveWorkText.memory(summary.memoryBytes(for: tool.id))), app processes \(summary.appProcesses[tool.id]?.count ?? 0)")
+        }
+        for place in LiveWorkPlace.places(from: summary.sessions) {
+            print("LIVE \(place.lead.toolID.rawValue) \(place.lead.phase.label) +\(place.sessions.count - 1) | branch \(LiveWorkText.branchLine(place.lead) ?? "-") | \(LiveWorkText.detailLine(place)) | \(LiveWorkText.memory(place.memoryBytes))")
+        }
+        for appearance in GalleryAppearance.allCases {
+            let wallpaper: GalleryWallpaper = appearance == .light ? .light : .dark
+            try render(
+                ZStack {
+                    wallpaper.view
+                    LiveWorkCard(summary: summary)
+                },
+                size: nil, appearance: appearance, name: "real-tile-card-\(appearance.rawValue)"
+            )
+            for tool in AIToolDescriptor.all where !summary.sessions(for: tool.id).isEmpty {
+                var quota = mixedSnapshots[0]
+                quota.toolID = tool.id
+                try render(
+                    ZStack {
+                        wallpaper.view
+                        QuotaDetailCard(
+                            snapshot: quota,
+                            work: summary.sessions(for: tool.id),
+                            memoryBytes: summary.memoryBytes(for: tool.id)
+                        )
+                    },
+                    size: nil, appearance: appearance, name: "real-row-card-\(tool.id.rawValue)-\(appearance.rawValue)"
+                )
+            }
+        }
+    }
+
+    /// The Branches window over a throwaway repository, after one delete, and
+    /// the delete review with several rows.
+    @Test func rendersBranches() async throws {
+        guard #available(macOS 14.0, *) else { return }
+        let fixture = try GitFixture()
+        try fixture.commit(".gitignore", ".env\n", message: "Ignore")
+        try fixture.git(["push", "--quiet", "origin", "main"])
+        for (offset, name) in ["finished-one", "finished-two", "with-secrets", "deleted-earlier"].enumerated() {
+            try fixture.squashMerged(name, pullRequest: 101 + offset)
+        }
+        for name in ["finished-one", "finished-two", "with-secrets"] {
+            try fixture.git(["worktree", "add", "--quiet", fixture.worktreePath(name), name])
+        }
+        try fixture.write(".env", "SECRET=1\n", in: fixture.worktreePath("with-secrets"))
+        try fixture.git(["switch", "--quiet", "-c", "local-work"])
+        try fixture.commit("local.txt", "local\n", message: "Local work")
+        try fixture.git(["switch", "--quiet", "main"])
+
+        let defaults = try #require(UserDefaults(suiteName: "usaige.render.branches.\(UUID().uuidString)"))
+        let store = BranchesStore(defaults: defaults, scanner: fixture.scanner(now: { Date().addingTimeInterval(3600) }))
+        func waitForScan() async throws {
+            try await Task.sleep(nanoseconds: 300_000_000)
+            let deadline = Date().addingTimeInterval(30)
+            while store.snapshot.activity != .idle, Date() < deadline {
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+        }
+        store.windowOpened()
+        try await waitForScan()
+        let deleted = try #require(store.snapshot.row(branch: "deleted-earlier"))
+        await store.delete([deleted])
+        try await waitForScan()
+        store.windowClosed()
+
+        let reviewed = ["finished-one", "finished-two", "with-secrets", "local-work"]
+            .compactMap { store.snapshot.row(branch: $0) }
+            .filter(\.eligibility.isAllowed)
+        for appearance in GalleryAppearance.allCases {
+            try render(BranchesRootView(store: store), size: CGSize(width: 1080, height: 640),
+                       appearance: appearance, name: "branches-\(appearance.rawValue)")
+            try render(
+                DeleteReviewView(request: DeleteReviewRequest(items: reviewed), confirm: { _ in }, cancel: {}),
+                size: nil, appearance: appearance, name: "branches-review-\(appearance.rawValue)"
+            )
         }
     }
 

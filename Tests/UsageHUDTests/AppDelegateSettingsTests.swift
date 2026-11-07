@@ -113,3 +113,60 @@ import Testing
     )
     #expect(SettingsScenePresenter.settingsWindow(in: [whatsNew, untitledSettings]) === untitledSettings)
 }
+
+@MainActor
+@Test func openingSettingsNeverBringsBackTheBranchesWindow() {
+    let branches = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+        styleMask: [.titled, .closable],
+        backing: .buffered,
+        defer: false
+    )
+    branches.identifier = AppWindowIdentifiers.branches
+    #expect(!SettingsScenePresenter.isSettingsWindow(branches))
+    #expect(SettingsScenePresenter.settingsWindow(in: [branches]) == nil)
+}
+
+@MainActor
+@Test func branchesWindowControllerUsesTheIdentifierSettingsLooksFor() async throws {
+    guard #available(macOS 14.0, *) else { return }
+    // Git runs off the main thread, which timing-sensitive tests need free.
+    let fixture = try await Task.detached { try GitFixture() }.value
+    let store = BranchesStore(scanner: fixture.scanner())
+    let controller = BranchesWindowController(store: store, onClose: {})
+    #expect(controller.window?.identifier == AppWindowIdentifiers.branches)
+    #expect(controller.window?.isReleasedWhenClosed == false)
+}
+
+/// An unused feature must cost nothing: once the window closes, its store and
+/// everything the scan read have to go, even mid-scan.
+@MainActor
+@Test func closingTheBranchesWindowLetsItsStateGo() async throws {
+    guard #available(macOS 14.0, *) else { return }
+    // Git runs off the main thread, which timing-sensitive tests need free.
+    let fixture = try await Task.detached {
+        let fixture = try GitFixture()
+        try fixture.squashMerged("topic", pullRequest: nil)
+        return fixture
+    }.value
+    weak var releasedStore: BranchesStore?
+    weak var releasedController: BranchesWindowController?
+    var closeCount = 0
+    do {
+        let defaults = try #require(UserDefaults(suiteName: "usaige.branches.test.\(UUID().uuidString)"))
+        let store = BranchesStore(defaults: defaults, scanner: fixture.scanner())
+        var controller: BranchesWindowController? = BranchesWindowController(store: store) { closeCount += 1 }
+        releasedStore = store
+        releasedController = controller
+        store.windowOpened()
+        controller?.window?.close()
+        controller = nil
+    }
+    #expect(closeCount == 1)
+    let deadline = Date().addingTimeInterval(5)
+    while releasedStore != nil || releasedController != nil, Date() < deadline {
+        try await Task.sleep(nanoseconds: 20_000_000)
+    }
+    #expect(releasedStore == nil)
+    #expect(releasedController == nil)
+}

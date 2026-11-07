@@ -344,3 +344,39 @@ private actor FailingAgentProvider: CodexAgentProviding {
     await store.refresh()
     #expect(store.nextPollingDelay == CodexAgentStore.pollingInterval)
 }
+
+private actor OneThreadRPC: RPCRequesting {
+    let path: String
+    init(path: String) { self.path = path }
+
+    func start() async throws {}
+
+    func request(method: String, params: JSONValue) async throws -> JSONValue {
+        guard method == "thread/list" else { return .object([:]) }
+        return .object(["data": .array([.object([
+            "id": .string("thread"),
+            "path": .string(path),
+            "updatedAt": .number(1_800_000_000),
+            "cwd": .string("/Users/me/app"),
+            "gitInfo": .object(["branch": .string("topic"), "sha": .string("abc")]),
+        ])])])
+    }
+
+    func notify(method: String, params: JSONValue) async throws {}
+
+    func notifications() async -> AsyncStream<JSONRPCNotification> {
+        AsyncStream { $0.finish() }
+    }
+
+    func stop() async {}
+}
+
+/// The rail shows these, and Codex's own thread list already has them.
+@Test func codexTasksSayWhereTheyWork() async throws {
+    let provider = CodexAgentProvider(rpc: OneThreadRPC(path: "/nonexistent/rollout.jsonl"))
+    let found = try #require(try await provider.refresh().first)
+    #expect(found.folder == "/Users/me/app")
+    #expect(found.branch == "topic")
+    #expect(found.workspaceName == "app")
+    #expect(found.processID == nil)
+}

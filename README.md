@@ -370,6 +370,51 @@ Drag the panel by its background. Its safe position is stored separately for eac
 
 The built-in Codex, Cursor, and Grok Build sources reuse existing sign-ins, while Claude reads only local usage data; **AI Tools** shows each one's connection state. Other tools appear only after a paired adapter uploads valid normalized usage data; usAIge does not scrape provider websites or invent missing values.
 
+## Branches and worktrees
+
+The rail shows what your AI tools are working on, without opening anything:
+
+- A tile under the tool rows fills like a water tank with the share of this Mac's memory the AI tools are using, in the same colours as the rings, and shows how many branches and worktrees have an AI session in them.
+- Hovering the tile lists that work across every tool: each branch or worktree, its repository, its most urgent session, its processes and ports, and its memory.
+- Hovering a tool's row adds the same list for that tool to its limits card, with that tool's memory.
+- A card stays open while the pointer is on it, so a long list can be scrolled.
+- Clicking the tile, or the link at the bottom of a card, opens the full list.
+
+Memory counts each AI tool's app and helpers plus everything running in the folders its sessions work in, each process once, using the same figure as Activity Monitor. The tile reads the process list and each session's `.git/HEAD` every 10 seconds, with no git process. In a folder macOS protects it reads nothing, and shows the branch the session's own log last recorded; Cursor and Grok Build don't record one.
+
+The full list, also under **Branches and Worktrees…** in the app menu, shows the repositories your AI tools have worked in, with a card for each worktree and each branch without one. It reads this Mac only: it never fetches, never calls GitHub, and sends nothing to the relay, your iPhone, or your Watch. Its scan runs only while the window is open, and closing it stops everything.
+
+At the top, a tank shows how full the disk is and how far clearing would bring it down. Below it, the cards sit in three columns:
+
+- **Running now**: something runs in the folder, or a session wrote to its log in the last 5 minutes, including in a repository's main copy. A small tank shows the AI tools' share of memory, the same figure as the rail's tile.
+- **Needs a look**: work that exists only on this Mac, work that isn't on main yet, and finished folders holding ignored files no build brings back, such as `.env`. Opening a card lists the commits and uncommitted files that would be lost. A copy of a project that another copy has replaced and nobody has used for a week shows as one card.
+- **Safe to clear**: merged or empty branches and worktrees nothing runs in, biggest first. **Clear…** reviews what the column shows; **Review and Clear…** at the top reviews all of it.
+
+Each card is named by what the work was: the session's title, else its own newest commit, else its folder, with the repository and branch underneath. Search finds a card by any of these, and the project buttons show one project, counting clones of one remote as one project. **Show in Finder** and **Open in Terminal** open a card's folder.
+
+The review groups what can go: merged or empty folders, merged branches with no folder, leftover records whose folder is gone, and merged folders used in the last 3 days, which start unticked. Each group opens to its rows, each with its own checkbox and **Show in Finder**. **Stop** ends a clear before its next row.
+
+Each card's status says whether it's safe to delete:
+
+| Status | Meaning | Delete |
+| --- | --- | --- |
+| **In use** | A process is running in the folder, or a session wrote to its log in the last 5 minutes | No |
+| **Not saved** | Uncommitted files, a stash, or commits that exist only on this Mac | No |
+| **Pushed** | Its commits are on a remote or another branch, but not on main as far as this Mac knows | Yes, unticked in the review |
+| **Empty** | No commits of its own and no changes | Yes |
+| **Finished** | Its work is on main and nothing is running | Yes |
+| **Folder gone** | Only Git's record of the folder is left | The record only, unless it's locked |
+| **Main copy** | The repository's main checkout or main branch | No |
+| **Not checked** | In a folder macOS protects, or managed by iCloud | No |
+
+Opening a card shows where it lives, what's running there with ports, memory, and start times, its related sessions, and how much of its size is rebuildable cache. Sizes are what each folder measured, and APFS counts a file two folders share in both, so the disk can gain less than the tank shows. **Tool storage** lists what AI and developer tools keep on the Mac, including simulator runtimes and caches; usAIge only shows these and never clears them.
+
+Merges are detected by content, so squash and rebase merges count without asking GitHub: a branch is finished when a commit that reached your local copy of main after the branch began has exactly the same patch, compared with `git patch-id --verbatim`. If you haven't fetched lately, a merged branch shows as **Pushed**, which is the safe direction. A squash merge with extra edits can also show as **Pushed** or **Not saved**, and so can every merged branch with a Git older than 2.39, which can't make that comparison.
+
+**Delete** removes the folder with `git worktree remove` and the local branch, after a review listing what goes. It re-reads everything just before acting and stops if anything changed, never uses `--force`, and never touches a remote. **Undo** brings back the branch and folder, and **Recently Deleted** offers the same for two weeks, after which Git may clean up the commits. Neither brings back caches or ignored files such as `.env`, so the review names any ignored file outside common cache folders such as `node_modules`, `.build`, `dist`, and `build`, and leaves those rows unticked. A stash made on a detached worktree isn't flagged, but stashes live in the shared repository and survive the delete.
+
+Sessions are found from the logs of Claude Code, Codex, Cursor, and Grok Build, reading only each log's working folder, branch, and title fields, plus the session names Codex and Cursor keep for each thread. Tools without a log reader still show as **In use** while they have a process in the folder, but an editor with the folder open usually doesn't, because its process runs elsewhere. **No sessions found** doesn't prove a worktree is unused. Sizes come from `du`, so deleting files APFS shares with another folder can free less than shown. Folders in Documents, Desktop, Downloads, and iCloud Drive are skipped until you choose **Check This Folder**, and in folders iCloud manages usAIge lists branches without reading files, because that can start downloads.
+
 ## Updates
 
 The packaged app checks the public usAIge website at launch and every six hours. When a newer build is published, macOS shows a local notification and Settings marks the update button with a red dot. Clicking the notification opens Settings; clicking **Update** downloads the DMG, verifies its SHA-256 checksum, validates the app bundle and code signature, replaces the installed copy, and relaunches usAIge. If the replacement fails, the previous copy is put back and relaunched. When the installed app carries a Developer ID team, the replacement must be signed by the same team. The manifest carries an Ed25519 signature from the release key: `scripts/generate-update-signing-key.swift` created the key once on the release Mac (keep `~/.config/usaige/update-signing-key` backed up; losing it breaks in-app updates), `scripts/package-dmg.sh` signs `update.json` with it on every release, and the public key pinned in `UpdateSigning.pinnedPublicKeyBase64` makes the app refuse unsigned or tampered manifests, so a compromised download host cannot push a different build. A manual **Check for Updates** action reports **You’re up to date!** after a successful check when no newer build exists.
@@ -390,6 +435,7 @@ When a quota resets, the new window starts its own notification cycle. Selecting
 - No provider credentials are copied or stored by usAIge. The Cursor and Grok Build sign-ins already on this Mac are read into memory only to request each provider's current limits, and are never written to disk, logged, refreshed, or relayed.
 - The Mac relay credential is stored in an owner-only local application-support file. Each remote tool keeps its own write credential outside usAIge.
 - No screen pixels are captured or inspected.
+- The rail's work tile and the Branches window read Git repositories, AI session logs' working-folder, branch, and title fields, and process lists on this Mac only, and send none of it anywhere. It never reads transcript text or the contents of ignored files; opening a card reads commit subjects and the names of changed files, never what's in them. It changes a repository only when you press **Delete** or **Undo**.
 - Preferences contain visual settings, bucket identifiers, and display positions; they do not contain remote-tool bearer tokens.
 - Feedback is sent only when you press **Send Feedback** and contains the message plus the disclosed app/system context. The server keeps it for 180 days.
 - Unsupported or malformed quota buckets are omitted rather than guessed.
@@ -450,6 +496,12 @@ dependencies explicitly blocked:
 
 ```bash
 USAIGE_LIVE_CLAUDE_CACHE=1 swift test --filter ClaudeLocalCacheLive
+```
+
+Another reads the real repositories on this Mac, changes nothing, and prints only counts:
+
+```bash
+USAIGE_LIVE_BRANCHES=1 swift test --filter BranchesLive
 ```
 
 ## TODO

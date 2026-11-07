@@ -40,6 +40,12 @@ struct CodexAgentTask: Identifiable, Equatable, Sendable {
     let phase: CodexAgentPhase
     let updatedAt: Date
     var toolID: AIToolID = .chatGPT
+    /// Where the session works, the branch its tool last recorded, and the
+    /// process running it, when the tool says. These stay on this Mac: the
+    /// relay sends only a session's title, tool, and status.
+    var folder: String? = nil
+    var branch: String? = nil
+    var processID: Int32? = nil
 }
 
 struct CodexAgentAggregate: Equatable, Sendable {
@@ -151,7 +157,9 @@ actor CodexAgentProvider: CodexAgentProviding {
             title: title,
             workspaceName: workspace,
             phase: phase,
-            updatedAt: updatedAt
+            updatedAt: updatedAt,
+            folder: value["cwd"]?.stringValue,
+            branch: value["gitInfo"]?["branch"]?.stringValue
         )
     }
 
@@ -428,6 +436,27 @@ final class CodexAgentStore: ObservableObject {
                 viewedAt: viewedAt
             )
             publishAggregate(for: toolID)
+        }
+    }
+
+    /// A session with no live process that hasn't changed for this long isn't
+    /// current, whatever its last recorded state says.
+    static let currentSessionWindow: TimeInterval = 24 * 60 * 60
+
+    /// The sessions that count as current work across every tool: open in a
+    /// live process, or in a state the person hasn't seen yet.
+    func currentTasks(now: Date = Date()) -> [CodexAgentTask] {
+        sources.flatMap { source -> [CodexAgentTask] in
+            let tasks = tasksByTool[source.toolID] ?? []
+            let unseen = Set(Self.unacknowledgedTasks(
+                tasks,
+                acknowledgements: acknowledgementsByTool[source.toolID] ?? [:]
+            ).map(\.id))
+            return tasks.filter { task in
+                if task.processID != nil { return true }
+                guard task.phase.showsLight, unseen.contains(task.id) else { return false }
+                return now.timeIntervalSince(task.updatedAt) < Self.currentSessionWindow
+            }
         }
     }
 
