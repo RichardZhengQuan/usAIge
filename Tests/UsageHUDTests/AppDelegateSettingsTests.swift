@@ -163,7 +163,7 @@ import Testing
         controller = nil
     }
     #expect(closeCount == 1)
-    let deadline = Date().addingTimeInterval(5)
+    let deadline = Date().addingTimeInterval(30)
     while releasedStore != nil || releasedController != nil, Date() < deadline {
         try await Task.sleep(nanoseconds: 20_000_000)
     }

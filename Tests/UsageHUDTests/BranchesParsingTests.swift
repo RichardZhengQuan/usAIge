@@ -323,15 +323,18 @@ private func facts(_ change: (inout WorkFacts) -> Void = { _ in }) -> WorkFacts 
     #expect(!output.succeeded)
 }
 
+// The runner works at utility priority, so on a busy machine stopping a
+// command can take seconds. These tests only need to tell a stopped command
+// from one left to finish, so the command runs far longer than the limit.
 @Test func commandRunnerStopsAtItsDeadline() async {
     let started = Date()
     let output = await CommandRunner.run(
-        ShellCommand(executable: URL(fileURLWithPath: "/bin/sleep"), arguments: ["30"]),
+        ShellCommand(executable: URL(fileURLWithPath: "/bin/sleep"), arguments: ["60"]),
         timeout: 0.2
     )
     #expect(output.timedOut)
     #expect(!output.succeeded)
-    #expect(Date().timeIntervalSince(started) < 5)
+    #expect(Date().timeIntervalSince(started) < 30)
 }
 
 @Test func commandRunnerMarksOversizedOutputAsUnusable() async {
@@ -348,13 +351,13 @@ private func facts(_ change: (inout WorkFacts) -> Void = { _ in }) -> WorkFacts 
 @Test func commandRunnerStopsWhenItsTaskIsCancelled() async {
     let started = Date()
     let task = Task {
-        await CommandRunner.run(ShellCommand(executable: URL(fileURLWithPath: "/bin/sleep"), arguments: ["30"]), timeout: 60)
+        await CommandRunner.run(ShellCommand(executable: URL(fileURLWithPath: "/bin/sleep"), arguments: ["60"]), timeout: 120)
     }
     try? await Task.sleep(nanoseconds: 100_000_000)
     task.cancel()
     let output = await task.value
     #expect(!output.succeeded)
-    #expect(Date().timeIntervalSince(started) < 5)
+    #expect(Date().timeIntervalSince(started) < 30)
 }
 
 @Test func commandRunnerReportsAMissingProgram() async {

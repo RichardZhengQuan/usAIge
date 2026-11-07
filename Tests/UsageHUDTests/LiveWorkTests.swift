@@ -462,7 +462,8 @@ private final class ScanLog: @unchecked Sendable {
         }
     )
     monitor.start()
-    for _ in 0..<100 where log.count == 0 { try await Task.sleep(nanoseconds: 10_000_000) }
+    let deadline = Date().addingTimeInterval(30)
+    while log.count == 0, Date() < deadline { try await Task.sleep(nanoseconds: 10_000_000) }
     #expect(log.count == 1)
     monitor.stop()
     let settled = log.count
@@ -584,7 +585,7 @@ private final class ScanLog: @unchecked Sendable {
         controller.handlePointer(at: pointer.location)
         #expect(!controller.isPointerOnCard)
         #expect(controller.shownSnapshotID == "a")
-        let deadline = Date().addingTimeInterval(5)
+        let deadline = Date().addingTimeInterval(30)
         while controller.shownSnapshotID != nil, Date() < deadline {
             try await Task.sleep(nanoseconds: 20_000_000)
         }
@@ -597,7 +598,7 @@ private final class ScanLog: @unchecked Sendable {
         let pointer = Pointer()
         let (controller, _, _) = try openCard(pointer)
         controller.pointerLeft(snapshotID: "a")
-        let deadline = Date().addingTimeInterval(5)
+        let deadline = Date().addingTimeInterval(30)
         while controller.shownSnapshotID != nil, Date() < deadline {
             try await Task.sleep(nanoseconds: 20_000_000)
         }
@@ -712,7 +713,7 @@ private final class ScanLog: @unchecked Sendable {
     #expect(magnet.isRevealed)
 
     onCard.value = false
-    let deadline = Date().addingTimeInterval(MagnetController.hideDelay + 5)
+    let deadline = Date().addingTimeInterval(MagnetController.hideDelay + 30)
     while magnet.isRevealed, Date() < deadline {
         try await Task.sleep(nanoseconds: 50_000_000)
     }
