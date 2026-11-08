@@ -68,6 +68,17 @@ private enum GalleryWallpaper: String {
     }
 }
 
+/// Keep the exact native physics frame prepared by the gallery fixture.
+@available(macOS 14.0, *)
+@MainActor
+private struct GalleryAtmosphereView: NSViewRepresentable {
+    let view: UsageAtmosphereView
+
+    func makeNSView(context: Context) -> UsageAtmosphereView { view }
+    func updateNSView(_ view: UsageAtmosphereView, context: Context) {}
+    static func dismantleNSView(_ view: UsageAtmosphereView, coordinator: ()) { view.stop() }
+}
+
 private func bucket(
     _ id: String,
     _ name: String,
@@ -855,6 +866,43 @@ struct UIGalleryRenderTests {
                     name: "branches-sailing-sunny-\(sizeName)-\(appearance.rawValue)"
                 )
                 #expect(rendered == size)
+            }
+        }
+    }
+
+    /// Inspect hull and mast visibility near a shake's peak while the same
+    /// native simulation supplies both boat buoyancy and foreground water.
+    @Test(.enabled(if: MTLCreateSystemDefaultDevice() != nil))
+    func rendersUnsinkableSailing() throws {
+        guard #available(macOS 14.0, *) else { return }
+        let sizes: [(String, CGSize, Bool)] = [
+            ("window", CGSize(width: 1180, height: 780), false),
+            ("rail", CGSize(width: 84, height: 450), true),
+        ]
+        for appearance in GalleryAppearance.allCases {
+            for weather in CruiseWeather.allCases where weather != .automatic {
+                for (sizeName, size, compact) in sizes {
+                    if compact, weather != .sunny, weather != .storm { continue }
+                    // Sunny and storm cover both the long liner and tall
+                    // galleon at each size; other weather keeps its window.
+                    let ships: [PaperweightShipKind] = weather == .sunny || weather == .storm
+                        ? [.liner, .galleon] : [.galleon]
+                    for ship in ships {
+                        let view = UsageAtmosphereView(frame: CGRect(origin: .zero, size: size))
+                        view.configure(active: true, compact: compact, weather: weather, ship: ship,
+                                       showsShip: true, dark: appearance == .dark, reduced: false,
+                                       command: PaperweightSceneCommand(id: 1, kind: .shake))
+                        for _ in 0..<30 { view.advanceAnimation(by: 1.0 / 120) }
+                        view.configure(active: false, compact: compact, weather: weather, ship: ship,
+                                       showsShip: true, dark: appearance == .dark, reduced: false)
+                        #expect(!view.isAnimating)
+                        let rendered = try render(
+                            GalleryAtmosphereView(view: view), size: size, appearance: appearance,
+                            name: "sailing-unsinkable-\(ship.rawValue)-\(weather.rawValue)-\(sizeName)-\(appearance.rawValue)"
+                        )
+                        #expect(rendered == size)
+                    }
+                }
             }
         }
     }

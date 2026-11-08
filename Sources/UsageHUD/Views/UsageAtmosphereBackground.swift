@@ -22,6 +22,7 @@ struct UsageAtmosphereBackground: NSViewRepresentable {
     var weather: CruiseWeather = .sunny
     var ship: PaperweightShipKind = .galleon
     var showsShip = true
+    var command: PaperweightSceneCommand?
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.usageSceneFrozen) private var frozen
@@ -39,7 +40,7 @@ struct UsageAtmosphereBackground: NSViewRepresentable {
     private func configure(_ view: UsageAtmosphereView) {
         view.configure(active: isActive, compact: compact, weather: weather.resolved(phases: []), ship: ship,
                        showsShip: showsShip, dark: colorScheme == .dark,
-                       reduced: reduceMotion || frozen)
+                       reduced: reduceMotion || frozen, command: command)
     }
 }
 
@@ -55,12 +56,14 @@ final class UsageAtmosphereView: NSView {
     private var showsShip = true
     private var shipSnapshot: CGImage?
     private var snapshotKey: String?
-    private var phase = 0.0
+    private let sea = SailingSeaSimulation()
+    private var lastCommandID: Int?
+    private var lastWindowOrigin: CGPoint?
     private var lastTick = 0.0
     private var timer: Timer?
     private lazy var tickTarget = AtmosphereTickTarget(owner: self)
 
-    var animationTime: TimeInterval { phase }
+    var animationTime: TimeInterval { sea.time }
     var isAnimating: Bool { timer != nil }
 
     override var isFlipped: Bool { true }
@@ -74,7 +77,7 @@ final class UsageAtmosphereView: NSView {
     required init?(coder: NSCoder) { nil }
 
     func configure(active: Bool, compact: Bool, weather: CruiseWeather, ship: PaperweightShipKind, showsShip: Bool,
-                   dark: Bool, reduced: Bool) {
+                   dark: Bool, reduced: Bool, command: PaperweightSceneCommand? = nil) {
         let changed = self.compact != compact || self.dark != dark || self.reduced != reduced
             || self.weather != weather || self.ship != ship || self.showsShip != showsShip
         let cadenceChanged = self.compact != compact
@@ -85,6 +88,20 @@ final class UsageAtmosphereView: NSView {
         self.weather = weather
         self.ship = ship
         self.showsShip = showsShip
+        sea.configure(size: bounds.size, compact: compact, weather: weather)
+        if reduced { sea.settle() }
+        if let command, command.id != lastCommandID {
+            lastCommandID = command.id
+            if active && !reduced {
+                switch command.kind {
+                case .shake: sea.shake()
+                case .shipDrop: sea.shake(amplitude: 0.45)
+                case .preview: sea.shake(amplitude: 0.3)
+                case .reset: sea.settle()
+                }
+            }
+            needsDisplay = true
+        }
         updateShipSnapshot()
         if cadenceChanged { stopClock() }
         if changed { needsDisplay = true }
@@ -104,10 +121,11 @@ final class UsageAtmosphereView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        lastWindowOrigin = window?.frame.origin
         updateShipSnapshot()
         NotificationCenter.default.removeObserver(self)
         for name in [NSWindow.didMiniaturizeNotification, NSWindow.didDeminiaturizeNotification,
-                     NSWindow.didChangeOcclusionStateNotification, NSWindow.willCloseNotification,
+                     NSWindow.didChangeOcclusionStateNotification, NSWindow.willCloseNotification, NSWindow.didMoveNotification,
                      NSApplication.didHideNotification, NSApplication.didUnhideNotification] {
             NotificationCenter.default.addObserver(self, selector: #selector(visibilityChanged), name: name, object: nil)
         }
@@ -121,6 +139,8 @@ final class UsageAtmosphereView: NSView {
 
     override func layout() {
         super.layout()
+        sea.configure(size: bounds.size, compact: compact, weather: weather)
+        if reduced { sea.settle() }
         needsDisplay = true
         updateVisibility()
     }
@@ -135,6 +155,17 @@ final class UsageAtmosphereView: NSView {
     }
 
     @objc private func visibilityChanged(_ notification: Notification) {
+        if notification.name == NSWindow.didMoveNotification, notification.object as? NSWindow === window,
+           let origin = window?.frame.origin {
+            if let previous = lastWindowOrigin, active, !reduced, showsShip {
+                let distance = hypot(origin.x - previous.x, origin.y - previous.y)
+                if distance > 2 {
+                    sea.shake(amplitude: min(1, distance / 120))
+                    needsDisplay = true
+                }
+            }
+            lastWindowOrigin = origin
+        }
         if notification.name == NSWindow.willCloseNotification, notification.object as? NSWindow === window {
             stopClock()
             return
@@ -167,15 +198,23 @@ final class UsageAtmosphereView: NSView {
         updateVisibility()
         guard timer != nil else { return }
         let time = ProcessInfo.processInfo.systemUptime
-        phase += min(0.25, max(0, time - lastTick))
+        let interval = min(0.25, max(0, time - lastTick))
         lastTick = time
+        advanceAnimation(by: interval)
+    }
+
+    /// Advances the same frame for the native clock and deterministic exports.
+    /// Visibility gates the clock above; explicit exports can run offscreen.
+    func advanceAnimation(by interval: TimeInterval) {
+        guard active, !reduced else { return }
+        sea.step(dt: interval)
         needsDisplay = true
     }
 
     override func draw(_ dirtyRect: NSRect) {
         guard bounds.width > 0, bounds.height > 0, let context = NSGraphicsContext.current?.cgContext else { return }
         let width = bounds.width, height = bounds.height
-        let time = reduced ? 0 : phase
+        let time = sea.time
         let horizon = height * (compact ? 0.58 : 0.40)
         let palette = scenePalette
         let space = CGColorSpaceCreateDeviceRGB()
@@ -189,7 +228,11 @@ final class UsageAtmosphereView: NSView {
                  to: CGPoint(x: 0, y: height), space: space)
         drawOcean(context, time: time, width: width, height: height, horizon: horizon)
         context.restoreGState()
-        if showsShip { drawCruisingShip(context, time: time, width: width, height: height) }
+        if showsShip {
+            drawCruisingShip(context, time: time, width: width, height: height)
+            drawForegroundWater(context, time: time, width: width, height: height, horizon: horizon, space: space)
+            drawWake(context, time: time)
+        }
         drawPrecipitation(context, time: time, width: width, height: height, horizon: horizon)
         drawLightning(context, time: time, width: width, height: height)
     }
@@ -337,33 +380,16 @@ final class UsageAtmosphereView: NSView {
     }
 
     private func drawCruisingShip(_ context: CGContext, time: Double, width: CGFloat, height: CGFloat) {
-        let shipWidth = compact ? min(42, width * 0.52) : min(280, max(160, width * 0.21))
-        let shipHeight = shipWidth * 2 / 3
-        let margin = shipWidth * 0.7
-        // The first frame starts amid the sea, including with Reduce Motion.
-        let progress = fraction(time / (compact ? 25 : 82) + 0.55)
-        let x = progress * (width + margin * 2) - margin
-        let rough = weather == .storm ? 2.4 : weather == .rain ? 1.5 : 1.0
-        let waterline = height * (compact ? 0.79 : 0.61) + sin(time * 1.1) * (compact ? 1.3 : 4) * rough
-        let roll = sin(time * 0.8 + 0.3) * 0.025 * rough
-        // A spreading wake trails the moving hull and changes with its speed.
-        for index in 0..<5 {
-            let distance = Double(index) * shipWidth * 0.18
-            let pulse = 0.5 + 0.5 * sin(time * 1.8 - Double(index))
-            let path = CGMutablePath()
-            path.move(to: CGPoint(x: x - shipWidth * 0.34 - distance, y: waterline + 3 + distance * 0.12))
-            path.addQuadCurve(to: CGPoint(x: x + shipWidth * 0.20, y: waterline + 4 + distance * 0.03),
-                              control: CGPoint(x: x - distance * 0.3, y: waterline + 8 + distance * 0.14))
-            context.addPath(path)
-            context.setLineWidth(compact ? 0.7 : 1.2)
-            context.setStrokeColor(rgb(0.94, 0.99, 1, (0.25 - Double(index) * 0.035) * (0.6 + pulse * 0.4)))
-            context.strokePath()
-        }
+        let size = sea.shipSize
+        let x = CGFloat(sea.boat.x), waterline = CGFloat(sea.boat.y)
         context.saveGState()
         context.translateBy(x: x, y: waterline)
-        context.rotate(by: roll)
-        let fraction = RailPaperweightShipImage.waterlineFraction
-        let rect = CGRect(x: -shipWidth / 2, y: -shipHeight * fraction, width: shipWidth, height: shipHeight)
+        context.rotate(by: CGFloat(sea.boat.angle))
+        let fraction = CGFloat(sea.waterlineFraction)
+        // Snapshot coordinates already put the model's real waterline at
+        // this fraction. Raising it again would leave its keel in the air.
+        let rect = CGRect(x: -size.width / 2, y: -size.height * fraction,
+                          width: size.width, height: size.height)
         if let shipSnapshot {
             context.saveGState()
             context.translateBy(x: rect.minX, y: rect.maxY)
@@ -371,16 +397,63 @@ final class UsageAtmosphereView: NSView {
             context.draw(shipSnapshot, in: CGRect(origin: .zero, size: rect.size))
             context.restoreGState()
         } else {
-            drawFallbackShip(context, width: shipWidth, height: shipHeight)
+            drawFallbackShip(context, width: size.width, height: size.height)
         }
         context.restoreGState()
+    }
+
+    /// The same curve both supports the hull and hides its submerged keel.
+    private func drawForegroundWater(_ context: CGContext, time: Double, width: CGFloat, height: CGFloat,
+                                     horizon: CGFloat, space: CGColorSpace) {
+        let surface = CGMutablePath()
+        surface.move(to: CGPoint(x: 0, y: sea.surface(at: 0)))
+        let samples = compact ? 48 : 144
+        for index in 1...samples {
+            let x = Double(index) / Double(samples) * Double(width)
+            surface.addLine(to: CGPoint(x: x, y: sea.surface(at: x)))
+        }
+        let water = CGMutablePath()
+        water.addPath(surface)
+        water.addLine(to: CGPoint(x: width, y: height))
+        water.addLine(to: CGPoint(x: 0, y: height))
+        water.closeSubpath()
+        context.saveGState()
+        context.addPath(water)
+        context.clip()
+        let palette = scenePalette
+        gradient(context, colors: [palette.sea, palette.deep], from: CGPoint(x: 0, y: horizon),
+                 to: CGPoint(x: 0, y: height), space: space)
+        drawOcean(context, time: time, width: width, height: height, horizon: horizon)
+        context.restoreGState()
+        context.addPath(surface)
+        context.setLineWidth(compact ? 0.8 : 1.4)
+        context.setStrokeColor(rgb(0.90, 0.99, 1, dark ? 0.30 : 0.48))
+        context.strokePath()
+    }
+
+    private func drawWake(_ context: CGContext, time: Double) {
+        let x = sea.boat.x, shipWidth = Double(sea.shipSize.width)
+        for index in 0..<5 {
+            let distance = Double(index) * shipWidth * 0.18
+            let pulse = 0.5 + 0.5 * sin(time * 1.8 - Double(index))
+            let start = x - shipWidth * 0.34 - distance
+            let end = x + shipWidth * 0.20
+            let path = CGMutablePath()
+            path.move(to: CGPoint(x: start, y: sea.surface(at: start) + 3 + distance * 0.12))
+            path.addQuadCurve(to: CGPoint(x: end, y: sea.surface(at: end) + 4 + distance * 0.03),
+                              control: CGPoint(x: x - distance * 0.3, y: sea.boat.y + 8 + distance * 0.14))
+            context.addPath(path)
+            context.setLineWidth(compact ? 0.7 : 1.2)
+            context.setStrokeColor(rgb(0.94, 0.99, 1, (0.25 - Double(index) * 0.035) * (0.6 + pulse * 0.4)))
+            context.strokePath()
+        }
     }
 
     private func drawFallbackShip(_ context: CGContext, width: CGFloat, height: CGFloat) {
         context.setFillColor(rgb(0.18, 0.25, 0.31, 0.9))
         let hull = CGMutablePath()
-        hull.move(to: CGPoint(x: -width * 0.45, y: -height * 0.03))
-        hull.addLine(to: CGPoint(x: width * 0.48, y: -height * 0.03))
+        hull.move(to: CGPoint(x: -width * 0.45, y: -height * 0.10))
+        hull.addLine(to: CGPoint(x: width * 0.48, y: -height * 0.10))
         hull.addLine(to: CGPoint(x: width * 0.33, y: height * 0.12))
         hull.addLine(to: CGPoint(x: -width * 0.30, y: height * 0.12))
         hull.closeSubpath()

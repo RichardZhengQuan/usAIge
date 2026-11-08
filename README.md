@@ -386,6 +386,8 @@ The **Branches** window, also under **Branches and Worktrees…** in the app men
 
 Memory and Storage readings and the selected layer's cards remain available over the sea. It reads this Mac only: it never fetches, never calls GitHub, and sends nothing to the relay, your iPhone, or your Watch. Its repository scan runs only while the window is open, and closing it stops that scan.
 
+The cruising ship has the same unsinkable behavior as the liquid toy: the visible wave supports its hull, it rights itself after tilting, and its keel stays in the water without the ship sinking or capsizing. Click or drag the sea, press **Shake**, or move the window to stir it. The rail has **Shake the sea** in its context menu and responds when dragged. All six weather scenes remain available; storms make the sea rougher.
+
 Choose **Usage layers** to see Memory and Storage as large glass paperweights that fit the window. Click the rear paperweight to bring it forward, then click a layer to inspect it, or use the layer menu above the detail cards. Drag to turn the view, scroll or pinch to zoom, and use **Reset View** or double-click the background to fit both paperweights again. The ship picker chooses a ship separately for Memory and Storage; the choices are remembered and appear in the sailing scene and the rail's miniatures. **Shake** moves the liquid without changing the readings.
 
 - **Memory** separates AI tools and other repository work into layers. Selecting a layer lists the running work whose processes it counts. Work active in a session in the last few minutes remains listed even when there is no process there to measure. **Other memory** means memory not counted under AI tools or repository work, not necessarily unused memory.
