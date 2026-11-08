@@ -1,34 +1,34 @@
 {
-  "build" : 49,
-  "downloadURL" : "https://pmrichq.com/project/usaige/usAIge-0.2.27-alpha.dmg",
+  "build" : 50,
+  "downloadURL" : "https://pmrichq.com/project/usaige/usAIge-0.2.28-alpha.dmg",
   "minimumSystemVersion" : "11.0",
   "releaseNotes" : {
-    "headline" : "Your usage is the ocean",
+    "headline" : "Your AI workspace, together",
     "highlights" : [
       {
-        "detail" : "Open Memory or Storage from the rail to enter its sailing ocean. Colored usage layers form the moving water, with category names and byte counts directly on the waves. Select a layer to inspect its processes, tools, cache, or worktrees.",
-        "systemImage" : "water.waves",
-        "title" : "The layers are the ocean"
+        "detail" : "On macOS 14 and later, launching usAIge or clicking its Dock icon opens the main window. See equal-size AI usage cards, the complete memory and storage ocean, and branches and worktrees together. Status tabs start on All, and Rescan is beside the branch heading.",
+        "systemImage" : "square.grid.2x2",
+        "title" : "One main Overview"
       },
       {
-        "detail" : "Choose from 12 classic ships and 47 stylized One Piece miniatures, with refined sails, rigging, hulls, and deck details. Memory and Storage remember their own ship choices, also shown in the rail’s miniatures.",
+        "detail" : "Review and Clear explains how much storage can be freed. Follow progress and results in a popup, hide it while cleanup continues, or stop after the current item. Closing and reopening the main window keeps the operation and its result available. Restore cleared branches and folders from the result or Recently Deleted.",
+        "systemImage" : "sparkles",
+        "title" : "Cleanup stays steady"
+      },
+      {
+        "detail" : "Jump to Resources or Branches and Worktrees from the sidebar. Settings stays at the bottom, with an aligned update reminder above it. Manage tools, add a repository folder, and read workspace data again from the Settings page.",
+        "systemImage" : "sidebar.left",
+        "title" : "Settings in the navigator"
+      },
+      {
+        "detail" : "The sailing ocean gives the ship more room, with Weather beside the ship selector. Use Command-N or Command-0 for the main window, Command-1 for branches, Command-2 for Memory, Command-3 for Storage, Command-R to refresh, and Command-comma for Settings.",
         "systemImage" : "sailboat",
-        "title" : "A fleet of 59 animated ships"
-      },
-      {
-        "detail" : "Automatic weather follows macOS memory pressure or observed disk headroom. Choose any of eight weather conditions manually. Clearing previews keep weather tied to actual disk usage, and unavailable readings are clearly identified.",
-        "systemImage" : "cloud.sun",
-        "title" : "Weather follows the resource"
-      },
-      {
-        "detail" : "Ships drift gently around the center, stay afloat, and remain fully in view as the water moves. Explore usage without switching sailing modes or losing branch-review state. Existing clear reviews and Undo remain available.",
-        "systemImage" : "scope",
-        "title" : "Centered ships, continuous exploration"
+        "title" : "A roomier ocean and familiar shortcuts"
       }
     ],
-    "summary" : "Memory and Storage become interactive sailing oceans: colored usage layers form the water, with readable names and byte counts on the waves, resource-driven weather, and 59 detailed animated ships that stay centered."
+    "summary" : "Open usAIge to one Overview for AI usage, local resources, and repository work. Compact tool cards, a larger sailing ocean, and a separate cleanup popup keep the workspace clear while work continues."
   },
-  "sha256" : "d537cd84244fdb4c6af9fb71d61f8fc2d555af819655e57b433268610aa639ce",
-  "signature" : "rKYiurHuLTAJoqWsCitxRok2tGOwbWTRIciBONDvgwsCa/t83J7tkZrdedx+l8h3K/PDF2ec0WOsacjwP1bBDQ==",
-  "version" : "0.2.27"
+  "sha256" : "1e65874f4b7cd1c78298f49f37fe0442a28cc9bf062b3d7059a66df891d84470",
+  "signature" : "cjfUFVFUWWE0s1EPU8uPF/lQCiB2nMQbWbodpXJp3N5t9hZN6oQhmg40f7YRVl5LcNasufWVSWeq8KXHxpVoBA==",
+  "version" : "0.2.28"
 }

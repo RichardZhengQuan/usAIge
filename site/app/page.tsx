@@ -3,8 +3,8 @@ import { SectionLink } from "./section-link";
 const basePath = "/project/usaige";
 const assetUrl = (path: string) => `${basePath}/${path}`;
 const releaseBaseUrl = "https://pmrichq.com/project/usaige";
-const downloadUrl = `${releaseBaseUrl}/usAIge-0.2.27-alpha.dmg`;
-const checksumUrl = `${releaseBaseUrl}/usAIge-0.2.27-alpha.dmg.sha256`;
+const downloadUrl = `${releaseBaseUrl}/usAIge-0.2.28-alpha.dmg`;
+const checksumUrl = `${releaseBaseUrl}/usAIge-0.2.28-alpha.dmg.sha256`;
 
 const statusColors = [
   { key: "error", label: "Error", color: "#ff5284", detail: "Always wins" },
@@ -19,7 +19,7 @@ const usageEffects = [
   ["Critical quota signal", "Five usage bands culminate in a focused deep-red remaining arc while the unused track stays transparent."],
   ["Hover focus", "The rail returns to full opacity, reveals controls, refreshes stale data, and shows detailed reset context."],
   ["Your size and opacity", "Set resting opacity from 10–100% and scale the compact rail from 50–250%."],
-  ["New in v0.2.27", "Memory and Storage are sailing oceans: colored usage layers form the moving water, with names and byte counts on the waves. Choose from 59 animated ships with refined details and centered framing. Automatic weather follows system memory pressure or disk headroom. Select a layer to explore its existing details and branch review tools."],
+  ["New in v0.2.28", "The Dock opens or restores one main Overview on macOS 14+. Compact, equal-size AI tool cards sit above the full Memory and Storage sailing ocean and Branches and Worktrees. Branch tabs start on All, with a visible Rescan action. Settings stays at the bottom of the sidebar, with an update reminder above it. Cleanup progress opens in a popup with Stop After Current Item and restoration; closing the main window keeps the operation and its result. Native keyboard shortcuts open the main window, branches, Memory, Storage, and Settings, or refresh readings. The ocean retains 59 animated ships and resource-driven weather."],
 ];
 
 export default function Home() {
@@ -40,7 +40,7 @@ export default function Home() {
 
       <section className="hero shell" id="top">
         <div className="hero__copy">
-          <p className="eyebrow"><span /> v0.2.27 · Native macOS utility</p>
+          <p className="eyebrow"><span /> v0.2.28 · Native macOS utility</p>
           <h1>Your AI work,<br /><em>still breathing.</em></h1>
           <p className="hero__lede">
             usAIge keeps usage limits and Codex task health in one quiet floating rail. One glance tells you whether agents are running, finished, waiting, or broken.
@@ -48,7 +48,7 @@ export default function Home() {
           <div className="hero__actions">
             <a className="button button--primary" href={downloadUrl} download>
               <span className="button__icon" aria-hidden="true">↓</span>
-              <span><strong>Download for macOS</strong><small>v0.2.27 alpha · macOS 11+ · Apple silicon</small></span>
+              <span><strong>Download for macOS</strong><small>v0.2.28 alpha · macOS 11+ · Apple silicon</small></span>
             </a>
             <SectionLink className="text-link" targetId="agent-status">See the status system <span aria-hidden="true">→</span></SectionLink>
           </div>
@@ -121,7 +121,7 @@ export default function Home() {
         <div className="section-heading section-heading--stacked">
           <p className="eyebrow"><span /> Current product</p>
           <h2>Only what you<br /><em>choose to see.</em></h2>
-          <p>Use the native Settings window to pick tools and usage types, reorder them, and tune the rail for your desk.</p>
+          <p>Use native Settings to pick tools and usage types, reorder them, and tune the rail for your desk. On macOS 14+, Settings opens as a page in the main window.</p>
         </div>
         <figure className="product-shot product-shot--settings">
           <img src={assetUrl("product-settings.png")} alt="usAIge Settings showing active and connected AI tools" />
@@ -166,7 +166,7 @@ export default function Home() {
         <div className="install__cta">
           <a className="button button--primary" href={downloadUrl} download>
             <span className="button__icon" aria-hidden="true">↓</span>
-            <span><strong>Download usAIge</strong><small>v0.2.27 alpha · macOS 11 or later · Apple silicon</small></span>
+            <span><strong>Download usAIge</strong><small>v0.2.28 alpha · macOS 11 or later · Apple silicon</small></span>
           </a>
           <a className="checksum" href={checksumUrl} download>SHA-256 checksum</a>
         </div>
@@ -175,7 +175,7 @@ export default function Home() {
       <footer className="footer shell">
         <SectionLink className="brand" targetId="top"><img src={assetUrl("app-icon.png")} alt="" /><span>us<span>AI</span>ge</span></SectionLink>
         <p>Built for people who would rather make things than monitor dashboards.</p>
-        <span>v0.2.27 public alpha · 2026</span>
+        <span>v0.2.28 public alpha · 2026</span>
       </footer>
     </main>
   );

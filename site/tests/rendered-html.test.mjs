@@ -24,24 +24,27 @@ test("server-renders the current usAIge release", async () => {
   assert.match(html, /<title>usAIge — AI usage and agent status, always in sight<\/title>/i);
   assert.match(
     html,
-    /https:\/\/pmrichq\.com\/project\/usaige\/usAIge-0\.2\.27-alpha\.dmg/,
+    /https:\/\/pmrichq\.com\/project\/usaige\/usAIge-0\.2\.28-alpha\.dmg/,
   );
   assert.match(
     html,
-    /https:\/\/pmrichq\.com\/project\/usaige\/usAIge-0\.2\.27-alpha\.dmg\.sha256/,
+    /https:\/\/pmrichq\.com\/project\/usaige\/usAIge-0\.2\.28-alpha\.dmg\.sha256/,
   );
   assert.match(html, /Up to 100 active tasks/i);
   assert.match(html, /Pink error, green recent completion, yellow needs input, blue running/i);
   assert.match(html, /Click the ring to reopen the exact task/i);
   assert.match(html, /10–100%/i);
   assert.match(html, /50–250%/i);
-  assert.match(html, /New in v0\.2\.27/i);
-  assert.match(html, /Memory and Storage are sailing oceans/i);
-  assert.match(html, /colored usage layers form the moving water/i);
-  assert.match(html, /names and byte counts on the waves/i);
-  assert.match(html, /59 animated ships with refined details and centered framing/i);
-  assert.match(html, /Automatic weather follows system memory pressure or disk headroom/i);
-  assert.match(html, /Select a layer to explore its existing details and branch review tools/i);
+  assert.match(html, /New in v0\.2\.28/i);
+  assert.match(html, /one main Overview on macOS 14\+/i);
+  assert.match(html, /Compact, equal-size AI tool cards/i);
+  assert.match(html, /full Memory and Storage sailing ocean and Branches and Worktrees/i);
+  assert.match(html, /Branch tabs start on All, with a visible Rescan action/i);
+  assert.match(html, /Settings stays at the bottom of the sidebar, with an update reminder above it/i);
+  assert.match(html, /Cleanup progress opens in a popup with Stop After Current Item and restoration/i);
+  assert.match(html, /closing the main window keeps the operation and its result/i);
+  assert.match(html, /Native keyboard shortcuts open the main window, branches, Memory, Storage, and Settings, or refresh readings/i);
+  assert.match(html, /59 animated ships and resource-driven weather/i);
   assert.doesNotMatch(html, /layered glass paperweights|Turn or zoom the view/i);
   assert.match(html, /product-hud-status\.png/i);
   assert.match(html, /product-settings\.png/i);
@@ -81,21 +84,21 @@ test("loads the domain-locked VibeLoft telemetry client", async () => {
 });
 
 test("publishes a checksum matching the current disk image", async () => {
-  const dmg = await readFile(new URL("../public/usAIge-0.2.27-alpha.dmg", import.meta.url));
+  const dmg = await readFile(new URL("../public/usAIge-0.2.28-alpha.dmg", import.meta.url));
   const checksum = await readFile(
-    new URL("../public/usAIge-0.2.27-alpha.dmg.sha256", import.meta.url),
+    new URL("../public/usAIge-0.2.28-alpha.dmg.sha256", import.meta.url),
     "utf8",
   );
   const digest = createHash("sha256").update(dmg).digest("hex");
 
-  assert.equal(checksum.trim(), `${digest}  usAIge-0.2.27-alpha.dmg`);
+  assert.equal(checksum.trim(), `${digest}  usAIge-0.2.28-alpha.dmg`);
 });
 
 test("publishes a valid automatic update manifest", async () => {
   const manifest = JSON.parse(
     await readFile(new URL("../public/update.json", import.meta.url), "utf8"),
   );
-  const dmg = await readFile(new URL(`../public/usAIge-0.2.27-alpha.dmg`, import.meta.url));
+  const dmg = await readFile(new URL(`../public/usAIge-0.2.28-alpha.dmg`, import.meta.url));
   const digest = createHash("sha256").update(dmg).digest("hex");
 
   assert.deepEqual(
@@ -106,15 +109,15 @@ test("publishes a valid automatic update manifest", async () => {
       sha256: manifest.sha256,
     },
     {
-      version: "0.2.27",
-      build: 49,
+      version: "0.2.28",
+      build: 50,
       minimumSystemVersion: "11.0",
       sha256: digest,
     },
   );
   assert.equal(
     manifest.downloadURL,
-    "https://pmrichq.com/project/usaige/usAIge-0.2.27-alpha.dmg",
+    "https://pmrichq.com/project/usaige/usAIge-0.2.28-alpha.dmg",
   );
   // The app pins the release key, so an unsigned manifest blocks every update.
   assert.match(manifest.signature ?? "", /^[A-Za-z0-9+/]{86}==$/);
@@ -124,20 +127,20 @@ test("exports the same migration release for the legacy host", async () => {
   const legacyRoot = new URL("../out/project/usaige/", import.meta.url);
   const html = await readFile(new URL("index.html", legacyRoot), "utf8");
   const manifest = JSON.parse(await readFile(new URL("update.json", legacyRoot), "utf8"));
-  const dmg = await readFile(new URL("usAIge-0.2.27-alpha.dmg", legacyRoot));
+  const dmg = await readFile(new URL("usAIge-0.2.28-alpha.dmg", legacyRoot));
   const digest = createHash("sha256").update(dmg).digest("hex");
 
   assert.match(
     html,
-    /https:\/\/pmrichq\.com\/project\/usaige\/usAIge-0\.2\.27-alpha\.dmg/,
+    /https:\/\/pmrichq\.com\/project\/usaige\/usAIge-0\.2\.28-alpha\.dmg/,
   );
   assert.deepEqual(
     { version: manifest.version, build: manifest.build, sha256: manifest.sha256 },
-    { version: "0.2.27", build: 49, sha256: digest },
+    { version: "0.2.28", build: 50, sha256: digest },
   );
   assert.equal(
     manifest.downloadURL,
-    "https://pmrichq.com/project/usaige/usAIge-0.2.27-alpha.dmg",
+    "https://pmrichq.com/project/usaige/usAIge-0.2.28-alpha.dmg",
   );
   // The signature covers version, build, and sha256, so the rewritten URL keeps it valid.
   const source = JSON.parse(await readFile(new URL("../public/update.json", import.meta.url), "utf8"));
