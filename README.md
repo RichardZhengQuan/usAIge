@@ -141,6 +141,28 @@ swift run usAIge
 
 The development executable runs as a regular macOS app. Stop it from the launching terminal with Control-C.
 
+### Keyboard shortcuts
+
+When usAIge is the active app:
+
+| Shortcut | Action |
+| --- | --- |
+| ⌘N or ⌘0 | Open or restore the workspace window (Settings on macOS 11–13) |
+| ⌘1 | Open Branches and Worktrees |
+| ⌘2 | Show Memory |
+| ⌘3 | Show Storage |
+| ⌘F | Focus search in the workspace window |
+| ⌘R | Refresh usage, session status, resources, and the visible workspace |
+| ⌘, | Settings |
+| ⌘W | Close the current window |
+| ⌘M | Minimize the current window |
+| ⌘H | Hide usAIge |
+| ⌘Q | Quit usAIge |
+
+The workspace, Memory, and Storage require macOS 14 or later. Shortcuts
+appear in the app menus and do not register system-wide hotkeys. The floating
+usage rail remains available when the workspace window closes.
+
 ## Package the application
 
 ```bash

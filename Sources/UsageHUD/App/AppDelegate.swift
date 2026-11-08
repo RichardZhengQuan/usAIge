@@ -30,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     private var relaySettingsObserver: AnyCancellable?
     private var relayAgentObserver: AnyCancellable?
     private var liveWorkObserver: AnyCancellable?
+    private var manualRefreshTask: Task<Void, Never>?
 
     override init() {
         let configuredSettings = HUDSettings()
@@ -318,6 +319,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     static var branchesAreAvailable: Bool {
         if #available(macOS 14.0, *) { return true }
         return false
+    }
+
+    /// The existing workspace is the app's foreground window; older macOS
+    /// versions expose the supported Settings window instead.
+    func showAppWindow() {
+        if #available(macOS 14.0, *) {
+            showBranches()
+        } else {
+            showSettings()
+        }
+    }
+
+    /// Refresh readings without opening a window. Repeated key presses share
+    /// the in-flight usage, session, and resource request.
+    func refresh() {
+        guard manualRefreshTask == nil else { return }
+        if #available(macOS 14.0, *),
+           let controller = branchesWindowController as? BranchesWindowController,
+           controller.window?.isVisible == true {
+            controller.refresh()
+        }
+        manualRefreshTask = Task { [weak self] in
+            guard let self else { return }
+            defer { self.manualRefreshTask = nil }
+            async let usageRefresh: Void = self.store.refresh()
+            async let agentRefresh: Void = self.agentStore.refresh()
+            async let resourceRefresh: Void = self.liveWork.refresh()
+            _ = await (usageRefresh, agentRefresh, resourceRefresh)
+        }
     }
 
     /// Opens the Branches window. Nothing about it runs until this is called,
