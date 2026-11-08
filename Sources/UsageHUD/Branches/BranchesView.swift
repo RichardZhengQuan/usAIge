@@ -116,9 +116,18 @@ struct BranchesRootView: View {
                         } else {
                             Color.clear
                                 .frame(height: min(540, max(300, geometry.size.height * 0.57)))
+                                .contentShape(Rectangle())
+                                .onTapGesture { if !cruisePaused && !reduceMotion { send(.shake) } }
+                                .simultaneousGesture(DragGesture(minimumDistance: 10).onEnded { _ in
+                                    if !cruisePaused && !reduceMotion { send(.shake) }
+                                })
                                 .accessibilityElement()
                                 .accessibilityLabel("\(store.ship(for: front).title) cruising in \(weather.title.lowercased()) weather")
                                 .accessibilityValue(cruisePaused || reduceMotion ? "Animation paused" : "Cruising")
+                                .accessibilityHint("Click or drag the sea to make waves. The ship stays afloat and rights itself.")
+                                .accessibilityAction(named: "Shake the sea") {
+                                    if !cruisePaused && !reduceMotion { send(.shake) }
+                                }
                         }
 
                         HStack(spacing: 12) {
@@ -127,6 +136,9 @@ struct BranchesRootView: View {
                                 Button("Reset View", systemImage: "arrow.counterclockwise") { send(.reset) }
                                     .help("Fit both paperweights to the window")
                             } else {
+                                Button("Shake", systemImage: "water.waves") { send(.shake) }
+                                    .disabled(cruisePaused || reduceMotion)
+                                    .help("Make waves; the unsinkable ship rides them and rights itself")
                                 Button(cruisePaused ? "Resume" : "Pause", systemImage: cruisePaused ? "play.fill" : "pause.fill") {
                                     cruisePaused.toggle()
                                 }
@@ -175,7 +187,7 @@ struct BranchesRootView: View {
         }
         .background {
             UsageAtmosphereBackground(isActive: !cruisePaused, weather: weather, ship: store.ship(for: front),
-                                      showsShip: !showsLayers)
+                                      showsShip: !showsLayers, command: showsLayers ? nil : sceneCommand)
                 .ignoresSafeArea()
         }
         .frame(minWidth: 900, minHeight: 560)

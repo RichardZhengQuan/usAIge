@@ -22,6 +22,7 @@ struct HUDView: View {
     @State private var isPanelHovered = false
     @State private var detailHoveredSnapshotIDs: Set<String> = []
     @State private var isRefreshing = false
+    @State private var sailingShakeID = 0
     @AppStorage(CruiseWeather.defaultsKey) private var sailingWeatherRaw = CruiseWeather.automatic.rawValue
     @AppStorage(PaperweightShipPreferences.storageKey) private var sailingShipRaw = PaperweightShipKind.galleon.rawValue
 
@@ -127,6 +128,9 @@ struct HUDView: View {
                         Label(weather.title, systemImage: weather.symbol).tag(weather.rawValue)
                     }
                 }
+                Divider()
+                Button("Shake the sea", systemImage: "water.waves") { sailingShakeID += 1 }
+                    .disabled(reduceMotion)
             }
             .onHover { isHovered in
                 isPanelHovered = isHovered
@@ -171,7 +175,8 @@ struct HUDView: View {
     private var panelSurface: some View {
         ZStack {
             UsageAtmosphereBackground(compact: true,
-                                      weather: sailingWeather, ship: sailingShip)
+                                      weather: sailingWeather, ship: sailingShip,
+                                      command: sailingShakeID > 0 ? PaperweightSceneCommand(id: sailingShakeID, kind: .shake) : nil)
             if !reduceTransparency {
                 HUDGlassSurface(
                     severity: currentLimitSeverity,
