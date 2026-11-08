@@ -846,9 +846,28 @@ private final class DiskPublications: @unchecked Sendable {
         let opened = Opened()
         let pointer = Pointer()
         let (controller, _, _) = try openCard(pointer)
-        controller.openBranches = { opened.count += 1 }
+        controller.openBranches = { front in
+            opened.count += 1
+            #expect(front == nil)
+        }
         controller.closeAndOpenBranches()
         #expect(opened.count == 1)
+        #expect(controller.shownSnapshotID == nil)
+    }
+
+    /// The Storage card's link once left Memory in front of an open window.
+    @Test func aPaperweightsCardOpensBranchesWithItInFront() {
+        guard #available(macOS 14.0, *) else { return }
+        final class Opened { var fronts: [PaperweightID?] = [] }
+        let opened = Opened()
+        let rail = makeRail()
+        let controller = QuotaDetailPanelController(rail: { rail })
+        controller.openBranches = { opened.fronts.append($0) }
+        controller.showStorage(rowFrame: .zero, disk: nil, breakdown: nil)
+        controller.closeAndOpenBranches()
+        controller.showLiveWork(rowFrame: .zero)
+        controller.closeAndOpenBranches()
+        #expect(opened.fronts == [.storage, .memory])
         #expect(controller.shownSnapshotID == nil)
     }
 

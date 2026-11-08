@@ -113,6 +113,42 @@ enum PaperweightData {
         )
     }
 
+    /// The running rows a Memory layer lists. `measured` rows own processes
+    /// counted in that layer. A worktree that counts as running only because
+    /// its session wrote lately has no process to measure; it is listed under
+    /// its tool's layer, or under other memory when that tool has no layer,
+    /// so it never drops out of the window.
+    static func memoryRows(for layer: PaperweightLayer, in configuration: PaperweightConfiguration,
+                           running: [WorkItem]) -> (measured: [WorkItem], sessionOnly: [WorkItem]) {
+        var seen: Set<Int32> = []
+        let measured = running.compactMap { item -> WorkItem? in
+            let own = item.processes.filter { layer.processIDs.contains($0.id) && seen.insert($0.id).inserted }
+            guard !own.isEmpty else { return nil }
+            var row = item
+            row.processes = own
+            return row
+        }
+        let counted = Set(configuration.layers.flatMap(\.processIDs))
+        let layerIDs = Set(configuration.layers.map(\.id))
+        let sessionOnly = running.filter { item in
+            guard !item.processes.contains(where: { counted.contains($0.id) }) else { return false }
+            let home = item.sessions.tools.compactMap(toolLayerID).first(where: layerIDs.contains)
+            return (home ?? configuration.freeLayer.id) == layer.id
+        }
+        return (measured, sessionOnly)
+    }
+
+    /// Session logs name their tool; this finds that tool's Memory layer.
+    static func toolLayerID(_ sessionTool: String) -> String? {
+        switch sessionTool {
+        case "Claude Code": "tool-" + AIToolID.claude.rawValue
+        case "Codex": "tool-" + AIToolID.chatGPT.rawValue
+        case "Cursor": "tool-" + AIToolID.cursor.rawValue
+        case "Grok Build": "tool-" + AIToolID.grok.rawValue
+        default: nil
+        }
+    }
+
     static func memory(
         summary: LiveWorkSummary, running: [WorkItem], physicalMemory: UInt64
     ) -> PaperweightConfiguration {

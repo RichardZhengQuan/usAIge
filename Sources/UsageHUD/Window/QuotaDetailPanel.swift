@@ -65,7 +65,8 @@ final class QuotaDetailPanelController {
     private(set) var isPointerOnCard = false
     /// Lets the live work monitor sample faster only while a card can be seen.
     var onVisibilityChanged: ((Bool) -> Void)?
-    var openBranches: () -> Void = {}
+    /// Opens the Branches window, with the given paperweight in front when set.
+    var openBranches: (PaperweightID?) -> Void = { _ in }
 
     init(
         rail: @escaping () -> NSWindow?,
@@ -213,9 +214,16 @@ final class QuotaDetailPanelController {
         pointerTimer = nil
     }
 
+    /// A paperweight's own card opens Branches with that paperweight in front;
+    /// a usage card leaves whichever one is already there.
     func closeAndOpenBranches() {
+        let front: PaperweightID? = switch shownSnapshotID {
+        case Self.storageID: .storage
+        case Self.liveWorkID: .memory
+        default: nil
+        }
         if let shownSnapshotID { hide(snapshotID: shownSnapshotID) }
-        openBranches()
+        openBranches(front)
     }
 
     private func present(_ content: RailDetailCard.Content) {

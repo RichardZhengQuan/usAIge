@@ -383,3 +383,31 @@ private func repository(_ id: String, name: String = "app", remote: String? = "g
     let porcelain = Data(" M app.swift\0?? new.txt\0R  renamed.swift\0old.swift\0!! node_modules/\0".utf8)
     #expect(GitParsing.changedPaths(fromPorcelain: porcelain) == ["app.swift", "new.txt", "renamed.swift"])
 }
+
+// MARK: Memory rows
+
+/// A worktree counts as running when its session wrote lately, even with no
+/// process to measure. Such rows used to drop out of every Memory list.
+@Test func runningWorkWithoutProcessesStaysListedUnderItsToolsMemoryLayer() {
+    let measured = row("measured") {
+        $0.processes = [WorkProcess(id: 7, name: "node", folder: "/work/trees/measured", memoryBytes: 500, startedAt: nil, ports: [])]
+    }
+    let claudeSession = row("claude-session") { $0.sessions.tools = ["Claude Code"] }
+    let unknownTool = row("unknown-tool") { $0.sessions.tools = ["Somebody Else"] }
+    let claude = PaperweightLayer(id: "tool-" + AIToolID.claude.rawValue, title: "Claude", bytes: 900, colorHex: 0, inkHex: 0, processIDs: [3])
+    let dev = PaperweightLayer(id: "dev", title: "Dev servers", bytes: 500, colorHex: 0, inkHex: 0, processIDs: [7])
+    let memory = PaperweightConfiguration(id: .memory, capacityBytes: 10_000, layers: [dev, claude], freeBytes: 8_600)
+    let running = [measured, claudeSession, unknownTool]
+
+    let devRows = PaperweightData.memoryRows(for: dev, in: memory, running: running)
+    #expect(devRows.measured.map(\.id) == ["measured"])
+    #expect(devRows.sessionOnly.isEmpty)
+
+    let claudeRows = PaperweightData.memoryRows(for: claude, in: memory, running: running)
+    #expect(claudeRows.measured.isEmpty)
+    #expect(claudeRows.sessionOnly.map(\.id) == ["claude-session"])
+
+    // A tool with no layer of its own still has a place: other memory.
+    let otherRows = PaperweightData.memoryRows(for: memory.freeLayer, in: memory, running: running)
+    #expect(otherRows.sessionOnly.map(\.id) == ["unknown-tool"])
+}

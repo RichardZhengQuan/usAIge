@@ -231,27 +231,27 @@ struct BranchesRootView: View {
             }
         } else if liveWork == nil {
             Text("No memory reading is available.").foregroundStyle(.secondary)
-        } else if layer.id == "mfree" {
-            Text("Memory not counted under AI tools or repository work. Other apps may be using it.")
-                .foregroundStyle(.secondary)
         } else {
-            var seen: Set<Int32> = []
-            let items = board.running.compactMap { item -> WorkItem? in
-                let own = item.processes.filter { layer.processIDs.contains($0.id) && seen.insert($0.id).inserted }
-                guard !own.isEmpty else { return nil }
-                var row = item
-                row.processes = own
-                return row
-            }
-            let largest = items.map(memoryBytes).max() ?? 0
-            if items.isEmpty {
+            let rows = PaperweightData.memoryRows(for: layer, in: configuration, running: board.running)
+            if layer.id == configuration.freeLayer.id {
+                Text("Memory not counted under AI tools or repository work. Other apps may be using it.")
+                    .foregroundStyle(.secondary)
+            } else if rows.measured.isEmpty, rows.sessionOnly.isEmpty {
                 Text("This memory belongs to the app and its helpers outside repository folders.")
                     .foregroundStyle(.secondary)
             }
-            ForEach(items) { item in
+            let largest = rows.measured.map(memoryBytes).max() ?? 0
+            ForEach(rows.measured) { item in
                 let bytes = memoryBytes(item)
                 card(item, .running, now: now, share: largest > 0 ? Double(bytes) / Double(largest) : 0,
                      color: layerColor(layer.colorHex))
+            }
+            if !rows.sessionOnly.isEmpty {
+                Text("Active in the last few minutes, with no process here to measure.")
+                    .font(.caption).foregroundStyle(.secondary)
+                ForEach(rows.sessionOnly) { item in
+                    card(item, .running, now: now, share: 0, color: layerColor(layer.colorHex))
+                }
             }
         }
     }
