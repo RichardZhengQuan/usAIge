@@ -282,6 +282,66 @@ struct BranchesBoard: Equatable, Sendable {
     }
 }
 
+enum StorageCategory: String, CaseIterable, Identifiable, Sendable {
+    case worktrees, buildCache, toolStorage
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .worktrees: "Worktrees"
+        case .buildCache: "Build cache"
+        case .toolStorage: "Tool storage"
+        }
+    }
+}
+
+/// Measured folder totals stay separate from disk allocation. Worktree totals
+/// include their caches; the paperweight splits those bytes into separate layers.
+struct BranchesStorageSummary: Sendable {
+    let folders: [WorkItem]
+    private let worktreeBytes: Int64
+    private let cacheBytes: Int64
+    private let toolBytes: Int64
+
+    init(board: BranchesBoard, toolStorage: [ToolStorageEntry]) {
+        let looking = board.needsLook.flatMap { entry -> [WorkItem] in
+            switch entry {
+            case let .item(item): [item]
+            case let .copy(copy): copy.items
+            case .notChecked, .unreadable: []
+            }
+        }
+        var seen: Set<String> = []
+        folders = (looking + board.safeFolders).filter { item in
+            guard let path = item.worktreePath, item.facts.folderExists,
+                  item.status != .inUse, item.status != .mainCopy, item.status != .folderGone else { return false }
+            // Git records can name the same folder with different path spellings.
+            let canonical = RepositoryLocator.normalized(URL(fileURLWithPath: path).standardizedFileURL.path)
+            return seen.insert(canonical).inserted
+        }
+        worktreeBytes = folders.reduce(0) { $0 + max(0, $1.size?.totalBytes ?? 0) }
+        cacheBytes = folders.reduce(0) { $0 + max(0, $1.size?.cacheBytes ?? 0) }
+        toolBytes = toolStorage.reduce(0) { $0 + max(0, $1.bytes) }
+    }
+
+    func bytes(for kind: StorageCategory) -> Int64 {
+        switch kind {
+        case .worktrees: worktreeBytes
+        case .buildCache: cacheBytes
+        case .toolStorage: toolBytes
+        }
+    }
+
+    var cacheFolders: [WorkItem] {
+        folders.filter { ($0.size?.cacheBytes ?? 0) > 0 }.sorted {
+            let left = $0.size?.cacheBytes ?? 0
+            let right = $1.size?.cacheBytes ?? 0
+            return left == right ? $0.id < $1.id : left > right
+        }
+    }
+}
+
 extension WorkItem {
     /// Ignored files in a folder that still exists, which no build brings back.
     var losesIgnoredFiles: Bool {

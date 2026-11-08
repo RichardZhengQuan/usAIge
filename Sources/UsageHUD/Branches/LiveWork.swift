@@ -284,13 +284,18 @@ enum LiveWorkReader {
 final class LiveWorkMonitor: ObservableObject {
     static let backgroundInterval: TimeInterval = 10
     static let detailInterval: TimeInterval = 3
+    static let diskInterval: TimeInterval = 60
 
     @Published private(set) var summary = LiveWorkSummary()
+    @Published private(set) var diskSpace: DiskSpace?
 
     private let currentTasks: @MainActor () -> [CodexAgentTask]
     private let runningApplications: @MainActor () -> [AIToolID: [String]]
     private let locator: @MainActor () -> RepositoryLocator
     private let scan: LiveWorkReader.Scan
+    private let readDiskSpace: @Sendable () -> DiskSpace?
+    private let now: @Sendable () -> Date
+    private var lastDiskRead: Date?
     private var loop: Task<Void, Never>?
     private var isDetailShown = false
     private var isReading = false
@@ -301,12 +306,18 @@ final class LiveWorkMonitor: ObservableObject {
         locator: @escaping @MainActor () -> RepositoryLocator = LiveWorkMonitor.defaultLocator,
         scan: @escaping LiveWorkReader.Scan = { includePorts, wanted in
             ProcessScanner.scan(includePorts: includePorts, wanted: wanted)
-        }
+        },
+        readDiskSpace: @escaping @Sendable () -> DiskSpace? = {
+            DiskSpace.read(for: FileManager.default.homeDirectoryForCurrentUser)
+        },
+        now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.currentTasks = currentTasks
         self.runningApplications = runningApplications
         self.locator = locator
         self.scan = scan
+        self.readDiskSpace = readDiskSpace
+        self.now = now
     }
 
     func start() {
@@ -347,16 +358,28 @@ final class LiveWorkMonitor: ObservableObject {
         let locator = locator()
         let includePorts = isDetailShown
         let scan = scan
+        let sampledAt = now()
+        let readsDisk = lastDiskRead.map { sampledAt.timeIntervalSince($0) >= Self.diskInterval } ?? true
+        // Detail cards sample more often, but disk capacity needs only one
+        // read a minute, even when a read fails or the loop restarts.
+        let readDiskSpace = readDiskSpace
         let updated = await Task.detached(priority: .utility) {
-            LiveWorkReader.read(
+            let summary = LiveWorkReader.read(
                 tasks: tasks,
                 applications: applications,
                 locator: locator,
                 includePorts: includePorts,
                 scan: scan
             )
+            return (summary: summary, disk: readsDisk ? readDiskSpace() : nil)
         }.value
-        if updated != summary { summary = updated }
+        if updated.summary != summary { summary = updated.summary }
+        if readsDisk {
+            // Count from completion so a slow process scan can't bring the
+            // next capacity read forward.
+            lastDiskRead = now()
+            if updated.disk != diskSpace { diskSpace = updated.disk }
+        }
     }
 
     static func runningToolApplications() -> [AIToolID: [String]] {

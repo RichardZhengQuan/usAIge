@@ -262,6 +262,94 @@ private func repository(_ id: String, name: String = "app", remote: String? = "g
     #expect(DiskSpace(totalBytes: 0, availableBytes: 0).usedShare() == 0)
 }
 
+@Suite struct BranchesStorageSummaryTests {
+    private func measured(_ id: String, total: Int64, cache: Int64, change: (inout WorkItem) -> Void = { _ in }) -> WorkItem {
+        row(id) {
+            $0.size?.totalBytes = total
+            $0.size?.cacheBytes = cache
+            change(&$0)
+        }
+    }
+
+    @Test func totalsIncludeWorktreeCachesAndAllToolStorageWithoutChangingTheBoard() {
+        let looking = measured("unsaved", total: 3_000, cache: 1_000) { $0.facts.changedFiles = 1 }
+        let safe = measured("safe", total: 1_000, cache: 500)
+        let board = BranchesBoard(needsLook: [.item(looking)], safeToClear: [safe])
+        let original = board
+        let summary = BranchesStorageSummary(board: board, toolStorage: [
+            ToolStorageEntry(name: "History", path: "/tools/history", bytes: 800, kind: .history),
+            ToolStorageEntry(name: "Runtime", path: nil, bytes: 1_200, kind: .runtime),
+        ])
+        #expect(summary.bytes(for: .worktrees) == 4_000)
+        #expect(summary.bytes(for: .buildCache) == 1_500)
+        #expect(summary.bytes(for: .toolStorage) == 2_000)
+        #expect(board == original)
+    }
+
+    @Test func leftoverCopiesContributeTheirActualFolders() {
+        let first = measured("first", total: 1_000, cache: 200)
+        let second = measured("second", total: 2_000, cache: 300)
+        let copy = LeftoverCopy(repository: repository("/copy/.git"), projectName: "app", items: [first, second], lastUsedAt: now)
+        let board = BranchesBoard(needsLook: [
+            .copy(copy), .notChecked(folder: "/unread"), .unreadable(repository("/failed/.git")),
+        ])
+        let summary = BranchesStorageSummary(board: board, toolStorage: [])
+        #expect(summary.folders.map(\.id) == ["first", "second"])
+        #expect(summary.bytes(for: .worktrees) == 3_000)
+        #expect(summary.bytes(for: .buildCache) == 500)
+    }
+
+    @Test func runningMainMissingAndBranchOnlyRowsDoNotContributeStorage() {
+        let items = [
+            row("safe"),
+            row("running") { $0.facts.runningProcesses = 1 },
+            row("main") { $0.facts.isMainCopy = true },
+            row("busy-main") { $0.facts.isMainCopy = true; $0.facts.sessionActiveRecently = true },
+            row("gone") { $0.facts.folderExists = false },
+            row("unread-and-missing") { $0.facts.folderReadable = false; $0.facts.folderExists = false },
+            row("branch-only") { $0.worktreePath = nil; $0.facts.hasWorktree = false },
+        ]
+        let board = BranchesBoard.make(snapshot: BranchesSnapshot(repositories: [repository("/work/app/.git")], items: items), now: now)
+        let summary = BranchesStorageSummary(board: board, toolStorage: [])
+        #expect(Set(board.running.map(\.id)) == ["running", "busy-main"])
+        #expect(summary.folders.map(\.id) == ["safe"])
+        #expect(summary.bytes(for: .worktrees) == 1_000)
+        #expect(summary.bytes(for: .buildCache) == 600)
+    }
+
+    @Test func differentRecordsForTheSameFolderCountItsBytesOnce() {
+        let first = row("first") { $0.worktreePath = "/var/tmp/project/work/../tree/" }
+        let duplicate = row("duplicate") { $0.worktreePath = "/private/var/tmp/project/tree" }
+        let board = BranchesBoard(needsLook: [.item(first)], safeToClear: [duplicate])
+        let summary = BranchesStorageSummary(board: board, toolStorage: [])
+        #expect(summary.folders.map(\.id) == ["first"])
+        #expect(summary.bytes(for: .worktrees) == 1_000)
+        #expect(summary.bytes(for: .buildCache) == 600)
+    }
+
+    @Test func zeroAndUnreadMeasurementsHaveNoMeasuredBytes() {
+        let board = BranchesBoard(safeToClear: [row("unread") { $0.size = nil }, measured("zero", total: 0, cache: 0)])
+        let summary = BranchesStorageSummary(board: board, toolStorage: [
+            ToolStorageEntry(name: "Empty", path: nil, bytes: 0, kind: .review),
+        ])
+        for kind in StorageCategory.allCases {
+            #expect(summary.bytes(for: kind) == 0)
+        }
+        #expect(summary.cacheFolders.isEmpty)
+    }
+
+    @Test func cacheFoldersPutTheLargestFirstWithStableTies() {
+        let board = BranchesBoard(safeToClear: [
+            measured("z", total: 1_000, cache: 600),
+            measured("a", total: 1_000, cache: 600),
+            measured("large", total: 1_000, cache: 900),
+            measured("empty", total: 1_000, cache: 0),
+            row("unread") { $0.size = nil },
+        ])
+        #expect(BranchesStorageSummary(board: board, toolStorage: []).cacheFolders.map(\.id) == ["large", "a", "z"])
+    }
+}
+
 // MARK: Session titles
 
 @Test func claudeCodeTitlesPreferTheNameThePersonGave() {
@@ -294,4 +382,32 @@ private func repository(_ id: String, name: String = "app", remote: String? = "g
 @Test func changedPathsSkipIgnoredFilesAndRenameSources() {
     let porcelain = Data(" M app.swift\0?? new.txt\0R  renamed.swift\0old.swift\0!! node_modules/\0".utf8)
     #expect(GitParsing.changedPaths(fromPorcelain: porcelain) == ["app.swift", "new.txt", "renamed.swift"])
+}
+
+// MARK: Memory rows
+
+/// A worktree counts as running when its session wrote lately, even with no
+/// process to measure. Such rows used to drop out of every Memory list.
+@Test func runningWorkWithoutProcessesStaysListedUnderItsToolsMemoryLayer() {
+    let measured = row("measured") {
+        $0.processes = [WorkProcess(id: 7, name: "node", folder: "/work/trees/measured", memoryBytes: 500, startedAt: nil, ports: [])]
+    }
+    let claudeSession = row("claude-session") { $0.sessions.tools = ["Claude Code"] }
+    let unknownTool = row("unknown-tool") { $0.sessions.tools = ["Somebody Else"] }
+    let claude = PaperweightLayer(id: "tool-" + AIToolID.claude.rawValue, title: "Claude", bytes: 900, colorHex: 0, inkHex: 0, processIDs: [3])
+    let dev = PaperweightLayer(id: "dev", title: "Dev servers", bytes: 500, colorHex: 0, inkHex: 0, processIDs: [7])
+    let memory = PaperweightConfiguration(id: .memory, capacityBytes: 10_000, layers: [dev, claude], freeBytes: 8_600)
+    let running = [measured, claudeSession, unknownTool]
+
+    let devRows = PaperweightData.memoryRows(for: dev, in: memory, running: running)
+    #expect(devRows.measured.map(\.id) == ["measured"])
+    #expect(devRows.sessionOnly.isEmpty)
+
+    let claudeRows = PaperweightData.memoryRows(for: claude, in: memory, running: running)
+    #expect(claudeRows.measured.isEmpty)
+    #expect(claudeRows.sessionOnly.map(\.id) == ["claude-session"])
+
+    // A tool with no layer of its own still has a place: other memory.
+    let otherRows = PaperweightData.memoryRows(for: memory.freeLayer, in: memory, running: running)
+    #expect(otherRows.sessionOnly.map(\.id) == ["unknown-tool"])
 }

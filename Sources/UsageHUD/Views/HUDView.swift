@@ -18,6 +18,7 @@ struct HUDView: View {
     var quotaDetail: QuotaDetailPanelController? = nil
     var liveWork: LiveWorkMonitor? = nil
     var openBranches: () -> Void = {}
+    var openResourcePaperweight: ((PaperweightID) -> Void)? = nil
     @State private var isPanelHovered = false
     @State private var detailHoveredSnapshotIDs: Set<String> = []
     @State private var isRefreshing = false
@@ -204,7 +205,7 @@ struct HUDView: View {
     }
 
     private func quotaColumn(isStale: Bool) -> some View {
-        VStack(spacing: 7) {
+        VStack(spacing: HUDMetrics.columnSpacing) {
             if snapshots.isEmpty {
                 Text("All usage hidden")
                     .font(.caption)
@@ -249,21 +250,40 @@ struct HUDView: View {
             }
 
             if let liveWork {
-                LiveWorkTile(monitor: liveWork, open: openBranches) { isHovered, frame in
-                    let id = QuotaDetailPanelController.liveWorkID
-                    if isHovered {
-                        detailHoveredSnapshotIDs.insert(id)
-                        quotaDetail?.showLiveWork(rowFrame: frame)
-                    } else {
-                        detailHoveredSnapshotIDs.remove(id)
-                        quotaDetail?.pointerLeft(snapshotID: id)
+                VStack(spacing: HUDMetrics.resourcePaperweightGap) {
+                    LiveWorkTile(monitor: liveWork, open: { openPaperweight(.memory) }) { isHovered, frame in
+                        let id = QuotaDetailPanelController.liveWorkID
+                        if isHovered {
+                            detailHoveredSnapshotIDs.insert(id)
+                            quotaDetail?.showLiveWork(rowFrame: frame)
+                        } else {
+                            detailHoveredSnapshotIDs.remove(id)
+                            quotaDetail?.pointerLeft(snapshotID: id)
+                        }
+                    }
+                    StorageTile(monitor: liveWork, open: { openPaperweight(.storage) }) { isHovered, frame in
+                        let id = QuotaDetailPanelController.storageID
+                        if isHovered {
+                            detailHoveredSnapshotIDs.insert(id)
+                            quotaDetail?.showStorage(rowFrame: frame, disk: liveWork.diskSpace,
+                                                     breakdown: StorageBreakdown.load(from: .standard))
+                        } else {
+                            detailHoveredSnapshotIDs.remove(id)
+                            quotaDetail?.pointerLeft(snapshotID: id)
+                        }
                     }
                 }
+                .frame(width: 64)
             }
 
             Divider().opacity(isPanelHovered ? 0.45 : 0)
             footer(status: isStale ? .stale : .current)
         }
+    }
+
+    private func openPaperweight(_ paperweight: PaperweightID) {
+        if let openResourcePaperweight { openResourcePaperweight(paperweight) }
+        else { openBranches() }
     }
 
     private func footer(status: FooterStatus) -> some View {
@@ -519,10 +539,13 @@ enum HUDMetrics {
     static let messageSize = CGSize(width: railWidth, height: 120)
     static let itemSpacing: CGFloat = 10
     static let quotaRowHeight: CGFloat = 84
-    static let waterTankHeight: CGFloat = 38
-    static let workTagGap: CGFloat = 4
-    static let workTagHeight: CGFloat = 16
-    static let workTileHeight: CGFloat = waterTankHeight + workTagGap + workTagHeight
+    static let resourcePaperweightHeight: CGFloat = 35
+    static let resourceReadoutHeight: CGFloat = 16
+    static let resourceReadoutGap: CGFloat = 2
+    static let resourceTileHeight: CGFloat = resourcePaperweightHeight + resourceReadoutHeight + resourceReadoutGap
+    static let resourcePaperweightGap: CGFloat = 7
+    static let workTileHeight: CGFloat = 2 * resourceTileHeight + resourcePaperweightGap
+    static let columnSpacing: CGFloat = 7
     static let hoveredGlassOpacity = 1.0
 
     static let defaultMaximumRailHeight: CGFloat = 450
@@ -535,8 +558,8 @@ enum HUDMetrics {
     ) -> CGFloat {
         let rowsHeight = CGFloat(rowCount) * quotaRowHeight
         let gapsHeight = CGFloat(max(0, rowCount - 1)) * itemSpacing
-        // The tile sits in the rail's column, one of its 7-point gaps away.
-        let tileHeight = showsWorkTile ? workTileHeight + 7 : 0
+        // Both paperweights fit in the space the resource tubes used.
+        let tileHeight = showsWorkTile ? workTileHeight + columnSpacing : 0
         return min(max(120, maximumHeight), max(120, 65 + rowsHeight + gapsHeight + tileHeight))
     }
 

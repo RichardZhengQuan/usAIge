@@ -1,114 +1,300 @@
 import AppKit
+import Combine
 import SwiftUI
 
-/// The Branches window: how full the disk is and what clearing would free,
-/// then every branch and worktree sorted by what to do about it.
+/// The scene chooses a paperweight and layer; the lists keep the same reviews
+/// and protections as the repository board.
 @available(macOS 14.0, *)
 struct BranchesRootView: View {
-    private enum Section: Hashable { case work, storage }
-
     @ObservedObject var store: BranchesStore
     var liveWork: LiveWorkMonitor?
-    @State private var section = Section.work
+    private let presentation: BranchesPaperweightPresentation?
+    @State private var front: PaperweightID
+    @State private var selectedLayerID: String
+    @State private var summary: LiveWorkSummary
+    @State private var preview = false
+    @State private var moving = false
+    @State private var commandID = 0
+    @State private var sceneCommand: PaperweightSceneCommand?
+    @State private var lastPresentationRequestID: UUID?
     @State private var query = ""
     @State private var projectID: String?
     @State private var clearReview: ClearReviewRequest?
     @State private var expanded: Set<String> = []
     @State private var singleReview: DeleteReviewRequest?
     @FocusState private var searchFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(store: BranchesStore, liveWork: LiveWorkMonitor? = nil,
+         initialFront: PaperweightID = .storage, initialSelectedLayerID: String? = nil,
+         presentation: BranchesPaperweightPresentation? = nil) {
+        self.store = store
+        self.liveWork = liveWork
+        self.presentation = presentation
+        _front = State(initialValue: initialFront)
+        _selectedLayerID = State(initialValue: initialSelectedLayerID ?? (initialFront == .storage ? "wt" : ""))
+        _summary = State(initialValue: liveWork?.summary ?? LiveWorkSummary())
+    }
+
+    private var summaryUpdates: AnyPublisher<LiveWorkSummary, Never> {
+        liveWork?.$summary.eraseToAnyPublisher() ?? Just(LiveWorkSummary()).eraseToAnyPublisher()
+    }
+
+    private var presentationUpdates: AnyPublisher<BranchesPaperweightPresentation.Request?, Never> {
+        presentation?.$request.eraseToAnyPublisher() ?? Just(nil).eraseToAnyPublisher()
+    }
 
     var body: some View {
         let now = Date()
         let everything = BranchesBoard.make(snapshot: store.snapshot, now: now)
         let shown = BranchesBoard.make(snapshot: store.snapshot, query: query, projectID: projectID, now: now)
         let picks = ClearSelection(items: everything.safeToClear, now: now)
+        let selectedItems = picks.chosenItems(from: everything.safeToClear)
+        let freeing = preview ? picks.bytes(from: everything.safeToClear) : 0
+        let freeingCache = preview ? selectedItems.compactMap(\.size?.cacheBytes).reduce(0, +) : 0
+        let memory = liveWork == nil
+            ? PaperweightConfiguration(id: .memory, capacityBytes: Int64(clamping: ProcessInfo.processInfo.physicalMemory),
+                                       layers: [], freeBytes: nil)
+            : PaperweightData.memory(summary: summary, running: everything.running,
+                                     physicalMemory: ProcessInfo.processInfo.physicalMemory)
+        let storage = PaperweightData.storage(disk: store.diskSpace, board: everything,
+                                             toolStorage: store.toolStorage,
+                                             isMeasuring: store.isMeasuringToolStorage || !store.hasMeasuredToolStorage,
+                                             freeing: freeing, freeingCacheBytes: freeingCache)
+        let configuration = front == .storage ? storage : memory
+        let selected = configuration.layers.first { $0.id == selectedLayerID } ?? configuration.freeLayer
+        // The rail's Storage card shows today's disk, not the cleared preview.
+        let measured = preview
+            ? PaperweightData.storage(disk: store.diskSpace, board: everything, toolStorage: store.toolStorage,
+                                      isMeasuring: store.isMeasuringToolStorage || !store.hasMeasuredToolStorage)
+            : storage
+        let breakdown = StorageBreakdown(storage: measured, freeableBytes: picks.bytes(from: everything.safeToClear), measuredAt: now)
         VStack(spacing: 0) {
-            BranchesHero(
-                store: store,
-                board: everything,
-                pickedBytes: picks.bytes(from: everything.safeToClear),
-                pickedCount: picks.chosenItems(from: everything.safeToClear).count,
-                isReviewing: clearReview != nil,
-                now: now,
-                review: { startReview(everything.safeToClear, now: now) }
-            )
-            Divider()
             toolbar(projects: everything.projects)
             Divider()
-            Group {
-                switch section {
-                case .work:
-                    work(shown: shown, everything: everything, now: now)
-                case .storage:
-                    ToolStorageView(store: store)
+            GeometryReader { geometry in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 12) {
+                        PaperweightSceneView(
+                            configurations: [memory, storage], front: front,
+                            selectedLayerID: selectedLayerID,
+                            ships: [.memory: store.memoryShip, .storage: store.storageShip],
+                            command: sceneCommand,
+                            onSelect: { id, layer in front = id; selectedLayerID = layer },
+                            onSwap: { id in
+                                front = id
+                                let next = id == .storage ? storage : memory
+                                selectedLayerID = next.layers.first?.id ?? next.freeLayer.id
+                            },
+                            onMovingChanged: { moving = $0 }
+                        )
+                        .frame(height: min(330, max(260, geometry.size.height * 0.58)))
+                        .accessibilityHint("Click a paperweight or layer. Drag to turn, scroll or pinch to zoom, and double-click the table to reset.")
+
+                        headline(everything, picks: picks, memory: memory, storage: storage, now: now)
+                        shipPicker
+                        HStack(alignment: .firstTextBaseline) {
+                            Text("\(selected.title) · \(selected.isMeasuring ? "Measuring…" : BoardText.bytes(selected.bytes))")
+                                .font(.headline)
+                                .accessibilityAddTraits(.isHeader)
+                            Spacer(minLength: 8)
+                            Text(moving ? "Moving" : "Still").font(.caption).foregroundStyle(.secondary)
+                        }
+                        selectedRows(selected, board: shown, configuration: configuration, now: now)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 16)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
             if let message = store.resultMessage, message.deletedCount == 0 {
                 Divider()
                 ResultBanner(message: message, store: store)
             }
         }
         .frame(minWidth: 900, minHeight: 560)
-        .onChange(of: section) { _, value in
-            if value == .storage, store.toolStorage.isEmpty { store.loadToolStorage() }
+        .onReceive(summaryUpdates) { updated in if updated != summary { summary = updated } }
+        .onReceive(presentationUpdates) { request in
+            guard let request, request.id != lastPresentationRequestID else { return }
+            lastPresentationRequestID = request.id
+            let next = request.front == .storage ? storage : memory
+            selectedLayerID = request.selectedLayer(in: next, currentFront: front, currentLayer: selectedLayerID)
+            front = request.front
         }
+        .onAppear { ensureSelection(configuration) }
+        .onChange(of: breakdown.map { [$0.worktreeBytes, $0.cacheBytes, $0.toolBytes, $0.freeableBytes] }) { _, _ in
+            if let breakdown { store.recordStorageBreakdown(breakdown) }
+        }
+        .onChange(of: configuration.layers.map(\.id)) { _, _ in ensureSelection(configuration) }
         .onChange(of: projectID) { _, value in
             if let value, !everything.projects.contains(where: { $0.id == value }) { projectID = nil }
         }
         .sheet(item: $singleReview) { request in
             DeleteReviewView(request: request) { chosen in
                 singleReview = nil
+                preview = false
                 store.startDelete(chosen)
-            } cancel: {
-                singleReview = nil
-            }
+            } cancel: { singleReview = nil }
         }
         .sheet(item: $clearReview) { request in
             ClearReviewSheet(request: request, disk: store.diskSpace) { chosen in
                 clearReview = nil
                 expanded = []
+                preview = false
                 store.startDelete(chosen)
-            } cancel: {
-                clearReview = nil
+            } cancel: { clearReview = nil }
+        }
+    }
+
+    private func ensureSelection(_ configuration: PaperweightConfiguration) {
+        guard selectedLayerID != configuration.freeLayer.id,
+              !configuration.layers.contains(where: { $0.id == selectedLayerID }) else { return }
+        selectedLayerID = configuration.layers.first?.id ?? configuration.freeLayer.id
+    }
+
+    private func send(_ kind: PaperweightSceneCommand.Kind) {
+        commandID += 1
+        sceneCommand = PaperweightSceneCommand(id: commandID, kind: kind)
+    }
+
+    private var shipPicker: some View {
+        HStack {
+            Picker("Ship in the front paperweight", selection: Binding(
+                get: { store.ship(for: front) },
+                set: { ship in
+                    store.chooseShip(ship, for: front)
+                    send(.shipDrop)
+                }
+            )) {
+                ForEach(PaperweightShipKind.allCases) { ship in Text(ship.title).tag(ship) }
+            }
+            .frame(maxWidth: 400, alignment: .leading)
+            Spacer(minLength: 8)
+        }
+    }
+
+    private func headline(_ board: BranchesBoard, picks: ClearSelection, memory: PaperweightConfiguration,
+                          storage: PaperweightConfiguration, now: Date) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            if front == .storage {
+                StorageActions(store: store, board: board, pickedBytes: picks.bytes(from: board.safeToClear),
+                               pickedCount: picks.chosenItems(from: board.safeToClear).count,
+                               isReviewing: clearReview != nil, now: now,
+                               review: { startReview(board.safeToClear, now: now) },
+                               previewDisk: preview ? DiskSpace(totalBytes: storage.capacityBytes,
+                                                               availableBytes: storage.freeBytes ?? 0) : nil)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(liveWork == nil ? "Memory isn't available" : "AI tools use \(LiveWorkText.memory(summary.memoryBytes)) of memory")
+                        .font(.system(size: 17, weight: .semibold))
+                    Text(liveWork == nil ? "No memory reading is available." : LiveWorkText.memorySentence(summary.memoryBytes))
+                        .font(.callout).foregroundStyle(.secondary)
+                    if let dev = memory.layers.first(where: { $0.id == "dev" }) {
+                        Text("Other repository work uses \(BoardText.bytes(dev.bytes)).")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            VStack(alignment: .trailing, spacing: 6) {
+                if front == .storage {
+                    Button(preview ? "Show today" : "Preview clearing") {
+                        preview.toggle()
+                        send(.preview)
+                    }
+                    .disabled(picks.bytes(from: board.safeToClear) <= 0 || store.isDeleting)
+                }
+                Button("Shake") { send(.shake) }
             }
         }
     }
 
-    /// The review works on the rows as they were when it opened, so a scan
-    /// finishing meanwhile can't move them under the pointer. Each one is
-    /// checked again before it goes anyway.
+    @ViewBuilder
+    private func selectedRows(_ layer: PaperweightLayer, board: BranchesBoard,
+                              configuration: PaperweightConfiguration, now: Date) -> some View {
+        if configuration.allocationIsEstimated {
+            Text(front == .storage
+                 ? "Measured folder sizes can overlap. Layer shares are scaled to disk use."
+                 : "Memory footprints can exceed physical memory when macOS compresses or swaps memory. Layer heights are capped to fit.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        if front == .storage {
+            switch layer.id {
+            case "wt":
+                Text("Folder sizes below include their build cache, shown separately in the paperweight.")
+                    .font(.caption).foregroundStyle(.secondary)
+                worktreeRows(board, now: now)
+            case "cache": cacheRows(BranchesStorageSummary(board: board, toolStorage: store.toolStorage), now: now)
+            case "tool": toolStorageRows()
+            case "free": Text("Room left on the disk holding your home folder.").foregroundStyle(.secondary)
+            default: Text("The system, apps and your own files. usAIge doesn't clear these.").foregroundStyle(.secondary)
+            }
+        } else if liveWork == nil {
+            Text("No memory reading is available.").foregroundStyle(.secondary)
+        } else {
+            let rows = PaperweightData.memoryRows(for: layer, in: configuration, running: board.running)
+            if layer.id == configuration.freeLayer.id {
+                Text("Memory not counted under AI tools or repository work. Other apps may be using it.")
+                    .foregroundStyle(.secondary)
+            } else if rows.measured.isEmpty, rows.sessionOnly.isEmpty {
+                Text("This memory belongs to the app and its helpers outside repository folders.")
+                    .foregroundStyle(.secondary)
+            }
+            let largest = rows.measured.map(memoryBytes).max() ?? 0
+            ForEach(rows.measured) { item in
+                let bytes = memoryBytes(item)
+                card(item, .running, now: now, share: largest > 0 ? Double(bytes) / Double(largest) : 0,
+                     color: layerColor(layer.colorHex))
+            }
+            if !rows.sessionOnly.isEmpty {
+                Text("Active in the last few minutes, with no process here to measure.")
+                    .font(.caption).foregroundStyle(.secondary)
+                ForEach(rows.sessionOnly) { item in
+                    card(item, .running, now: now, share: 0, color: layerColor(layer.colorHex))
+                }
+            }
+        }
+    }
+
+    private func layerColor(_ hex: UInt32) -> Color {
+        Color(red: Double((hex >> 16) & 255) / 255, green: Double((hex >> 8) & 255) / 255,
+              blue: Double(hex & 255) / 255)
+    }
+
+    private func memoryBytes(_ item: WorkItem) -> UInt64 {
+        var seen: Set<Int32> = []
+        return item.processes.reduce(0) { $0 + (seen.insert($1.id).inserted ? $1.memoryBytes : 0) }
+    }
+
+    /// Freeze reviewed rows while background checks finish, then check again
+    /// before deleting, as in the individual review.
     private func startReview(_ items: [WorkItem], now: Date, only group: ClearGroup? = nil) {
         var start = ClearSelection(items: items, now: now)
-        if let group {
-            start.chosen = Set(items.filter { ClearGroup.group(for: $0, now: now) == group }.map(\.id))
-        }
+        if let group { start.chosen = Set(items.filter { ClearGroup.group(for: $0, now: now) == group }.map(\.id)) }
+        preview = false
         store.resultMessage = nil
         clearReview = ClearReviewRequest(items: items, selection: start, now: now)
+    }
+
+    private func toggle(_ id: String) {
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.2)) {
+            if expanded.contains(id) { expanded.remove(id) } else { expanded.insert(id) }
+        }
     }
 
     // MARK: Toolbar
 
     private func toolbar(projects: [ProjectChoice]) -> some View {
         HStack(spacing: 10) {
-            Picker("Show", selection: $section) {
-                Text("Work").tag(Section.work)
-                Text("Tool storage").tag(Section.storage)
-            }
-            .labelsHidden()
-            .pickerStyle(.segmented)
-            .fixedSize()
-
-            if section == .work {
-                searchField
-                if projects.count > 1 { projectChips(projects) }
-            }
+            searchField
+            if projects.count > 1 { projectChips(projects) }
             Spacer(minLength: 8)
             activityView
             recentlyDeletedMenu
             Menu {
                 Button("Read Everything Again") {
-                    if section == .storage { store.loadToolStorage(force: true) } else { store.refresh() }
+                    store.refresh()
+                    store.loadToolStorage(force: true)
                 }
                 Button("Add Folder…") { chooseFolder() }
             } label: {
@@ -164,7 +350,7 @@ struct BranchesRootView: View {
             }
         }
         .frame(maxWidth: 300)
-        .fixedSize(horizontal: true, vertical: false)
+        .frame(minWidth: 0)
     }
 
     private func chip(_ title: String, isOn: Bool, action: @escaping () -> Void) -> some View {
@@ -237,153 +423,136 @@ struct BranchesRootView: View {
         store.addFolder(url.path)
     }
 
-    // MARK: Work
+
+    private func card(_ item: WorkItem, _ kind: WorkCard.Kind, now: Date, share: Double, color: Color,
+                      cacheBytes: Int64? = nil) -> some View {
+        WorkCard(item: item, kind: kind, now: now, isExpanded: expanded.contains(item.id),
+                 evidence: store.evidence[BranchesStore.evidenceKey(item)], isDeleting: store.isDeleting,
+                 toggle: { toggle(item.id) }, loadEvidence: { store.loadEvidence(for: item) },
+                 requestDelete: { singleReview = DeleteReviewRequest(items: [item]) },
+                 tubeShare: share, tubeColor: color, cacheBytes: cacheBytes)
+    }
+
+    private func groupHeading(_ title: String, count: Int, bytes: Int64) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(title).font(.headline)
+            Text("\(count)").foregroundStyle(.secondary)
+            Spacer(minLength: 4)
+            Text(BoardText.bytes(bytes)).foregroundStyle(.secondary).monospacedDigit()
+        }
+        .font(.caption)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+    }
 
     @ViewBuilder
-    private func work(shown: BranchesBoard, everything: BranchesBoard, now: Date) -> some View {
+    private func worktreeRows(_ board: BranchesBoard, now: Date) -> some View {
+        let largest = max(board.needsLook.map(\.bytes).max() ?? 0, board.safeFolders.compactMap(\.size?.totalBytes).max() ?? 0)
+        let color = layerColor(0xE2729A)
         if store.snapshot.gitIsMissing {
-            ContentUnavailableView(
-                "Git isn't installed",
-                systemImage: "arrow.triangle.branch",
-                description: Text("Install the Xcode Command Line Tools to see branches and worktrees here.")
-            )
+            LaneEmpty(text: "Git isn't installed. Install the Xcode Command Line Tools to see branches and worktrees here.")
         } else if store.snapshot.items.isEmpty, store.snapshot.notCheckedFolders.isEmpty, store.snapshot.activity == .idle {
-            ContentUnavailableView(
-                "No repositories yet",
-                systemImage: "arrow.triangle.branch",
-                description: Text("Repositories appear here once an AI tool has worked in them, or use Add Folder in the … menu.")
-            )
-        } else {
-            HStack(alignment: .top, spacing: 12) {
-                runningLane(shown, now: now)
-                lookLane(shown, now: now)
-                safeLane(shown, everything: everything, now: now)
-            }
-            .padding(14)
+            LaneEmpty(text: "No repositories yet. Use Add Folder in the … menu, or work in a repository with an AI tool.")
         }
-    }
-
-    private func toggle(_ id: String) {
-        withAnimation(.snappy(duration: 0.2)) {
-            if expanded.contains(id) { expanded.remove(id) } else { expanded.insert(id) }
+        groupHeading("Needs a look", count: board.needsLookCount, bytes: board.needsLookBytes)
+        if board.needsLook.isEmpty {
+            LaneEmpty(text: "Work that exists only on this Mac, or isn't on main yet, shows here.")
         }
-    }
-
-    private func card(_ item: WorkItem, _ kind: WorkCard.Kind, now: Date) -> some View {
-        WorkCard(
-            item: item,
-            kind: kind,
-            now: now,
-            isExpanded: expanded.contains(item.id),
-            evidence: store.evidence[BranchesStore.evidenceKey(item)],
-            isDeleting: store.isDeleting,
-            toggle: { toggle(item.id) },
-            loadEvidence: { store.loadEvidence(for: item) },
-            requestDelete: { singleReview = DeleteReviewRequest(items: [item]) }
-        )
-    }
-
-    private func runningLane(_ board: BranchesBoard, now: Date) -> some View {
-        LaneColumn(
-            title: "Running now",
-            count: board.running.count,
-            subtitle: board.running.isEmpty ? "Nothing running in your repositories" : "Leave these alone",
-            accessory: { if let liveWork { LaneMemoryTank(monitor: liveWork) } }
-        ) {
-            if board.running.isEmpty {
-                LaneEmpty(text: "When an AI tool or a dev server runs in a worktree, it shows here.")
-            }
-            ForEach(board.running) { item in card(item, .running, now: now) }
-        }
-    }
-
-    private func lookLane(_ board: BranchesBoard, now: Date) -> some View {
-        let bytes = board.needsLookBytes
-        return LaneColumn(
-            title: "Needs a look",
-            count: board.needsLookCount,
-            subtitle: board.needsLook.isEmpty ? "Nothing is waiting on you"
-                : bytes > 0 ? "\(BoardText.bytes(bytes)) waiting on you" : "Waiting on you",
-            accessory: { EmptyView() }
-        ) {
-            if board.needsLook.isEmpty {
-                LaneEmpty(text: "Work that exists only on this Mac, or isn't on main yet, shows here.")
-            }
-            ForEach(board.needsLook) { entry in
-                switch entry {
-                case let .item(item):
-                    card(item, .look, now: now)
-                case let .copy(copy):
-                    LeftoverCopyCard(copy: copy, now: now, isExpanded: expanded.contains(entry.id), toggle: { toggle(entry.id) }) {
-                        ForEach(copy.items) { item in card(item, .look, now: now) }
+        ForEach(board.needsLook) { entry in
+            let fill = largest > 0 ? Double(entry.bytes) / Double(largest) : 0
+            switch entry {
+            case let .item(item):
+                card(item, .look, now: now, share: fill, color: color)
+            case let .copy(copy):
+                LeftoverCopyCard(copy: copy, now: now, isExpanded: expanded.contains(entry.id),
+                                 toggle: { toggle(entry.id) }, tubeShare: fill) {
+                    ForEach(copy.items) { item in
+                        card(item, .look, now: now, share: largest > 0 ? Double(item.size?.totalBytes ?? 0) / Double(largest) : 0,
+                             color: color)
                     }
-                case let .notChecked(folder):
-                    NotCheckedCard(folder: folder, isExpanded: expanded.contains(entry.id), toggle: { toggle(entry.id) }) {
-                        store.addFolder(folder)
-                    }
-                case let .unreadable(repository):
-                    UnreadableCard(repository: repository)
                 }
+            case let .notChecked(folder):
+                NotCheckedCard(folder: folder, isExpanded: expanded.contains(entry.id), toggle: { toggle(entry.id) }) {
+                    store.addFolder(folder)
+                }
+            case let .unreadable(repository):
+                UnreadableCard(repository: repository, isExpanded: expanded.contains(entry.id), toggle: { toggle(entry.id) })
             }
-            if board.stillChecking > 0 {
-                Text("Still checking \(board.stillChecking) more…")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 4)
+        }
+        if board.stillChecking > 0 {
+            Text("Still checking \(board.stillChecking) more…").font(.caption).foregroundStyle(.secondary)
+        }
+        HStack {
+            groupHeading("Safe to clear", count: board.safeToClear.count, bytes: board.safeBytes)
+            if !board.safeToClear.isEmpty {
+                Button("Clear…") { startReview(board.safeToClear, now: now) }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(store.isDeleting)
+                    .help("Review exactly the \(board.safeToClear.count) shown here")
+            }
+        }
+        if board.safeToClear.isEmpty {
+            LaneEmpty(text: "Merged or empty branches and worktrees that nothing runs in show here.")
+        }
+        ForEach(board.safeFolders) { item in
+            let fill = largest > 0 ? Double(item.size?.totalBytes ?? 0) / Double(largest) : 0
+            card(item, .safe(fill: fill), now: now, share: fill, color: color)
+        }
+        ForEach([ClearGroup.branches, .records]) { group in
+            let items = board.safe(in: group, now: now)
+            if !items.isEmpty {
+                SafeGroupCard(group: group, items: items, isExpanded: expanded.contains("group|" + group.rawValue),
+                              isDeleting: store.isDeleting, toggle: { toggle("group|" + group.rawValue) },
+                              review: { startReview(items, now: now, only: group) }) {
+                    ForEach(items) { item in
+                        card(item, .safe(fill: 0), now: now, share: 0, color: color)
+                    }
+                }
             }
         }
     }
 
-    private func safeLane(_ board: BranchesBoard, everything: BranchesBoard, now: Date) -> some View {
-        let bytes = board.safeBytes
-        let folders = board.safeFolders
-        let largest = folders.compactMap(\.size?.totalBytes).max() ?? 0
-        return LaneColumn(
-            title: "Safe to clear",
-            count: board.safeToClear.count,
-            subtitle: board.safeToClear.isEmpty ? "Nothing to clear"
-                : bytes > 0 ? "\(BoardText.bytes(bytes)), nothing to lose" : "Nothing to lose",
-            accessory: {
-                // Reviews exactly what the column shows, so a search or a
-                // project narrows what's offered.
-                if !board.safeToClear.isEmpty {
-                    Button("Clear…") { startReview(board.safeToClear, now: now) }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.regular)
-                        .disabled(store.isDeleting)
-                        .help("Review the \(board.safeToClear.count) shown here, then clear them")
-                }
-            }
-        ) {
-            if board.safeToClear.isEmpty {
-                LaneEmpty(text: "Merged or empty branches and worktrees that nothing runs in show here.")
-            }
-            ForEach(folders) { item in
-                card(item, .safe(fill: largest > 0 ? Double(item.size?.totalBytes ?? 0) / Double(largest) : 0), now: now)
-            }
-            ForEach([ClearGroup.branches, .records]) { group in
-                let items = board.safe(in: group, now: now)
-                if !items.isEmpty {
-                    SafeGroupCard(
-                        group: group,
-                        items: items,
-                        isExpanded: expanded.contains("group|" + group.rawValue),
-                        isDeleting: store.isDeleting,
-                        toggle: { toggle("group|" + group.rawValue) },
-                        review: { startReview(everything.safeToClear, now: now, only: group) }
-                    )
-                }
-            }
+    @ViewBuilder
+    private func cacheRows(_ totals: BranchesStorageSummary, now: Date) -> some View {
+        groupHeading("Build cache", count: totals.cacheFolders.count, bytes: totals.bytes(for: .buildCache))
+        Text("Cache inside worktree folders. Delete… reviews the whole folder, including its cache.")
+            .font(.caption).foregroundStyle(.secondary)
+        if totals.cacheFolders.isEmpty { LaneEmpty(text: "No measured build cache in these folders.") }
+        let largest = totals.cacheFolders.first?.size?.cacheBytes ?? 0
+        ForEach(totals.cacheFolders) { item in
+            let bytes = item.size?.cacheBytes ?? 0
+            card(item, BranchesBoard.lane(for: item) == .safeToClear ? .safe(fill: 0) : .look,
+                 now: now, share: largest > 0 ? Double(bytes) / Double(largest) : 0,
+                 color: layerColor(0x3DB58C), cacheBytes: bytes)
+        }
+    }
+
+    @ViewBuilder
+    private func toolStorageRows() -> some View {
+        let terms = query.lowercased().split(whereSeparator: \.isWhitespace)
+        let entries = store.toolStorage.filter { entry in
+            let text = [entry.name, entry.path ?? "", entry.kind.label].joined(separator: " ").lowercased()
+            return terms.allSatisfy { text.contains($0) }
+        }.sorted { $0.bytes == $1.bytes ? $0.id < $1.id : $0.bytes > $1.bytes }
+        groupHeading("Tool storage", count: entries.count, bytes: entries.reduce(0) { $0 + $1.bytes })
+        Text("Outside repositories. Shown only: usAIge clears nothing here.")
+            .font(.caption).foregroundStyle(.secondary)
+        if store.isMeasuringToolStorage {
+            HStack { ProgressView().controlSize(.small); Text("Measuring…").font(.caption) }
+        } else if entries.isEmpty {
+            LaneEmpty(text: "Nothing to show. Folders under 10 MB are left out.")
+        }
+        let largest = entries.first?.bytes ?? 0
+        ForEach(entries) { entry in
+            PaperweightToolStorageRow(entry: entry, share: largest > 0 ? Double(entry.bytes) / Double(largest) : 0, isExpanded: expanded.contains("tool|" + entry.id),
+                               toggle: { toggle("tool|" + entry.id) })
         }
     }
 }
 
-// MARK: Hero
-
-/// The disk as a tank, and the one thing worth doing about it.
+/// Keep the storage headline and actions together as clearing progresses.
 @available(macOS 14.0, *)
-private struct BranchesHero: View {
+private struct StorageActions: View {
     @ObservedObject var store: BranchesStore
     let board: BranchesBoard
     let pickedBytes: Int64
@@ -391,37 +560,32 @@ private struct BranchesHero: View {
     let isReviewing: Bool
     let now: Date
     let review: () -> Void
+    var previewDisk: DiskSpace? = nil
 
     private var disk: DiskSpace? { store.diskSpace }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 22) {
-            DiskTank(disk: disk, freeing: pickedBytes)
-            VStack(alignment: .leading, spacing: 6) {
-                Text(headline)
-                    .font(.system(size: 24, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                    .contentTransition(.numericText())
-                Text(detail)
+        VStack(alignment: .leading, spacing: 6) {
+            Text(headline)
+                .font(.system(size: 17, weight: .semibold, design: .rounded))
+                .lineLimit(3)
+                .monospacedDigit()
+            Text(detail)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .lineLimit(4)
+                .fixedSize(horizontal: false, vertical: true)
+                .help(detail)
+            if let problems {
+                Text(problems)
                     .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: 620, alignment: .leading)
-                if let problems {
-                    Text(problems)
-                        .font(.callout)
-                        .foregroundStyle(.orange)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: 620, alignment: .leading)
-                }
-                actions.padding(.top, 4)
+                    .foregroundStyle(.orange)
+                    .textSelection(.enabled)
+                    .lineLimit(3)
+                    .help(problems)
             }
-            Spacer(minLength: 0)
+            actions.padding(.top, 4)
         }
-        .padding(.horizontal, 22)
-        .padding(.vertical, 18)
-        .animation(.snappy, value: headline)
     }
 
     private var clearedMessage: BranchesStore.ResultMessage? {
@@ -446,6 +610,7 @@ private struct BranchesHero: View {
                 : "Cleared \(message.deletedCount) \(message.deletedCount == 1 ? "item" : "items")"
         }
         if store.snapshot.gitIsMissing { return "Git isn't installed" }
+        if let previewDisk { return "About \(BoardText.bytes(previewDisk.availableBytes)) free after clearing" }
         if pickedBytes > 0 { return "You can free about \(BoardText.bytes(pickedBytes))" }
         if isReviewing {
             return pickedCount == 0 ? "Nothing ticked yet" : "You can tidy \(pickedCount) \(pickedCount == 1 ? "item" : "items")"
@@ -471,6 +636,9 @@ private struct BranchesHero: View {
             if let freeText { parts.append(freeText + ".") }
             if !message.undoable.isEmpty { parts.append("Undo brings back branches and folders, not caches or ignored files.") }
             return parts.joined(separator: " ")
+        }
+        if let previewDisk {
+            return "\(LiveWorkText.percent(previewDisk.usedShare())) used after, down from \(LiveWorkText.percent(disk?.usedShare() ?? 0)). Preview of the default clear choice."
         }
         var parts: [String] = []
         if let disk, pickedBytes > 0 {
@@ -500,25 +668,33 @@ private struct BranchesHero: View {
 
     @ViewBuilder
     private var actions: some View {
-        HStack(spacing: 8) {
-            if clearing != nil {
-                Button("Stop") { store.stopDeleting() }
-            } else if let message = clearedMessage {
-                if !message.undoable.isEmpty {
-                    Button("Undo") { Task { await store.undo(message.undoable) } }
-                        .disabled(store.isDeleting)
-                }
-                if defaultCount > 0 {
-                    Button("Review the Rest…", action: review)
-                }
-                Button("Done") { store.resultMessage = nil }
-            } else if !isReviewing, !board.safeToClear.isEmpty {
-                Button("Review and Clear…", action: review)
-                    .buttonStyle(.borderedProminent)
-                    .disabled(store.isDeleting)
-            }
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) { actionButtons }
+                .fixedSize(horizontal: true, vertical: false)
+            VStack(alignment: .leading, spacing: 6) { actionButtons }
         }
         .controlSize(.large)
+    }
+
+    @ViewBuilder
+    private var actionButtons: some View {
+        if clearing != nil {
+            Button("Stop") { store.stopDeleting() }
+        } else if let message = clearedMessage {
+            if !message.undoable.isEmpty {
+                Button("Undo") { Task { await store.undo(message.undoable) } }
+                    .disabled(store.isDeleting)
+            }
+            if defaultCount > 0 {
+                Button("Review the Rest…", action: review)
+            }
+            Button("Done") { store.resultMessage = nil }
+        } else if !isReviewing, !board.safeToClear.isEmpty {
+            Button("Review and Clear…", action: review)
+                .buttonStyle(.borderedProminent)
+                .disabled(store.isDeleting)
+                .help("Review all \(board.safeToClear.count) safe items")
+        }
     }
 }
 
@@ -530,46 +706,20 @@ private struct DiskTank: View {
     let freeing: Int64
     /// The smaller tank in the review.
     var compact = false
-    @Environment(\.controlActiveState) private var activeState
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var now: Double { disk?.usedShare() ?? 0 }
     private var after: Double { disk?.usedShare(freeing: freeing) ?? 0 }
-    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: compact ? 20 : 26, style: .continuous) }
 
     var body: some View {
-        let color = LiveWorkText.severity(now).color
-        // Moving water is for the window being looked at, not left behind.
-        let moves = activeState == .key && !reduceMotion
-        TimelineView(.animation(minimumInterval: 1 / 20, paused: !moves)) { context in
-            let phase = moves ? context.date.timeIntervalSinceReferenceDate * 1.4 : 0.6
-            ZStack {
-                WaterShape(level: now, phase: phase + 1.7, amplitude: 2.5, wavelength: 70)
-                    .fill(color.opacity(0.24))
-                WaterShape(level: after, phase: phase, amplitude: 2.5, wavelength: 70)
-                    .fill(color.opacity(0.5))
-            }
-            .animation(.easeInOut(duration: 1.1), value: after)
-            .animation(.easeInOut(duration: 1.1), value: now)
-        }
-        .clipShape(shape)
-        .overlay {
-            VStack(spacing: 0) {
-                // The tank shows the disk after the ticked items go, so the
-                // number does too.
-                Text(disk == nil ? "–" : LiveWorkText.percent(compact ? after : now))
-                    .font(.system(size: compact ? 20 : 26, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                    .contentTransition(.numericText())
-                    .animation(.snappy, value: after)
-                Text(compact ? "after" : "disk used")
-                    .font(.system(size: compact ? 10 : 11, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.primary.opacity(0.7))
-            }
-        }
-        .frame(width: compact ? 78 : 104, height: compact ? 98 : 132)
-        .background { BoardGlass(shape: shape) }
-        .overlay { shape.stroke(Color.primary.opacity(0.16), lineWidth: 1) }
+        BoardTank(
+            level: after,
+            secondaryLevel: now,
+            color: LiveWorkText.severity(now).color,
+            // The smaller tank shows the disk after the ticked items go.
+            percent: disk == nil ? "–" : LiveWorkText.percent(compact ? after : now),
+            label: compact ? "after" : "disk used",
+            compact: compact
+        )
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Disk")
         .accessibilityValue(accessibilityText)
@@ -583,9 +733,56 @@ private struct DiskTank: View {
     }
 }
 
+/// The review keeps its small tank separate from the interactive scene.
+@available(macOS 14.0, *)
+private struct BoardTank: View {
+    let level: Double
+    let secondaryLevel: Double
+    let color: Color
+    let percent: String
+    let label: String
+    var compact = false
+    @Environment(\.controlActiveState) private var activeState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: compact ? 20 : 26, style: .continuous) }
+
+    var body: some View {
+        // Moving water is for the window being looked at, not left behind.
+        let moves = activeState == .key && !reduceMotion
+        TimelineView(.animation(minimumInterval: 1 / 20, paused: !moves)) { context in
+            let phase = moves ? context.date.timeIntervalSinceReferenceDate * 1.4 : 0.6
+            ZStack {
+                WaterShape(level: secondaryLevel, phase: phase + 1.7, amplitude: 2.5, wavelength: 70)
+                    .fill(color.opacity(0.24))
+                WaterShape(level: level, phase: phase, amplitude: 2.5, wavelength: 70)
+                    .fill(color.opacity(0.5))
+            }
+            .animation(moves ? .easeInOut(duration: 1.1) : nil, value: level)
+            .animation(moves ? .easeInOut(duration: 1.1) : nil, value: secondaryLevel)
+        }
+        .clipShape(shape)
+        .overlay {
+            VStack(spacing: 0) {
+                Text(percent)
+                    .font(.system(size: compact ? 20 : 26, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .contentTransition(reduceMotion ? .identity : .numericText())
+                    .animation(moves ? .snappy : nil, value: level)
+                Text(label)
+                    .font(.system(size: compact ? 10 : 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.primary.opacity(0.7))
+            }
+        }
+        .frame(width: compact ? 78 : 104, height: compact ? 98 : 132)
+        .background { BoardGlass(shape: shape) }
+        .overlay { shape.stroke(Color.primary.opacity(0.16), lineWidth: 1) }
+    }
+}
+
 /// The rail's glass where macOS has it, and its material where it doesn't.
 @available(macOS 14.0, *)
-private struct BoardGlass<S: Shape>: View {
+struct BoardGlass<S: Shape>: View {
     let shape: S
 
     var body: some View {
@@ -594,89 +791,6 @@ private struct BoardGlass<S: Shape>: View {
         } else {
             shape.fill(.regularMaterial)
         }
-    }
-}
-
-/// The share of memory the AI tools use, as the rail's tile shows it.
-@available(macOS 14.0, *)
-private struct LaneMemoryTank: View {
-    @ObservedObject var monitor: LiveWorkMonitor
-    var physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory
-
-    var body: some View {
-        let share = LiveWorkText.memoryShare(monitor.summary.memoryBytes, of: physicalMemory)
-        let shape = RoundedRectangle(cornerRadius: 9, style: .continuous)
-        VStack(spacing: -1) {
-            Text(LiveWorkText.percent(share))
-                .font(.system(size: 12, weight: .bold, design: .rounded))
-                .monospacedDigit()
-            Text("Memory")
-                .font(.system(size: 8, weight: .semibold, design: .rounded))
-                .foregroundStyle(.primary.opacity(0.7))
-        }
-        .frame(width: 52, height: 36)
-        .background {
-            ZStack {
-                BoardGlass(shape: shape)
-                WaterLevelView(level: LiveWorkText.waterLevel(share), color: LiveWorkText.severity(share).color, isMoving: false)
-                    .clipShape(shape)
-                shape.stroke(Color.primary.opacity(0.16), lineWidth: 1)
-            }
-        }
-        .help(LiveWorkText.tileHelp(monitor.summary, of: physicalMemory))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Memory")
-        .accessibilityValue(LiveWorkText.memorySentence(monitor.summary.memoryBytes, of: physicalMemory))
-    }
-}
-
-// MARK: Lanes
-
-@available(macOS 14.0, *)
-private struct LaneColumn<Accessory: View, Content: View>: View {
-    let title: String
-    let count: Int
-    let subtitle: String
-    @ViewBuilder let accessory: () -> Accessory
-    @ViewBuilder let content: () -> Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .center, spacing: 8) {
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text(title).font(.headline)
-                        if count > 0 {
-                            Text("\(count)")
-                                .font(.callout.weight(.semibold))
-                                .monospacedDigit()
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 4)
-                accessory()
-            }
-            .frame(minHeight: 38)
-            .padding(.horizontal, 4)
-            .accessibilityElement(children: .combine)
-            .accessibilityAddTraits(.isHeader)
-
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 8) {
-                    content()
-                }
-                .padding(.bottom, 10)
-            }
-            .scrollIndicators(.automatic)
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 
@@ -695,540 +809,6 @@ private struct LaneEmpty: View {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .strokeBorder(Color.primary.opacity(0.12), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
             }
-    }
-}
-
-/// A card's surface: the window's content colour with a hairline edge.
-@available(macOS 14.0, *)
-private struct CardSurface: ViewModifier {
-    var isExpanded = false
-
-    func body(content: Content) -> some View {
-        content
-            .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(isExpanded ? 0.22 : 0.1), lineWidth: 1)
-            }
-    }
-}
-
-// MARK: Cards
-
-/// One branch or worktree: what the work was, which branch, why it can or
-/// can't go, and, opened, exactly what it holds.
-@available(macOS 14.0, *)
-private struct WorkCard: View {
-    enum Kind: Equatable {
-        case running
-        case look
-        /// `fill` is its size against the column's largest, drawn as water.
-        case safe(fill: Double)
-    }
-
-    let item: WorkItem
-    let kind: Kind
-    let now: Date
-    let isExpanded: Bool
-    let evidence: WorkEvidence?
-    let isDeleting: Bool
-    let toggle: () -> Void
-    let loadEvidence: () -> Void
-    let requestDelete: () -> Void
-    @State private var copied = false
-
-    private var waterFill: Double {
-        if case let .safe(fill) = kind { return fill }
-        return 0
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button(action: toggle) { summary }
-                .buttonStyle(.plain)
-                .accessibilityHint(isExpanded ? "Hides the details" : "Shows what it holds")
-            if isExpanded {
-                Divider().padding(.vertical, 9)
-                details
-                    .transition(.opacity)
-            }
-        }
-        .modifier(CardSurface(isExpanded: isExpanded))
-        .background {
-            if waterFill > 0 {
-                GeometryReader { proxy in
-                    Color.green.opacity(0.11)
-                        .frame(height: max(4, proxy.size.height * min(waterFill, 1)))
-                        .frame(maxHeight: .infinity, alignment: .bottom)
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .accessibilityHidden(true)
-            }
-        }
-    }
-
-    private var summary: some View {
-        HStack(alignment: .top, spacing: 6) {
-            summaryText
-            FoldChevron(isExpanded: isExpanded)
-        }
-        .contentShape(Rectangle())
-    }
-
-    private var summaryText: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            if kind == .running {
-                HStack(spacing: 6) {
-                    RunningDot()
-                    Text(BoardText.running(item, now: now))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.bottom, 1)
-            }
-            Text(item.workTitle)
-                .font(.system(size: 13, weight: .semibold))
-                .lineLimit(isExpanded ? 4 : 2)
-                .multilineTextAlignment(.leading)
-                .fixedSize(horizontal: false, vertical: true)
-            Text(branchLine)
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            if let reason = BoardText.reason(item) {
-                Text(reason.text)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(reason.isLoss ? Color.red : Color.orange)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            HStack(spacing: 5) {
-                ToolMarks(tools: item.sessions.tools)
-                Text(kind == .running ? runningMeta : BoardText.meta(item, now: now))
-                    .lineLimit(1)
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .padding(.top, 1)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-    }
-
-    private var branchLine: String {
-        "\(item.repositoryName) · \(item.branch ?? "no branch")"
-    }
-
-    private var runningMeta: String {
-        var parts: [String] = []
-        let memory = item.processes.reduce(UInt64(0)) { $0 + $1.memoryBytes }
-        if memory > 0 { parts.append("\(LiveWorkText.memory(memory)) memory") }
-        if item.worktreePath != nil, item.status != .mainCopy { parts.append(BoardText.size(item)) }
-        if item.status == .mainCopy { parts.append("Main copy") }
-        return parts.joined(separator: " · ")
-    }
-
-    @ViewBuilder
-    private var details: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            switch kind {
-            case .running:
-                runningDetails
-            case .look:
-                evidenceDetails
-                explanation
-            case .safe:
-                explanation
-            }
-            sessionsLine
-            if let path = item.worktreePath {
-                Text(BranchesPresentation.abbreviated(path))
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(3)
-                    .truncationMode(.middle)
-                    .help(path)
-            }
-            actions
-        }
-        .font(.callout)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    @ViewBuilder
-    private var runningDetails: some View {
-        if !item.processes.isEmpty {
-            VStack(alignment: .leading, spacing: 3) {
-                ForEach(item.processes) { process in
-                    Text(processLine(process))
-                        .font(.caption)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-            }
-        }
-        Text(item.status == .mainCopy
-             ? "This is the repository's main copy, so it stays."
-             : "Delete comes back once nothing runs here.")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-    }
-
-    private func processLine(_ process: WorkProcess) -> String {
-        var parts = [process.name]
-        if !process.ports.isEmpty { parts.append("port " + process.ports.map(String.init).joined(separator: ", ")) }
-        parts.append(LiveWorkText.memory(process.memoryBytes))
-        if let started = process.startedAt { parts.append("since \(BranchesPresentation.relativeTime(started, now: now))") }
-        return parts.joined(separator: " · ")
-    }
-
-    @ViewBuilder
-    private var evidenceDetails: some View {
-        let hasCommits = (item.facts.commitsAtRisk ?? 0) > 0 || item.status == .pushed
-        let hasFiles = (item.facts.changedFiles ?? 0) + (item.facts.untrackedFiles ?? 0) > 0
-        if hasCommits || hasFiles {
-            if let evidence {
-                if !evidence.commits.isEmpty {
-                    evidenceList(
-                        title: (item.facts.commitsAtRisk ?? 0) > 0 ? "Commits only on this Mac" : "Commits not on main yet",
-                        lines: evidence.commits,
-                        more: evidence.moreCommits,
-                        monospaced: false
-                    )
-                }
-                if !evidence.files.isEmpty {
-                    evidenceList(title: "Files not committed", lines: evidence.files, more: evidence.moreFiles, monospaced: true)
-                }
-            } else {
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.small)
-                    Text("Reading what it holds…").font(.caption).foregroundStyle(.secondary)
-                }
-                .onAppear(perform: loadEvidence)
-            }
-        }
-    }
-
-    private func evidenceList(title: String, lines: [String], more: Int, monospaced: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title).font(.caption.weight(.semibold))
-            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                Text(line)
-                    .font(monospaced ? .system(size: 11, design: .monospaced) : .caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            if more > 0 {
-                Text("and \(more) more").font(.caption).foregroundStyle(.tertiary)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var explanation: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(item.status == .finished || item.status == .empty ? sentence(item.workSummary) : item.statusExplanation)
-                .fixedSize(horizontal: false, vertical: true)
-            if let size = item.size, size.cacheBytes > 0 {
-                let names = size.cacheBytesByName.sorted { $0.value > $1.value }.prefix(3).map(\.key)
-                Text("\(BoardText.bytes(size.cacheBytes)) of it is cache a build makes again: \(names.joined(separator: ", ")).")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if item.losesIgnoredFiles {
-                Text("Ignored files that would be lost: " + item.irreplaceableIgnored.prefix(5).joined(separator: ", "))
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if item.facts.isLocked, let reason = item.facts.lockReason, !reason.isEmpty {
-                Text("Lock note: \(reason)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    private func sentence(_ text: String) -> String {
-        text.hasSuffix(".") ? text : text + "."
-    }
-
-    @ViewBuilder
-    private var sessionsLine: some View {
-        let sessions = item.sessions
-        if sessions.count > 0 {
-            let latest = sessions.lastActiveAt.map { ", latest \(BranchesPresentation.relativeTime($0, now: now))" } ?? ""
-            Text("\(sessions.count) \(sessions.count == 1 ? "session" : "sessions") from \(sessions.tools.joined(separator: ", "))\(latest)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var actions: some View {
-        HStack(spacing: 6) {
-            if let path = item.worktreePath, item.facts.folderExists, item.facts.folderReadable {
-                Button("Show in Finder") { FolderActions.showInFinder(path) }
-                Button("Open in Terminal") { FolderActions.openInTerminal(path) }
-            }
-            switch item.eligibility {
-            case .allowed:
-                Button("Delete…", role: .destructive, action: requestDelete)
-                    .disabled(isDeleting)
-                if let commands = item.commandsToRun {
-                    Button(copied ? "Copied" : "Copy Commands") {
-                        FolderActions.copy(commands)
-                        copied = true
-                    }
-                    .help(commands)
-                }
-            case .blocked:
-                if let path = item.worktreePath {
-                    Button("Copy Path") { FolderActions.copy(path) }
-                }
-            }
-        }
-        .controlSize(.small)
-        .fixedSize()
-    }
-}
-
-/// Small marks for the AI tools that worked on a row.
-@available(macOS 14.0, *)
-private struct ToolMarks: View {
-    let tools: [String]
-
-    private var descriptors: [AIToolDescriptor] {
-        tools.compactMap { name -> AIToolDescriptor? in
-            switch name {
-            case "Claude Code": .descriptor(for: .claude)
-            case "Codex": .descriptor(for: .chatGPT)
-            case "Cursor": .descriptor(for: .cursor)
-            case "Grok Build": .descriptor(for: .grok)
-            default: nil
-            }
-        }
-    }
-
-    var body: some View {
-        if !descriptors.isEmpty {
-            HStack(spacing: 2) {
-                ForEach(descriptors) { tool in
-                    AIToolIcon(tool: tool, size: 11)
-                        .help(tool.name)
-                }
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Worked on by " + tools.joined(separator: ", "))
-        }
-    }
-}
-
-/// Breathes while the window is in front, and holds still otherwise.
-@available(macOS 14.0, *)
-private struct RunningDot: View {
-    @Environment(\.controlActiveState) private var activeState
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        let moves = activeState == .key && !reduceMotion
-        Circle()
-            .fill(Color.accentColor)
-            .frame(width: 7, height: 7)
-            .phaseAnimator(moves ? [1.0, 0.35] : [1.0]) { dot, opacity in
-                dot.opacity(opacity)
-            } animation: { _ in
-                .easeInOut(duration: 0.8)
-            }
-            .accessibilityHidden(true)
-    }
-}
-
-@available(macOS 14.0, *)
-private struct LeftoverCopyCard<Content: View>: View {
-    let copy: LeftoverCopy
-    let now: Date
-    let isExpanded: Bool
-    let toggle: () -> Void
-    @ViewBuilder let content: () -> Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button(action: toggle) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("\(copy.items.count) \(copy.items.count == 1 ? "branch" : "branches and worktrees") in an older copy of \(copy.projectName)")
-                        .font(.system(size: 13, weight: .semibold))
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(BranchesPresentation.abbreviated(copy.repository.folder))
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    if copy.unsavedCount > 0 {
-                        Text("\(copy.unsavedCount) \(copy.unsavedCount == 1 ? "holds" : "hold") work that's only on this Mac")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.red)
-                    } else {
-                        Text("Pushed, but not on main yet")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.orange)
-                    }
-                    Text([copy.lastUsedAt.map { "Last used " + BoardText.age($0, now: now) } ?? "Not used lately",
-                          copy.bytes > 0 ? BoardText.bytes(copy.bytes) : nil].compactMap { $0 }.joined(separator: " · "))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.trailing, 28)
-                .overlay(alignment: .topTrailing) { FoldChevron(isExpanded: isExpanded) }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            if isExpanded {
-                Divider().padding(.vertical, 9)
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Another copy of \(copy.projectName) is newer, and nobody has used this one for a week. Keep what matters from these, then the copy can go.")
-                        .font(.callout)
-                        .fixedSize(horizontal: false, vertical: true)
-                    HStack(spacing: 6) {
-                        Button("Show in Finder") { FolderActions.showInFinder(copy.repository.folder) }
-                        Button("Open in Terminal") { FolderActions.openInTerminal(copy.repository.folder) }
-                    }
-                    .controlSize(.small)
-                    content()
-                }
-            }
-        }
-        .modifier(CardSurface(isExpanded: isExpanded))
-    }
-}
-
-@available(macOS 14.0, *)
-private struct NotCheckedCard: View {
-    let folder: String
-    let isExpanded: Bool
-    let toggle: () -> Void
-    let check: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button(action: toggle) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(URL(fileURLWithPath: folder).lastPathComponent)
-                        .font(.system(size: 13, weight: .semibold))
-                    Text(BranchesPresentation.abbreviated(folder))
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Text("Not checked: macOS protects this folder")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.orange)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.trailing, 28)
-                .overlay(alignment: .topTrailing) { FoldChevron(isExpanded: isExpanded) }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            if isExpanded {
-                Divider().padding(.vertical, 9)
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("""
-                    usAIge doesn't read folders macOS protects by itself, and macOS may ask for permission. \
-                    If iCloud manages the folder, usAIge lists its branches but skips files and sizes, because \
-                    reading them can start downloads, so they can't be deleted here.
-                    """)
-                    .font(.callout)
-                    .fixedSize(horizontal: false, vertical: true)
-                    Button("Check This Folder", action: check)
-                        .controlSize(.small)
-                }
-            }
-        }
-        .modifier(CardSurface(isExpanded: isExpanded))
-    }
-}
-
-@available(macOS 14.0, *)
-private struct UnreadableCard: View {
-    let repository: RepositoryInfo
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(repository.name)
-                .font(.system(size: 13, weight: .semibold))
-            Text(BranchesPresentation.abbreviated(repository.folder))
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Text(repository.failure ?? "Git couldn't read this repository.")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.orange)
-        }
-        .modifier(CardSurface())
-    }
-}
-
-/// The rows with no folder to show one by one, as a single card.
-@available(macOS 14.0, *)
-private struct SafeGroupCard: View {
-    let group: ClearGroup
-    let items: [WorkItem]
-    let isExpanded: Bool
-    let isDeleting: Bool
-    let toggle: () -> Void
-    let review: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button(action: toggle) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("\(items.count) \(group.title.prefix(1).lowercased() + group.title.dropFirst())")
-                        .font(.system(size: 13, weight: .semibold))
-                    Text(group.detail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.trailing, 28)
-                .overlay(alignment: .topTrailing) { FoldChevron(isExpanded: isExpanded) }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            if isExpanded {
-                Divider().padding(.vertical, 9)
-                VStack(alignment: .leading, spacing: 5) {
-                    ForEach(items.prefix(40)) { item in
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(item.workTitle).font(.caption).lineLimit(1)
-                            Text(item.branch ?? item.worktreePath.map { BranchesPresentation.abbreviated($0) } ?? "")
-                                .font(.system(size: 10, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
-                    }
-                    if items.count > 40 {
-                        Text("and \(items.count - 40) more").font(.caption).foregroundStyle(.tertiary)
-                    }
-                    Button("Review and Clear These…", action: review)
-                        .controlSize(.small)
-                        .disabled(isDeleting)
-                        .padding(.top, 3)
-                }
-            }
-        }
-        .modifier(CardSurface(isExpanded: isExpanded))
     }
 }
 
@@ -1439,7 +1019,7 @@ private struct ShowInFinderButton: View {
 
 /// The fold and unfold mark in a card's corner.
 @available(macOS 14.0, *)
-private struct FoldChevron: View {
+struct FoldChevron: View {
     let isExpanded: Bool
 
     var body: some View {
@@ -1638,89 +1218,5 @@ private struct ResultBanner: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 9)
-    }
-}
-
-// MARK: Tool storage
-
-@available(macOS 14.0, *)
-private struct ToolStorageView: View {
-    @ObservedObject var store: BranchesStore
-
-    private func tint(_ kind: ToolStorageKind) -> Color {
-        switch kind {
-        case .rebuildable: .green
-        case .history: .orange
-        case .runtime: .blue
-        case .review: .secondary
-        }
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("What AI and developer tools keep on this Mac. Shown only: usAIge clears nothing here.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                if store.isMeasuringToolStorage {
-                    ProgressView().controlSize(.small)
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            Divider()
-            if store.toolStorage.isEmpty {
-                ContentUnavailableView(
-                    store.isMeasuringToolStorage ? "Measuring…" : "Nothing to show",
-                    systemImage: "internaldrive",
-                    description: Text("Folders under 10 MB are left out.")
-                )
-            } else {
-                Table(store.toolStorage) {
-                    TableColumn("Name") { entry in
-                        Text(entry.name).lineLimit(1)
-                    }
-                    .width(min: 180, ideal: 240)
-                    TableColumn("Where") { entry in
-                        Text(entry.path.map { BranchesPresentation.abbreviated($0) } ?? "Managed by Xcode")
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .help(entry.path ?? "")
-                    }
-                    .width(min: 200, ideal: 380)
-                    TableColumn("Size") { entry in
-                        Text(entry.bytes, format: .byteCount(style: .file))
-                            .monospacedDigit()
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                    }
-                    .width(min: 70, ideal: 80, max: 100)
-                    TableColumn("Kind") { entry in
-                        Text(entry.kind.label)
-                            .font(.caption)
-                            .foregroundStyle(tint(entry.kind))
-                    }
-                    .width(min: 84, ideal: 96, max: 120)
-                    TableColumn("") { entry in
-                        if let path = entry.path {
-                            Button {
-                                FolderActions.showInFinder(path)
-                            } label: {
-                                Image(systemName: "folder")
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Show \(entry.name) in Finder")
-                            .help("Show in Finder")
-                        }
-                    }
-                    .width(28)
-                }
-            }
-        }
-        .onAppear {
-            if store.toolStorage.isEmpty { store.loadToolStorage() }
-        }
     }
 }

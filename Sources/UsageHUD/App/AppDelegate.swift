@@ -107,7 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
             liveWorkObserver = liveWork.$summary.sink { [weak quotaDetail] summary in
                 quotaDetail?.update(liveWork: summary)
             }
-            quotaDetail.openBranches = { [weak self] in self?.showBranches() }
+            quotaDetail.openBranches = { [weak self] front in self?.showBranches(front: front) }
             magnet.keepsRevealed = { [weak quotaDetail] in quotaDetail?.isPointerOnCard ?? false }
             content = AnyView(HUDView(
                 store: store,
@@ -121,7 +121,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
                 screenState: screenState,
                 quotaDetail: quotaDetail,
                 liveWork: liveWork,
-                openBranches: { [weak self] in self?.showBranches() }
+                openBranches: { [weak self] in self?.showBranches() },
+                openResourcePaperweight: { [weak self] front in self?.showBranches(front: front) }
             ))
         } else {
             content = AnyView(LegacyHUDView(
@@ -321,17 +322,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
 
     /// Opens the Branches window. Nothing about it runs until this is called,
     /// and closing the window lets all of it go.
-    func showBranches() {
+    func showBranches(front: PaperweightID? = nil) {
         guard #available(macOS 14.0, *) else { return }
         if let existing = branchesWindowController as? BranchesWindowController {
-            existing.present()
+            existing.present(front: front)
             return
         }
         let controller = BranchesWindowController(liveWork: liveWork) { [weak self] in
             self?.branchesWindowController = nil
         }
         branchesWindowController = controller
-        controller.present()
+        controller.present(front: front)
     }
 
     func showLimits() {

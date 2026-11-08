@@ -40,6 +40,8 @@ struct QuotaDetailPlacement: Equatable {
 final class QuotaDetailPanelController {
     /// Stands in for a snapshot's id while the tile's card is showing.
     static let liveWorkID = "usAIge.liveWork"
+    /// Stands in for a snapshot's id while the Storage card is showing.
+    static let storageID = "usAIge.storage"
     /// How long a card waits after the pointer leaves, so it can cross to it.
     static let hideDelay: TimeInterval = 0.25
     private static let pointerPollInterval: TimeInterval = 0.05
@@ -63,7 +65,8 @@ final class QuotaDetailPanelController {
     private(set) var isPointerOnCard = false
     /// Lets the live work monitor sample faster only while a card can be seen.
     var onVisibilityChanged: ((Bool) -> Void)?
-    var openBranches: () -> Void = {}
+    /// Opens the Branches window, with the given paperweight in front when set.
+    var openBranches: (PaperweightID?) -> Void = { _ in }
 
     init(
         rail: @escaping () -> NSWindow?,
@@ -95,9 +98,21 @@ final class QuotaDetailPanelController {
         onVisibilityChanged?(true)
     }
 
+    /// Shows the disk, and what the Branches window last measured on it,
+    /// beside the rail's Storage paperweight.
+    func showStorage(rowFrame: CGRect, disk: DiskSpace?, breakdown: StorageBreakdown?) {
+        shownSnapshotID = Self.storageID
+        shownSnapshot = nil
+        self.rowFrame = rowFrame
+        cancelPendingHide()
+        present(.storage(disk, breakdown))
+        startWatchingPointer()
+        onVisibilityChanged?(true)
+    }
+
     /// Keeps the open card current as new usage arrives.
     func update(_ snapshots: [QuotaSnapshot]) {
-        guard let shownSnapshotID, shownSnapshotID != Self.liveWorkID else { return }
+        guard let shownSnapshotID, shownSnapshotID != Self.liveWorkID, shownSnapshotID != Self.storageID else { return }
         if let snapshot = snapshots.first(where: { $0.id == shownSnapshotID }) {
             shownSnapshot = snapshot
             present(content(for: snapshot))
@@ -199,9 +214,16 @@ final class QuotaDetailPanelController {
         pointerTimer = nil
     }
 
+    /// A paperweight's own card opens Branches with that paperweight in front;
+    /// a usage card leaves whichever one is already there.
     func closeAndOpenBranches() {
+        let front: PaperweightID? = switch shownSnapshotID {
+        case Self.storageID: .storage
+        case Self.liveWorkID: .memory
+        default: nil
+        }
         if let shownSnapshotID { hide(snapshotID: shownSnapshotID) }
-        openBranches()
+        openBranches(front)
     }
 
     private func present(_ content: RailDetailCard.Content) {
