@@ -9,6 +9,15 @@ import Testing
 @Suite("ShipCraftRender")
 @MainActor
 struct ShipCraftRenderTests {
+    @Test func cylinderMetricsUseConfiguredSegmentsBeforeFirstRendering() {
+        let cylinder = SCNCylinder(radius: 0.1, height: 2)
+        cylinder.radialSegmentCount = 8
+        cylinder.heightSegmentCount = 1
+        let metrics = ShipDetailMetrics(ship: SCNNode(geometry: cylinder))
+        #expect(metrics.triangles == 32)
+        #expect(metrics.issues.isEmpty)
+    }
+
     @Test func polygonMetricsExcludeHeadersAndAdditionalIndexChannels() {
         // SceneKit's documented layout: two quads and a pentagon, followed
         // by separate position/UV index channels. They form seven triangles.
@@ -148,16 +157,30 @@ private struct ShipDetailMetrics {
             let bounds = geometry.boundingBox
             let points = [bounds.min, bounds.max].flatMap { [Double($0.x), Double($0.y), Double($0.z)] }
             if !points.allSatisfy(\.isFinite) { issues.append("nonfinite geometry bounds") }
-            for element in geometry.elements {
-                switch element.primitiveType {
-                case .triangles, .triangleStrip: triangles += element.primitiveCount
-                case .polygon:
-                    if let count = Self.polygonTriangles(data: element.data, primitiveCount: element.primitiveCount,
-                                                         bytesPerIndex: element.bytesPerIndex) {
-                        triangles += count
-                    } else { issues.append("malformed polygon vertex-count header") }
-                case .line, .point: break
-                @unknown default: issues.append("unknown mesh primitive type")
+            if let cylinder = geometry as? SCNCylinder {
+                // Before first rendering SceneKit can expose the default
+                // 48-sided index buffer even when radialSegmentCount is 8.
+                // Count the configured surface: two triangles per side cell,
+                // plus one triangle per radial segment on each end cap.
+                let radial = cylinder.radialSegmentCount, height = cylinder.heightSegmentCount
+                if cylinder.radius.isFinite, cylinder.radius > 0,
+                   cylinder.height.isFinite, cylinder.height > 0,
+                   radial >= 3, height >= 1, height < Int.max,
+                   radial <= Int.max / 2 / (height + 1) {
+                    triangles += 2 * radial * (height + 1)
+                } else { issues.append("invalid cylinder tessellation parameters") }
+            } else {
+                for element in geometry.elements {
+                    switch element.primitiveType {
+                    case .triangles, .triangleStrip: triangles += element.primitiveCount
+                    case .polygon:
+                        if let count = Self.polygonTriangles(data: element.data, primitiveCount: element.primitiveCount,
+                                                             bytesPerIndex: element.bytesPerIndex) {
+                            triangles += count
+                        } else { issues.append("malformed polygon vertex-count header") }
+                    case .line, .point: break
+                    @unknown default: issues.append("unknown mesh primitive type")
+                    }
                 }
             }
             for source in geometry.sources(for: .vertex) where !finiteVertices(source) {

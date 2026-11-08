@@ -23,7 +23,8 @@ struct CruiseWeatherDrawAdmissionTests {
     @Test func aFailedEncodingReturnsItsSlotAndANewerAdmittedDrawSupersedesThePendingOne() {
         let admission = CruiseWeatherDrawAdmission()
         #expect(admission.request())
-        #expect(!admission.complete(), "A missing drawable or encoder must return its slot")
+        admission.abandon()
+        #expect(!admission.complete(), "A failed draw without other GPU work must not schedule retries")
         #expect(admission.request())
         #expect(admission.request())
         #expect(!admission.request())
@@ -34,5 +35,26 @@ struct CruiseWeatherDrawAdmissionTests {
         #expect(!admission.complete())
         #expect(!admission.complete())
         #expect(!admission.complete(), "No extra release may invent a redraw")
+    }
+
+    @Test func aRetryThatCannotEncodeWaitsForAnotherRealCompletionWithoutSpinning() {
+        let admission = CruiseWeatherDrawAdmission()
+        #expect(admission.request())
+        #expect(admission.request())
+        #expect(!admission.request())
+        #expect(admission.complete(), "One busy frame releases the first retry")
+        #expect(admission.request())
+        // The resumed attempt finds no drawable/pass/encoder. The second
+        // original GPU frame still provides a real future completion.
+        admission.abandon()
+        #expect(admission.complete(), "The remaining real completion must preserve that failed latest redraw")
+        #expect(admission.request())
+        // If this attempt also cannot encode, there are no GPU frames left;
+        // nothing should immediately retry it or create a polling loop.
+        admission.abandon()
+        #expect(!admission.complete())
+        #expect(!admission.complete())
+        #expect(admission.request(), "A later normal visibility draw can still render the latest configuration")
+        #expect(!admission.complete())
     }
 }

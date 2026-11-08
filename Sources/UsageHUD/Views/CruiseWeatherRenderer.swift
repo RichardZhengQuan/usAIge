@@ -27,6 +27,16 @@ final class CruiseWeatherDrawAdmission: @unchecked Sendable {
         pending = false
         return retry
     }
+
+    /// An uncommitted attempt has no completion of its own. Ask another real
+    /// in-flight frame to retry it, or wait for the next normal visibility draw.
+    func abandon() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard inFlight > 0 else { return }
+        inFlight -= 1
+        pending = inFlight > 0
+    }
 }
 
 /// Explicit draws share the scene's visibility-owned clock. The Metal view
@@ -123,13 +133,12 @@ final class CruiseWeatherRenderer: NSObject, MTKViewDelegate {
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
     func draw(in view: MTKView) {
-        // Publish the weak target before admission, so even a completion
-        // racing this request can never lose the terminal paused frame.
+        // Publish the weak target before admission so a completion racing
+        // this request can find the latest pending frame.
         pendingView = view
         guard drawAdmission.request() else { return }
-        pendingView = nil
         var committed = false
-        defer { if !committed, drawAdmission.complete() { retryPendingDraw() } }
+        defer { if !committed { drawAdmission.abandon() } }
         guard let drawable = view.currentDrawable,
               let pass = view.currentRenderPassDescriptor,
               let command = resource.queue.makeCommandBuffer() else { return }
@@ -145,12 +154,12 @@ final class CruiseWeatherRenderer: NSObject, MTKViewDelegate {
         command.present(drawable)
         command.commit()
         committed = true
+        pendingView = nil
     }
 
     private func retryPendingDraw() {
         guard let view = pendingView else { return }
-        pendingView = nil
-        guard (view.delegate as AnyObject?) === self else { return }
+        guard (view.delegate as AnyObject?) === self else { pendingView = nil; return }
         // Use the newest configuration, not a captured animated frame. This
         // is one completion-driven retry; it never starts a display clock.
         view.draw()
