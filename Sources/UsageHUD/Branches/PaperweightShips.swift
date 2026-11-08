@@ -1,29 +1,6 @@
 import AppKit
 import SceneKit
 
-enum PaperweightShipKind: String, CaseIterable, Identifiable, Sendable {
-    case sailboat, liner, sub, galleon, ghost, victory, treasure, carrier, cartoon, viking, steamer, tug
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .sailboat: "Sailboat"
-        case .liner: "Titanic"
-        case .sub: "Submarine"
-        case .galleon: "Pirate galleon"
-        case .ghost: "Flying Dutchman"
-        case .victory: "HMS Victory"
-        case .treasure: "Zheng He treasure ship"
-        case .carrier: "Aircraft carrier"
-        case .cartoon: "Cartoon pirate ship"
-        case .viking: "Viking longship"
-        case .steamer: "Paddle steamer"
-        case .tug: "Tugboat"
-        }
-    }
-}
-
 /// The prototype's ships keep their own small coordinate system, so changing
 /// a ship leaves the water's position and spring motion alone.
 @available(macOS 14.0, *)
@@ -44,16 +21,71 @@ enum PaperweightShipFactory {
         case .viking: ship = viking()
         case .steamer: ship = steamer()
         case .tug: ship = tugboat()
+        case .goingMerry, .thousandSunny, .oroJackson, .mobyDick,
+             .redForce, .saberOfXebec, .bigTop, .bigTopBlaster,
+             .victoriaPunk, .jewelryMargherita, .grudgeDolph, .liberalHind,
+             .stayTune, .hanjomaru, .numanciaFlamingo, .dreadnaughtSabre,
+             .sharkSuperb, .greatEirik, .naglfar, .goingLuffySenpai,
+             .sleepingWhiteHorse, .yontaMaria, .usoland, .pieceOfSpadille:
+            ship = onePiecePirateShip(kind)
+        case .miniMerry, .sharkSubmerge, .queenMamaChanter, .polarTang,
+             .nostraCastello, .perfumeYuda, .thrillerBark, .hitsugibune,
+             .missLoveDuck, .bezanBlack, .baratie, .sexyFoxy,
+             .mammoth, .snapperHead, .arkMaxim, .onePieceFlyingDutchman,
+             .noah, .striker, .windGranma, .germa66,
+             .garpWarship, .marineWarship, .blackbeardRaft:
+            ship = onePieceSpecialShip(kind)
         }
         ship.name = kind.rawValue
-        let scale = CGFloat((3.8 / 440) * 2.9)
+        let scale = fittedFleetScale(ship)
         ship.scale = SCNVector3(scale, scale, scale)
         return ship
     }
 
+    /// Fit each miniature at its waterline, including the full roll envelope.
+    /// Tall castles and wide rafts must obey the same motion limits as a caravel.
+    private static func fittedFleetScale(_ ship: SCNNode) -> CGFloat {
+        var side = 0.0, top = 0.0, bottom = 0.0, depth = 0.0
+        ship.enumerateChildNodes { node, _ in
+            guard let geometry = node.geometry else { return }
+            let bounds = geometry.boundingBox
+            for x in [bounds.min.x, bounds.max.x] {
+                for y in [bounds.min.y, bounds.max.y] {
+                    for z in [bounds.min.z, bounds.max.z] {
+                        let point = node.convertPosition(SCNVector3(x, y, z), to: ship)
+                        let px = Double(point.x), py = Double(point.y)
+                        depth = max(depth, abs(Double(point.z)))
+                        var angles = [-PaperweightConstants.maximumRoll, 0, PaperweightConstants.maximumRoll]
+                        for base in [atan2(-py, px), atan2(px, py)] {
+                            for turn in -2...2 {
+                                let angle = base + Double(turn) * .pi
+                                if abs(angle) <= PaperweightConstants.maximumRoll { angles.append(angle) }
+                            }
+                        }
+                        for angle in angles {
+                            let x = px * cos(angle) - py * sin(angle)
+                            let y = px * sin(angle) + py * cos(angle)
+                            side = max(side, abs(x))
+                            top = max(top, y)
+                            bottom = max(bottom, -y)
+                        }
+                    }
+                }
+            }
+        }
+        let unit = PaperweightConstants.unitsPerPixel
+        let scales = [unit * PaperweightConstants.boatScale,
+                      PaperweightConstants.boatMargin * unit / max(side * 1.12, 0.001),
+                      PaperweightConstants.boatHeight * unit / max(top * 1.12, 0.001),
+                      PaperweightConstants.boatDraft * unit / max(bottom * 1.12, 0.001),
+                      PaperweightConstants.ZF / max(depth * 1.12, 0.001)]
+        // Extra room covers flutter, nods, oars and rotating blade envelopes.
+        return CGFloat((scales.min() ?? unit) * 0.98)
+    }
+
     // MARK: Shared primitives
 
-    private static func color(_ hex: String) -> NSColor {
+    static func color(_ hex: String) -> NSColor {
         let value = UInt32(hex.trimmingCharacters(in: CharacterSet(charactersIn: "#")), radix: 16) ?? 0
         return NSColor(
             srgbRed: CGFloat((value >> 16) & 255) / 255,
@@ -62,7 +94,7 @@ enum PaperweightShipFactory {
         )
     }
 
-    private static func material(
+    static func material(
         _ hex: String, roughness: Double = 0.55, metalness: Double = 0,
         doubleSided: Bool = false
     ) -> SCNMaterial {
@@ -75,18 +107,18 @@ enum PaperweightShipFactory {
         return result
     }
 
-    private static func textured(_ image: NSImage, roughness: Double = 0.55) -> SCNMaterial {
+    static func textured(_ image: NSImage, roughness: Double = 0.55) -> SCNMaterial {
         let result = material("#ffffff", roughness: roughness, doubleSided: true)
         result.diffuse.contents = image
         return result
     }
 
-    private static func vector(_ x: Double, _ y: Double, _ z: Double) -> SCNVector3 {
+    static func vector(_ x: Double, _ y: Double, _ z: Double) -> SCNVector3 {
         SCNVector3(CGFloat(x), CGFloat(y), CGFloat(z))
     }
 
     @discardableResult
-    private static func put(
+    static func put(
         _ group: SCNNode, _ geometry: SCNGeometry, _ material: SCNMaterial,
         _ x: Double = 0, _ y: Double = 0, _ z: Double = 0,
         rx: Double = 0, ry: Double = 0, rz: Double = 0
@@ -100,7 +132,7 @@ enum PaperweightShipFactory {
         return node
     }
 
-    private static func path(_ points: [(Double, Double)]) -> NSBezierPath {
+    static func path(_ points: [(Double, Double)]) -> NSBezierPath {
         let result = NSBezierPath()
         guard let first = points.first else { return result }
         result.move(to: NSPoint(x: first.0, y: first.1))
@@ -110,7 +142,7 @@ enum PaperweightShipFactory {
     }
 
     @discardableResult
-    private static func profile(
+    static func profile(
         _ group: SCNNode, _ points: [(Double, Double)], _ width: Double,
         _ material: SCNMaterial, bevel: Double = 0.7
     ) -> SCNNode {
@@ -118,7 +150,7 @@ enum PaperweightShipFactory {
     }
 
     @discardableResult
-    private static func extrude(
+    static func extrude(
         _ group: SCNNode, _ outline: NSBezierPath, _ width: Double,
         _ material: SCNMaterial, bevel: Double
     ) -> SCNNode {
@@ -131,23 +163,24 @@ enum PaperweightShipFactory {
         return node
     }
 
-    private static func flat(
+    static func flat(
         _ group: SCNNode, _ points: [(Double, Double)], _ material: SCNMaterial,
         _ x: Double = 0, _ y: Double = 0, _ z: Double = 0
     ) {
-        put(group, SCNShape(path: path(points), extrusionDepth: 0), material, x, y, z)
+        PaperweightShipAnimation.tag(put(group, SCNShape(path: path(points), extrusionDepth: 0), material, x, y, z), as: .sail)
     }
 
-    private static func box(
+    @discardableResult
+    static func box(
         _ group: SCNNode, _ width: Double, _ height: Double, _ depth: Double,
         _ material: SCNMaterial, _ x: Double, _ y: Double, _ z: Double = 0,
         ry: Double = 0, rz: Double = 0
-    ) {
+    ) -> SCNNode {
         put(group, SCNBox(width: width, height: height, length: depth, chamferRadius: 0),
             material, x, y, z, ry: ry, rz: rz)
     }
 
-    private static func cylinder(
+    static func cylinder(
         _ group: SCNNode, _ top: Double, _ bottom: Double, _ height: Double,
         _ material: SCNMaterial, _ x: Double, _ y: Double, _ z: Double = 0,
         rz: Double = 0, rx: Double = 0
@@ -157,12 +190,12 @@ enum PaperweightShipFactory {
         put(group, geometry, material, x, y, z, rx: rx, rz: rz)
     }
 
-    private static func mast(_ group: SCNNode, _ x: Double, _ bottom: Double, _ height: Double, _ material: SCNMaterial) {
+    static func mast(_ group: SCNNode, _ x: Double, _ bottom: Double, _ height: Double, _ material: SCNMaterial) {
         cylinder(group, 0.42, 0.52, height, material, x, bottom + height / 2)
     }
 
     @discardableResult
-    private static func sphere(
+    static func sphere(
         _ group: SCNNode, _ radius: Double, _ segments: Int, _ material: SCNMaterial,
         _ x: Double, _ y: Double, _ z: Double = 0
     ) -> SCNNode {
@@ -171,14 +204,15 @@ enum PaperweightShipFactory {
         return put(group, geometry, material, x, y, z)
     }
 
-    private static func plane(
+    static func plane(
         _ group: SCNNode, _ width: Double, _ height: Double, _ material: SCNMaterial,
         _ x: Double, _ y: Double, _ z: Double = 0
     ) {
-        put(group, SCNPlane(width: width, height: height), material, x, y, z)
+        PaperweightShipAnimation.tag(put(group, SCNPlane(width: width, height: height), material, x, y, z),
+                                     as: height < 3 ? .flag : .sail)
     }
 
-    private static func mesh(
+    static func mesh(
         _ vertices: [SCNVector3], _ normals: [SCNVector3], _ coordinates: [CGPoint], _ indices: [Int32]
     ) -> SCNGeometry {
         SCNGeometry(sources: [
@@ -187,7 +221,7 @@ enum PaperweightShipFactory {
         ], elements: [SCNGeometryElement(indices: indices, primitiveType: .triangles)])
     }
 
-    private static func sail(
+    static func sail(
         _ group: SCNNode, _ x: Double, _ y: Double, _ width: Double, _ height: Double,
         _ material: SCNMaterial, brace: Double = 0.5, bulge: Double? = nil,
         columns: Int = 8, z: Double = 0
@@ -214,10 +248,10 @@ enum PaperweightShipFactory {
                 }
             }
         }
-        put(group, mesh(vertices, normals, coordinates, indices), material, x, y, z, ry: brace)
+        PaperweightShipAnimation.tag(put(group, mesh(vertices, normals, coordinates, indices), material, x, y, z, ry: brace), as: .sail)
     }
 
-    private static func disc(
+    static func disc(
         _ group: SCNNode, _ radius: Double, _ segments: Int, _ material: SCNMaterial,
         _ x: Double, _ y: Double, _ z: Double, ry: Double = 0
     ) {
@@ -234,7 +268,7 @@ enum PaperweightShipFactory {
             material, x, y, z, ry: ry)
     }
 
-    private static func torus(
+    static func torus(
         _ group: SCNNode, _ radius: Double, _ tube: Double, rings: Int, sides: Int,
         _ material: SCNMaterial, _ x: Double, _ y: Double, _ z: Double = 0,
         rx: Double = 0, ry: Double = 0
@@ -262,7 +296,7 @@ enum PaperweightShipFactory {
 
     // MARK: Local canvas textures
 
-    private static func canvas(_ width: Int, _ height: Int, draw: (CGContext, CGFloat, CGFloat) -> Void) -> NSImage {
+    static func canvas(_ width: Int, _ height: Int, draw: (CGContext, CGFloat, CGFloat) -> Void) -> NSImage {
         let context = CGContext(
             data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
@@ -273,19 +307,19 @@ enum PaperweightShipFactory {
         return NSImage(cgImage: context.makeImage()!, size: NSSize(width: width, height: height))
     }
 
-    private static func fill(_ context: CGContext, _ hex: String, _ rect: CGRect) {
+    static func fill(_ context: CGContext, _ hex: String, _ rect: CGRect) {
         context.setFillColor(color(hex).cgColor)
         context.fill(rect)
     }
 
-    private static let pirateFlag = canvas(64, 40) { context, width, height in
+    static let pirateFlag = canvas(64, 40) { context, width, height in
         fill(context, "#111111", CGRect(x: 0, y: 0, width: width, height: height))
         context.setFillColor(color("#eeeeee").cgColor)
         context.fillEllipse(in: CGRect(x: 24, y: 9, width: 16, height: 16))
         context.fill(CGRect(x: 27, y: 22, width: 10, height: 6))
     }
 
-    private static let skullSail = canvas(256, 200) { context, width, height in
+    static let skullSail = canvas(256, 200) { context, width, height in
         fill(context, "#f4ecd8", CGRect(x: 0, y: 0, width: width, height: height))
         context.setStrokeColor(color("#1a1a1a").cgColor)
         context.setLineWidth(16)
@@ -303,14 +337,14 @@ enum PaperweightShipFactory {
         context.fill(CGRect(x: 132, y: 128, width: 6, height: 14))
     }
 
-    private static let stripedSail = canvas(240, 170) { context, width, height in
+    static let stripedSail = canvas(240, 170) { context, width, height in
         for stripe in 0..<8 {
             fill(context, stripe.isMultiple(of: 2) ? "#b3261e" : "#f3ece0",
                  CGRect(x: CGFloat(stripe) * width / 8, y: 0, width: width / 8 + 1, height: height))
         }
     }
 
-    private static let tornSail = canvas(128, 128) { context, width, height in
+    static let tornSail = canvas(128, 128) { context, width, height in
         fill(context, "#ffffff", CGRect(x: 0, y: 0, width: width, height: height))
         // Fixed tears keep the same handmade sail when a ship is chosen again.
         var seed: UInt64 = 0xD07C4
@@ -331,6 +365,12 @@ enum PaperweightShipFactory {
         context.addLine(to: CGPoint(x: width, y: height))
         context.closePath()
         context.fillPath()
+    }
+
+    private static func classicSmoke(_ group: SCNNode, x: Double, y: Double, z: Double = 0) {
+        let puff = sphere(group, 1.15, 10, material("#c9d1da"), x, y, z)
+        puff.opacity = 0.35
+        PaperweightShipAnimation.tag(puff, as: .smoke)
     }
 
     // MARK: Ships
@@ -361,6 +401,7 @@ enum PaperweightShipFactory {
         for x in [-7.0, -2.5, 2, 6.5] {
             cylinder(group, 1.3, 1.4, 6.6, buff, x, 13.4, rz: 0.12)
             cylinder(group, 1.33, 1.33, 1.3, black, x - 0.4, 16.6, rz: 0.12)
+            classicSmoke(group, x: x - 0.6, y: 20.2)
         }
         let mastMaterial = material("#3a3a3a")
         cylinder(group, 0.22, 0.28, 15, mastMaterial, -13, 11)
@@ -381,6 +422,14 @@ enum PaperweightShipFactory {
         box(group, 2.6, 4.2, 0.35, hull, -16.2, -0.4)
         box(group, 2.6, 0.35, 6, hull, -16, -0.6)
         torus(group, 1, 0.25, rings: 16, sides: 8, dark, -17.4, -0.6, ry: .pi / 2)
+        let propeller = SCNNode()
+        propeller.position = vector(-18, -0.6, 0)
+        group.addChildNode(propeller)
+        for angle in [0.0, .pi / 2] {
+            box(propeller, 0.3, 4.1, 0.8, material("#b5a06b", metalness: 0.4), 0, 0, 0, rz: 0)
+                .eulerAngles.x = CGFloat(angle)
+        }
+        PaperweightShipAnimation.tag(propeller, as: .propeller)
         let porthole = material("#f2c14e")
         porthole.emission.contents = color("#a07a10")
         for x in stride(from: -6.0, through: 8, by: 3.5) { disc(group, 0.55, 16, porthole, x, 0.4, 3.15) }
@@ -448,7 +497,7 @@ enum PaperweightShipFactory {
             sail(group, x, 6 + height * 0.86, 4.6, 2.1, cloth)
         }
         cylinder(group, 0.15, 0.15, 5, wood, -14.2, 12.5)
-        box(group, 2.8, 1.7, 0.1, material("#c8102e"), -12.7, 14.1)
+        PaperweightShipAnimation.tag(box(group, 2.8, 1.7, 0.1, material("#c8102e"), -12.7, 14.1), as: .flag)
         return group
     }
 
@@ -484,6 +533,11 @@ enum PaperweightShipFactory {
         box(group, 4.4, 5, 2.4, island, 4, 6.8, -5)
         box(group, 3.4, 2, 2.2, island, 4.3, 10.2, -5)
         cylinder(group, 0.2, 0.25, 5, material("#444444"), 4.4, 13.6, -5)
+        let radar = SCNNode()
+        radar.position = vector(4.4, 16.4, -5)
+        group.addChildNode(radar)
+        box(radar, 4, 0.9, 0.35, material("#d6dfdf"), 0, 0)
+        PaperweightShipAnimation.tag(radar, as: .radar)
         for (x, z) in [(-11.0, -2.5), (-7.5, 1.8), (9, 2.4), (12.5, -1.8), (-1.5, 3.6)] {
             box(group, 3.2, 0.55, 0.75, aircraft, x, 4.75, z)
             box(group, 1.1, 0.25, 3.6, aircraft, x + 0.2, 4.7, z)
@@ -508,7 +562,7 @@ enum PaperweightShipFactory {
         plane(group, 11, 8.5, textured(skullSail, roughness: 0.75), 0.2, 12.6, 0.5)
         box(group, 12.5, 0.45, 0.45, brown, 0.2, 17)
         cylinder(group, 1.6, 1.2, 1.4, brown, 0, 20.2)
-        box(group, 2.6, 1.5, 0.12, material("#111111"), 1.6, 21.6)
+        PaperweightShipAnimation.tag(box(group, 2.6, 1.5, 0.12, material("#111111"), 1.6, 21.6), as: .flag)
         sphere(group, 1.4, 16, material("#f2c14e", roughness: 0.35, metalness: 0.3), 13.6, 4.3)
         return group
     }
@@ -534,6 +588,16 @@ enum PaperweightShipFactory {
         box(group, 13, 0.4, 0.4, darkWood, 0, 17)
         sail(group, 0, 12.6, 12, 8.5, textured(stripedSail, roughness: 0.8),
              brace: 0, bulge: 1.2, columns: 6, z: 0.4)
+        for x in [-7.0, -3, 1, 5, 9] {
+            for side in [-1.0, 1] {
+                let oar = SCNNode()
+                oar.position = vector(x, 2.4, side * 3.8)
+                group.addChildNode(oar)
+                box(oar, 0.25, 0.25, 4.3, darkWood, 0, -0.2, side * 1.7)
+                box(oar, 0.7, 0.2, 1.8, wood, 0, -0.2, side * 4.2)
+                PaperweightShipAnimation.tag(oar, as: .oar)
+            }
+        }
         let horn = SCNCone(topRadius: 0, bottomRadius: 0.7, height: 1.6)
         horn.radialSegmentCount = 10
         put(group, horn, material("#d6a640", metalness: 0.3), 14, 10.9, rz: -0.5)
@@ -551,9 +615,11 @@ enum PaperweightShipFactory {
         for z in [-2.0, 2] {
             cylinder(group, 0.75, 0.85, 10, black, 8, 13, z)
             torus(group, 1, 0.25, rings: 12, sides: 6, black, 8, 18, z, rx: .pi / 2)
+            classicSmoke(group, x: 8, y: 21.3, z: z)
         }
         let wheel = SCNNode()
         wheel.name = "paddle-wheel"
+        PaperweightShipAnimation.tag(wheel, as: .wheel)
         wheel.position = vector(-13.6, 2.2, 0)
         group.addChildNode(wheel)
         for z in [-4.0, 4] { torus(wheel, 3.6, 0.32, rings: 28, sides: 8, red, 0, 0, z) }
@@ -576,6 +642,7 @@ enum PaperweightShipFactory {
         for x in [-1.3, 0.5, 2.3] { box(group, 1.2, 1.1, 5.7, window, x, 10.6) }
         cylinder(group, 1.1, 1.2, 5, material("#f2c14e"), -5.5, 10.6)
         cylinder(group, 1.13, 1.13, 1, black, -5.5, 13.4)
+        classicSmoke(group, x: -5.5, y: 17.1)
         cylinder(group, 0.14, 0.14, 4, material("#444444"), 0.5, 13.8)
         for x in stride(from: -8.0, through: 8, by: 4) { torus(group, 0.9, 0.35, rings: 16, sides: 8, black, x, 1.3, 5.35) }
         return group

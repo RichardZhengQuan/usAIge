@@ -3,13 +3,16 @@ import Metal
 import SceneKit
 import SwiftUI
 
-/// SceneKit is used once per ship, size and screen scale. Hovering moves this
-/// cached image, so the always-visible rail never keeps a renderer alive.
+/// SceneKit produces a baseline image and a small sprite strip on first use.
+/// Sailing and rail views retain images, never a scene or running renderer.
 @available(macOS 14.0, *)
 struct RailPaperweightShipImage: View {
     let kind: PaperweightShipKind
     var size = CGSize(width: 18, height: 12)
+    var animationTime: TimeInterval? = nil
     @Environment(\.displayScale) private var displayScale
+
+    @MainActor static var canAnimate: Bool { PaperweightShipImageCache.shared.hasGraphicsDevice }
 
     /// The model's root is the waterline; the hull extends below it.
     nonisolated static var waterlineFraction: CGFloat {
@@ -20,7 +23,8 @@ struct RailPaperweightShipImage: View {
 
     var body: some View {
         Group {
-            if let image = PaperweightShipImageCache.shared.image(for: kind, size: size, scale: displayScale) {
+            if let image = PaperweightShipImageCache.shared.image(for: kind, size: size, scale: displayScale,
+                                                                 animationTime: animationTime) {
                 Image(nsImage: image).resizable().interpolation(.high)
             } else {
                 RailSailboatSilhouette().fill(Color.primary.opacity(0.78))
@@ -32,14 +36,42 @@ struct RailPaperweightShipImage: View {
     }
 }
 
+@MainActor
+enum RailPaperweightShipTiming {
+    static let frameCount = 20
+    // The motion model also runs in non-UI tests on the older deployment
+    // target. SceneKit's rig itself is available only on macOS 14 and newer.
+    private static var cycleDuration: TimeInterval {
+        if #available(macOS 14.0, *) { return PaperweightShipAnimation.cycleDuration }
+        return 4
+    }
+    static var frameDuration: TimeInterval { cycleDuration / Double(frameCount) }
+
+    static func frameIndex(at time: TimeInterval) -> Int {
+        guard time.isFinite else { return 0 }
+        let phase = max(0, time).truncatingRemainder(dividingBy: cycleDuration)
+        return min(frameCount - 1, Int(phase / frameDuration + 0.000_000_01))
+    }
+}
+
 /// Shared snapshots let the rail and cruising ships reuse the same 3D artwork.
 @available(macOS 14.0, *)
 @MainActor
 final class PaperweightShipImageCache {
     static let shared = PaperweightShipImageCache()
     private lazy var device = MTLCreateSystemDefaultDevice()
-    private var images: [Key: NSImage] = [:]
+    private var images: [Key: Cached<NSImage>] = [:]
+    private var strips: [Key: Cached<[NSImage]>] = [:]
     private var unavailable: Set<Key> = []
+    private var access = 0
+
+    var hasGraphicsDevice: Bool { device != nil }
+
+    private struct Cached<Value> {
+        let value: Value
+        let cost: Int
+        var access: Int
+    }
 
     private struct Key: Hashable {
         let kind: PaperweightShipKind
@@ -47,18 +79,100 @@ final class PaperweightShipImageCache {
         let pixelHeight: Int
     }
 
-    func image(for kind: PaperweightShipKind, size: CGSize, scale: CGFloat) -> NSImage? {
-        guard size.width > 0, size.height > 0, scale.isFinite else { return nil }
+    func image(for kind: PaperweightShipKind, size: CGSize, scale: CGFloat,
+               animationTime: TimeInterval? = nil) -> NSImage? {
+        guard size.width > 0, size.height > 0, size.width.isFinite, size.height.isFinite,
+              scale.isFinite else { return nil }
         let scale = min(4, max(1, scale))
-        let key = Key(kind: kind, pixelWidth: max(1, Int((size.width * scale).rounded())),
-                      pixelHeight: max(1, Int((size.height * scale).rounded())))
-        if let image = images[key] { return image }
+        // Preserve the requested aspect ratio while capping every texture.
+        // This also prevents huge layouts overflowing pixel-size conversion.
+        let rasterScale = min(scale, 512 / max(size.width, size.height))
+        let key = Key(kind: kind, pixelWidth: max(1, Int((size.width * rasterScale).rounded())),
+                      pixelHeight: max(1, Int((size.height * rasterScale).rounded())))
+        access += 1
+        if let animationTime, animationTime.isFinite {
+            if var cached = strips[key] {
+                cached.access = access
+                strips[key] = cached
+                return cached.value[RailPaperweightShipTiming.frameIndex(at: animationTime)]
+            }
+        } else if var cached = images[key] {
+            cached.access = access
+            images[key] = cached
+            return cached.value
+        }
         guard !unavailable.contains(key), let device else { return nil }
 
+        let animated = animationTime?.isFinite == true
+        let snapshots: (images: [NSImage], cost: Int)? = autoreleasepool {
+            let (renderer, ship) = makeRenderer(for: key.kind, device: device)
+            let animation = animated ? PaperweightShipAnimation(ship: ship, kind: key.kind) : nil
+            var result: [NSImage] = []
+            var cost = 0
+            let count = animated ? RailPaperweightShipTiming.frameCount : 1
+            for index in 0..<count {
+                let time = Double(index) * RailPaperweightShipTiming.frameDuration
+                SCNTransaction.begin()
+                SCNTransaction.disableActions = true
+                animation?.apply(time: time)
+                SCNTransaction.commit()
+                let frame: (image: NSImage, cost: Int)? = autoreleasepool {
+                    let snapshot = renderer.snapshot(atTime: time,
+                                                     with: CGSize(width: CGFloat(key.pixelWidth), height: CGFloat(key.pixelHeight)),
+                                                     antialiasingMode: .multisampling4X)
+                    var rect = NSRect(origin: .zero, size: snapshot.size)
+                    guard let pixels = snapshot.cgImage(forProposedRect: &rect, context: nil, hints: nil),
+                          let bitmap = CGContext(data: nil, width: key.pixelWidth, height: key.pixelHeight,
+                                                 bitsPerComponent: 8, bytesPerRow: 0,
+                                                 space: CGColorSpaceCreateDeviceRGB(),
+                                                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+                    // Own a bounded CPU bitmap, independent of SceneKit's
+                    // readback representation or temporary Metal resources.
+                    bitmap.draw(pixels, in: CGRect(x: 0, y: 0, width: CGFloat(key.pixelWidth), height: CGFloat(key.pixelHeight)))
+                    guard let frame = bitmap.makeImage() else { return nil }
+                    return (NSImage(cgImage: frame, size: size), frame.bytesPerRow * frame.height)
+                }
+                guard let frame else { return nil }
+                result.append(frame.image)
+                cost += frame.cost
+            }
+            // The renderer, scene, rig and temporary render allocations die
+            // here. Later ticks select an already-rasterized frame only.
+            return (result, cost)
+        }
+        guard let snapshots else {
+            if unavailable.count >= 128 { unavailable.removeAll(keepingCapacity: true) }
+            unavailable.insert(key)
+            return nil
+        }
+        if animated, let animationTime {
+            strips[key] = Cached(value: snapshots.images, cost: snapshots.cost, access: access)
+            Self.trim(&strips, count: 8, bytes: 32 * 1_024 * 1_024)
+            return snapshots.images[RailPaperweightShipTiming.frameIndex(at: animationTime)]
+        }
+        let image = snapshots.images[0]
+        images[key] = Cached(value: image, cost: snapshots.cost, access: access)
+        Self.trim(&images, count: 128, bytes: 16 * 1_024 * 1_024)
+        return image
+    }
+
+    /// Budget the actual bitmap stride, including padding, rather than only
+    /// counting keys: a large sailing strip costs more than a rail strip.
+    private static func trim<Value>(_ cache: inout [Key: Cached<Value>], count: Int, bytes: Int) {
+        var cost = cache.values.reduce(0) { $0 + $1.cost }
+        while cache.count > count || cost > bytes {
+            guard let oldest = cache.min(by: { $0.value.access < $1.value.access })?.key,
+                  let removed = cache.removeValue(forKey: oldest) else { break }
+            cost -= removed.cost
+        }
+    }
+
+    private func makeRenderer(for kind: PaperweightShipKind, device: MTLDevice) -> (SCNRenderer, SCNNode) {
         let scene = SCNScene()
         scene.isPaused = true
         scene.background.contents = NSColor.clear
-        scene.rootNode.addChildNode(PaperweightShipFactory.make(kind))
+        let ship = PaperweightShipFactory.make(kind)
+        scene.rootNode.addChildNode(ship)
 
         let camera = SCNNode()
         camera.camera = SCNCamera()
@@ -91,16 +205,7 @@ final class PaperweightShipImageCache {
         renderer.scene = scene
         renderer.pointOfView = camera
         renderer.autoenablesDefaultLighting = false
-        let image = renderer.snapshot(atTime: 0, with: CGSize(width: CGFloat(key.pixelWidth), height: CGFloat(key.pixelHeight)),
-                                      antialiasingMode: .multisampling4X)
-        var rect = NSRect(origin: .zero, size: image.size)
-        guard image.cgImage(forProposedRect: &rect, context: nil, hints: nil) != nil else {
-            unavailable.insert(key)
-            return nil
-        }
-        image.size = size
-        images[key] = image
-        return image
+        return (renderer, ship)
     }
 }
 

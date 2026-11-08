@@ -98,7 +98,7 @@ final class UsageAtmosphereView: NSView {
     func configure(active: Bool, compact: Bool, weather: CruiseWeather, ship: PaperweightShipKind, showsShip: Bool,
                    dark: Bool, reduced: Bool, capturesWeather: Bool = false,
                    command: PaperweightSceneCommand? = nil) {
-        let changed = self.compact != compact || self.dark != dark || self.reduced != reduced
+        let changed = self.active != active || self.compact != compact || self.dark != dark || self.reduced != reduced
             || self.weather != weather || self.ship != ship || self.showsShip != showsShip
             || self.capturesWeather != capturesWeather
         let cadenceChanged = self.compact != compact
@@ -132,12 +132,23 @@ final class UsageAtmosphereView: NSView {
     }
 
     private func updateShipSnapshot() {
+        guard showsShip else {
+            snapshotKey = nil
+            shipSnapshot = nil
+            return
+        }
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
-        let key = "\(ship.rawValue)-\(compact)-\(scale)"
+        // A strip is created only after the native clock has started in a
+        // visible window. Hidden, paused and frozen scenes use the rest pose.
+        let frame = isAnimating && active && !reduced && !capturesWeather && isSceneVisible
+            ? RailPaperweightShipTiming.frameIndex(at: phase) : nil
+        let key = "\(ship.rawValue)-\(compact)-\(scale)-\(frame.map { String($0) } ?? "rest")"
         guard key != snapshotKey else { return }
         snapshotKey = key
         let size = compact ? CGSize(width: 72, height: 48) : CGSize(width: 360, height: 240)
-        let image = PaperweightShipImageCache.shared.image(for: ship, size: size, scale: scale)
+        let animationTime = frame.map { Double($0) * RailPaperweightShipTiming.frameDuration }
+        let image = PaperweightShipImageCache.shared.image(for: ship, size: size, scale: scale,
+                                                          animationTime: animationTime)
         var rect = CGRect(origin: .zero, size: size)
         shipSnapshot = image?.cgImage(forProposedRect: &rect, context: nil, hints: nil)
     }
@@ -202,9 +213,13 @@ final class UsageAtmosphereView: NSView {
         updateVisibility()
     }
 
-    private func updateVisibility() {
+    private var isSceneVisible: Bool {
         let visible = window.map { $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible) } ?? false
-        guard active, !reduced, visible, !NSApp.isHidden, !isHiddenOrHasHiddenAncestor, !visibleRect.isEmpty else {
+        return visible && !NSApp.isHidden && !isHiddenOrHasHiddenAncestor && !visibleRect.isEmpty
+    }
+
+    private func updateVisibility() {
+        guard active, !reduced, isSceneVisible else {
             stopClock()
             return
         }
@@ -219,8 +234,14 @@ final class UsageAtmosphereView: NSView {
     }
 
     private func stopClock() {
+        let wasAnimating = isAnimating
         timer?.invalidate()
         timer = nil
+        if wasAnimating {
+            updateShipSnapshot()
+            needsDisplay = true
+            shipOverlay?.needsDisplay = true
+        }
     }
 
     fileprivate func tick() {
@@ -241,6 +262,9 @@ final class UsageAtmosphereView: NSView {
     }
 
     private func invalidateFrame() {
+        // This key changes only at sprite-frame edges; weather and buoyancy
+        // can advance more frequently without rendering another ship model.
+        updateShipSnapshot()
         needsDisplay = true
         shipOverlay?.needsDisplay = true
         guard !capturesWeather, let weatherRenderer, let weatherView else { return }

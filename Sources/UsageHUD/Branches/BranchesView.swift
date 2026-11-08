@@ -167,7 +167,7 @@ struct BranchesRootView: View {
                                 .labelsHidden()
                                 .frame(maxWidth: 200)
                                 if showsLayers {
-                                    Text(moving ? "Moving" : "Still").font(.caption).foregroundStyle(.secondary)
+                                    Text(moving ? "Water moving" : "Water settled").font(.caption).foregroundStyle(.secondary)
                                 }
                             }
                             selectedRows(selected, board: shown, configuration: configuration, now: now)
@@ -319,16 +319,10 @@ struct BranchesRootView: View {
 
     private var shipPicker: some View {
         HStack {
-            Picker(showsLayers ? "Ship in the front paperweight" : "Cruising ship", selection: Binding(
-                get: { store.ship(for: front) },
-                set: { ship in
-                    store.chooseShip(ship, for: front)
-                    send(.shipDrop)
-                }
-            )) {
-                ForEach(PaperweightShipKind.allCases) { ship in Text(ship.title).tag(ship) }
+            PaperweightShipPicker(selected: store.ship(for: front)) { ship in
+                store.chooseShip(ship, for: front)
+                send(.shipDrop)
             }
-            .frame(maxWidth: 400, alignment: .leading)
             Spacer(minLength: 8)
         }
     }
