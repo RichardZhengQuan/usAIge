@@ -72,8 +72,16 @@ final class BranchesWindowController: NSWindowController, NSWindowDelegate {
         if let front { presentation.show(front) }
         NSApp.activate(ignoringOtherApps: true)
         if !window.isVisible, !window.setFrameUsingName(Self.frameName) { window.center() }
+        if window.isMiniaturized { window.deminiaturize(nil) }
         window.makeKeyAndOrderFront(nil)
         store.windowOpened()
+    }
+
+    func refresh() {
+        guard !store.isDeleting else { return }
+        store.refresh()
+        store.loadToolStorage(force: true)
+        store.readDiskSpace()
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
