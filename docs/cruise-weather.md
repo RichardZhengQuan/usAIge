@@ -6,14 +6,32 @@ and rain impacts on the sea. The ship and its existing sailing/buoyancy model
 remain a separate overlay. There are eight explicit conditions: Sunny, Cloudy,
 Rain, Thunder, Storm, Typhoon, Snow and Night, plus Automatic.
 
-Select **Automatic** to enable a shared random weather cycle in the window and
-rail. The cycle draws from a shuffled bag containing all eight conditions,
-including Thunder and Typhoon, before reshuffling. Consecutive conditions never
-repeat, including across bag boundaries. Each condition holds for a random
-90–180 seconds, then the sky and water blend into the next condition over six
-seconds. Manual choices pin their condition until Automatic is selected again.
-All conditions are decorative scenes, not location forecasts or AI activity
-indicators.
+Memory and Storage open one borderless resource ocean. Usage pigments are
+part of the water shader itself, sharing its ripples, reflections, foam and
+weather. The sky meets the same moving surface that supports the ship; there
+is no separate blue sea above an overlaid usage chart. Layer proportions
+define the water’s colored depths. Names and byte amounts stay on the liquid;
+text can stagger horizontally across thin layers without widening their data.
+Clicking the water or choosing a layer in the native controls opens its existing
+details. There is no
+separate sailing/usage mode. Each resource keeps its own ship choice, and its
+ship cruises within the box so the full hull and masts stay in view. The rail
+uses the same contained motion; neither scene exits or wraps around an edge.
+
+In the resource window, **Automatic** follows the selected resource's observed
+condition. Memory uses macOS system memory pressure: normal is Sunny, warning
+is Rain, critical is Storm, and an unavailable reading is Cloudy. The measured
+AI/development process footprint is not treated as free RAM or system pressure.
+Storage follows actual disk headroom: more than 20% free is Sunny, at most 20%
+is Cloudy, at most 10% is Rain, and at most 5% is Storm. A clearing preview
+changes the ocean's layer amounts without forecasting healthier weather.
+The condition is written beside the weather control. Manual choices pin their
+condition until Automatic is selected again.
+
+The narrow rail's decorative background retains its shared random Automatic
+cycle: all eight conditions in a shuffled bag, each held for 90–180 seconds
+with a six-second transition. These decorative rail conditions are independent
+of the selected resource window. Neither view uses location forecasts.
 
 Thunder adds sparse, distant lightning without sound. Typhoon combines rotating
 cloud and rain bands with windblown spray, crest foam and the strongest sea
@@ -38,10 +56,11 @@ with the application under `Resources/ThirdPartyNotices/DriftClouds.txt`.
 
 The existing host owns the only drawing clock: 24 Hz for the large scene and
 12 Hz for the rail. MetalKit is paused and draws explicitly from that clock.
-The same scene clocks sample one shared automatic weather schedule; cycling
-adds no timer. Pause and Reduce Motion hold that scene’s exact weather mixture,
-including any blend in flight. On resume it blends into the shared current
-weather. Hidden or covered scenes stop their clock instead of running an unseen
+The rail samples its shared automatic weather schedule; resource readings
+reuse the existing monitor refresh. Neither adds a weather polling timer.
+Pause and Reduce Motion hold animation, including weather blends in flight.
+Resource condition changes blend over six seconds while active. The rail
+rejoins its shared current weather when resumed. Hidden or covered scenes stop their clock instead of running an unseen
 weather loop.
 The background is capped at 960 pixels on its longest side (240 for the rail),
 with at most two GPU frames in flight. Covered, hidden, closed, paused and

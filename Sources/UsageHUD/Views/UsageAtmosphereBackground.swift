@@ -63,6 +63,7 @@ final class UsageAtmosphereView: NSView {
     private var hasWeatherSample = false
     private var lastWeatherSampleTime: TimeInterval?
     private var weatherRecovery: (from: CruiseWeatherMix, start: TimeInterval)?
+    private var resourceNeedsWeatherBlend = false
     private var ship = PaperweightShipKind.galleon
     private var showsShip = true
     private var shipSnapshot: CGImage?
@@ -77,6 +78,14 @@ final class UsageAtmosphereView: NSView {
     private var weatherRenderer: CruiseWeatherRenderer?
     private var weatherView: MTKView?
     private var shipOverlay: AtmosphereShipOverlay?
+    private(set) var resourceConfiguration: PaperweightConfiguration?
+    private var selectedResourceLayerID = ""
+    private var resourceSelection: ((String) -> Void)?
+    private var resourceAccessibilityTargets: [ResourceOceanAccessibilityTarget] = []
+    private var resourceLabelTexts: [String: NSAttributedString] = [:]
+    private var resourceLabelSizes: [String: CGSize] = [:]
+    private var pointerDown: CGPoint?
+    private var draggedOcean = false
 
     var animationTime: TimeInterval { sea.time }
     var isAnimating: Bool { timer != nil }
@@ -104,6 +113,32 @@ final class UsageAtmosphereView: NSView {
 
     required init?(coder: NSCoder) { nil }
 
+    func configureOcean(configuration: PaperweightConfiguration, selectedLayerID: String,
+                        onSelect: @escaping (String) -> Void) {
+        let changed = resourceConfiguration != configuration || selectedResourceLayerID != selectedLayerID
+        resourceConfiguration = configuration
+        selectedResourceLayerID = selectedLayerID
+        resourceSelection = onSelect
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        let title = configuration.id == .memory ? "Memory" : "Storage"
+        setAccessibilityLabel("\(title) ocean")
+        setAccessibilityHelp("Select an ocean layer to explore it. Drag the water to make waves.")
+        let layers = configuration.layers + [configuration.freeLayer]
+        let selected = layers.first { $0.id == selectedLayerID }
+        setAccessibilityValue(selected.map { "Selected \($0.title), \($0.isMeasuring ? "Measuring" : BoardText.bytes($0.bytes))" })
+        resourceAccessibilityTargets = layers.map { layer in
+            ResourceOceanAccessibilityTarget(name: "Show \(layer.title), \(layer.isMeasuring ? "Measuring" : BoardText.bytes(layer.bytes))") {
+                onSelect(layer.id)
+            }
+        }
+        setAccessibilityCustomActions(resourceAccessibilityTargets.map(\.action))
+        if changed {
+            prepareResourceLabels(configuration)
+            invalidateFrame()
+        }
+    }
+
     func configure(active: Bool, compact: Bool, weather: CruiseWeather, ship: PaperweightShipKind, showsShip: Bool,
                    dark: Bool, reduced: Bool, capturesWeather: Bool = false,
                    command: PaperweightSceneCommand? = nil) {
@@ -118,7 +153,21 @@ final class UsageAtmosphereView: NSView {
         self.reduced = reduced
         self.capturesWeather = capturesWeather
         weatherView?.isHidden = capturesWeather
-        if !hasWeatherSample || weatherPreference != weather {
+        if resourceConfiguration != nil, hasWeatherSample {
+            let preferenceChanged = weatherPreference != weather
+            weatherPreference = weather
+            if !active || reduced || capturesWeather {
+                // A status update may arrive while animation is stopped. Hold
+                // the exact displayed mixture and ease into the latest status
+                // only after the scene resumes its existing native clock.
+                if preferenceChanged || weatherRecovery != nil { resourceNeedsWeatherBlend = true }
+                weatherRecovery = nil
+            } else if preferenceChanged || resourceNeedsWeatherBlend {
+                resourceNeedsWeatherBlend = false
+                weatherRecovery = (weatherMix, weatherNow())
+                sampleWeather()
+            }
+        } else if !hasWeatherSample || weatherPreference != weather {
             weatherPreference = weather
             weatherRecovery = nil
             lastWeatherSampleTime = nil
@@ -199,8 +248,50 @@ final class UsageAtmosphereView: NSView {
     override func viewDidHide() { super.viewDidHide(); updateVisibility() }
     override func viewDidUnhide() { super.viewDidUnhide(); updateVisibility() }
 
-    /// Let the controls above the background own all clicks and drags.
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    /// The rail background passes through clicks; a resource ocean owns its
+    /// water so the exact drawn wave boundaries also define layer selection.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let local = convert(point, from: superview)
+        return resourceConfiguration != nil && bounds.contains(local) ? self : nil
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        pointerDown = convert(event.locationInWindow, from: nil)
+        draggedOcean = false
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let start = pointerDown else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        guard !draggedOcean, hypot(point.x - start.x, point.y - start.y) > 4 else { return }
+        draggedOcean = true
+        shakeResourceOcean()
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        defer { pointerDown = nil; draggedOcean = false }
+        guard pointerDown != nil, !draggedOcean else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        if let layer = resourceLayer(at: point) { resourceSelection?(layer.id) }
+        else { shakeResourceOcean() }
+    }
+
+    func resourceLayer(at point: CGPoint) -> PaperweightLayer? {
+        guard let configuration = resourceConfiguration else { return nil }
+        // Thin strata may put their readable text over a neighboring depth.
+        // A visible name still selects the category it names.
+        if let label = resourceLabelPlacements.first(where: { $0.frame.contains(point) }) {
+            return (configuration.layers + [configuration.freeLayer]).first { $0.id == label.layerID }
+        }
+        return ResourceOceanLayout(configuration: configuration).layer(at: point, size: bounds.size,
+                                                                       surface: sea.surface(at: point.x))
+    }
+
+    private func shakeResourceOcean() {
+        guard active, !reduced, !capturesWeather else { return }
+        sea.shake()
+        invalidateFrame()
+    }
 
     func stop() {
         active = false
@@ -282,7 +373,7 @@ final class UsageAtmosphereView: NSView {
         let target = weatherPreference == .automatic
             ? weatherCycle.sample(at: now)
             : CruiseWeatherTransition(from: weatherPreference, to: weatherPreference, progress: 0)
-        if hasWeatherSample, weatherPreference == .automatic,
+        if hasWeatherSample, weatherPreference == .automatic || (resourceConfiguration != nil && weatherRecovery != nil),
            let previousTime = lastWeatherSampleTime, now.isFinite, now - previousTime > 1,
            (target != weatherTransition || weatherRecovery != nil) {
             // A paused/hidden scene holds its own look. Rejoin the shared
@@ -312,12 +403,17 @@ final class UsageAtmosphereView: NSView {
         guard !capturesWeather, let weatherRenderer, let weatherView else { return }
         weatherRenderer.configure(time: phase, weather: weather, dark: dark, compact: compact,
                                   lightningEnabled: active && !reduced && !capturesWeather,
-                                  transition: weatherTransition, seaProfile: seaProfile, oceanTime: sea.oceanTime, mix: weatherMix)
+                                  transition: weatherTransition, seaProfile: seaProfile, oceanTime: sea.oceanTime, mix: weatherMix,
+                                  resourceOcean: resourceOceanRenderData)
         weatherView.draw()
     }
 
     fileprivate func drawShipOverlay(_ context: CGContext) {
-        guard showsShip, bounds.width > 0, bounds.height > 0 else { return }
+        guard bounds.width > 0, bounds.height > 0 else { return }
+        // The same text pass serves live Metal, CPU fallback and snapshots.
+        // It sits after the hull/wake and outside their above-water clip.
+        defer { drawResourceLabels(context) }
+        guard showsShip else { return }
         let width = bounds.width
         // Keep the keel under the shared buoyancy surface without painting
         // the CPU fallback ocean over the GPU weather. In flipped coordinates
@@ -339,6 +435,57 @@ final class UsageAtmosphereView: NSView {
         drawWake(context, time: phase)
     }
 
+    private func prepareResourceLabels(_ configuration: PaperweightConfiguration) {
+        resourceLabelTexts.removeAll(keepingCapacity: true)
+        resourceLabelSizes.removeAll(keepingCapacity: true)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.65)
+        shadow.shadowBlurRadius = 2
+        shadow.shadowOffset = CGSize(width: 0, height: -1)
+        for band in ResourceOceanLayout(configuration: configuration).bands {
+            let layer = band.layer
+            let selected = layer.id == selectedResourceLayerID
+            let amount = layer.isMeasuring ? "Measuring…" : BoardText.bytes(layer.bytes)
+            let text = NSAttributedString(string: "\(layer.title) · \(amount)", attributes: [
+                .font: NSFont.systemFont(ofSize: 12, weight: selected ? .semibold : .medium),
+                .foregroundColor: NSColor.white.withAlphaComponent(selected ? 1 : 0.92),
+                .paragraphStyle: paragraph,
+                .shadow: shadow
+            ])
+            resourceLabelTexts[layer.id] = text
+            resourceLabelSizes[layer.id] = text.size()
+        }
+    }
+
+    var resourceLabelPlacements: [ResourceOceanLabelLayout.Placement] {
+        guard let configuration = resourceConfiguration else { return [] }
+        return ResourceOceanLabelLayout(ocean: ResourceOceanLayout(configuration: configuration),
+                                        size: bounds.size, textSizes: resourceLabelSizes,
+                                        selectedLayerID: selectedResourceLayerID,
+                                        surface: { sea.surface(at: $0) }).placements
+    }
+
+    private func drawResourceLabels(_ context: CGContext) {
+        guard resourceConfiguration != nil else { return }
+        context.saveGState()
+        context.clip(to: bounds)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
+        for placement in resourceLabelPlacements {
+            resourceLabelTexts[placement.layerID]?.draw(in: placement.frame)
+        }
+        NSGraphicsContext.restoreGraphicsState()
+        context.restoreGState()
+    }
+
+    private var resourceOceanRenderData: ResourceOceanRenderData? {
+        resourceConfiguration.map {
+            ResourceOceanRenderData(configuration: $0, size: bounds.size, surface: { sea.surface(at: $0) })
+        }
+    }
+
     /// AppKit cached display omits Metal layers. The gallery composites this
     /// explicit readback only while exporting; live frames stay on the GPU.
     func snapshot() -> CGImage? {
@@ -349,7 +496,9 @@ final class UsageAtmosphereView: NSView {
         guard let background = weatherRenderer.snapshot(size: CGSize(width: width, height: height),
                                                         time: phase, weather: weather, dark: dark, compact: compact,
                                                         lightningEnabled: active && !reduced && !capturesWeather,
-                                                        transition: weatherTransition, seaProfile: seaProfile, oceanTime: sea.oceanTime, mix: weatherMix),
+                                                        transition: weatherTransition, seaProfile: seaProfile,
+                                                        oceanTime: sea.oceanTime, mix: weatherMix,
+                                                        resourceOcean: resourceOceanRenderData),
               let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
                                       bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
@@ -365,7 +514,8 @@ final class UsageAtmosphereView: NSView {
             if capturesWeather, let context = NSGraphicsContext.current?.cgContext,
                let image = weatherRenderer.snapshot(size: bounds.size, time: phase, weather: weather, dark: dark, compact: compact,
                                                     lightningEnabled: false, transition: weatherTransition,
-                                                    seaProfile: seaProfile, oceanTime: sea.oceanTime, mix: weatherMix) {
+                                                    seaProfile: seaProfile, oceanTime: sea.oceanTime, mix: weatherMix,
+                                                    resourceOcean: resourceOceanRenderData) {
                 context.saveGState()
                 context.translateBy(x: 0, y: bounds.height)
                 context.scaleBy(x: 1, y: -1)
@@ -398,7 +548,7 @@ final class UsageAtmosphereView: NSView {
     private func drawFallbackBackground(_ context: CGContext, weather: CruiseWeather) {
         let width = bounds.width, height = bounds.height
         let time = sea.time
-        let horizon = height * (compact ? 0.58 : 0.40)
+        let horizon = resourceConfiguration == nil ? height * (compact ? 0.58 : 0.40) : sea.surface(at: width * 0.5)
         let palette = scenePalette(for: weather)
         let space = CGColorSpaceCreateDeviceRGB()
         gradient(context, colors: [palette.sky, palette.horizon], from: .zero,
@@ -406,9 +556,13 @@ final class UsageAtmosphereView: NSView {
         drawCelestialBody(context, time: time, width: width, height: height, space: space, weather: weather)
         drawClouds(context, time: time, width: width, height: height, space: space, weather: weather)
         context.saveGState()
-        context.clip(to: CGRect(x: 0, y: horizon, width: width, height: height - horizon))
-        gradient(context, colors: [palette.sea, palette.deep], from: CGPoint(x: 0, y: horizon),
-                 to: CGPoint(x: 0, y: height), space: space)
+        if let configuration = resourceConfiguration {
+            drawResourceWater(context, configuration: configuration, palette: palette, space: space)
+        } else {
+            context.clip(to: CGRect(x: 0, y: horizon, width: width, height: height - horizon))
+            gradient(context, colors: [palette.sea, palette.deep], from: CGPoint(x: 0, y: horizon),
+                     to: CGPoint(x: 0, y: height), space: space)
+        }
         drawOcean(context, time: time, width: width, height: height, horizon: horizon, weather: weather)
         context.restoreGState()
     }
@@ -418,8 +572,9 @@ final class UsageAtmosphereView: NSView {
         context.saveGState()
         context.setAlpha(opacity)
         let width = bounds.width, height = bounds.height
+        let horizon = resourceConfiguration == nil ? height * (compact ? 0.58 : 0.40) : sea.surface(at: width * 0.5)
         drawPrecipitation(context, time: phase, width: width, height: height,
-                          horizon: height * (compact ? 0.58 : 0.40), weather: weather)
+                          horizon: horizon, weather: weather)
         drawLightning(context, time: phase, width: width, height: height, weather: weather)
         context.restoreGState()
     }
@@ -518,6 +673,61 @@ final class UsageAtmosphereView: NSView {
                      to: CGPoint(x: 0, y: y + cloudHeight), space: space)
             context.restoreGState()
         }
+    }
+
+    /// The fallback paints pigment as the water base, then shares the same
+    /// wave highlights and weather across every depth. There is no band overlay.
+    private func drawResourceWater(_ context: CGContext, configuration: PaperweightConfiguration,
+                                   palette: (sky: CGColor, horizon: CGColor, sea: CGColor, deep: CGColor),
+                                   space: CGColorSpace) {
+        let width = bounds.width, bottom = bounds.height
+        let layout = ResourceOceanLayout(configuration: configuration)
+        func waterColor(_ layer: PaperweightLayer, depth: Double) -> CGColor {
+            let hex = ResourceOceanRenderData.pigmentHex(for: layer)
+            let pigment = [Double((hex >> 16) & 255) / 255,
+                           Double((hex >> 8) & 255) / 255, Double(hex & 255) / 255]
+            let base = NSColor(cgColor: depth < 0.5 ? palette.sea : palette.deep)?.usingColorSpace(.deviceRGB)
+            let shade = (1 - depth * 0.16) * (dark ? 0.62 : 0.94)
+            return rgb((pigment[0] * 0.62 + Double(base?.redComponent ?? 0.1) * 0.38) * shade,
+                       (pigment[1] * 0.62 + Double(base?.greenComponent ?? 0.3) * 0.38) * shade,
+                       (pigment[2] * 0.62 + Double(base?.blueComponent ?? 0.4) * 0.38) * shade)
+        }
+        let ocean = CGMutablePath()
+        ocean.move(to: CGPoint(x: 0, y: bottom))
+        for index in 0...112 {
+            let x = Double(index) / 112 * width
+            ocean.addLine(to: CGPoint(x: x, y: sea.surface(at: x)))
+        }
+        ocean.addLine(to: CGPoint(x: width, y: bottom))
+        ocean.closeSubpath()
+        context.addPath(ocean)
+        context.clip()
+        var colors: [CGColor] = []
+        var locations: [CGFloat] = []
+        for band in layout.bands {
+            let softEdge = min(0.012, (band.end - band.start) * 0.20)
+            let start = band.start == 0 ? 0 : band.start + softEdge
+            let end = band.end == 1 ? 1 : band.end - softEdge
+            colors.append(waterColor(band.layer, depth: start))
+            locations.append(CGFloat(start))
+            colors.append(waterColor(band.layer, depth: end))
+            locations.append(CGFloat(end))
+        }
+        guard let water = CGGradient(colorsSpace: space, colors: colors as CFArray, locations: locations) else { return }
+        // Sample columns follow the shared wave. Pigments blend at depth
+        // boundaries before the same crests and reflections light the water.
+        context.setShouldAntialias(false)
+        for column in 0..<64 {
+            let left = width * Double(column) / 64
+            let right = width * Double(column + 1) / 64
+            let surface = sea.surface(at: (left + right) * 0.5)
+            context.saveGState()
+            context.clip(to: CGRect(x: left, y: 0, width: right - left, height: bottom))
+            context.drawLinearGradient(water, start: CGPoint(x: left, y: surface),
+                                       end: CGPoint(x: left, y: bottom), options: [])
+            context.restoreGState()
+        }
+        context.setShouldAntialias(true)
     }
 
     private func drawOcean(_ context: CGContext, time: Double, width: CGFloat, height: CGFloat, horizon: CGFloat, weather: CruiseWeather) {
@@ -736,4 +946,18 @@ private final class AtmosphereTickTarget: NSObject {
         guard let owner else { timer.invalidate(); return }
         owner.tick()
     }
+}
+
+@MainActor
+private final class ResourceOceanAccessibilityTarget: NSObject {
+    let name: String
+    let invokeAction: () -> Void
+    init(name: String, action: @escaping () -> Void) {
+        self.name = name
+        invokeAction = action
+    }
+    var action: NSAccessibilityCustomAction {
+        NSAccessibilityCustomAction(name: name, target: self, selector: #selector(invoke))
+    }
+    @objc private func invoke() -> Bool { invokeAction(); return true }
 }

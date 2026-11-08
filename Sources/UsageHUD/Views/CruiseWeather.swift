@@ -1,6 +1,7 @@
 import Foundation
 
-/// A remembered visual setting for the ships, independent of local forecasts or AI activity.
+/// A remembered visual preference. Resource oceans resolve Automatic from
+/// observed conditions; the decorative rail uses its shared weather cycle.
 enum CruiseWeather: String, CaseIterable, Identifiable, Sendable {
     case automatic, sunny, cloudy, rain, thunder, storm, typhoon, snow, night
 
