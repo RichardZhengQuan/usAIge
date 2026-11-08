@@ -722,6 +722,8 @@ struct UIGalleryRenderTests {
             defaults: defaults, initialSnapshot: snapshot, initialDiskSpace: sampleDiskSpace,
             initialToolStorage: sampleToolStorage
         )
+        store.chooseShip(.thousandSunny, for: .memory)
+        store.chooseShip(.sleepingWhiteHorse, for: .storage)
         let reviewed = snapshot.items.filter(\.eligibility.isAllowed)
         let tasks = sampleLiveWork()
         let processes = sampleProcesses()

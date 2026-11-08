@@ -158,16 +158,10 @@ struct BranchesRootView: View {
 
     private var shipPicker: some View {
         HStack {
-            Picker("Ship in the front paperweight", selection: Binding(
-                get: { store.ship(for: front) },
-                set: { ship in
-                    store.chooseShip(ship, for: front)
-                    send(.shipDrop)
-                }
-            )) {
-                ForEach(PaperweightShipKind.allCases) { ship in Text(ship.title).tag(ship) }
+            PaperweightShipPicker(selected: store.ship(for: front)) { ship in
+                store.chooseShip(ship, for: front)
+                send(.shipDrop)
             }
-            .frame(maxWidth: 400, alignment: .leading)
             Spacer(minLength: 8)
         }
     }

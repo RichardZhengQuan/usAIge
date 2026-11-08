@@ -13,7 +13,7 @@ enum PaperweightConstants {
     static let sampleCount = 64
     static let dx = textureWidth / Double(sampleCount - 1)
     static let boatScale = 2.9
-    // Reserve the tallest rolled mast and the deepest keel of all twelve ships.
+    // Reserve the tallest rolled mast and the deepest keel of the ship fleet.
     static let boatHeight = 25 * boatScale
     static let boatDraft = 28.0
     static let headroom = boatHeight + 8
