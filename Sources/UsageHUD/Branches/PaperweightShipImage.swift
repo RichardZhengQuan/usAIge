@@ -58,12 +58,20 @@ final class PaperweightShipImageCache {
         let scene = SCNScene()
         scene.isPaused = true
         scene.background.contents = NSColor.clear
-        scene.rootNode.addChildNode(PaperweightShipFactory.make(kind))
+        let ship = PaperweightShipFactory.make(kind)
+        // A little yaw shows the bow, stern and depth of the fittings. Keep
+        // pitch at zero: projecting the water plane obliquely would move its
+        // visible edge away from the buoyancy model's exact waterline.
+        ship.eulerAngles.y = -CGFloat.pi / 18
+        scene.rootNode.addChildNode(ship)
+        scene.lightingEnvironment.contents = PaperweightSceneAssets.environmentTexture()
+        scene.lightingEnvironment.intensity = 0.55
 
         let camera = SCNNode()
         camera.camera = SCNCamera()
         camera.camera?.usesOrthographicProjection = true
-        camera.camera?.wantsHDR = false
+        camera.camera?.wantsHDR = true
+        camera.camera?.exposureOffset = -0.2
         camera.position.z = 3
         // Fixed bounds preserve the ships' relative sizes and put every hull
         // at the same waterline instead of centring each model differently.
@@ -75,17 +83,17 @@ final class PaperweightShipImageCache {
         camera.position.y = (top + bottom) / 2
         scene.rootNode.addChildNode(camera)
 
-        let ambient = SCNNode()
-        ambient.light = SCNLight()
-        ambient.light?.type = .ambient
-        ambient.light?.intensity = 550
-        scene.rootNode.addChildNode(ambient)
-        let light = SCNNode()
-        light.light = SCNLight()
-        light.light?.type = .directional
-        light.light?.intensity = 1_150
-        light.eulerAngles = SCNVector3(-CGFloat.pi / 4, -CGFloat.pi / 6, 0)
-        scene.rootNode.addChildNode(light)
+        addLight(to: scene, type: .ambient, intensity: 330,
+                 color: NSColor(calibratedRed: 0.91, green: 0.95, blue: 1, alpha: 1))
+        addLight(to: scene, type: .directional, intensity: 900,
+                 color: NSColor(calibratedRed: 1, green: 0.96, blue: 0.88, alpha: 1),
+                 angles: SCNVector3(-CGFloat.pi / 4, -CGFloat.pi / 5, 0))
+        addLight(to: scene, type: .directional, intensity: 340,
+                 color: NSColor(calibratedRed: 0.77, green: 0.88, blue: 1, alpha: 1),
+                 angles: SCNVector3(-CGFloat.pi / 9, CGFloat.pi / 3, 0))
+        addLight(to: scene, type: .directional, intensity: 520,
+                 color: NSColor(calibratedRed: 0.88, green: 0.95, blue: 1, alpha: 1),
+                 angles: SCNVector3(-CGFloat.pi / 3, CGFloat.pi * 0.9, 0))
 
         let renderer = SCNRenderer(device: device, options: nil)
         renderer.scene = scene
@@ -101,6 +109,17 @@ final class PaperweightShipImageCache {
         image.size = size
         images[key] = image
         return image
+    }
+
+    private func addLight(to scene: SCNScene, type: SCNLight.LightType, intensity: CGFloat,
+                          color: NSColor, angles: SCNVector3 = SCNVector3Zero) {
+        let node = SCNNode()
+        node.light = SCNLight()
+        node.light?.type = type
+        node.light?.intensity = intensity
+        node.light?.color = color
+        node.eulerAngles = angles
+        scene.rootNode.addChildNode(node)
     }
 }
 
