@@ -147,21 +147,20 @@ When usAIge is the active app:
 
 | Shortcut | Action |
 | --- | --- |
-| ⌘N or ⌘0 | Open or restore the workspace window (Settings on macOS 11–13) |
-| ⌘1 | Open Branches and Worktrees |
-| ⌘2 | Show Memory |
-| ⌘3 | Show Storage |
-| ⌘F | Focus search in the workspace window |
-| ⌘R | Refresh usage, session status, resources, and the visible workspace |
+| ⌘N or ⌘0 | Open or restore the main window |
+| ⌘1 | Branches and Worktrees |
+| ⌘2 | Memory |
+| ⌘3 | Storage |
+| ⌘R | Refresh usage, session status, and the visible workspace |
 | ⌘, | Settings |
 | ⌘W | Close the current window |
 | ⌘M | Minimize the current window |
 | ⌘H | Hide usAIge |
 | ⌘Q | Quit usAIge |
 
-The workspace, Memory, and Storage require macOS 14 or later. Shortcuts
-appear in the app menus and do not register system-wide hotkeys. The floating
-usage rail remains available when the workspace window closes.
+Workspace pages require macOS 14 or later. The floating usage rail remains
+available when the main window closes. Shortcuts appear in the app menus;
+they do not register system-wide hotkeys.
 
 ## Package the application
 
@@ -404,7 +403,9 @@ The rail shows what your AI tools are working on, without opening anything:
 
 Memory counts each AI tool's app and helpers plus everything running in the folders its sessions work in, each process once, using the same figure as Activity Monitor. The rail reads the process list and each session's `.git/HEAD` every 10 seconds, with no git process. In a folder macOS protects it reads nothing, and shows the branch the session's own log last recorded; Cursor and Grok Build don't record one.
 
-The **Branches** window, also under **Branches and Worktrees…** in the app menu, opens Memory or Storage as an interactive sailing ocean. Its colored usage layers are the actual moving water beneath the ship, with names and byte counts directly on the waves. Click a water layer, its legend, or the layer menu to inspect its existing details. The ship drifts gently around the center while staying fully inside the view. Memory and Storage remember their own ship choices, also shown in the rail’s miniatures.
+On macOS 14 and later, launching usAIge opens its main **Overview** window. Clicking its Dock icon restores that window. Login and background launches keep the rail available without opening the main window. **AI tools usage** appears first as a compact adaptive grid with equal-size cards and grouped quota windows. **Local workspace usage** contains the complete memory and storage ocean, a prominent **Review and Clear…** action with the cleanup summary beside the free-space figure, and Recently Deleted recovery. Weather controls sit beside the ship selector. Cleanup progress and results open in a popup and remain available after hiding the popup or closing and reopening the main window. **Branches and Worktrees** has status tabs with **All** selected initially and a visible **Rescan** button. The sidebar jumps to Overview, Resources, and Branches and Worktrees, and opens **Settings** as a page in the main window. An update reminder above the bottom Settings item reflects the shared updater’s actual status and opens Settings for review. Command-comma also opens Settings, which contains **Read Everything Again** and **Add Folder…**. Search and project filtering remain in the overview toolbar. Legacy Cleanup commands focus local storage.
+
+The **Local workspace usage** section in Overview shows Memory or Storage as an interactive sailing ocean. The **Memory…** and **Storage…** menu commands and resource rail clicks also open this integrated Overview. Its colored usage layers are the actual moving water beneath the ship, with names and byte counts directly on the waves. Click a water layer, its legend, or the layer menu to inspect its existing details. The ship drifts gently around the center while staying fully inside the view. Memory and Storage remember their own ship choices, also shown in the rail’s miniatures. Branch search, project filters, expanded rows, and resource selections share the same Overview state. The Branches and Worktrees section uses All, Running, Needs a look, and Safe to clear tabs with counts; selecting a tab shows that category and keeps the selection during refreshes.
 
 In the resource window, **Automatic** weather follows the selected resource’s observed condition. Memory uses macOS system memory pressure, independently of the AI-process footprints: normal is Sunny, warning is Rain, critical is Storm, and an unavailable reading is Cloudy. Storage uses actual free space: more than 20% is Sunny, at most 20% is Cloudy, at most 10% is Rain, and at most 5% is Storm. The status appears beside the weather control. Clearing previews change estimated layer amounts without forecasting healthier weather.
 
@@ -431,7 +432,7 @@ All 59 ships have animated parts: fluttering sails and flags, turning propellers
 
 Each card is named by what the work was: the session's title, else its own newest commit, else its folder, with the repository and branch underneath. Search finds a card by any of these, and the project buttons show one project, counting clones of one remote as one project. **Show in Finder** and **Open in Terminal** open a card's folder.
 
-The review groups what can go: merged or empty folders, merged branches with no folder, leftover records whose folder is gone, and merged folders used in the last 3 days, which start unticked. Each group opens to its rows, each with its own checkbox and **Show in Finder**. **Stop** ends a clear before its next row.
+The review groups what can go: merged or empty folders, merged branches with no folder, leftover records whose folder is gone, and merged folders used in the last 3 days, which start unticked. Each group opens to its rows, each with its own checkbox and **Show in Finder**. Starting cleanup opens a popup with progress and the current item. **Hide** returns to the overview, where **Show Progress…** reopens it. **Stop After Current Item** finishes the current item and leaves the rest alone. Stop and restore are direct controls. **Recently Deleted** expands inline to show individual Restore buttons. Closing the window lets an authorized cleanup finish; reopening it restores the same operation or its result. Background scans cannot replace cleanup progress, and the result stays visible until dismissed or another operation begins.
 
 Each card's status says whether it's safe to delete:
 

@@ -3,15 +3,49 @@ import Combine
 import SwiftUI
 
 enum AppWindowIdentifiers {
-    /// Marks the window so the Settings opener never mistakes it for Settings.
+    /// Marks the main window so the Settings opener never mistakes it for Settings.
     static let branches = NSUserInterfaceItemIdentifier("usAIge.branches")
 }
 
-/// Rail clicks can bring a paperweight forward without replacing the window
-/// or losing a search, review, or expanded row in it.
+enum MainPageDestination: String, CaseIterable, Identifiable {
+    case overview, worktrees, cleanup, resources, settings
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .overview: "Overview"
+        case .worktrees: "Branches"
+        case .cleanup: "Cleanup"
+        case .resources: "Overview"
+        case .settings: "Settings"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .overview: "square.grid.2x2"
+        case .worktrees: "point.3.connected.trianglepath.dotted"
+        case .cleanup: "sparkles"
+        case .resources: "chart.pie"
+        case .settings: "gearshape"
+        }
+    }
+}
+
+enum OverviewSection: String, Hashable {
+    case overview, resources, branches, settings
+}
+
+/// Main-window navigation is independent of the resource ocean's selected layer.
 @available(macOS 14.0, *)
 @MainActor
 final class BranchesPaperweightPresentation: ObservableObject {
+    struct FocusRequest: Identifiable {
+        let id = UUID()
+        let section: OverviewSection
+    }
+
     struct Request: Equatable {
         let id = UUID()
         let front: PaperweightID
@@ -24,26 +58,69 @@ final class BranchesPaperweightPresentation: ObservableObject {
         }
     }
 
+    @Published var destination: MainPageDestination = .overview
     @Published private(set) var request: Request?
+    @Published private(set) var focusRequest: FocusRequest?
+    @Published private(set) var selectedSection: OverviewSection = .overview
+    @Published var showsCleanupProgress = false
+    var isReviewingCleanup = false
+    let worktreePage = BranchesPageState()
+    let resourcePage = BranchesPageState()
 
-    func show(_ front: PaperweightID) { request = Request(front: front) }
+    func navigate(to destination: MainPageDestination) {
+        self.destination = .overview
+        switch destination {
+        case .overview: focus(.overview)
+        case .worktrees: focus(.branches)
+        case .cleanup:
+            show(.storage)
+        case .resources: focus(.resources)
+        case .settings: focus(.settings)
+        }
+    }
+
+    func focus(_ section: OverviewSection) {
+        selectedSection = section
+        focusRequest = FocusRequest(section: section)
+    }
+
+    func show(_ front: PaperweightID) {
+        request = Request(front: front)
+        destination = .overview
+        focus(.resources)
+    }
 }
 
-/// Owns the Branches window and its store. Closing it lets both go, so an
-/// unused feature costs no memory and no background work.
+/// Detaches its views and stops scanning when closed. An authorized cleanup
+/// keeps its state until the window is reopened, so its result remains reachable.
 @available(macOS 14.0, *)
 @MainActor
 final class BranchesWindowController: NSWindowController, NSWindowDelegate {
     private static let frameName = "BranchesWindow"
     private let store: BranchesStore
-    private let presentation = BranchesPaperweightPresentation()
+    let presentation = BranchesPaperweightPresentation()
+    private let liveWork: LiveWorkMonitor?
+    private let agentStore: CodexAgentStore?
+    private let usageStore: UsageStore?
+    private let settings: HUDSettings?
+    private let openSettings: () -> Void
+    private let settingsContent: AnyView?
+    private let updateController: UpdateController?
     private let onClose: () -> Void
 
-    /// `liveWork` is the rail's monitor, so the window's memory figure is the
-    /// rail's, not a second reading of its own.
+    /// `liveWork` is the rail's monitor, so both surfaces share one reading.
     init(store: BranchesStore = BranchesStore(), liveWork: LiveWorkMonitor? = nil,
-         agentStore: CodexAgentStore? = nil, onClose: @escaping () -> Void) {
+         agentStore: CodexAgentStore? = nil, usageStore: UsageStore? = nil, settings: HUDSettings? = nil,
+         settingsContent: AnyView? = nil, updateController: UpdateController? = nil,
+         openSettings: @escaping () -> Void = {}, onClose: @escaping () -> Void) {
         self.store = store
+        self.liveWork = liveWork
+        self.agentStore = agentStore
+        self.usageStore = usageStore
+        self.settings = settings
+        self.openSettings = openSettings
+        self.settingsContent = settingsContent
+        self.updateController = updateController
         self.onClose = onClose
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1180, height: 780),
@@ -51,25 +128,30 @@ final class BranchesWindowController: NSWindowController, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "Branches"
+        window.title = "usAIge"
         window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
+        window.titlebarSeparatorStyle = .none
         window.identifier = AppWindowIdentifiers.branches
-        window.minSize = NSSize(width: 900, height: 560)
+        window.minSize = NSSize(width: 1000, height: 600)
         window.isReleasedWhenClosed = false
         window.setFrameAutosaveName(Self.frameName)
         super.init(window: window)
         window.delegate = self
-        window.contentView = NSHostingView(rootView: BranchesRootView(store: store, liveWork: liveWork,
-                                                                    agentStore: agentStore, presentation: presentation))
+        window.contentView = nil
+        attachContentIfNeeded()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    func present(front: PaperweightID? = nil) {
+    func present(destination: MainPageDestination? = nil, front: PaperweightID? = nil) {
         guard let window else { return }
+        if let destination { presentation.navigate(to: destination) }
+        if destination == .cleanup, store.cleanupProgress != nil || store.resultMessage != nil {
+            presentation.showsCleanupProgress = true
+        }
         if let front { presentation.show(front) }
+        attachContentIfNeeded()
         NSApp.activate(ignoringOtherApps: true)
         if !window.isVisible, !window.setFrameUsingName(Self.frameName) { window.center() }
         if window.isMiniaturized { window.deminiaturize(nil) }
@@ -78,10 +160,24 @@ final class BranchesWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func refresh() {
-        guard !store.isDeleting else { return }
         store.refresh()
         store.loadToolStorage(force: true)
         store.readDiskSpace()
+    }
+
+    func addFolder(_ path: String) {
+        store.addFolder(path)
+    }
+
+    private func attachContentIfNeeded() {
+        guard let window, window.contentView == nil else { return }
+        window.contentView = NSHostingView(rootView: MainRootView(
+            store: store, liveWork: liveWork, agentStore: agentStore, usageStore: usageStore, settings: settings,
+            presentation: presentation, settingsContent: settingsContent,
+            updateController: updateController, openSettings: openSettings
+        ))
+        window.titlebarSeparatorStyle = .none
+        window.toolbar?.showsBaselineSeparator = false
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
@@ -94,9 +190,13 @@ final class BranchesWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        let cleanupNeedsReopening = store.isDeleting || store.resultMessage != nil
         store.windowClosed()
-        // SwiftUI holds the store until its hosting view goes.
+        presentation.isReviewingCleanup = false
+        presentation.showsCleanupProgress = false
         window?.contentView = nil
-        onClose()
+        // The app retains this controller through the operation and its result.
+        // Reopening rebuilds only the views, using the same operation state.
+        if !cleanupNeedsReopening { onClose() }
     }
 }

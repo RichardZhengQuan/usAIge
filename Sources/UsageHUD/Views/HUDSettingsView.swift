@@ -2,6 +2,11 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+enum HUDSettingsLayout {
+    case window
+    case page
+}
+
 @available(macOS 14.0, *)
 struct HUDSettingsRootView: View {
     @ObservedObject var settings: HUDSettings
@@ -11,20 +16,35 @@ struct HUDSettingsRootView: View {
     @ObservedObject var relaySync: RelaySyncController
     @ObservedObject var localToolStatus: LocalToolStatusRegistry
     @ObservedObject var navigation: SettingsNavigation
+    var refreshWorkspace: () -> Void = {}
+    var addWorkspaceFolder: () -> Void = {}
+    var layout: HUDSettingsLayout = .window
 
+    @ViewBuilder
     var body: some View {
-        SettingsWindowSizing {
-            HUDSettingsView(
-                settings: settings,
-                snapshots: store.visibleSnapshots,
-                launchAtLogin: launchAtLogin,
-                updateController: updateController,
-                relaySync: relaySync,
-                localToolStatus: localToolStatus,
-                navigation: navigation,
-                refreshUsage: { await store.refresh() }
-            )
+        switch layout {
+        case .window:
+            SettingsWindowSizing { settingsContent }
+        case .page:
+            settingsContent
+                .frame(maxWidth: 780)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
+    }
+
+    private var settingsContent: some View {
+        HUDSettingsView(
+            settings: settings,
+            snapshots: store.visibleSnapshots,
+            launchAtLogin: launchAtLogin,
+            updateController: updateController,
+            relaySync: relaySync,
+            localToolStatus: localToolStatus,
+            navigation: navigation,
+            refreshUsage: { await store.refresh() },
+            refreshWorkspace: refreshWorkspace,
+            addWorkspaceFolder: addWorkspaceFolder
+        )
     }
 }
 
@@ -154,6 +174,8 @@ struct HUDSettingsView: View {
     @ObservedObject var localToolStatus: LocalToolStatusRegistry
     @ObservedObject var navigation: SettingsNavigation
     let refreshUsage: () async -> Void
+    var refreshWorkspace: () -> Void = {}
+    var addWorkspaceFolder: () -> Void = {}
     @State private var remoteToolToDelete: RelayRemoteTool?
     @State private var isDetectingLocalTools = false
     @State private var isRetryingRemoteTools = false
@@ -336,6 +358,17 @@ struct HUDSettingsView: View {
                     .help("Dock the rail to a screen edge and hide it until the pointer returns")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Section("Workspace") {
+                LabeledContent("Repository data") {
+                    Button("Read Everything Again", action: refreshWorkspace)
+                        .help("Recheck branches, worktrees, and tool storage")
+                }
+                LabeledContent("Additional repositories") {
+                    Button("Add Folder…", action: addWorkspaceFolder)
+                        .help("Choose a folder inside a Git repository")
+                }
             }
 
             Section("More") {
