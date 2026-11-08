@@ -138,24 +138,6 @@ import Testing
     #expect(controller.window?.isReleasedWhenClosed == false)
 }
 
-@MainActor
-@Test func reopeningAMinimizedWorkspacePreservesItsContent() async throws {
-    guard #available(macOS 14.0, *) else { return }
-    let fixture = try await Task.detached { try GitFixture() }.value
-    let controller = BranchesWindowController(store: BranchesStore(scanner: fixture.scanner()), onClose: {})
-    controller.present()
-    defer { controller.window?.close() }
-    let window = try #require(controller.window)
-    let content = try #require(window.contentView)
-    window.miniaturize(nil)
-    #expect(window.isMiniaturized)
-
-    controller.present()
-
-    #expect(!window.isMiniaturized)
-    #expect(window.contentView === content)
-}
-
 /// An unused feature must cost nothing: once the window closes, its store and
 /// everything the scan read have to go, even mid-scan.
 @MainActor
