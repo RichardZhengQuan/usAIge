@@ -10,16 +10,17 @@ extension PaperweightShipFactory {
 
     private static func detailedOceanGalleon(ghost: Bool) -> SCNNode {
         let group = SCNNode()
-        let timber = woodMaterial(hex: ghost ? "#659F88" : "#513B2B")
+        let timber = woodMaterial(hex: ghost ? "#4F917B" : "#513B2B")
         let deck = woodMaterial(hex: ghost ? "#9CCBB2" : "#A47A49")
         let spars = woodMaterial(hex: ghost ? "#83B99D" : "#76563B")
         let trim = material(ghost ? "#A8DFBF" : "#C6A46A", roughness: 0.5, metalness: ghost ? 0 : 0.4)
         let rope = material(ghost ? "#8DBCA0" : "#A18B67", roughness: 1)
         let dark = material(ghost ? "#2D6559" : "#251F1B", roughness: 0.85)
-        let cloth = sailCloth(hex: ghost ? "#D7EFE0" : "#767264")
+        let cloth = sailCloth(hex: ghost ? "#D7EFE0" : "#C4B697")
         if ghost {
             cloth.transparent.contents = tornSail
             cloth.transparencyMode = .aOne
+            cloth.transparency = 0.84
             cloth.writesToDepthBuffer = false
             for surface in [timber, deck, spars, trim, cloth] {
                 surface.emission.contents = color("#275A43")
@@ -29,8 +30,9 @@ extension PaperweightShipFactory {
 
         let hull = historicHull(group, beam: 9.6, material: timber, sternHeight: 8.6)
         hull.name = "carved-timber-hull"
-        if ghost { hull.opacity = 0.62 }
-        box(group, 25.2, 0.55, 9.2, deck, -0.1, 5.0)
+        // Keep timber depth-writing and opaque: overlapping translucent hull
+        // triangles otherwise expose station seams as dark vertical bands.
+        historicDeck(group, from: -13.5, to: 14.3, y: 5.0, beam: 9.3, material: deck)
         box(group, 5.8, 0.48, 9.5, deck, -11.2, 8.6)
         box(group, 4.8, 0.45, 8.4, deck, 10.8, 6.4)
         for side in [-1.0, 1] {
@@ -49,7 +51,15 @@ extension PaperweightShipFactory {
         }
         // The raised stern gallery and swept bowsprit give the hull a shaped
         // silhouette before its smaller rigging is visible.
-        box(group, 0.45, 2.5, 9.4, spars, -14.2, 7.05)
+        let transom = SCNNode()
+        transom.position = vector(-14.92, 0, 0)
+        transom.eulerAngles.y = -.pi / 2
+        group.addChildNode(transom)
+        gallery(transom, x: 0, y: 7.1, z: 0, width: 5.9,
+                glass: ghost ? "#9EE4BC" : "#899998", trim: trim)
+        carvedStern(group, x: -14.9, y: 8.7, width: 6.4, material: trim)
+        anchors(group, x: 11.1, y: 3.6, beam: 8.8, material: dark)
+        capstan(group, x: 8.3, y: 6.7, material: spars, rim: trim)
         rail(group, from: (11.5, 6.0, 0), to: (21.3, 11.1, 0), radius: 0.24, material: spars)
         rail(group, from: (12.4, 3.8, 0), to: (21.2, 10.9, 0), radius: 0.065, material: rope)
         rail(group, from: (15.2, 5.1, 0), to: (19.8, 7.0, 0), radius: 0.11, material: trim)
@@ -61,10 +71,10 @@ extension PaperweightShipFactory {
 
         for (x, top, width) in [(-6.3, 21.1, 7.0), (0.8, 23.0, 7.8), (7.4, 20.6, 6.5)] {
             detailedMast(group, x: x, deck: 5.2, top: top, material: spars, trim: trim)
-            squareCourse(group, x: x, y: 11.0, width: width, height: 4.9,
-                         cloth: cloth, yard: spars, rope: rope)
-            squareCourse(group, x: x, y: 16.9, width: width * 0.72, height: 3.55,
-                         cloth: cloth, yard: spars, rope: rope)
+            squareCourse(group, x: x, y: top - 10.6, width: width, height: 4.9,
+                         cloth: cloth, yard: spars, rope: rope, tattered: ghost)
+            squareCourse(group, x: x, y: top - 4.75, width: width * 0.72, height: 3.55,
+                         cloth: cloth, yard: spars, rope: rope, tattered: ghost)
             shroud(group, x: x, bottom: 5.4, top: 15.1, width: 3.2, z: 4.6,
                    material: ratlineMaterial(ghost: ghost))
             rail(group, from: (x, top - 0.6, 0), to: (x - 3.3, 5.5, -3.7), radius: 0.055, material: rope)
@@ -77,7 +87,6 @@ extension PaperweightShipFactory {
         let flag = textured(pirateFlag, roughness: 0.95)
         if ghost { flag.emission.contents = color("#326E4C") }
         plane(group, 2.1, 1.35, flag, 1.95, 22.45, 0.12)
-        if ghost { group.opacity = 0.82 }
         return group
     }
 
@@ -89,7 +98,7 @@ extension PaperweightShipFactory {
         let wood = woodMaterial(hex: "#765538"), dark = material("#242426", roughness: 0.8)
         let rope = material("#9B8F74", roughness: 1), cloth = sailCloth(hex: "#E8DDC4")
         historicHull(group, beam: 10.2, material: hull, sternHeight: 9.0)
-        box(group, 25.5, 0.55, 9.8, deck, -0.5, 6.0)
+        historicDeck(group, from: -13.7, to: 14.3, y: 6.0, beam: 9.9, material: deck)
         box(group, 5.8, 0.45, 10.0, deck, -11.5, 9.0)
         box(group, 5.3, 0.42, 8.6, deck, 10.8, 7.0)
         for side in [-1.0, 1] {
@@ -109,13 +118,20 @@ extension PaperweightShipFactory {
             railing(group, fromX: -13.6, toX: -8.6, y: 9.23, z: side * 4.8,
                     spacing: 2.5, material: brass)
         }
-        box(group, 0.42, 3.0, 9.6, wood, -14.2, 7.5)
+        let transom = SCNNode()
+        transom.position = vector(-14.92, 0, 0)
+        transom.eulerAngles.y = -.pi / 2
+        group.addChildNode(transom)
+        gallery(transom, x: 0, y: 7.8, z: 0, width: 6.4, glass: "#748C92", trim: brass)
+        carvedStern(group, x: -14.9, y: 9.25, width: 6.7, material: brass)
+        anchors(group, x: 11.2, y: 3.9, beam: 9.3, material: dark)
+        capstan(group, x: 8.2, y: 7.2, material: wood, rim: brass)
         rail(group, from: (11.5, 6.5, 0), to: (21.0, 11.6, 0), radius: 0.23, material: wood)
         rail(group, from: (13.0, 3.5, 0), to: (20.9, 11.3, 0), radius: 0.06, material: rope)
         for (x, top, width) in [(-6.7, 21.5, 7.0), (0.2, 23.45, 7.6), (7.0, 20.4, 6.5)] {
             detailedMast(group, x: x, deck: 6.1, top: top, material: wood, trim: brass)
             for (y, factor, height) in [(10.15, 1.0, 3.4), (14.4, 0.81, 3.05), (18.0, 0.59, 2.45)] {
-                squareCourse(group, x: x, y: y, width: width * factor, height: height,
+                squareCourse(group, x: x, y: y + (top - 23.45) * 0.7, width: width * factor, height: height,
                              cloth: cloth, yard: wood, rope: rope, brace: 0.13)
             }
             shroud(group, x: x, bottom: 6.35, top: 14.7, width: 3.15, z: 4.9,
@@ -143,17 +159,13 @@ extension PaperweightShipFactory {
         let gold = material("#D0AC63", roughness: 0.47, metalness: 0.35)
         let rope = material("#A38D64", roughness: 0.95)
         let cloth = sailCloth(hex: "#B96945")
-        let outline = NSBezierPath()
-        outline.move(to: NSPoint(x: -16.0, y: 9.5))
-        outline.curve(to: NSPoint(x: -10.8, y: 5.9), controlPoint1: NSPoint(x: -13.8, y: 10.4), controlPoint2: NSPoint(x: -10.8, y: 8.3))
-        outline.line(to: NSPoint(x: 10.8, y: 5.9))
-        outline.curve(to: NSPoint(x: 17.0, y: 8.1), controlPoint1: NSPoint(x: 13.1, y: 6.0), controlPoint2: NSPoint(x: 16.2, y: 7.5))
-        outline.curve(to: NSPoint(x: 9.0, y: -3.5), controlPoint1: NSPoint(x: 16.0, y: 1.3), controlPoint2: NSPoint(x: 12.9, y: -3.2))
-        outline.curve(to: NSPoint(x: -11.7, y: -3.8), controlPoint1: NSPoint(x: 0.2, y: -4.2), controlPoint2: NSPoint(x: -8.8, y: -4.3))
-        outline.curve(to: NSPoint(x: -16.0, y: 9.5), controlPoint1: NSPoint(x: -15.0, y: -1.9), controlPoint2: NSPoint(x: -15.9, y: 4.7))
-        outline.close()
-        extrude(group, outline, 10.6, hull, bevel: 0.6)
-        box(group, 25.0, 0.55, 10.2, deck, -0.1, 6.2)
+        shapedTimberHull(group, stations: [
+            (-16.0, 9.5, 0.8, 2.1), (-14.3, 8.4, -2.2, 4.0),
+            (-10.5, 6.0, -3.7, 5.0), (-5.5, 5.9, -3.8, 5.3),
+            (2.0, 5.9, -3.8, 5.3), (9.0, 6.0, -3.5, 4.9),
+            (13.8, 6.7, -0.5, 3.3), (17.0, 8.1, 4.5, 0.28),
+        ], material: hull)
+        historicDeck(group, from: -14.1, to: 15.6, y: 6.2, beam: 10.25, material: deck)
         for side in [-1.0, 1] {
             historicStrake(group, y: 2.0, z: side * 5.37, material: gold, thickness: 0.45)
             historicStrake(group, y: 4.8, z: side * 5.38, material: wood, thickness: 0.42)
@@ -183,6 +195,13 @@ extension PaperweightShipFactory {
                      material("#9A3031", doubleSided: true), 0, 0, 0.12)
             }
         }
+        // A perforated stern rudder and ventilated hatch sit below the pavilion.
+        profile(group, [(-15.2, 1.5), (-16.3, 0.5), (-16.3, -2.1), (-14.9, -1.4)], 0.30, wood, bevel: 0.08)
+        box(group, 2.8, 0.5, 2.6, wood, 5.1, 6.7)
+        for x in [4.3, 4.8, 5.3, 5.8] {
+            rail(group, from: (x, 7.0, -1.1), to: (x, 7.0, 1.1), radius: 0.055, material: gold)
+        }
+        capstan(group, x: 11.5, y: 6.7, material: wood, rim: gold)
         // A small carved prow and whisker curves complete the distinctive bow.
         sphere(group, 0.60, 14, gold, 17.3, 7.3).scale = vector(1.7, 0.8, 0.65)
         for side in [-1.0, 1] {
@@ -198,25 +217,29 @@ extension PaperweightShipFactory {
         let paleWood = woodMaterial(hex: "#B58B57")
         let bronze = material("#B4965B", roughness: 0.55, metalness: 0.35)
         let rope = material("#A08D6A", roughness: 1)
-        let body = NSBezierPath()
-        body.move(to: NSPoint(x: -14.1, y: 4.0))
-        body.curve(to: NSPoint(x: 14.1, y: 4.0), controlPoint1: NSPoint(x: -7.0, y: 2.8), controlPoint2: NSPoint(x: 7.0, y: 2.8))
-        body.curve(to: NSPoint(x: 8.8, y: -2.9), controlPoint1: NSPoint(x: 13.2, y: -0.5), controlPoint2: NSPoint(x: 11.6, y: -2.9))
-        body.curve(to: NSPoint(x: -8.8, y: -2.9), controlPoint1: NSPoint(x: 3.0, y: -3.6), controlPoint2: NSPoint(x: -3.0, y: -3.6))
-        body.curve(to: NSPoint(x: -14.1, y: 4.0), controlPoint1: NSPoint(x: -11.6, y: -2.9), controlPoint2: NSPoint(x: -13.2, y: -0.5))
-        body.close()
-        extrude(group, body, 7.3, timber, bevel: 0.45)
-        box(group, 23.8, 0.35, 6.9, paleWood, 0, 3.45)
+        shapedTimberHull(group, stations: [
+            (-14.1, 4.0, 2.3, 0.18), (-11.5, 3.65, -0.5, 2.1),
+            (-7.0, 3.30, -2.6, 3.4), (0.0, 3.1, -3.0, 3.65),
+            (7.0, 3.30, -2.6, 3.4), (11.5, 3.65, -0.5, 2.1),
+            (14.1, 4.0, 2.3, 0.18),
+        ], material: timber)
+        historicDeck(group, from: -13.5, to: 13.5, y: 3.45, beam: 6.9, material: paleWood)
         for side in [-1.0, 1] {
-            for (y, thickness) in [(0.4, 0.15), (1.8, 0.15), (3.35, 0.3)] {
-                flat(group, [(-13.1, y + 1.0), (-10.1, y + 0.1), (0, y - 0.15), (10.1, y + 0.1), (13.1, y + 1.0),
-                             (12.9, y + 1.0 - thickness), (10.1, y + 0.1 - thickness), (0, y - 0.15 - thickness), (-10.1, y + 0.1 - thickness), (-12.9, y + 1.0 - thickness)],
-                     darkWood, 0, 0, side * 3.72)
+            for y in [0.4, 1.8, 3.35] {
+                let points: [(Double, Double, Double)] = [(-13.1, y + 1.0, side * 1.05),
+                    (-10.1, y + 0.1, side * 2.77), (-5.0, y - 0.10, side * 3.55),
+                    (0, y - 0.15, side * 3.72), (5.0, y - 0.10, side * 3.55),
+                    (10.1, y + 0.1, side * 2.77), (13.1, y + 1.0, side * 1.05)]
+                for index in 0..<(points.count - 1) {
+                    rail(group, from: points[index], to: points[index + 1], radius: y > 3 ? 0.13 : 0.065, material: darkWood)
+                }
             }
             for (index, x) in [-9.4, -6.7, -4.0, -1.3, 1.4, 4.1, 6.8, 9.5].enumerated() {
                 let shield = textured(vikingShield(index: index), roughness: 0.78)
-                disc(group, 1.0, 24, shield, x, 3.2, side * 3.85, ry: side > 0 ? 0 : .pi)
-                sphere(group, 0.26, 12, bronze, x, 3.2, side * 3.99).scale = vector(1, 1, 0.55)
+                let shieldZ = side * (3.85 - abs(x) * 0.065)
+                cylinder(group, 1.0, 1.0, 0.16, darkWood, x, 3.2, shieldZ, rx: .pi / 2)
+                disc(group, 1.0, 24, shield, x, 3.2, shieldZ + side * 0.10, ry: side > 0 ? 0 : .pi)
+                sphere(group, 0.26, 12, bronze, x, 3.2, shieldZ + side * 0.21).scale = vector(1, 1, 0.55)
             }
             for x in [-9.0, -5.3, -1.6, 2.1, 5.8, 9.5] {
                 rail(group, from: (x, 2.6, side * 2.8), to: (x - 1.3, 0.1, side * 6.2),
@@ -246,24 +269,135 @@ extension PaperweightShipFactory {
     @discardableResult
     private static func historicHull(_ group: SCNNode, beam: Double, material: SCNMaterial,
                                      sternHeight: Double) -> SCNNode {
+        let deckY = sternHeight > 8.8 ? 6.0 : 5.3
+        return shapedTimberHull(group, stations: [
+            (-14.8, sternHeight, -0.8, beam * 0.31),
+            (-13.8, sternHeight - 0.25, -2.5, beam * 0.43),
+            (-10.0, deckY + 0.15, -3.65, beam * 0.49),
+            (-5.5, deckY, -3.8, beam * 0.50),
+            (1.0, deckY, -3.8, beam * 0.50),
+            (7.6, deckY + 0.1, -3.5, beam * 0.47),
+            (12.7, deckY + 0.65, -1.9, beam * 0.34),
+            (15.7, 6.7, 1.3, beam * 0.15),
+            (16.8, 7.0, 4.4, 0.14),
+        ], material: material)
+    }
+
+    /// Rounded cross sections narrow into a real stem and transom rather than
+    /// carrying the same rectangular beam all the way to each end.
+    @discardableResult
+    private static func shapedTimberHull(_ group: SCNNode,
+                                         stations: [(Double, Double, Double, Double)],
+                                         material: SCNMaterial) -> SCNNode {
+        let segments = 16
+        var vertices: [SCNVector3] = [], coordinates: [CGPoint] = [], indices: [Int32] = []
+        for (index, station) in stations.enumerated() {
+            let (x, sheer, keel, halfBeam) = station
+            for side in 0...segments {
+                let angle = Double(side) / Double(segments) * .pi
+                vertices.append(vector(x, sheer - (sheer - keel) * pow(sin(angle), 0.38), halfBeam * cos(angle)))
+                coordinates.append(CGPoint(x: Double(index) / Double(stations.count - 1), y: Double(side) / Double(segments)))
+                if index > 0, side > 0 {
+                    let a = Int32((index - 1) * (segments + 1) + side - 1)
+                    let b = a + 1, c = a + Int32(segments + 1), d = c + 1
+                    indices.append(contentsOf: [a, b, c, b, d, c])
+                }
+            }
+            if index > 0 {
+                let a = Int32((index - 1) * (segments + 1))
+                let b = a + Int32(segments), c = a + Int32(segments + 1), d = c + Int32(segments)
+                indices.append(contentsOf: [a, c, b, b, c, d])
+            }
+        }
+        // The transom is closed independently; normals are area weighted so
+        // curved bilges catch broad highlights instead of looking faceted.
+        for end in [0, stations.count - 1] {
+            let base = Int32(end * (segments + 1))
+            for side in 1..<(segments - 1) {
+                if end == 0 { indices.append(contentsOf: [base, base + Int32(side + 1), base + Int32(side)]) }
+                else { indices.append(contentsOf: [base, base + Int32(side), base + Int32(side + 1)]) }
+            }
+        }
+        var sums = Array(repeating: (0.0, 0.0, 0.0), count: vertices.count)
+        for index in stride(from: 0, to: indices.count, by: 3) {
+            let ia = Int(indices[index]), ib = Int(indices[index + 1]), ic = Int(indices[index + 2])
+            let a = vertices[ia], b = vertices[ib], c = vertices[ic]
+            let ux = Double(b.x - a.x), uy = Double(b.y - a.y), uz = Double(b.z - a.z)
+            let vx = Double(c.x - a.x), vy = Double(c.y - a.y), vz = Double(c.z - a.z)
+            let n = (uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx)
+            for vertex in [ia, ib, ic] {
+                let old = sums[vertex]; sums[vertex] = (old.0 + n.0, old.1 + n.1, old.2 + n.2)
+            }
+        }
+        let normals = sums.map { n in
+            let length = max(0.0001, sqrt(n.0 * n.0 + n.1 * n.1 + n.2 * n.2))
+            return vector(n.0 / length, n.1 / length, n.2 / length)
+        }
+        return put(group, mesh(vertices, normals, coordinates, indices), material)
+    }
+
+    private static func historicDeck(_ group: SCNNode, from stern: Double, to bow: Double,
+                                     y: Double, beam: Double, material: SCNMaterial) {
         let outline = NSBezierPath()
-        outline.move(to: NSPoint(x: -14.8, y: sternHeight))
-        outline.line(to: NSPoint(x: -10.3, y: sternHeight))
-        outline.line(to: NSPoint(x: -9.6, y: 5.3))
-        outline.line(to: NSPoint(x: 9.7, y: 5.3))
-        outline.curve(to: NSPoint(x: 16.8, y: 7.0), controlPoint1: NSPoint(x: 12.6, y: 5.4), controlPoint2: NSPoint(x: 15.4, y: 6.6))
-        outline.curve(to: NSPoint(x: 9.2, y: -3.4), controlPoint1: NSPoint(x: 15.0, y: 1.1), controlPoint2: NSPoint(x: 12.9, y: -3.2))
-        outline.curve(to: NSPoint(x: -10.7, y: -3.7), controlPoint1: NSPoint(x: 2.8, y: -4.1), controlPoint2: NSPoint(x: -7.3, y: -4.2))
-        outline.curve(to: NSPoint(x: -14.8, y: sternHeight), controlPoint1: NSPoint(x: -14.6, y: -2.4), controlPoint2: NSPoint(x: -15.1, y: 3.3))
+        outline.move(to: NSPoint(x: stern, y: -beam * 0.30))
+        outline.curve(to: NSPoint(x: bow, y: 0), controlPoint1: NSPoint(x: stern + 7, y: -beam * 0.62),
+                      controlPoint2: NSPoint(x: bow - 6, y: -beam * 0.59))
+        outline.curve(to: NSPoint(x: stern, y: beam * 0.30), controlPoint1: NSPoint(x: bow - 6, y: beam * 0.59),
+                      controlPoint2: NSPoint(x: stern + 7, y: beam * 0.62))
         outline.close()
-        return extrude(group, outline, beam, material, bevel: 0.55)
+        let node = extrude(group, outline, 0.28, material, bevel: 0.04)
+        node.eulerAngles.x = .pi / 2
+        node.position.y = CGFloat(y + 0.14)
+        node.position.z = 0
     }
 
     private static func historicStrake(_ group: SCNNode, y: Double, z: Double,
                                        material: SCNMaterial, thickness: Double = 0.32) {
-        flat(group, [(-13.9, y + 0.45), (-10.5, y), (8.7, y), (14.5, y + 0.9),
-                     (14.35, y + 0.9 - thickness), (8.7, y - thickness), (-10.5, y - thickness), (-13.9, y + 0.45 - thickness)],
-             material, 0, 0, z)
+        let samples: [(Double, Double, Double)] = [(-13.9, 0.55, 0.88), (-11.0, 0.08, 0.98),
+            (-6.0, 0, 1), (1.0, 0, 1), (8.7, 0.06, 0.95), (12.1, 0.43, 0.76), (14.5, 1.10, 0.47)]
+        var vertices: [SCNVector3] = [], uv: [CGPoint] = [], indices: [Int32] = []
+        for (index, sample) in samples.enumerated() {
+            let (x, lift, beamFactor) = sample
+            vertices.append(vector(x, y + lift, z * beamFactor))
+            vertices.append(vector(x, y + lift - thickness, z * beamFactor))
+            uv.append(CGPoint(x: Double(index) / Double(samples.count - 1), y: 0))
+            uv.append(CGPoint(x: Double(index) / Double(samples.count - 1), y: 1))
+            if index > 0 {
+                let a = Int32((index - 1) * 2)
+                if z > 0 { indices.append(contentsOf: [a, a + 1, a + 2, a + 1, a + 3, a + 2]) }
+                else { indices.append(contentsOf: [a, a + 2, a + 1, a + 1, a + 2, a + 3]) }
+            }
+        }
+        put(group, mesh(vertices, Array(repeating: vector(0, 0.1, z > 0 ? 1 : -1), count: vertices.count), uv, indices), material)
+    }
+
+    private static func carvedStern(_ group: SCNNode, x: Double, y: Double, width: Double, material: SCNMaterial) {
+        for side in [-1.0, 1] {
+            for index in 0..<7 {
+                let t = Double(index) / 6
+                let z = side * width * 0.5 * t
+                sphere(group, 0.16, 10, material, x - 0.08, y + sin(t * .pi) * 0.36, z)
+            }
+        }
+        cylinder(group, 0.18, 0.32, 0.7, material, x, y + 0.35)
+    }
+
+    private static func anchors(_ group: SCNNode, x: Double, y: Double, beam: Double, material: SCNMaterial) {
+        for side in [-1.0, 1] {
+            let z = side * beam / 2
+            rail(group, from: (x, y + 0.8, z), to: (x - 0.3, y - 1.0, z), radius: 0.085, material: material)
+            rail(group, from: (x - 0.8, y + 0.4, z), to: (x + 0.55, y + 0.6, z), radius: 0.075, material: material)
+            rail(group, from: (x - 0.3, y - 1.0, z), to: (x - 1.0, y - 0.45, z), radius: 0.09, material: material)
+            rail(group, from: (x - 0.3, y - 1.0, z), to: (x + 0.5, y - 0.35, z), radius: 0.09, material: material)
+        }
+    }
+
+    private static func capstan(_ group: SCNNode, x: Double, y: Double, material: SCNMaterial, rim: SCNMaterial) {
+        cylinder(group, 0.42, 0.62, 0.9, material, x, y)
+        cylinder(group, 0.72, 0.72, 0.16, rim, x, y + 0.5)
+        for z in [-1.0, 1] {
+            rail(group, from: (x - 1.0, y + 0.4, z * 0.2), to: (x + 1.0, y + 0.4, z * 0.2), radius: 0.065, material: material)
+        }
     }
 
     private static func detailedMast(_ group: SCNNode, x: Double, deck: Double, top: Double,
@@ -276,22 +410,82 @@ extension PaperweightShipFactory {
     }
 
     private static func squareCourse(_ group: SCNNode, x: Double, y: Double, width: Double, height: Double,
-                                     cloth: SCNMaterial, yard: SCNMaterial, rope: SCNMaterial, brace: Double = 0.18) {
+                                     cloth: SCNMaterial, yard: SCNMaterial, rope: SCNMaterial,
+                                     brace: Double = 0.18, tattered: Bool = false) {
         let course = SCNNode()
         course.eulerAngles.y = CGFloat(brace)
         course.position = vector(x, y, 0.4)
         group.addChildNode(course)
-        sail(course, 0, 0, width, height, cloth, brace: 0, bulge: width * 0.12, columns: 12)
+        func point(_ u: Double, _ v: Double) -> SCNVector3 {
+            let leech = 0.92 + 0.08 * v - 0.075 * sin(v * .pi)
+            let tornFoot = tattered ? pow(max(0, sin(u * .pi * 7)), 5) * height * 0.15 : 0
+            let foot = height * 0.12 * sin(u * .pi) + tornFoot
+            return vector((u - 0.5) * width * leech,
+                          (v - 0.5) * height + (1 - v) * foot - v * height * 0.022 * sin(u * .pi),
+                          width * 0.14 * sin(u * .pi) * sin((0.17 + v * 0.68) * .pi))
+        }
+        put(course, clothSurface(rows: 10, columns: 18, point: point), cloth)
         rail(course, from: (-width * 0.54, height * 0.5 + 0.12, 0),
              to: (width * 0.54, height * 0.5 + 0.12, 0), radius: 0.105, material: yard)
-        for side in [-1.0, 1] {
-            rail(course, from: (side * width * 0.51, height * 0.5 + 0.1, 0),
-                 to: (side * width * 0.47, -height * 0.52, 0.2), radius: 0.035, material: rope)
+        // Bolt ropes follow the bowed leeches and scalloped foot. Reef points
+        // remain individual knots rather than a dark grid painted over cloth.
+        for side in [0.0, 1.0] {
+            for segment in 0..<8 {
+                let a = point(side, Double(segment) / 8), b = point(side, Double(segment + 1) / 8)
+                rail(course, from: (Double(a.x), Double(a.y), Double(a.z)),
+                     to: (Double(b.x), Double(b.y), Double(b.z)), radius: 0.030, material: rope)
+            }
+        }
+        for segment in 0..<12 {
+            let a = point(Double(segment) / 12, 0), b = point(Double(segment + 1) / 12, 0)
+            rail(course, from: (Double(a.x), Double(a.y), Double(a.z)),
+                 to: (Double(b.x), Double(b.y), Double(b.z)), radius: 0.032, material: rope)
+        }
+        for index in 1..<7 {
+            let knot = point(Double(index) / 7, 0.47)
+            rail(course, from: (Double(knot.x), Double(knot.y), Double(knot.z) + 0.045),
+                 to: (Double(knot.x) + 0.035, Double(knot.y) - height * 0.065, Double(knot.z) + 0.06),
+                 radius: 0.025, material: rope)
         }
     }
 
+    private static func clothSurface(rows: Int, columns: Int,
+                                      point: (Double, Double) -> SCNVector3) -> SCNGeometry {
+        var vertices: [SCNVector3] = [], normals: [SCNVector3] = [], uv: [CGPoint] = [], indices: [Int32] = []
+        for row in 0...rows {
+            let v = Double(row) / Double(rows)
+            for column in 0...columns {
+                let u = Double(column) / Double(columns)
+                let p = point(u, v)
+                let a = point(min(1, u + 0.002), v), b = point(max(0, u - 0.002), v)
+                let c = point(u, min(1, v + 0.002)), d = point(u, max(0, v - 0.002))
+                let ux = Double(a.x - b.x), uy = Double(a.y - b.y), uz = Double(a.z - b.z)
+                let vx = Double(c.x - d.x), vy = Double(c.y - d.y), vz = Double(c.z - d.z)
+                let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx
+                let length = max(0.0001, sqrt(nx * nx + ny * ny + nz * nz))
+                vertices.append(p); normals.append(vector(nx / length, ny / length, nz / length))
+                uv.append(CGPoint(x: u, y: 1 - v))
+                if row < rows, column < columns {
+                    let a = Int32(row * (columns + 1) + column), b = a + 1
+                    let c = a + Int32(columns + 1), d = c + 1
+                    indices.append(contentsOf: [a, b, c, b, d, c])
+                }
+            }
+        }
+        return mesh(vertices, normals, uv, indices)
+    }
+
     private static func triangularCloth(_ group: SCNNode, points: [(Double, Double)], material: SCNMaterial, z: Double) {
-        flat(group, points, material, 0, 0, z)
+        guard points.count == 3 else { return }
+        let a = points[0], b = points[1], c = points[2]
+        let span = max(abs(a.0 - b.0), abs(a.0 - c.0), abs(b.0 - c.0))
+        func point(_ u: Double, _ v: Double) -> SCNVector3 {
+            let blendX = a.0 * (1 - u) + b.0 * u
+            let blendY = a.1 * (1 - u) + b.1 * u
+            return vector(blendX * (1 - v) + c.0 * v, blendY * (1 - v) + c.1 * v,
+                          z + sin(u * .pi) * sin(v * .pi) * span * 0.10)
+        }
+        put(group, clothSurface(rows: 10, columns: 12, point: point), material)
     }
 
     private static func gallery(_ group: SCNNode, x: Double, y: Double, z: Double,
@@ -367,35 +561,31 @@ extension PaperweightShipFactory {
     private static func fanCourse(_ group: SCNNode, x: Double, bottom: Double, top: Double, width: Double,
                                   cloth: SCNMaterial, batten: SCNMaterial, rope: SCNMaterial) {
         let height = top - bottom
-        let rows = 6, columns = 8
-        var vertices: [SCNVector3] = [], normals: [SCNVector3] = []
-        var uv: [CGPoint] = [], indices: [Int32] = []
-        for row in 0...rows {
-            let v = Double(row) / Double(rows)
-            let span = width * (1.0 - 0.42 * v)
-            for column in 0...columns {
-                let u = Double(column) / Double(columns)
-                let z = 0.7 + sin(u * .pi) * sin(v * .pi) * width * 0.12
-                vertices.append(vector(x + span * u - width * 0.18, bottom + height * v + u * 0.35, z))
-                normals.append(vector(0, 0, 1))
-                uv.append(CGPoint(x: u, y: v))
-                if row < rows, column < columns {
-                    let a = Int32(row * (columns + 1) + column)
-                    let b = a + 1, c = a + Int32(columns + 1), d = c + 1
-                    indices.append(contentsOf: [a, b, c, b, d, c])
-                }
+        func point(_ u: Double, _ v: Double) -> SCNVector3 {
+            let span = width * (1.0 - 0.34 * v + 0.07 * sin(v * .pi))
+            return vector(x + span * u - width * 0.18 - 0.11 * width * v,
+                          bottom + height * v + u * (0.25 + 0.60 * v) + 0.16 * sin(u * .pi),
+                          0.7 + sin(u * .pi) * width * (0.13 + 0.025 * sin(v * .pi)))
+        }
+        put(group, clothSurface(rows: 12, columns: 16, point: point), cloth)
+        for row in 0...7 {
+            let v = Double(row) / 7
+            for segment in 0..<8 {
+                let a = point(Double(segment) / 8, v), b = point(Double(segment + 1) / 8, v)
+                rail(group, from: (Double(a.x), Double(a.y), Double(a.z) + 0.035),
+                     to: (Double(b.x), Double(b.y), Double(b.z) + 0.035), radius: 0.065, material: batten)
+            }
+            let clew = point(1, v)
+            rail(group, from: (Double(clew.x), Double(clew.y), Double(clew.z)),
+                 to: (x + width * 0.18, bottom - 0.7, 0.7), radius: 0.024, material: rope)
+        }
+        for edge in [0.0, 1.0] {
+            for segment in 0..<12 {
+                let a = point(edge, Double(segment) / 12), b = point(edge, Double(segment + 1) / 12)
+                rail(group, from: (Double(a.x), Double(a.y), Double(a.z)),
+                     to: (Double(b.x), Double(b.y), Double(b.z)), radius: 0.040, material: rope)
             }
         }
-        put(group, mesh(vertices, normals, uv, indices), cloth)
-        for row in 0...rows {
-            let v = Double(row) / Double(rows), span = width * (1.0 - 0.42 * v)
-            rail(group, from: (x - width * 0.18, bottom + height * v, 0.73),
-                 to: (x + span - width * 0.18, bottom + height * v + 0.35, 0.73),
-                 radius: 0.075, material: batten)
-        }
-        rail(group, from: (x - width * 0.18, bottom, 0.75), to: (x - width * 0.18, top, 0.75), radius: 0.045, material: rope)
-        rail(group, from: (x + width * 0.82, bottom + 0.35, 0.75),
-             to: (x + width * 0.40, top + 0.35, 0.75), radius: 0.045, material: rope)
     }
 
     private static func dragonStem(_ group: SCNNode, bow: Bool, material: SCNMaterial, trim: SCNMaterial) {
@@ -412,7 +602,11 @@ extension PaperweightShipFactory {
             for side in [-1.0, 1] {
                 sphere(group, 0.14, 10, trim, 16.5, 10.2, side * 0.46)
             }
-            rail(group, from: (16.65, 9.9, 0), to: (17.5, 9.7, 0), radius: 0.11, material: trim)
+            profile(group, [(16.25, 9.8), (17.6, 9.7), (17.1, 9.3), (16.0, 9.35)], 0.42, material, bevel: 0.09)
+            rail(group, from: (16.65, 9.45, 0), to: (17.7, 9.2, 0), radius: 0.065, material: trim)
+            for x in [15.25, 15.65, 16.05] {
+                profile(group, [(x, 10.35), (x + 0.12, 11.0), (x + 0.4, 10.4)], 0.18, trim, bevel: 0.025)
+            }
         } else {
             torus(group, 0.68, 0.18, rings: 20, sides: 6, material, -16.1, 10.0)
         }
