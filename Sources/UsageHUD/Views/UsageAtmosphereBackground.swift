@@ -1,4 +1,5 @@
 import AppKit
+import MetalKit
 import SwiftUI
 
 private struct UsageSceneFrozenKey: EnvironmentKey {
@@ -39,7 +40,7 @@ struct UsageAtmosphereBackground: NSViewRepresentable {
     private func configure(_ view: UsageAtmosphereView) {
         view.configure(active: isActive, compact: compact, weather: weather.resolved(phases: []), ship: ship,
                        showsShip: showsShip, dark: colorScheme == .dark,
-                       reduced: reduceMotion || frozen)
+                       reduced: reduceMotion || frozen, capturesWeather: frozen)
     }
 }
 
@@ -50,6 +51,7 @@ final class UsageAtmosphereView: NSView {
     private var compact = false
     private var dark = false
     private var reduced = false
+    private var capturesWeather = false
     private var weather = CruiseWeather.sunny
     private var ship = PaperweightShipKind.galleon
     private var showsShip = true
@@ -59,6 +61,9 @@ final class UsageAtmosphereView: NSView {
     private var lastTick = 0.0
     private var timer: Timer?
     private lazy var tickTarget = AtmosphereTickTarget(owner: self)
+    private var weatherRenderer: CruiseWeatherRenderer?
+    private var weatherView: MTKView?
+    private var shipOverlay: AtmosphereShipOverlay?
 
     var animationTime: TimeInterval { phase }
     var isAnimating: Bool { timer != nil }
@@ -69,12 +74,25 @@ final class UsageAtmosphereView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         setAccessibilityElement(false)
+        if let renderer = CruiseWeatherRenderer() {
+            let metal = MTKView(frame: bounds)
+            renderer.attach(to: metal)
+            metal.autoresizingMask = [.width, .height]
+            let overlay = AtmosphereShipOverlay(frame: bounds)
+            overlay.owner = self
+            overlay.autoresizingMask = [.width, .height]
+            addSubview(metal)
+            addSubview(overlay)
+            weatherRenderer = renderer
+            weatherView = metal
+            shipOverlay = overlay
+        }
     }
 
     required init?(coder: NSCoder) { nil }
 
     func configure(active: Bool, compact: Bool, weather: CruiseWeather, ship: PaperweightShipKind, showsShip: Bool,
-                   dark: Bool, reduced: Bool) {
+                   dark: Bool, reduced: Bool, capturesWeather: Bool = false) {
         let changed = self.compact != compact || self.dark != dark || self.reduced != reduced
             || self.weather != weather || self.ship != ship || self.showsShip != showsShip
         let cadenceChanged = self.compact != compact
@@ -82,12 +100,14 @@ final class UsageAtmosphereView: NSView {
         self.compact = compact
         self.dark = dark
         self.reduced = reduced
+        self.capturesWeather = capturesWeather
+        weatherView?.isHidden = capturesWeather
         self.weather = weather
         self.ship = ship
         self.showsShip = showsShip
         updateShipSnapshot()
         if cadenceChanged { stopClock() }
-        if changed { needsDisplay = true }
+        if changed { invalidateFrame() }
         updateVisibility()
     }
 
@@ -121,9 +141,15 @@ final class UsageAtmosphereView: NSView {
 
     override func layout() {
         super.layout()
-        needsDisplay = true
+        let limit: CGFloat = compact ? 240 : 960
+        let scale = min(1, limit / max(1, max(bounds.width, bounds.height)))
+        weatherView?.drawableSize = CGSize(width: max(1, bounds.width * scale), height: max(1, bounds.height * scale))
+        invalidateFrame()
         updateVisibility()
     }
+
+    override func viewDidHide() { super.viewDidHide(); updateVisibility() }
+    override func viewDidUnhide() { super.viewDidUnhide(); updateVisibility() }
 
     /// Let the controls above the background own all clicks and drags.
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -169,10 +195,53 @@ final class UsageAtmosphereView: NSView {
         let time = ProcessInfo.processInfo.systemUptime
         phase += min(0.25, max(0, time - lastTick))
         lastTick = time
+        invalidateFrame()
+    }
+
+    private func invalidateFrame() {
         needsDisplay = true
+        guard !capturesWeather, let weatherRenderer, let weatherView else { return }
+        weatherRenderer.configure(time: reduced ? 0 : phase, weather: weather, dark: dark, compact: compact)
+        weatherView.draw()
+        shipOverlay?.needsDisplay = true
+    }
+
+    fileprivate func drawShipOverlay(_ context: CGContext) {
+        guard showsShip else { return }
+        drawCruisingShip(context, time: reduced ? 0 : phase, width: bounds.width, height: bounds.height)
+    }
+
+    /// AppKit cached display omits Metal layers. The gallery composites this
+    /// explicit readback only while exporting; live frames stay on the GPU.
+    func snapshot() -> CGImage? {
+        guard let weatherRenderer, bounds.width > 0, bounds.height > 0 else { return nil }
+        let scale = window?.backingScaleFactor ?? 2
+        let width = min(2_048, max(1, Int(bounds.width * scale)))
+        let height = min(2_048, max(1, Int(bounds.height * scale)))
+        guard let background = weatherRenderer.snapshot(size: CGSize(width: width, height: height),
+                                                        time: reduced ? 0 : phase, weather: weather, dark: dark, compact: compact),
+              let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                                      bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.draw(background, in: CGRect(x: 0, y: 0, width: width, height: height))
+        context.translateBy(x: 0, y: CGFloat(height))
+        context.scaleBy(x: CGFloat(width) / bounds.width, y: -CGFloat(height) / bounds.height)
+        drawShipOverlay(context)
+        return context.makeImage()
     }
 
     override func draw(_ dirtyRect: NSRect) {
+        if let weatherRenderer {
+            if capturesWeather, let context = NSGraphicsContext.current?.cgContext,
+               let image = weatherRenderer.snapshot(size: bounds.size, time: 0, weather: weather, dark: dark, compact: compact) {
+                context.saveGState()
+                context.translateBy(x: 0, y: bounds.height)
+                context.scaleBy(x: 1, y: -1)
+                context.draw(image, in: bounds)
+                context.restoreGState()
+            }
+            return
+        }
         guard bounds.width > 0, bounds.height > 0, let context = NSGraphicsContext.current?.cgContext else { return }
         let width = bounds.width, height = bounds.height
         let time = reduced ? 0 : phase
@@ -477,6 +546,19 @@ final class UsageAtmosphereView: NSView {
         context.restoreGState()
     }
 
+}
+
+@available(macOS 14.0, *)
+@MainActor
+private final class AtmosphereShipOverlay: NSView {
+    weak var owner: UsageAtmosphereView?
+    override var isFlipped: Bool { true }
+    override var isOpaque: Bool { false }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func draw(_ dirtyRect: NSRect) {
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        owner?.drawShipOverlay(context)
+    }
 }
 
 @available(macOS 14.0, *)
