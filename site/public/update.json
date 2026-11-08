@@ -1,34 +1,34 @@
 {
-  "build" : 48,
-  "downloadURL" : "https://pmrichq.com/project/usaige/usAIge-0.2.26-alpha.dmg",
+  "build" : 49,
+  "downloadURL" : "https://pmrichq.com/project/usaige/usAIge-0.2.27-alpha.dmg",
   "minimumSystemVersion" : "11.0",
   "releaseNotes" : {
-    "headline" : "Memory and storage, in glass",
+    "headline" : "Your usage is the ocean",
     "highlights" : [
       {
-        "detail" : "The Branches window opens on two glass paperweights. Their liquid layers show each AI tool’s memory share and the disk space used by the system, apps, tools, build cache, and worktrees.",
-        "systemImage" : "chart.pie",
-        "title" : "Memory and storage paperweights"
+        "detail" : "Open Memory or Storage from the rail to enter its sailing ocean. Colored usage layers form the moving water, with category names and byte counts directly on the waves. Select a layer to inspect its processes, tools, cache, or worktrees.",
+        "systemImage" : "water.waves",
+        "title" : "The layers are the ocean"
       },
       {
-        "detail" : "Bring either paperweight to the front, drag to turn the camera, scroll or pinch to zoom, and select a layer to see what it contains. Choose the ships floating above the liquid.",
-        "systemImage" : "hand.draw",
-        "title" : "Turn, zoom, and explore"
+        "detail" : "Choose from 12 classic ships and 47 stylized One Piece miniatures, with refined sails, rigging, hulls, and deck details. Memory and Storage remember their own ship choices, also shown in the rail’s miniatures.",
+        "systemImage" : "sailboat",
+        "title" : "A fleet of 59 animated ships"
       },
       {
-        "detail" : "Miniature Memory and Storage paperweights show your chosen ships and free space. Hover Storage for the latest measured breakdown and open the Branches window directly to Storage.",
-        "systemImage" : "externaldrive",
-        "title" : "A matching view in the rail"
+        "detail" : "Automatic weather follows macOS memory pressure or observed disk headroom. Choose any of eight weather conditions manually. Clearing previews keep weather tied to actual disk usage, and unavailable readings are clearly identified.",
+        "systemImage" : "cloud.sun",
+        "title" : "Weather follows the resource"
       },
       {
-        "detail" : "Recently active sessions remain listed even without a measured process in their folder. On-demand scene rendering and a bounded label cache reduce unnecessary graphics work.",
-        "systemImage" : "arrow.triangle.branch",
-        "title" : "Work stays visible"
+        "detail" : "Ships drift gently around the center, stay afloat, and remain fully in view as the water moves. Explore usage without switching sailing modes or losing branch-review state. Existing clear reviews and Undo remain available.",
+        "systemImage" : "scope",
+        "title" : "Centered ships, continuous exploration"
       }
     ],
-    "summary" : "Explore memory and disk usage as interactive liquid paperweights, with matching miniatures in the rail and clearer access to active work."
+    "summary" : "Memory and Storage become interactive sailing oceans: colored usage layers form the water, with readable names and byte counts on the waves, resource-driven weather, and 59 detailed animated ships that stay centered."
   },
-  "sha256" : "631fe52384914486dbf2dafde515dfe905fbd4f03aa081d87f5c3bf51d73f521",
-  "signature" : "9cJvtC1jmHL/9140OGJPdZN0kDdGSqBmMLqdfNnM/R6pRcobyxhJpJuXrovbpzCYTRvyJjzZk9K6vY+UQzPJAQ==",
-  "version" : "0.2.26"
+  "sha256" : "d537cd84244fdb4c6af9fb71d61f8fc2d555af819655e57b433268610aa639ce",
+  "signature" : "rKYiurHuLTAJoqWsCitxRok2tGOwbWTRIciBONDvgwsCa/t83J7tkZrdedx+l8h3K/PDF2ec0WOsacjwP1bBDQ==",
+  "version" : "0.2.27"
 }

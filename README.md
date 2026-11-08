@@ -154,9 +154,9 @@ The packaged application includes the custom usAIge icon in Finder, the Dock, Sp
 
 ## Install the public alpha
 
-Download `usAIge-0.2.26-alpha.dmg` and its checksum from the website. Open the disk image, then drag `usAIge.app` onto the Applications shortcut.
+Download `usAIge-0.2.27-alpha.dmg` and its checksum from the website. Open the disk image, then drag `usAIge.app` onto the Applications shortcut.
 
-The 0.2.26 alpha presents Memory and Storage as layered 3D glass paperweights in the Branches window. Turn or zoom the view, select a layer, and choose a ship for each paperweight; those choices also appear in the rail’s miniatures alongside AI memory and free disk space. Work reported by sessions stays listed even when no process memory is measured. Local branch review and Undo remain available; Undo restores Git branches and folders, but not ignored files. Claude usage still refreshes quietly in the background without an extra sign-in, Keychain access, or **Detect** action.
+The 0.2.27 alpha makes each resource’s usage layers the sailing ocean itself. Open Memory or Storage, read category names and byte counts on the colored water, and select a layer to inspect its contents. Choose among 59 animated ships with refined details and centered framing; Memory and Storage remember separate choices. Automatic weather follows macOS memory pressure or actual disk headroom. Local branch review and Undo remain available; Undo restores Git branches and folders, but not ignored files. Claude usage still refreshes quietly in the background without an extra sign-in, Keychain access, or **Detect** action.
 
 This alpha is ad-hoc signed and is not notarized because the project does not yet have a Developer ID Application certificate. On first launch:
 
@@ -170,7 +170,7 @@ To build and verify the installer locally:
 
 ```bash
 scripts/package-dmg.sh
-(cd dist && shasum -a 256 -c usAIge-0.2.26-alpha.dmg.sha256)
+(cd dist && shasum -a 256 -c usAIge-0.2.27-alpha.dmg.sha256)
 ```
 
 For headless packaging, reuse the layout from a trusted previous installer:
@@ -382,21 +382,25 @@ The rail shows what your AI tools are working on, without opening anything:
 
 Memory counts each AI tool's app and helpers plus everything running in the folders its sessions work in, each process once, using the same figure as Activity Monitor. The rail reads the process list and each session's `.git/HEAD` every 10 seconds, with no git process. In a folder macOS protects it reads nothing, and shows the branch the session's own log last recorded; Cursor and Grok Build don't record one.
 
-The **Branches** window, also under **Branches and Worktrees…** in the app menu, starts with a ship floating near the center of an animated sea. The ship drifts gently while staying fully inside the window. Select **Automatic** to enable random weather cycling, shared by the window and rail. Each shuffled cycle includes Sunny, Cloudy, Rain, Thunder, Storm, Typhoon, Snow, and Night, with no immediate repeat. Each condition lasts a random 90–180 seconds, followed by a six-second sky and water blend into the next condition. Choose any condition manually to keep it pinned until you select **Automatic** again. The rail shares this setting through its **Sailing weather** context menu. These are decorative weather scenes, not location forecasts.
+The **Branches** window, also under **Branches and Worktrees…** in the app menu, opens Memory or Storage as an interactive sailing ocean. Its colored usage layers are the actual moving water beneath the ship, with names and byte counts directly on the waves. Click a water layer, its legend, or the layer menu to inspect its existing details. The ship drifts gently around the center while staying fully inside the view. Memory and Storage remember their own ship choices, also shown in the rail’s miniatures.
 
-**Thunder** adds sparse, distant lightning as a visual effect without sound. **Typhoon** adds rotating cloud and rain bands, spray and foam, and the strongest seas. **Pause** and Reduce Motion freeze the scene and automatic weather progress; Reduce Motion also disables lightning. Hidden or covered scenes stop their clock. The shared weather cycle uses the existing scene clocks without an additional timer. The rail uses a slower animation clock and cached ship images.
+In the resource window, **Automatic** weather follows the selected resource’s observed condition. Memory uses macOS system memory pressure, independently of the AI-process footprints: normal is Sunny, warning is Rain, critical is Storm, and an unavailable reading is Cloudy. Storage uses actual free space: more than 20% is Sunny, at most 20% is Cloudy, at most 10% is Rain, and at most 5% is Storm. The status appears beside the weather control. Clearing previews change estimated layer amounts without forecasting healthier weather.
 
-Memory and Storage readings and the selected layer's cards remain available over the sea. It reads this Mac only: it never fetches, never calls GitHub, and sends nothing to the relay, your iPhone, or your Watch. Its repository scan runs only while the window is open, and closing it stops that scan.
+The narrow rail retains its decorative random **Automatic** cycle. Each shuffled cycle includes Sunny, Cloudy, Rain, Thunder, Storm, Typhoon, Snow, and Night, with no immediate repeat. Each condition lasts a random 90–180 seconds, followed by a six-second sky and water blend. A manual condition pins that weather until **Automatic** is selected again, using the window’s weather control or the rail’s **Sailing weather** context menu. Neither view uses location forecasts.
 
-The cruising ship has the same unsinkable behavior as the liquid toy: the visible wave supports its hull, it rights itself after tilting, and its keel stays in the water without the ship sinking or capsizing. Click or drag the sea, press **Shake**, or move the window to stir it. The rail has **Shake the sea** in its context menu and responds when dragged. All eight weather scenes have their own shared water and buoyancy profile: Typhoon is the roughest, while Snow and Night have calmer seas.
+**Thunder** adds sparse, distant lightning as a visual effect without sound. **Typhoon** adds rotating cloud and rain bands, spray and foam, and the strongest seas. **Pause** and Reduce Motion hold the scene’s weather mixture; Reduce Motion also disables lightning. Hidden or covered scenes stop their clock. Weather uses the existing scene clocks and resource monitor without an additional polling timer. The rail uses a slower animation clock and cached ship images.
 
-Choose **Usage layers** to see Memory and Storage as large glass paperweights that fit the window. Click the rear paperweight to bring it forward, then click a layer to inspect it, or use the layer menu above the detail cards. Drag to turn the view, scroll or pinch to zoom, and use **Reset View** or double-click the background to fit both paperweights again. The ship picker chooses a ship separately for Memory and Storage; the choices are remembered and appear in the sailing scene and the rail's miniatures. **Shake** moves the liquid without changing the readings.
+The selected layer’s existing detail cards remain below the ocean. The resource view reads this Mac only: it never fetches, never calls GitHub, and sends nothing to the relay, your iPhone, or your Watch. Its repository scan runs only while the window is open, and closing it stops that scan.
 
-The **Ship** menu groups 47 stylized One Piece miniatures by crew and region, alongside the 12 classic ships. The fleet includes Going Merry, Thousand Sunny, Oro Jackson, Moby Dick, Red Force, Polar Tang, Victoria Punk, Queen Mama Chanter, Thriller Bark, Baratie, and the Straw Hat Grand Fleet. Each model has its own hull, figurehead, and deck details and is fitted to stay inside the glass while rolling. See the [fleet catalog](docs/one-piece-fleet.md) for the full selection.
+The cruising ship has the same unsinkable behavior as the liquid toy: the visible wave supports its hull, it rights itself after tilting, and its keel stays in the water without the ship sinking or capsizing. Drag the water, press **Shake**, or move the window to stir it. The rail has **Shake the sea** in its context menu and responds when dragged. All eight weather scenes have their own shared water and buoyancy profile: Typhoon is the roughest, while Snow and Night have calmer seas.
+
+Sailing and usage share one view. Switching between Memory and Storage changes the ocean’s layers and ship without replacing the window or losing its search and review state. **Shake** moves the water without changing the readings.
+
+The **Ship** menu groups 47 stylized One Piece miniatures by crew and region, alongside the 12 classic ships. The fleet includes Going Merry, Thousand Sunny, Oro Jackson, Moby Dick, Red Force, Polar Tang, Victoria Punk, Queen Mama Chanter, Thriller Bark, Baratie, and the Straw Hat Grand Fleet. Each model has its own hull, figurehead, and deck details and is fitted to stay inside the view while rolling. See the [fleet catalog](docs/one-piece-fleet.md) for the full selection.
 
 The classic ships have sculpted, tapered hulls, curved sails and rigging, shaped decks and cabins, and more detailed windows, railings and fittings. They share the fleet's moving-part animation and the sailing scene's exact waterline.
 
-All 59 ships have animated parts: fluttering sails and flags, turning propellers and paddle wheels, rowing oars, drifting steam, and moving figureheads or creature details. Ships loop while the Branches scene is visible, with a slower frame rate once the water settles. Rail miniatures animate on hover using cached frames. Closing, hiding, or covering the view stops its clock; **Reduce Motion** restores still poses.
+All 59 ships have animated parts: fluttering sails and flags, turning propellers and paddle wheels, rowing oars, drifting steam, and moving figureheads or creature details. Ships loop while the Branches scene is visible. Rail miniatures animate on hover using cached frames. Closing, hiding, or covering the view stops its clock; **Reduce Motion** restores still poses.
 
 - **Memory** separates AI tools and other repository work into layers. Selecting a layer lists the running work whose processes it counts. Work active in a session in the last few minutes remains listed even when there is no process there to measure. **Other memory** means memory not counted under AI tools or repository work, not necessarily unused memory.
 - **Storage** separates **Worktrees**, **Build cache**, **Tool storage**, **macOS and apps**, and **Free space**. Select a layer to see its relevant folders or explanation. **Tool storage** is read-only; usAIge never clears it.
@@ -420,7 +424,7 @@ Each card's status says whether it's safe to delete:
 | **Main copy** | The repository's main checkout or main branch | No |
 | **Not checked** | In a folder macOS protects, or managed by iCloud | No |
 
-Opening a card shows where it lives, what's running there with ports, memory, and start times, its related sessions, and how much of its size is rebuildable cache. Sizes are what each folder measured, and APFS counts a file two folders share in both, so the disk can gain less than the paperweight preview shows. The **Tool storage** layer lists what AI and developer tools keep on the Mac, including simulator runtimes and caches; usAIge only shows these and never clears them.
+Opening a card shows where it lives, what's running there with ports, memory, and start times, its related sessions, and how much of its size is rebuildable cache. Sizes are what each folder measured, and APFS counts a file two folders share in both, so the disk can gain less than the ocean’s clearing preview shows. The **Tool storage** layer lists what AI and developer tools keep on the Mac, including simulator runtimes and caches; usAIge only shows these and never clears them.
 
 Merges are detected by content, so squash and rebase merges count without asking GitHub: a branch is finished when a commit that reached your local copy of main after the branch began has exactly the same patch, compared with `git patch-id --verbatim`. If you haven't fetched lately, a merged branch shows as **Pushed**, which is the safe direction. A squash merge with extra edits can also show as **Pushed** or **Not saved**, and so can every merged branch with a Git older than 2.39, which can't make that comparison.
 
