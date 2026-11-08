@@ -32,9 +32,9 @@ struct PaperweightShipPicker: View {
                     .truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .accessibilityLabel("Ship in the front paperweight")
+            .accessibilityLabel("Ship in the resource ocean")
             .accessibilityValue(selected.title)
-            .help("Choose a ship for this paperweight. Memory and Storage remember their own choices.")
+            .help("Choose a ship for this ocean. Memory and Storage remember their own choices.")
         }
         .frame(maxWidth: 400, alignment: .leading)
     }

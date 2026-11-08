@@ -61,6 +61,7 @@ final class CruiseWeatherRenderer: NSObject, MTKViewDelegate {
         var transition: SIMD4<Float>
         var weatherWeightsLow: SIMD4<Float>
         var weatherWeightsHigh: SIMD4<Float>
+        var resourceOcean: SIMD4<Float>
     }
 
     private static var resources: [UInt64: Resources] = [:]
@@ -77,6 +78,7 @@ final class CruiseWeatherRenderer: NSObject, MTKViewDelegate {
     private var seaProfile: CruiseSeaProfile?
     private var oceanTime: TimeInterval?
     private var mix: CruiseWeatherMix?
+    private var resourceOcean: ResourceOceanRenderData?
 
     init?(device suppliedDevice: MTLDevice? = nil) {
         guard let device = suppliedDevice ?? MTLCreateSystemDefaultDevice() else { return nil }
@@ -106,7 +108,8 @@ final class CruiseWeatherRenderer: NSObject, MTKViewDelegate {
 
     func configure(time: TimeInterval, weather: CruiseWeather, dark: Bool, compact: Bool,
                    lightningEnabled: Bool = true, transition: CruiseWeatherTransition? = nil,
-                   seaProfile: CruiseSeaProfile? = nil, oceanTime: TimeInterval? = nil, mix: CruiseWeatherMix? = nil) {
+                   seaProfile: CruiseSeaProfile? = nil, oceanTime: TimeInterval? = nil, mix: CruiseWeatherMix? = nil,
+                   resourceOcean: ResourceOceanRenderData? = nil) {
         self.time = time.isFinite ? time : 0
         self.weather = weather
         self.dark = dark
@@ -116,6 +119,7 @@ final class CruiseWeatherRenderer: NSObject, MTKViewDelegate {
         self.seaProfile = seaProfile
         self.oceanTime = oceanTime
         self.mix = mix
+        self.resourceOcean = resourceOcean
     }
 
     func attach(to view: MTKView) {
@@ -144,8 +148,9 @@ final class CruiseWeatherRenderer: NSObject, MTKViewDelegate {
               let command = resource.queue.makeCommandBuffer() else { return }
         var uniforms = makeUniforms(size: view.drawableSize, time: time, weather: weather, dark: dark,
                                     compact: compact, lightningEnabled: lightningEnabled,
-                                    transition: transition, seaProfile: seaProfile, oceanTime: oceanTime, mix: mix)
-        guard encode(pass: pass, command: command, uniforms: &uniforms) else { return }
+                                    transition: transition, seaProfile: seaProfile, oceanTime: oceanTime, mix: mix,
+                                    resourceOcean: resourceOcean)
+        guard encode(pass: pass, command: command, uniforms: &uniforms, resourceOcean: resourceOcean) else { return }
         let admission = drawAdmission
         command.addCompletedHandler { [weak self] _ in
             guard admission.complete() else { return }
@@ -169,7 +174,8 @@ final class CruiseWeatherRenderer: NSObject, MTKViewDelegate {
     /// Live animation presents GPU drawables without copying pixels to the CPU.
     func snapshot(size: CGSize, time: TimeInterval, weather: CruiseWeather, dark: Bool, compact: Bool,
                   lightningEnabled: Bool = true, transition: CruiseWeatherTransition? = nil,
-                  seaProfile: CruiseSeaProfile? = nil, oceanTime: TimeInterval? = nil, mix: CruiseWeatherMix? = nil) -> CGImage? {
+                  seaProfile: CruiseSeaProfile? = nil, oceanTime: TimeInterval? = nil, mix: CruiseWeatherMix? = nil,
+                  resourceOcean: ResourceOceanRenderData? = nil) -> CGImage? {
         guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else { return nil }
         let width = min(2_048, max(1, Int(size.width.rounded())))
         let height = min(2_048, max(1, Int(size.height.rounded())))
@@ -185,8 +191,9 @@ final class CruiseWeatherRenderer: NSObject, MTKViewDelegate {
         pass.colorAttachments[0].storeAction = .store
         var uniforms = makeUniforms(size: CGSize(width: width, height: height), time: time,
                                     weather: weather, dark: dark, compact: compact, lightningEnabled: lightningEnabled,
-                                    transition: transition, seaProfile: seaProfile, oceanTime: oceanTime, mix: mix)
-        guard encode(pass: pass, command: command, uniforms: &uniforms) else { return nil }
+                                    transition: transition, seaProfile: seaProfile, oceanTime: oceanTime, mix: mix,
+                                    resourceOcean: resourceOcean)
+        guard encode(pass: pass, command: command, uniforms: &uniforms, resourceOcean: resourceOcean) else { return nil }
         command.commit()
         command.waitUntilCompleted()
         guard command.status == .completed else { Self.lastError = command.error?.localizedDescription; return nil }
@@ -201,10 +208,15 @@ final class CruiseWeatherRenderer: NSObject, MTKViewDelegate {
                        decode: nil, shouldInterpolate: true, intent: .defaultIntent)
     }
 
-    private func encode(pass: MTLRenderPassDescriptor, command: MTLCommandBuffer, uniforms: inout Uniforms) -> Bool {
+    private func encode(pass: MTLRenderPassDescriptor, command: MTLCommandBuffer, uniforms: inout Uniforms,
+                        resourceOcean: ResourceOceanRenderData?) -> Bool {
         guard let encoder = command.makeRenderCommandEncoder(descriptor: pass) else { return false }
         encoder.setRenderPipelineState(resource.pipeline)
         encoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 0)
+        let pigments = resourceOcean?.layers ?? [.zero]
+        let surface = resourceOcean?.surface ?? [0.61]
+        pigments.withUnsafeBytes { encoder.setFragmentBytes($0.baseAddress!, length: $0.count, index: 1) }
+        surface.withUnsafeBytes { encoder.setFragmentBytes($0.baseAddress!, length: $0.count, index: 2) }
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
         encoder.endEncoding()
         return true
@@ -212,7 +224,8 @@ final class CruiseWeatherRenderer: NSObject, MTKViewDelegate {
 
     private func makeUniforms(size: CGSize, time: TimeInterval, weather: CruiseWeather, dark: Bool, compact: Bool,
                               lightningEnabled: Bool, transition: CruiseWeatherTransition?,
-                              seaProfile: CruiseSeaProfile?, oceanTime: TimeInterval?, mix: CruiseWeatherMix?) -> Uniforms {
+                              seaProfile: CruiseSeaProfile?, oceanTime: TimeInterval?, mix: CruiseWeatherMix?,
+                              resourceOcean: ResourceOceanRenderData?) -> Uniforms {
         let sample = transition ?? CruiseWeatherTransition(from: weather, to: weather, progress: 0)
         let mixture = mix ?? CruiseWeatherMix(transition: sample)
         let profile = seaProfile ?? mixture.seaProfile
@@ -227,7 +240,9 @@ final class CruiseWeatherRenderer: NSObject, MTKViewDelegate {
                         weatherWeightsLow: SIMD4(Float(mixture.weights[0]), Float(mixture.weights[1]),
                                                  Float(mixture.weights[2]), Float(mixture.weights[3])),
                         weatherWeightsHigh: SIMD4(Float(mixture.weights[4]), Float(mixture.weights[5]),
-                                                  Float(mixture.weights[6]), Float(mixture.weights[7])))
+                                                  Float(mixture.weights[6]), Float(mixture.weights[7])),
+                        resourceOcean: SIMD4(Float(resourceOcean?.layers.count ?? 0),
+                                             Float(resourceOcean?.surface.count ?? 0), 0, 0))
     }
 
     private func conditionID(_ weather: CruiseWeather) -> UInt32 {

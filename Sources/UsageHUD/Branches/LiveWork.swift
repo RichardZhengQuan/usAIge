@@ -288,12 +288,14 @@ final class LiveWorkMonitor: ObservableObject {
 
     @Published private(set) var summary = LiveWorkSummary()
     @Published private(set) var diskSpace: DiskSpace?
+    @Published private(set) var memoryPressure = SystemMemoryPressure.unknown
 
     private let currentTasks: @MainActor () -> [CodexAgentTask]
     private let runningApplications: @MainActor () -> [AIToolID: [String]]
     private let locator: @MainActor () -> RepositoryLocator
     private let scan: LiveWorkReader.Scan
     private let readDiskSpace: @Sendable () -> DiskSpace?
+    private let readMemoryPressure: @Sendable () -> SystemMemoryPressure
     private let now: @Sendable () -> Date
     private var lastDiskRead: Date?
     private var loop: Task<Void, Never>?
@@ -310,6 +312,7 @@ final class LiveWorkMonitor: ObservableObject {
         readDiskSpace: @escaping @Sendable () -> DiskSpace? = {
             DiskSpace.read(for: FileManager.default.homeDirectoryForCurrentUser)
         },
+        readMemoryPressure: @escaping @Sendable () -> SystemMemoryPressure = SystemMemoryPressure.read,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.currentTasks = currentTasks
@@ -317,6 +320,7 @@ final class LiveWorkMonitor: ObservableObject {
         self.locator = locator
         self.scan = scan
         self.readDiskSpace = readDiskSpace
+        self.readMemoryPressure = readMemoryPressure
         self.now = now
     }
 
@@ -363,6 +367,7 @@ final class LiveWorkMonitor: ObservableObject {
         // Detail cards sample more often, but disk capacity needs only one
         // read a minute, even when a read fails or the loop restarts.
         let readDiskSpace = readDiskSpace
+        let readMemoryPressure = readMemoryPressure
         let updated = await Task.detached(priority: .utility) {
             let summary = LiveWorkReader.read(
                 tasks: tasks,
@@ -371,9 +376,10 @@ final class LiveWorkMonitor: ObservableObject {
                 includePorts: includePorts,
                 scan: scan
             )
-            return (summary: summary, disk: readsDisk ? readDiskSpace() : nil)
+            return (summary: summary, disk: readsDisk ? readDiskSpace() : nil, pressure: readMemoryPressure())
         }.value
         if updated.summary != summary { summary = updated.summary }
+        if updated.pressure != memoryPressure { memoryPressure = updated.pressure }
         if readsDisk {
             // Count from completion so a slow process scan can't bring the
             // next capacity read forward.

@@ -2,7 +2,7 @@ import AppKit
 import Combine
 import SwiftUI
 
-/// The scene chooses a paperweight and layer; the lists keep the same reviews
+/// The resource ocean chooses a layer; the lists keep the same reviews
 /// and protections as the repository board.
 @available(macOS 14.0, *)
 struct BranchesRootView: View {
@@ -13,14 +13,13 @@ struct BranchesRootView: View {
     @State private var selectedLayerID: String
     @State private var summary: LiveWorkSummary
     @State private var preview = false
-    @State private var moving = false
     @State private var commandID = 0
     @State private var sceneCommand: PaperweightSceneCommand?
     @State private var lastPresentationRequestID: UUID?
     @State private var query = ""
     @State private var projectID: String?
     @AppStorage(CruiseWeather.defaultsKey) private var weatherName = CruiseWeather.automatic.rawValue
-    @State private var showsLayers: Bool
+    @State private var memoryPressure: SystemMemoryPressure
     @State private var cruisePaused = false
     @State private var clearReview: ClearReviewRequest?
     @State private var expanded: Set<String> = []
@@ -30,14 +29,14 @@ struct BranchesRootView: View {
 
     init(store: BranchesStore, liveWork: LiveWorkMonitor? = nil, agentStore: CodexAgentStore? = nil,
          initialFront: PaperweightID = .storage, initialSelectedLayerID: String? = nil,
-         presentation: BranchesPaperweightPresentation? = nil, initialShowsLayers: Bool = false) {
+         presentation: BranchesPaperweightPresentation? = nil) {
         self.store = store
         self.liveWork = liveWork
         self.presentation = presentation
         _front = State(initialValue: initialFront)
         _selectedLayerID = State(initialValue: initialSelectedLayerID ?? (initialFront == .storage ? "wt" : ""))
         _summary = State(initialValue: liveWork?.summary ?? LiveWorkSummary())
-        _showsLayers = State(initialValue: initialShowsLayers)
+        _memoryPressure = State(initialValue: liveWork?.memoryPressure ?? .unknown)
     }
 
     private var weather: CruiseWeather {
@@ -46,6 +45,20 @@ struct BranchesRootView: View {
 
     private var summaryUpdates: AnyPublisher<LiveWorkSummary, Never> {
         liveWork?.$summary.eraseToAnyPublisher() ?? Just(LiveWorkSummary()).eraseToAnyPublisher()
+    }
+
+    private var memoryPressureUpdates: AnyPublisher<SystemMemoryPressure, Never> {
+        liveWork?.$memoryPressure.eraseToAnyPublisher() ?? Just(.unknown).eraseToAnyPublisher()
+    }
+
+    private var diskUpdates: AnyPublisher<DiskSpace?, Never> {
+        // The store reads immediately on opening. Subsequent monitor samples
+        // keep both the ocean and its weather current without another timer.
+        liveWork?.$diskSpace.dropFirst().eraseToAnyPublisher() ?? Empty().eraseToAnyPublisher()
+    }
+
+    private var weatherStatus: ResourceWeatherStatus {
+        ResourceWeatherStatus.make(for: front, memoryPressure: memoryPressure, disk: store.diskSpace)
     }
 
     private var presentationUpdates: AnyPublisher<BranchesPaperweightPresentation.Request?, Never> {
@@ -85,67 +98,40 @@ struct BranchesRootView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 16) {
                         overview(memory: memory, storage: storage, board: everything, now: now)
-                            .padding(16)
-                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
-                            .padding(.horizontal, 8)
-                            .padding(.top, 20)
-                        if showsLayers {
-                            PaperweightSceneView(
-                                configurations: [memory, storage], front: front,
-                                selectedLayerID: selectedLayerID,
-                                ships: [.memory: store.memoryShip, .storage: store.storageShip],
-                                command: sceneCommand,
-                                onSelect: { id, layer in front = id; selectedLayerID = layer },
-                                onSwap: { id in
-                                    front = id
-                                    let next = id == .storage ? storage : memory
-                                    selectedLayerID = next.layers.first?.id ?? next.freeLayer.id
-                                },
-                                onMovingChanged: { moving = $0 }
-                            )
-                            .frame(height: min(540, max(300, geometry.size.height * 0.57)))
-                            .accessibilityHint("Click a paperweight or layer. Drag to turn, scroll or pinch to zoom, and double-click the table to reset.")
-                        } else {
-                            Color.clear
-                                .frame(height: min(540, max(300, geometry.size.height * 0.57)))
-                                .contentShape(Rectangle())
-                                .onTapGesture { if !cruisePaused && !reduceMotion { send(.shake) } }
-                                .simultaneousGesture(DragGesture(minimumDistance: 10).onEnded { _ in
-                                    if !cruisePaused && !reduceMotion { send(.shake) }
-                                })
-                                .accessibilityElement()
-                                .accessibilityLabel("\(store.ship(for: front).title) cruising in \(weather == .automatic ? "automatically changing" : weather.title.lowercased()) weather")
-                                .accessibilityValue(cruisePaused || reduceMotion ? "Animation paused" : "Cruising")
-                                .accessibilityHint("Click or drag the sea to make waves. The ship stays afloat and rights itself.")
-                                .accessibilityAction(named: "Shake the sea") {
-                                    if !cruisePaused && !reduceMotion { send(.shake) }
-                                }
-                        }
+                            .padding(.horizontal, 4)
+                            .padding(.top, 18)
+                            .padding(.bottom, 4)
+                        ResourceOceanView(
+                            configuration: configuration, selectedLayerID: selectedLayerID,
+                            weather: weatherStatus.resolvedWeather(preference: weather),
+                            ship: store.ship(for: front), isActive: !cruisePaused,
+                            command: sceneCommand,
+                            onSelect: { selectedLayerID = $0 }
+                        )
+                        .frame(height: min(420, max(240, geometry.size.height * 0.5)))
+                        .padding(.horizontal, -20)
 
                         HStack(spacing: 12) {
                             shipPicker
-                            if showsLayers {
-                                Button("Reset View", systemImage: "arrow.counterclockwise") { send(.reset) }
-                                    .help("Fit both paperweights to the window")
-                            } else {
-                                Button("Shake", systemImage: "water.waves") { send(.shake) }
-                                    .disabled(cruisePaused || reduceMotion)
-                                    .help("Make waves; the unsinkable ship rides them and rights itself")
-                                Button(cruisePaused ? "Resume" : "Pause", systemImage: cruisePaused ? "play.fill" : "pause.fill") {
-                                    cruisePaused.toggle()
-                                }
-                                .disabled(reduceMotion)
-                                .help(reduceMotion ? "Animation is paused by Reduce Motion" : "Pause or resume the sailing scene")
+                            Button("Shake", systemImage: "water.waves") { send(.shake) }
+                                .disabled(cruisePaused || reduceMotion)
+                                .help("Make waves; the unsinkable ship rides them and rights itself")
+                            Button(cruisePaused ? "Resume" : "Pause", systemImage: cruisePaused ? "play.fill" : "pause.fill") {
+                                cruisePaused.toggle()
                             }
+                            .disabled(reduceMotion)
+                            .help(reduceMotion ? "Animation is paused by Reduce Motion" : "Pause or resume the ocean")
                         }
-                        .padding(12)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-                        .padding(.horizontal, 8)
+                        .padding(.horizontal, 4)
+
+                        oceanLayers(configuration)
 
                         headline(everything, picks: picks, memory: memory, storage: storage, now: now)
-                            .padding(18)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 8)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
+
+                        Divider()
 
                         VStack(alignment: .leading, spacing: 12) {
                             HStack(alignment: .firstTextBaseline) {
@@ -160,9 +146,6 @@ struct BranchesRootView: View {
                                 }
                                 .labelsHidden()
                                 .frame(maxWidth: 200)
-                                if showsLayers {
-                                    Text(moving ? "Water moving" : "Water settled").font(.caption).foregroundStyle(.secondary)
-                                }
                             }
                             selectedRows(selected, board: shown, configuration: configuration, now: now)
                         }
@@ -179,13 +162,11 @@ struct BranchesRootView: View {
                 ResultBanner(message: message, store: store)
             }
         }
-        .background {
-            UsageAtmosphereBackground(isActive: !cruisePaused, weather: weather, ship: store.ship(for: front),
-                                      showsShip: !showsLayers, command: showsLayers ? nil : sceneCommand)
-                .ignoresSafeArea()
-        }
+        .background(Color(nsColor: .windowBackgroundColor))
         .frame(minWidth: 900, minHeight: 560)
         .onReceive(summaryUpdates) { updated in if updated != summary { summary = updated } }
+        .onReceive(memoryPressureUpdates) { memoryPressure = $0 }
+        .onReceive(diskUpdates) { store.updateObservedDiskSpace($0) }
         .onReceive(presentationUpdates) { request in
             guard let request, request.id != lastPresentationRequestID else { return }
             lastPresentationRequestID = request.id
@@ -240,14 +221,13 @@ struct BranchesRootView: View {
                      ? storage.freeBytes.map { "\(BoardText.bytes($0)) free" } ?? "Measuring…"
                      : liveWork == nil ? "Unavailable"
                      : memory.freeBytes != nil ? "\(BoardText.bytes(memory.usedBytes)) in use" : "Measuring…")
-                    .font(.system(size: 36, weight: .light, design: .rounded))
+                    .font(.system(size: 32, weight: .light, design: .rounded))
                     .monospacedDigit()
                     .contentTransition(.numericText())
                 Text(preview && front == .storage
                      ? "Preview after clearing the default selection."
-                     : front == .memory ? "Used by AI tools and repository work on this Mac."
-                     : showsLayers ? "Click a layer to explore what’s using this Mac."
-                     : "Choose a layer below to explore what’s using this Mac.")
+                     : front == .memory ? "AI tools and repository work form the ocean’s layers."
+                     : "Click an ocean layer to explore what’s using this Mac.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
@@ -257,12 +237,6 @@ struct BranchesRootView: View {
                     paperweightButton(memory)
                     paperweightButton(storage)
                 }
-                Picker("View", selection: $showsLayers) {
-                    Text("Sailing").tag(false)
-                    Text("Usage layers").tag(true)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 230)
                 HStack(spacing: 10) {
                     Picker("Weather", selection: $weatherName) {
                         ForEach(CruiseWeather.allCases) { condition in
@@ -271,14 +245,43 @@ struct BranchesRootView: View {
                     }
                     .labelsHidden()
                     .frame(width: 120)
-                    .help(weatherName == CruiseWeather.automatic.rawValue
-                          ? "Weather changes randomly every 1½–3 minutes. Choose a condition to keep it."
-                          : "Choose Automatic for random weather changes")
+                    .help("Automatic weather follows this resource’s condition. Choose a weather condition to keep it.")
                     if front == .storage {
                         Button("Review and Clear…") { startReview(board.safeToClear, now: now) }
                             .buttonStyle(.borderedProminent)
                             .disabled(board.safeToClear.isEmpty || store.isDeleting)
                     }
+                }
+                Text(weather == .automatic ? weatherStatus.summary : "Manual weather · \(weather.title)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.trailing)
+                    .frame(maxWidth: 340, alignment: .trailing)
+            }
+        }
+    }
+
+    private func oceanLayers(_ configuration: PaperweightConfiguration) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(configuration.layers + [configuration.freeLayer]) { layer in
+                    Button {
+                        selectedLayerID = layer.id
+                    } label: {
+                        HStack(spacing: 6) {
+                            Circle().fill(layerColor(ResourceOceanRenderData.pigmentHex(for: layer))).frame(width: 8, height: 8)
+                            Text(layer.title)
+                            Text(layer.isMeasuring ? "Measuring…" : BoardText.bytes(layer.bytes))
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                        .font(.caption)
+                        .padding(.vertical, 3)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(selectedLayerID == layer.id ? .accentColor : .secondary)
+                    .accessibilityAddTraits(selectedLayerID == layer.id ? .isSelected : [])
+                    .accessibilityHint("Show this ocean layer’s details")
                 }
             }
         }
@@ -307,7 +310,7 @@ struct BranchesRootView: View {
         .buttonStyle(.bordered)
         .tint(selected ? .accentColor : .secondary)
         .accessibilityAddTraits(selected ? .isSelected : [])
-        .accessibilityHint(showsLayers ? "Bring this paperweight forward" : "Show this resource and its cruising ship")
+        .accessibilityHint("Enter this resource’s ocean and explore its layers")
     }
 
     private var shipPicker: some View {
@@ -352,7 +355,6 @@ struct BranchesRootView: View {
                     }
                     .disabled(picks.bytes(from: board.safeToClear) <= 0 || store.isDeleting)
                 }
-                if showsLayers { Button("Shake") { send(.shake) } }
             }
         }
     }
@@ -369,7 +371,7 @@ struct BranchesRootView: View {
         if front == .storage {
             switch layer.id {
             case "wt":
-                Text("Folder sizes below include their build cache, shown separately in the paperweight.")
+                Text("Folder sizes below include their build cache, shown separately in the ocean.")
                     .font(.caption).foregroundStyle(.secondary)
                 worktreeRows(board, now: now)
             case "cache": cacheRows(BranchesStorageSummary(board: board, toolStorage: store.toolStorage), now: now)

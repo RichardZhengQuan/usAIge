@@ -153,6 +153,7 @@ private func render<V: View>(_ view: V, size: CGSize?, appearance: GalleryAppear
         .frame(width: size?.width, height: size?.height)
         .background(Color(nsColor: .windowBackgroundColor))
         .environment(\.colorScheme, appearance.colorScheme)
+        .environment(\.usageSceneFrozen, true)
     let hosting = NSHostingView(rootView: root)
     hosting.frame = NSRect(origin: .zero, size: size ?? CGSize(width: 520, height: 580))
     hosting.appearance = NSAppearance(named: appearance.name)
@@ -434,7 +435,7 @@ struct UIGalleryRenderTests {
             runningApplications: { [.claude: ["/Applications/Claude.app"]] },
             locator: { RepositoryLocator(home: "/Users/me") },
             scan: { _, _ in processes },
-            readDiskSpace: { disk }
+            readDiskSpace: { disk }, readMemoryPressure: { .normal }
         )
         await monitor.refresh()
         let idleMonitor = LiveWorkMonitor(
@@ -442,7 +443,7 @@ struct UIGalleryRenderTests {
             runningApplications: { [:] },
             locator: { RepositoryLocator(home: "/Users/me") },
             scan: { _, _ in [] },
-            readDiskSpace: { disk }
+            readDiskSpace: { disk }, readMemoryPressure: { .normal }
         )
         await idleMonitor.refresh()
         let unreadMonitor = LiveWorkMonitor(
@@ -745,7 +746,7 @@ struct UIGalleryRenderTests {
             runningApplications: { [.claude: ["/Applications/Claude.app"]] },
             locator: { RepositoryLocator(home: "/Users/me") },
             scan: { _, _ in processes },
-            readDiskSpace: { disk }
+            readDiskSpace: { disk }, readMemoryPressure: { .normal }
         )
         await monitor.refresh()
         let sizes: [(String, CGSize)] = [
@@ -758,8 +759,9 @@ struct UIGalleryRenderTests {
             for (sizeName, size) in sizes {
                 for front in PaperweightID.allCases {
                     try render(
-                        BranchesRootView(store: store, liveWork: monitor, initialFront: front, initialShowsLayers: true)
-                            .defaultAppStorage(defaults),
+                        BranchesRootView(store: store, liveWork: monitor, initialFront: front)
+                            .defaultAppStorage(defaults)
+                            .environment(\.usageSceneFrozen, true),
                         size: size, appearance: appearance,
                         name: "branches-paperweight-\(front.rawValue)-\(sizeName)-\(appearance.rawValue)"
                     )
@@ -768,13 +770,13 @@ struct UIGalleryRenderTests {
             for layerID in ["cache", "tool", "other", "free"] {
                 try render(
                     BranchesRootView(store: store, liveWork: monitor, initialFront: .storage,
-                                     initialSelectedLayerID: layerID, initialShowsLayers: true)
+                                     initialSelectedLayerID: layerID)
                         .defaultAppStorage(defaults),
                     size: CGSize(width: 900, height: 560), appearance: appearance,
                     name: "branches-paperweight-storage-minimum-\(layerID)-\(appearance.rawValue)"
                 )
             }
-            try render(BranchesRootView(store: store, initialShowsLayers: true).defaultAppStorage(defaults),
+            try render(BranchesRootView(store: store).defaultAppStorage(defaults),
                        size: CGSize(width: 900, height: 560),
                        appearance: appearance, name: "branches-no-monitor-\(appearance.rawValue)")
             try render(
@@ -807,13 +809,13 @@ struct UIGalleryRenderTests {
         )
         for appearance in GalleryAppearance.allCases {
             try render(
-                BranchesRootView(store: clearedStore, liveWork: monitor, initialShowsLayers: true)
+                BranchesRootView(store: clearedStore, liveWork: monitor)
                     .defaultAppStorage(defaults),
                 size: CGSize(width: 900, height: 560), appearance: appearance,
                 name: "branches-paperweight-cleared-minimum-\(appearance.rawValue)"
             )
             try render(
-                BranchesRootView(store: clearingStore, liveWork: monitor, initialShowsLayers: true)
+                BranchesRootView(store: clearingStore, liveWork: monitor)
                     .defaultAppStorage(defaults),
                 size: CGSize(width: 900, height: 560), appearance: appearance,
                 name: "branches-paperweight-clearing-minimum-\(appearance.rawValue)"
@@ -835,7 +837,7 @@ struct UIGalleryRenderTests {
             runningApplications: { [.claude: ["/Applications/Claude.app"]] },
             locator: { RepositoryLocator(home: "/Users/me") },
             scan: { _, _ in processes },
-            readDiskSpace: { disk }
+            readDiskSpace: { disk }, readMemoryPressure: { .normal }
         )
         await monitor.refresh()
         let store = BranchesStore(
@@ -916,7 +918,7 @@ struct UIGalleryRenderTests {
         let monitor = LiveWorkMonitor(
             currentTasks: { tasks }, runningApplications: { [.claude: ["/Applications/Claude.app"]] },
             locator: { RepositoryLocator(home: "/Users/me") }, scan: { _, _ in processes },
-            readDiskSpace: { disk }
+            readDiskSpace: { disk }, readMemoryPressure: { .normal }
         )
         await monitor.refresh()
         let now = Date()
@@ -947,7 +949,7 @@ struct UIGalleryRenderTests {
         let monitor = LiveWorkMonitor(
             currentTasks: { tasks }, runningApplications: { [.claude: ["/Applications/Claude.app"]] },
             locator: { RepositoryLocator(home: "/Users/me") }, scan: { _, _ in processes },
-            readDiskSpace: { disk }
+            readDiskSpace: { disk }, readMemoryPressure: { .normal }
         )
         await monitor.refresh()
         let defaults = try #require(UserDefaults(suiteName: "usaige.render.no-graphics.\(UUID().uuidString)"))
@@ -963,8 +965,9 @@ struct UIGalleryRenderTests {
             for (sizeName, size) in sizes {
                 for front in PaperweightID.allCases {
                     try render(
-                        BranchesRootView(store: store, liveWork: monitor, initialFront: front, initialShowsLayers: true)
-                            .defaultAppStorage(defaults),
+                        BranchesRootView(store: store, liveWork: monitor, initialFront: front)
+                            .defaultAppStorage(defaults)
+                            .environment(\.usageSceneFrozen, true),
                         size: size, appearance: appearance,
                         name: "branches-no-graphics-\(front.rawValue)-\(sizeName)-\(appearance.rawValue)"
                     )

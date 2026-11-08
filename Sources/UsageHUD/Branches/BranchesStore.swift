@@ -98,13 +98,20 @@ final class BranchesStore: ObservableObject {
         breakdown.save(to: defaults)
     }
 
+    /// Reuses the rail monitor's observed capacity without another disk read.
+    /// A failed sample clears stale capacity instead of retaining old headroom.
+    func updateObservedDiskSpace(_ space: DiskSpace?) {
+        guard space != diskSpace else { return }
+        diskSpace = space
+    }
+
     /// Asking the volume can take a moment when macOS works out what it
     /// could purge, so it's read off the main thread.
     func readDiskSpace() {
         let url = diskURL
         Task { [weak self] in
             let space = await Task.detached(priority: .utility) { DiskSpace.read(for: url) }.value
-            self?.diskSpace = space
+            self?.updateObservedDiskSpace(space)
         }
     }
 
