@@ -11,7 +11,7 @@
         "title" : "One main Overview"
       },
       {
-        "detail" : "Review and Clear explains how much storage can be freed. Follow progress and results in a popup, hide it while cleanup continues, or stop after the current item. Closing and reopening the main window keeps the operation and its result available. Restore cleared branches and folders from the result or Recently Deleted.",
+        "detail" : "Review how much space can be freed, then follow cleanup and results in a popup. Hide it while cleanup continues, or stop after the current item. Closing and reopening the main window preserves progress and results. Restore branches and folders from the result or Recently Deleted.",
         "systemImage" : "sparkles",
         "title" : "Cleanup stays steady"
       },
@@ -28,7 +28,7 @@
     ],
     "summary" : "Open usAIge to one Overview for AI usage, local resources, and repository work. Compact tool cards, a larger sailing ocean, and a separate cleanup popup keep the workspace clear while work continues."
   },
-  "sha256" : "1e65874f4b7cd1c78298f49f37fe0442a28cc9bf062b3d7059a66df891d84470",
-  "signature" : "cjfUFVFUWWE0s1EPU8uPF/lQCiB2nMQbWbodpXJp3N5t9hZN6oQhmg40f7YRVl5LcNasufWVSWeq8KXHxpVoBA==",
+  "sha256" : "8dd133d6bcfe0a34692e4193a9f9f39a8645c785c40be30921577e4f3e3b5e30",
+  "signature" : "c/tz8PKn9nS4JEI7CnHgou60YjXwkk66GmosZZzRi7bTzCW8swPfa+HGUTQf6H8zedTvPQP+Kb7JHT3o96nEAg==",
   "version" : "0.2.28"
 }

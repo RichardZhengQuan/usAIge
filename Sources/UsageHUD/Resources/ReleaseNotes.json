@@ -12,7 +12,7 @@
       },
       {
         "title": "Cleanup stays steady",
-        "detail": "Review and Clear explains how much storage can be freed. Follow progress and results in a popup, hide it while cleanup continues, or stop after the current item. Closing and reopening the main window keeps the operation and its result available. Restore cleared branches and folders from the result or Recently Deleted.",
+        "detail": "Review how much space can be freed, then follow cleanup and results in a popup. Hide it while cleanup continues, or stop after the current item. Closing and reopening the main window preserves progress and results. Restore branches and folders from the result or Recently Deleted.",
         "systemImage": "sparkles"
       },
       {
