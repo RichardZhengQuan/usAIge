@@ -10,7 +10,8 @@ enum CruiseWeatherShader {
         uint weather;
         float dark;
         float compact;
-        float2 padding;
+        float allowsLightning;
+        float padding;
         float4 sea;
     };
 
@@ -33,6 +34,48 @@ enum CruiseWeatherShader {
 
     float2 cwHash2(float2 p) {
         return float2(cwHash(p + float2(11.7, 3.2)), cwHash(p + float2(37.1, 19.4)));
+    }
+
+    // One distant strike per 15.5 seconds, with a single rise and soft decay.
+    // Paused/Reduce Motion scenes can suppress the entire effect in uniforms.
+    float cwLightningEnvelope(constant WeatherUniforms &u) {
+        if (u.weather != 6u || u.allowsLightning < 0.5) return 0.0;
+        float local = fmod(max(0.0, u.time), 15.5);
+        return smoothstep(1.80, 1.88, local) * (1.0 - smoothstep(2.00, 2.42, local));
+    }
+
+    float2 cwLightningPoint(uint index, float cycle, float aspect, float horizon) {
+        float progress = float(index) / 8.0;
+        float origin = 0.60 + cwHash(float2(cycle, 8.1)) * 0.18;
+        float kink = (cwHash(float2(float(index) + 3.8, cycle + 5.2)) - 0.5) * sin(progress * 3.14159265);
+        return float2((origin + progress * 0.035 + kink * 0.10) * aspect,
+                      horizon * (0.10 + progress * 0.80));
+    }
+
+    float cwSegmentDistance(float2 p, float2 a, float2 b) {
+        float2 offset = p - a, segment = b - a;
+        float along = saturate(dot(offset, segment) / max(0.000001, dot(segment, segment)));
+        return length(offset - segment * along);
+    }
+
+    float cwLightningDistance(float2 p, float cycle, float aspect, float horizon) {
+        float distance = 10.0;
+        for (uint segment = 0u; segment < 8u; ++segment) {
+            float2 a = cwLightningPoint(segment, cycle, aspect, horizon);
+            float2 b = cwLightningPoint(segment + 1u, cycle, aspect, horizon);
+            distance = min(distance, cwSegmentDistance(p, a, b));
+        }
+        // Three short forks die inside the rain, instead of dividing into
+        // full-height copies of the main channel.
+        for (uint branch = 0u; branch < 3u; ++branch) {
+            float side = branch == 1u ? -1.0 : 1.0;
+            float2 a = cwLightningPoint(3u + branch, cycle, aspect, horizon);
+            float2 b = a + float2(side * (0.022 + float(branch) * 0.009) * aspect, horizon * 0.095);
+            float2 c = b + float2(side * 0.025 * aspect, horizon * 0.065);
+            distance = min(distance, cwSegmentDistance(p, a, b));
+            distance = min(distance, cwSegmentDistance(p, b, c));
+        }
+        return distance;
     }
 
     float3 cwSky(float2 uv, constant WeatherUniforms &u, float horizon) {
@@ -64,6 +107,14 @@ enum CruiseWeatherShader {
             zenith = float3(0.025, 0.045, 0.105); haze = float3(0.16, 0.23, 0.34);
             cloudLight = float3(0.35, 0.43, 0.55); cloudShade = float3(0.065, 0.10, 0.18);
             coverage = 0.28;
+        } else if (u.weather == 6u) {
+            zenith = float3(0.17, 0.19, 0.28); haze = float3(0.43, 0.47, 0.56);
+            cloudLight = float3(0.61, 0.64, 0.73); cloudShade = float3(0.21, 0.24, 0.34);
+            coverage = 0.86; softness = 0.22;
+        } else if (u.weather == 7u) {
+            zenith = float3(0.075, 0.14, 0.17); haze = float3(0.31, 0.43, 0.46);
+            cloudLight = float3(0.45, 0.57, 0.59); cloudShade = float3(0.10, 0.20, 0.24);
+            coverage = 0.94; softness = 0.29;
         }
 
         // Appearance dims daylight without replacing the selected weather.
@@ -96,9 +147,46 @@ enum CruiseWeatherShader {
             sky += float3(0.72, 0.83, 1.0) * star * 0.78;
         }
 
-        float cloudTime = u.time * (u.weather == 3u ? 1.9 : 1.0);
-        sky = cruiseClouds(float2(uv.x * aspect, skyY), cloudTime, sky,
-                           cloudLight, cloudShade, coverage, softness, u.compact);
+        float2 cloudUV = float2(uv.x * aspect, skyY);
+        float cloudTime = u.time * (u.weather == 3u ? 1.9 : (u.weather == 6u ? 1.3 : 1.0));
+        if (u.weather == 7u) {
+            // The storm wall curls around an offscreen eye. Warped sampling
+            // and two rotating density arms produce moving curved bands.
+            float2 vortex = float2(cloudUV.x - aspect * 0.64, (skyY + 0.28) * 0.68);
+            float radius = length(vortex);
+            float angle = atan2(vortex.y, vortex.x);
+            float spiral = angle * 2.0 - radius * 8.0 + u.time * 0.42;
+            float band = 0.5 + 0.5 * sin(spiral);
+            cloudUV.x += sin(spiral + radius * 2.3) * 0.27 + u.time * 0.035;
+            cloudUV.y = clamp(skyY + cos(angle + radius * 3.2 - u.time * 0.17) * 0.11, 0.0, 0.999);
+            coverage = 0.78 + band * 0.20;
+            cloudLight *= 0.83 + band * 0.17;
+            cloudTime *= 2.7;
+        }
+
+        float lightning = cwLightningEnvelope(u);
+        float lightningCycle = floor(max(0.0, u.time) / 15.5);
+        float lightningX = 0.60 + cwHash(float2(lightningCycle, 8.1)) * 0.18;
+        float illumination = lightning * exp(-pow((uv.x - lightningX) * 4.3, 2.0)
+                                              - pow((skyY - 0.43) * 1.8, 2.0));
+        cloudLight += float3(0.18, 0.22, 0.31) * illumination;
+        cloudShade += float3(0.13, 0.17, 0.25) * illumination;
+        sky += float3(0.075, 0.11, 0.17) * illumination;
+        float3 cloudySky = sky;
+        if (skyY < 1.0) {
+            cloudySky = cruiseClouds(cloudUV, cloudTime, sky,
+                                    cloudLight, cloudShade, coverage, softness, u.compact);
+        }
+        sky = mix(sky, cloudySky, u.weather == 7u ? 1.0 - smoothstep(0.82, 1.0, skyY) : 1.0);
+        if (lightning > 0.001 && skyY < 0.99) {
+            float d = cwLightningDistance(float2(uv.x * aspect, uv.y), lightningCycle, aspect, horizon);
+            float pixel = 1.0 / max(1.0, u.resolution.y);
+            float core = 1.0 - smoothstep(pixel * 0.45, pixel * 1.45, d);
+            float halo = exp(-d * 150.0);
+            float emerging = smoothstep(0.11, 0.38, skyY);
+            sky += float3(0.25, 0.35, 0.53) * halo * lightning * emerging * 0.29;
+            sky = mix(sky, float3(0.82, 0.90, 1.0), core * lightning * emerging * 0.88);
+        }
         return sky;
     }
 
@@ -163,6 +251,8 @@ enum CruiseWeatherShader {
         if (u.weather == 3u) { deep = float3(0.045, 0.13, 0.21); shallow = float3(0.16, 0.28, 0.35); }
         if (u.weather == 4u) { deep = float3(0.16, 0.32, 0.43); shallow = float3(0.39, 0.55, 0.63); }
         if (u.weather == 5u) { deep = float3(0.025, 0.075, 0.15); shallow = float3(0.08, 0.17, 0.28); }
+        if (u.weather == 6u) { deep = float3(0.075, 0.15, 0.25); shallow = float3(0.26, 0.33, 0.45); }
+        if (u.weather == 7u) { deep = float3(0.035, 0.14, 0.18); shallow = float3(0.18, 0.34, 0.37); }
         float3 base = mix(shallow, deep, pow(depth, 0.55)) * (1.0 - u.dark * 0.25);
         float fresnel = 0.025 + 0.975 * pow(1.0 - saturate(dot(normal, view)), 5.0);
         float3 water = mix(base, reflectedSky, 0.12 + fresnel * 0.78);
@@ -180,9 +270,22 @@ enum CruiseWeatherShader {
         float foam = crest * u.sea.w * smoothstep(0.0, 0.18, depth);
         water = mix(water, float3(0.65, 0.76, 0.78), saturate(foam * 0.64));
 
-        if (u.weather == 2u || u.weather == 3u) {
+        if (u.weather == 7u) {
+            // Crest foam is pulled into streaks by the wind; low airborne
+            // spindrift crosses the wave faces rather than a flat white band.
+            float windLines = pow(0.5 + 0.5 * sin(world.x * 0.64 + world.y * 1.15 - u.time * 5.0), 5.0);
+            float blownFoam = saturate(foam * (0.30 + windLines * 1.6));
+            water = mix(water, float3(0.70, 0.81, 0.81), blownFoam * 0.40);
+            float2 mistUV = float2(uv.x * aspect * 7.0 - u.time * 0.55,
+                                   depth * 14.0 + sin(uv.x * 5.0 - u.time * 0.43) * 0.8);
+            float wisps = saturate(cruiseCloudNoise(mistUV) * 0.9 + 0.26);
+            float suspendedSpray = wisps * exp(-pow((depth - 0.25) * 3.1, 2.0));
+            water = mix(water, float3(0.51, 0.65, 0.67), suspendedSpray * 0.19);
+        }
+
+        if (u.weather == 2u || u.weather == 3u || u.weather == 6u || u.weather == 7u) {
             float impacts = cwRainImpacts(world, u.time, depth);
-            water += float3(0.26, 0.40, 0.46) * impacts * (u.weather == 3u ? 0.16 : 0.11);
+            water += float3(0.26, 0.40, 0.46) * impacts * (u.weather == 3u || u.weather == 7u ? 0.16 : 0.11);
         }
         // Exactly y=1 takes the cloud helper's cheap haze-only return path.
         float3 horizonHaze = cwSky(float2(uv.x, horizon), u, horizon);
@@ -191,26 +294,47 @@ enum CruiseWeatherShader {
 
     float cwRain(float2 uv, constant WeatherUniforms &u) {
         float aspect = u.resolution.x / max(1.0, u.resolution.y);
-        float storm = u.weather == 3u ? 1.0 : 0.0;
+        float storm = u.weather == 3u || u.weather == 7u ? 1.0 : (u.weather == 6u ? 0.65 : 0.0);
+        float typhoon = u.weather == 7u ? 1.0 : 0.0;
         float rain = 0.0;
         for (uint layer = 0u; layer < 3u; ++layer) {
             float near = float(layer) / 2.0;
             float cells = mix(64.0, 21.0, near);
-            float slant = mix(0.10, 0.31, storm);
-            float2 p = float2(uv.x * aspect + uv.y * slant, uv.y) * float2(cells, cells * 0.55);
+            float slant = mix(0.10, 0.31, storm) + typhoon * 0.66;
+            float curve = typhoon * (sin(uv.y * 4.3 - u.time * 0.8 + float(layer) * 1.7) * 0.24
+                                     + sin(uv.y * 9.0 + u.time * 0.4) * 0.075);
+            float2 p = float2(uv.x * aspect + uv.y * slant + curve, uv.y) * float2(cells, cells * 0.55);
             float columnSpeed = 0.72 + 0.56 * cwHash(float2(floor(p.x), float(layer) + 17.0));
-            p.y -= u.time * mix(11.0, 20.0, near) * columnSpeed * (1.0 + storm * 0.55);
+            p.y -= u.time * mix(11.0, 20.0, near) * columnSpeed * (1.0 + storm * 0.55 + typhoon * 0.45);
             float2 cell = floor(p), seed = cwHash2(cell + float(layer) * 27.8);
             float2 local = fract(p) - float2(0.16 + seed.x * 0.68, 0.12 + seed.y * 0.76);
             float aa = max(0.007, fwidth(p.x));
-            float width = mix(0.013, 0.025, near);
+            float width = mix(0.013, 0.025, near) * (1.0 + typhoon * 0.35);
             float streak = 1.0 - smoothstep(width, width + aa, abs(local.x));
-            float length = mix(0.31, 0.68, near) * (0.65 + seed.y * 0.65);
+            float length = mix(0.31, 0.68, near) * (0.65 + seed.y * 0.65) * (1.0 + typhoon * 0.25);
             streak *= 1.0 - smoothstep(length * 0.34, length * 0.55, abs(local.y));
             streak *= 0.45 + 0.55 * saturate(local.y / length + 0.5);
-            rain += streak * step(seed.y, mix(0.48, 0.82, storm)) * mix(0.12, 0.30, near);
+            rain += streak * step(seed.y, mix(0.48, 0.82, storm) + typhoon * 0.10) * mix(0.12, 0.30, near);
         }
         return saturate(rain);
+    }
+
+    float cwTyphoonSpray(float2 uv, constant WeatherUniforms &u, float horizon) {
+        if (uv.y <= horizon) return 0.0;
+        float aspect = u.resolution.x / max(1.0, u.resolution.y);
+        float depth = (uv.y - horizon) / (1.0 - horizon);
+        float spray = 0.0;
+        for (uint layer = 0u; layer < 2u; ++layer) {
+            float cells = 18.0 + float(layer) * 13.0;
+            float2 p = float2(uv.x * aspect + depth * 0.7, depth * 0.75) * cells;
+            p -= float2(u.time * (6.5 + float(layer) * 2.7), u.time * 1.3);
+            float2 cell = floor(p), seed = cwHash2(cell + float(layer) * 21.5);
+            float2 local = fract(p) - (0.2 + seed * 0.6);
+            local.y += local.x * 0.18;
+            float droplet = exp(-dot(local * float2(0.65, 2.6), local * float2(0.65, 2.6)) * 82.0);
+            spray += droplet * step(0.72, seed.y) * (0.26 + float(layer) * 0.12);
+        }
+        return saturate(spray * smoothstep(0.015, 0.20, depth));
     }
 
     float cwSnow(float2 uv, constant WeatherUniforms &u) {
@@ -239,9 +363,12 @@ enum CruiseWeatherShader {
         float2 uv = in.position.xy / max(u.resolution, float2(1.0));
         float horizon = mix(0.40, 0.58, step(0.5, u.compact));
         float3 color = uv.y < horizon ? cwSky(uv, u, horizon) : cwOcean(uv, u, horizon);
-        if (u.weather == 2u || u.weather == 3u) {
+        if (u.weather == 2u || u.weather == 3u || u.weather == 6u || u.weather == 7u) {
             float rain = cwRain(uv, u);
             color = mix(color, float3(0.69, 0.80, 0.88), rain * 0.66);
+            if (u.weather == 7u) {
+                color = mix(color, float3(0.77, 0.87, 0.88), cwTyphoonSpray(uv, u, horizon));
+            }
         } else if (u.weather == 4u) {
             float snow = cwSnow(uv, u);
             color = mix(color, float3(0.96, 0.98, 1.0), snow);

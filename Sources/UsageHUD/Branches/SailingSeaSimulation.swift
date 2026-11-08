@@ -87,7 +87,9 @@ final class SailingSeaSimulation {
         let harmonic = x.truncatingRemainder(dividingBy: wavelength / 1.8) / (wavelength / 1.8) * 2 * Double.pi
         let slosh = x.truncatingRemainder(dividingBy: wavelength / 0.75) / (wavelength / 0.75) * 2 * Double.pi
         let speed = Double(weather.seaProfile.speed)
-        let amplitude = min(displacementLimit * 0.55, (compact ? 1.5 : 4) * roughness)
+        let cap = displacementLimit * 0.55
+        let nominal = (compact ? 1.5 : 4) * roughness
+        let amplitude = cap > 0 ? cap * tanh(nominal / cap) : 0
         let ambient = amplitude * (sin(position - time * speed)
             + 0.3 * sin(harmonic + time * speed * 0.63 + 1.1))
         let impulse = shakeHeight * sin(slosh - time * 1.2 + 0.6)

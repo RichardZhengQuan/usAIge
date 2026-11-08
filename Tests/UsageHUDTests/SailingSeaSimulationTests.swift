@@ -23,18 +23,20 @@ import Testing
         }
     }
 
-    @Test func stormAndRepeatedLargeShakesCannotSinkOrCapsizeEitherScene() {
-        for compact in [false, true] {
-            let size = compact ? CGSize(width: 80, height: 420) : CGSize(width: 900, height: 320)
-            let sea = SailingSeaSimulation()
-            sea.configure(size: size, compact: compact, weather: .storm)
-            for frame in 0..<1_200 {
-                if frame.isMultiple(of: 17) {
-                    sea.shake(amplitude: frame.isMultiple(of: 34) ? 1_000_000 : -1_000_000)
-                    expectSafe(sea, in: size)
+    @Test func extremeWeatherAndRepeatedLargeShakesCannotSinkOrCapsizeEitherScene() {
+        for weather in [CruiseWeather.storm, .typhoon] {
+            for compact in [false, true] {
+                let size = compact ? CGSize(width: 80, height: 420) : CGSize(width: 900, height: 320)
+                let sea = SailingSeaSimulation()
+                sea.configure(size: size, compact: compact, weather: weather)
+                for frame in 0..<1_200 {
+                    if frame.isMultiple(of: 17) {
+                        sea.shake(amplitude: frame.isMultiple(of: 34) ? 1_000_000 : -1_000_000)
+                        expectSafe(sea, in: size)
+                    }
+                    sea.step(dt: 1.0 / 60)
+                    if frame.isMultiple(of: 4) { expectSafe(sea, in: size) }
                 }
-                sea.step(dt: 1.0 / 60)
-                if frame.isMultiple(of: 4) { expectSafe(sea, in: size) }
             }
         }
     }

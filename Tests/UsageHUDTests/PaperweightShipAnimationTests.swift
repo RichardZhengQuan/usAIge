@@ -85,6 +85,22 @@ struct PaperweightShipAnimationTests {
         #expect(bottle.simulation.currentLevels == levels)
     }
 
+    @Test func sailingSpritesPreserveShipProportionsAtThePixelCap() throws {
+        guard #available(macOS 14.0, *), MTLCreateSystemDefaultDevice() != nil else { return }
+        let size = CGSize(width: 360, height: 240)
+        let times: [TimeInterval?] = [nil, 0.6]
+        for time in times {
+            let optionalImage = PaperweightShipImageCache.shared.image(for: .thousandSunny,
+                                                                       size: size, scale: 2, animationTime: time)
+            let image = try #require(optionalImage)
+            let optionalPixels = image.cgImage(forProposedRect: nil, context: nil, hints: nil)
+            let pixels = try #require(optionalPixels)
+            #expect(pixels.width <= 512 && pixels.height <= 512)
+            #expect(abs(Double(pixels.width) / Double(pixels.height) - 1.5) < 0.01)
+            #expect(image.size == size)
+        }
+    }
+
     @Test(arguments: [PaperweightShipKind.sub, .polarTang, .sharkSubmerge, .miniMerry, .steamer, .carrier, .liner])
     func cachedRailFramesDoNotMakeMovingPartsAppearStationary(_ kind: PaperweightShipKind) throws {
         guard #available(macOS 14.0, *), MTLCreateSystemDefaultDevice() != nil else { return }

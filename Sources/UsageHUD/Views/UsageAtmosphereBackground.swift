@@ -268,7 +268,8 @@ final class UsageAtmosphereView: NSView {
         needsDisplay = true
         shipOverlay?.needsDisplay = true
         guard !capturesWeather, let weatherRenderer, let weatherView else { return }
-        weatherRenderer.configure(time: phase, weather: weather, dark: dark, compact: compact)
+        weatherRenderer.configure(time: phase, weather: weather, dark: dark, compact: compact,
+                                  lightningEnabled: active && !reduced && !capturesWeather)
         weatherView.draw()
     }
 
@@ -303,7 +304,8 @@ final class UsageAtmosphereView: NSView {
         let width = min(2_048, max(1, Int(bounds.width * scale)))
         let height = min(2_048, max(1, Int(bounds.height * scale)))
         guard let background = weatherRenderer.snapshot(size: CGSize(width: width, height: height),
-                                                        time: phase, weather: weather, dark: dark, compact: compact),
+                                                        time: phase, weather: weather, dark: dark, compact: compact,
+                                                        lightningEnabled: active && !reduced && !capturesWeather),
               let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
                                       bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
@@ -317,7 +319,8 @@ final class UsageAtmosphereView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         if let weatherRenderer {
             if capturesWeather, let context = NSGraphicsContext.current?.cgContext,
-               let image = weatherRenderer.snapshot(size: bounds.size, time: phase, weather: weather, dark: dark, compact: compact) {
+               let image = weatherRenderer.snapshot(size: bounds.size, time: phase, weather: weather, dark: dark, compact: compact,
+                                                    lightningEnabled: false) {
                 context.saveGState()
                 context.translateBy(x: 0, y: bounds.height)
                 context.scaleBy(x: 1, y: -1)
@@ -361,10 +364,14 @@ final class UsageAtmosphereView: NSView {
             return dark
                 ? (rgb(0.08, 0.16, 0.26), rgb(0.25, 0.39, 0.47), rgb(0.19, 0.36, 0.44), rgb(0.055, 0.19, 0.28))
                 : (rgb(0.59, 0.72, 0.81), rgb(0.84, 0.90, 0.93), rgb(0.50, 0.70, 0.76), rgb(0.32, 0.57, 0.66))
-        case .rain, .storm:
+        case .rain, .thunder, .storm:
             return dark
                 ? (rgb(0.045, 0.085, 0.16), rgb(0.18, 0.28, 0.36), rgb(0.12, 0.27, 0.35), rgb(0.035, 0.12, 0.22))
                 : (rgb(0.50, 0.61, 0.72), rgb(0.72, 0.80, 0.86), rgb(0.41, 0.59, 0.68), rgb(0.29, 0.48, 0.60))
+        case .typhoon:
+            return dark
+                ? (rgb(0.025, 0.045, 0.08), rgb(0.12, 0.20, 0.25), rgb(0.07, 0.17, 0.22), rgb(0.02, 0.06, 0.12))
+                : (rgb(0.15, 0.23, 0.30), rgb(0.37, 0.46, 0.50), rgb(0.23, 0.39, 0.43), rgb(0.08, 0.20, 0.28))
         case .snow:
             return dark
                 ? (rgb(0.14, 0.21, 0.31), rgb(0.39, 0.48, 0.56), rgb(0.24, 0.40, 0.49), rgb(0.10, 0.24, 0.35))
@@ -410,7 +417,7 @@ final class UsageAtmosphereView: NSView {
 
     private func drawClouds(_ context: CGContext, time: Double, width: CGFloat, height: CGFloat, space: CGColorSpace) {
         let count = compact ? (weather == .sunny ? 2 : 4) : (weather == .sunny || weather == .night ? 3 : 8)
-        let stormy = weather == .storm || weather == .rain
+        let stormy = [.rain, .thunder, .storm, .typhoon].contains(weather)
         for index in 0..<count {
             let seed = Double(index)
             let cloudWidth = compact ? width * (0.70 + 0.2 * sample(seed, 5)) : width * (0.24 + 0.11 * sample(seed, 5))
@@ -444,7 +451,7 @@ final class UsageAtmosphereView: NSView {
     }
 
     private func drawOcean(_ context: CGContext, time: Double, width: CGFloat, height: CGFloat, horizon: CGFloat) {
-        let rough = weather == .storm ? 2.3 : weather == .rain ? 1.5 : 1.0
+        let rough = 0.5 + Double(weather.seaProfile.roughness) * 2.2
         for index in 0..<6 {
             let amount = Double(index) / 5
             let level = horizon + (height - horizon) * (0.04 + amount * 0.9)
@@ -585,14 +592,14 @@ final class UsageAtmosphereView: NSView {
     }
 
     private func drawPrecipitation(_ context: CGContext, time: Double, width: CGFloat, height: CGFloat, horizon: CGFloat) {
-        guard weather == .rain || weather == .storm || weather == .snow else { return }
+        guard [.rain, .thunder, .storm, .typhoon, .snow].contains(weather) else { return }
         let snow = weather == .snow
-        let count = compact ? (snow ? 20 : 26) : (snow ? 110 : 150)
+        let count = compact ? (snow ? 20 : weather == .typhoon ? 48 : 26) : (snow ? 110 : weather == .typhoon ? 240 : 150)
         for index in 0..<count {
             let seed = Double(index)
-            let speed = snow ? 0.028 + sample(seed, 20) * 0.025 : 0.36 + sample(seed, 20) * 0.25
+            let speed = snow ? 0.028 + sample(seed, 20) * 0.025 : (0.36 + sample(seed, 20) * 0.25) * (weather == .typhoon ? 1.7 : 1)
             let y = fraction(sample(seed, 21) + time * speed) * height
-            let wind = weather == .storm ? 0.06 : snow ? 0.008 : 0.022
+            let wind = weather == .typhoon ? 0.14 : weather == .storm ? 0.06 : weather == .thunder ? 0.045 : snow ? 0.008 : 0.022
             let x = fraction(sample(seed, 22) - time * wind + (snow ? sin(time * 0.4 + sample(seed, 23) * .pi * 2) * 0.018 : 0)) * width
             if snow {
                 let size = (compact ? 1.2 : 1.6) + sample(seed, 24) * (compact ? 1.5 : 3)
@@ -602,7 +609,7 @@ final class UsageAtmosphereView: NSView {
                 let length = compact ? 7.0 : 12.0 + sample(seed, 26) * 12
                 let path = CGMutablePath()
                 path.move(to: CGPoint(x: x, y: y))
-                path.addLine(to: CGPoint(x: x - length * (weather == .storm ? 0.55 : 0.30), y: y + length))
+                path.addLine(to: CGPoint(x: x - length * (weather == .typhoon ? 1.1 : weather == .storm ? 0.55 : 0.30), y: y + length))
                 context.addPath(path)
                 context.setLineWidth(compact ? 0.55 : 0.8)
                 context.setStrokeColor(rgb(0.88, 0.95, 1, dark ? 0.35 : 0.47))
@@ -616,7 +623,7 @@ final class UsageAtmosphereView: NSView {
     }
 
     private func drawLightning(_ context: CGContext, time: Double, width: CGFloat, height: CGFloat) {
-        guard weather == .storm, !reduced else { return }
+        guard [.thunder, .storm, .typhoon].contains(weather), active, !reduced, !capturesWeather else { return }
         // One softly rising and falling flash every 28 seconds, with no
         // repeated pulses or whole-screen flashes.
         let position = time.truncatingRemainder(dividingBy: 28)

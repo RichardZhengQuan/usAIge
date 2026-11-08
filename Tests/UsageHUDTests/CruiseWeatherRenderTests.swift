@@ -6,7 +6,11 @@ import Testing
 import UniformTypeIdentifiers
 @testable import UsageHUD
 
-private let renderedWeatherCases: [CruiseWeather] = [.sunny, .cloudy, .rain, .storm, .snow, .night]
+private let renderedWeatherCases: [CruiseWeather] = [.sunny, .cloudy, .rain, .storm, .thunder, .typhoon, .snow, .night]
+// The authored thunder envelope peaks at 2.00 s and is absent at 0.00 s.
+// The 24-frame, six-second exports sample this peak exactly.
+private let thunderStrikeTime: TimeInterval = 2
+private let thunderRestTime: TimeInterval = 0
 
 /// Real GPU output, rather than a screenshot of a placeholder or shader source.
 /// The small contract check runs normally. Full-size PNGs and streamed GIFs are
@@ -32,6 +36,65 @@ struct CruiseWeatherRenderTests {
         #expect(styles.count == renderedWeatherCases.count, "Each weather choice must change the rendered scene")
     }
 
+    @Test func thunderLightningCanBeSuppressedWithoutRemovingTheWeather() throws {
+        guard #available(macOS 14.0, *), let device = MTLCreateSystemDefaultDevice() else { return }
+        let optionalRenderer = CruiseWeatherRenderer(device: device)
+        let renderer = try #require(optionalRenderer,
+                                    "Metal weather shader setup failed: \(CruiseWeatherRenderer.lastError ?? "no renderer diagnostic")")
+        let size = CGSize(width: 192, height: 128)
+        for dark in [false, true] {
+            let optionalStrike = renderer.snapshot(size: size, time: thunderStrikeTime, weather: .thunder,
+                                                   dark: dark, compact: false, lightningEnabled: true)
+            let strike = try #require(optionalStrike)
+            let optionalSuppressed = renderer.snapshot(size: size, time: thunderStrikeTime, weather: .thunder,
+                                                       dark: dark, compact: false, lightningEnabled: false)
+            let suppressed = try #require(optionalSuppressed)
+            let optionalRest = renderer.snapshot(size: size, time: thunderRestTime, weather: .thunder,
+                                                 dark: dark, compact: false, lightningEnabled: true)
+            let rest = try #require(optionalRest)
+            let optionalSuppressedRest = renderer.snapshot(size: size, time: thunderRestTime, weather: .thunder,
+                                                           dark: dark, compact: false, lightningEnabled: false)
+            let suppressedRest = try #require(optionalSuppressedRest)
+            let strikePixels = try weatherPixels(strike)
+            let suppressedPixels = try weatherPixels(suppressed)
+            let restPixels = try weatherPixels(rest)
+            let suppressedRestPixels = try weatherPixels(suppressedRest)
+            #expect(strike.width == 192 && strike.height == 128)
+            #expect(weatherChangedBytes(strikePixels, suppressedPixels) > 100,
+                    "The authored thunder peak must visibly add a bolt and illumination")
+            #expect(weatherChangedBytes(strikePixels, restPixels) > 100,
+                    "Thunder must include an intermittent strike, rather than a permanent flash")
+            #expect(restPixels == suppressedRestPixels,
+                    "Disabling lightning must leave the unlit weather unchanged at a rest phase")
+            #expect(suppressedPixels.count == 192 * 128 * 4)
+            #expect(weatherVisiblePixels(suppressedPixels) > 192 * 128 / 2,
+                    "Suppressing lightning must keep the cloudy, rainy sea visible")
+            #expect(Set(suppressedPixels).count > 8,
+                    "Lightning suppression must preserve a detailed weather scene")
+        }
+    }
+
+    @Test func typhoonRendersItsOwnSceneRatherThanReusingStorm() throws {
+        guard #available(macOS 14.0, *), let device = MTLCreateSystemDefaultDevice() else { return }
+        let optionalRenderer = CruiseWeatherRenderer(device: device)
+        let renderer = try #require(optionalRenderer,
+                                    "Metal weather shader setup failed: \(CruiseWeatherRenderer.lastError ?? "no renderer diagnostic")")
+        let size = CGSize(width: 192, height: 128)
+        for compact in [false, true] {
+            let optionalTyphoon = renderer.snapshot(size: size, time: 1.3, weather: .typhoon,
+                                                    dark: false, compact: compact)
+            let typhoon = try #require(optionalTyphoon)
+            let optionalStorm = renderer.snapshot(size: size, time: 1.3, weather: .storm,
+                                                  dark: false, compact: compact)
+            let storm = try #require(optionalStorm)
+            let typhoonPixels = try weatherPixels(typhoon)
+            let stormPixels = try weatherPixels(storm)
+            #expect(weatherVisiblePixels(typhoonPixels) > 192 * 128 / 2)
+            #expect(weatherChangedBytes(typhoonPixels, stormPixels) > 100,
+                    "Typhoon's rotating wind and sea profile must be visually distinct from Storm")
+        }
+    }
+
     @Test(.enabled(if: ProcessInfo.processInfo.environment["USAIGE_RENDER_WEATHER"] != nil))
     func exportsWeatherAtBothSizesAndAppearances() throws {
         guard #available(macOS 14.0, *), let device = MTLCreateSystemDefaultDevice() else { return }
@@ -51,10 +114,12 @@ struct CruiseWeatherRenderTests {
                 var styles = Set<Data>()
                 for weather in renderedWeatherCases {
                     let result = try autoreleasepool { () throws -> (image: CGImage, receipt: [String: Any], digest: Data) in
-                        let optionalStill = renderer.snapshot(size: layout.size, time: 0, weather: weather,
+                        let baselineTime: TimeInterval = weather == .thunder ? thunderStrikeTime : 0
+                        let comparisonTime = baselineTime + 1.3
+                        let optionalStill = renderer.snapshot(size: layout.size, time: baselineTime, weather: weather,
                                                               dark: dark, compact: layout.compact)
                         let still = try #require(optionalStill, "\(weather.title), \(appearance), \(layout.name)")
-                        let optionalMoved = renderer.snapshot(size: layout.size, time: 1.3, weather: weather,
+                        let optionalMoved = renderer.snapshot(size: layout.size, time: comparisonTime, weather: weather,
                                                               dark: dark, compact: layout.compact)
                         let moved = try #require(optionalMoved)
                         #expect(still.width == Int(layout.size.width) && still.height == Int(layout.size.height))
@@ -71,7 +136,8 @@ struct CruiseWeatherRenderTests {
                         try weatherWritePNG(still, to: directory.appendingPathComponent(filename))
                         return (still, ["weather": weather.rawValue, "appearance": appearance,
                                         "layout": layout.name, "width": still.width, "height": still.height,
-                                        "visiblePixels": visible, "changedBytesAt1_3Seconds": changed,
+                                        "visiblePixels": visible, "baselineTimeSeconds": baselineTime,
+                                        "comparisonTimeSeconds": comparisonTime, "changedBytesAfter1_3Seconds": changed,
                                         "png": filename], Data(SHA256.hash(data: baseline)))
                     }
                     receipts.append(result.receipt)
@@ -79,7 +145,7 @@ struct CruiseWeatherRenderTests {
                     if !layout.compact { contactImages.append(result.image) }
                 }
                 #expect(styles.count == renderedWeatherCases.count,
-                        "All six weather scenes must differ in \(appearance), \(layout.name)")
+                        "All \(renderedWeatherCases.count) weather scenes must differ in \(appearance), \(layout.name)")
             }
             let contact = try weatherContactSheet(images: contactImages, dark: dark)
             try weatherWritePNG(contact, to: directory.appendingPathComponent("weather-contact-\(appearance).png"))
@@ -89,7 +155,7 @@ struct CruiseWeatherRenderTests {
     }
 
     @Test(.enabled(if: ProcessInfo.processInfo.environment["USAIGE_RENDER_WEATHER"] != nil))
-    func exportsAllSixWeatherAnimations() throws {
+    func exportsAllWeatherAnimations() throws {
         guard #available(macOS 14.0, *), let device = MTLCreateSystemDefaultDevice() else { return }
         let optionalRenderer = CruiseWeatherRenderer(device: device)
         let renderer = try #require(optionalRenderer,
@@ -130,6 +196,7 @@ struct CruiseWeatherRenderTests {
                 guard CGImageDestinationFinalize(destination) else { throw WeatherRenderError.encoding }
                 return ["weather": weather.rawValue, "gif": filename, "frames": frameCount,
                         "durationSeconds": duration, "uniqueRenderedPoses": poses.count,
+                        "containsAuthoredLightningPeak": weather == .thunder,
                         "width": Int(size.width), "height": Int(size.height)]
             }
             receipts.append(receipt)
@@ -191,7 +258,8 @@ private func weatherWritePNG(_ image: CGImage, to url: URL) throws {
 @MainActor
 private func weatherContactSheet(images: [CGImage], dark: Bool) throws -> CGImage {
     try #require(images.count == renderedWeatherCases.count)
-    let columns = 3, rows = 2, cellWidth = 480, cellHeight = 280, headerHeight = 48
+    let columns = 4, rows = (renderedWeatherCases.count + columns - 1) / columns
+    let cellWidth = 480, cellHeight = 280, headerHeight = 48
     let width = columns * cellWidth, height = rows * cellHeight + headerHeight
     let optionalBitmap = NSBitmapImageRep(
         bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height, bitsPerSample: 8,
