@@ -394,6 +394,8 @@ Choose **Usage layers** to see Memory and Storage as large glass paperweights th
 
 The **Ship** menu groups 47 stylized One Piece miniatures by crew and region, alongside the 12 classic ships. The fleet includes Going Merry, Thousand Sunny, Oro Jackson, Moby Dick, Red Force, Polar Tang, Victoria Punk, Queen Mama Chanter, Thriller Bark, Baratie, and the Straw Hat Grand Fleet. Each model has its own hull, figurehead, and deck details and is fitted to stay inside the glass while rolling. See the [fleet catalog](docs/one-piece-fleet.md) for the full selection.
 
+The classic ships have sculpted, tapered hulls, curved sails and rigging, shaped decks and cabins, and more detailed windows, railings and fittings. They share the fleet's moving-part animation and the sailing scene's exact waterline.
+
 All 59 ships have animated parts: fluttering sails and flags, turning propellers and paddle wheels, rowing oars, drifting steam, and moving figureheads or creature details. Ships loop while the Branches scene is visible, with a slower frame rate once the water settles. Rail miniatures animate on hover using cached frames. Closing, hiding, or covering the view stops its clock; **Reduce Motion** restores still poses.
 
 - **Memory** separates AI tools and other repository work into layers. Selecting a layer lists the running work whose processes it counts. Work active in a session in the last few minutes remains listed even when there is no process there to measure. **Other memory** means memory not counted under AI tools or repository work, not necessarily unused memory.

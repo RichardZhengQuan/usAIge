@@ -79,12 +79,14 @@ struct BranchesRootView: View {
         let breakdown = StorageBreakdown(storage: measured, freeableBytes: picks.bytes(from: everything.safeToClear), measuredAt: now)
         VStack(spacing: 0) {
             toolbar(projects: everything.projects)
-                .background(.ultraThinMaterial)
+                .background(.regularMaterial)
             Divider()
             GeometryReader { geometry in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 16) {
                         overview(memory: memory, storage: storage, board: everything, now: now)
+                            .padding(16)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
                             .padding(.horizontal, 8)
                             .padding(.top, 20)
                         if showsLayers {
@@ -136,6 +138,8 @@ struct BranchesRootView: View {
                                 .help(reduceMotion ? "Animation is paused by Reduce Motion" : "Pause or resume the sailing scene")
                             }
                         }
+                        .padding(12)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
                         .padding(.horizontal, 8)
 
                         headline(everything, picks: picks, memory: memory, storage: storage, now: now)
