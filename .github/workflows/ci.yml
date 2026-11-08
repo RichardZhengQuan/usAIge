@@ -19,7 +19,11 @@ jobs:
       - name: Build
         run: swift build --build-tests
       - name: Test
-        run: swift test --skip-build
+        # SceneKit rendering occupies the main actor long enough to delay
+        # unrelated async fixtures. Run those suites in their own process.
+        run: swift test --skip-build --skip 'PaperweightShipAnimationTests|ShipDetailRenderTests'
+      - name: Ship rendering and motion
+        run: swift test --skip-build --no-parallel --filter 'PaperweightShipAnimationTests|ShipDetailRenderTests'
       - name: Installer staging regression
         run: python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 
