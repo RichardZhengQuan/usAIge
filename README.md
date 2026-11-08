@@ -154,9 +154,9 @@ The packaged application includes the custom usAIge icon in Finder, the Dock, Sp
 
 ## Install the public alpha
 
-Download `usAIge-0.2.25-alpha.dmg` and its checksum from the website. Open the disk image, then drag `usAIge.app` onto the Applications shortcut.
+Download `usAIge-0.2.26-alpha.dmg` and its checksum from the website. Open the disk image, then drag `usAIge.app` onto the Applications shortcut.
 
-The 0.2.25 alpha adds the rail’s Memory tile and per-tool work details, plus a local Branches window for reviewing and clearing finished branches and worktrees. Undo restores Git branches and folders, but not ignored files; review lists those before deletion. It also includes the hover-memory and reset-timer fixes, leaner idle updates, and cleaner rail corners. Claude usage still refreshes quietly in the background without an extra sign-in, Keychain access, or **Detect** action.
+The 0.2.26 alpha presents Memory and Storage as layered 3D glass paperweights in the Branches window. Turn or zoom the view, select a layer, and choose a ship for each paperweight; those choices also appear in the rail’s miniatures alongside AI memory and free disk space. Work reported by sessions stays listed even when no process memory is measured. Local branch review and Undo remain available; Undo restores Git branches and folders, but not ignored files. Claude usage still refreshes quietly in the background without an extra sign-in, Keychain access, or **Detect** action.
 
 This alpha is ad-hoc signed and is not notarized because the project does not yet have a Developer ID Application certificate. On first launch:
 
@@ -170,7 +170,7 @@ To build and verify the installer locally:
 
 ```bash
 scripts/package-dmg.sh
-(cd dist && shasum -a 256 -c usAIge-0.2.25-alpha.dmg.sha256)
+(cd dist && shasum -a 256 -c usAIge-0.2.26-alpha.dmg.sha256)
 ```
 
 For headless packaging, reuse the layout from a trusted previous installer:
@@ -374,21 +374,22 @@ The built-in Codex, Cursor, and Grok Build sources reuse existing sign-ins, whil
 
 The rail shows what your AI tools are working on, without opening anything:
 
-- A tile under the tool rows fills like a water tank with the share of this Mac's memory the AI tools are using, in the same colours as the rings, and shows how many branches and worktrees have an AI session in them.
-- Hovering the tile lists that work across every tool: each branch or worktree, its repository, its most urgent session, its processes and ports, and its memory.
-- Hovering a tool's row adds the same list for that tool to its limits card, with that tool's memory.
+- Two miniature paperweights sit under the tool rows. **Memory** shows the AI tools' share of this Mac's memory and how many branches and worktrees have an AI session in them. **Storage** shows disk fullness and free space.
+- Hovering Memory lists work across every tool: each branch or worktree, its repository, its most urgent session, its processes and ports, and its memory. Hovering Storage shows current disk use and the breakdown last measured in Branches, with its measurement age.
+- Hovering a tool's row adds the same work list for that tool to its limits card, with that tool's memory.
 - A card stays open while the pointer is on it, so a long list can be scrolled.
-- Clicking the tile, or the link at the bottom of a card, opens the full list.
+- Clicking a miniature, or the link at the bottom of its card, opens Branches with the matching paperweight in front.
 
-Memory counts each AI tool's app and helpers plus everything running in the folders its sessions work in, each process once, using the same figure as Activity Monitor. The tile reads the process list and each session's `.git/HEAD` every 10 seconds, with no git process. In a folder macOS protects it reads nothing, and shows the branch the session's own log last recorded; Cursor and Grok Build don't record one.
+Memory counts each AI tool's app and helpers plus everything running in the folders its sessions work in, each process once, using the same figure as Activity Monitor. The rail reads the process list and each session's `.git/HEAD` every 10 seconds, with no git process. In a folder macOS protects it reads nothing, and shows the branch the session's own log last recorded; Cursor and Grok Build don't record one.
 
-The full list, also under **Branches and Worktrees…** in the app menu, shows the repositories your AI tools have worked in, with a card for each worktree and each branch without one. It reads this Mac only: it never fetches, never calls GitHub, and sends nothing to the relay, your iPhone, or your Watch. Its scan runs only while the window is open, and closing it stops everything.
+The **Branches** window, also under **Branches and Worktrees…** in the app menu, shows the repositories your AI tools have worked in through Memory and Storage paperweights, with the selected layer's cards below. It reads this Mac only: it never fetches, never calls GitHub, and sends nothing to the relay, your iPhone, or your Watch. Its repository scan runs only while the window is open, and closing it stops that scan.
 
-At the top, a tank shows how full the disk is and how far clearing would bring it down. Below it, the cards sit in three columns:
+Click the rear paperweight to bring it forward, then click a layer to inspect it. Drag to turn the view, scroll or pinch to zoom, and double-click the table to reset the camera. **Ship in the front paperweight** chooses a ship separately for Memory and Storage; the choices are remembered and appear in the rail's miniatures. **Shake** moves the liquid without changing the readings.
 
-- **Running now**: something runs in the folder, or a session wrote to its log in the last 5 minutes, including in a repository's main copy. A small tank shows the AI tools' share of memory, the same figure as the rail's tile.
-- **Needs a look**: work that exists only on this Mac, work that isn't on main yet, and finished folders holding ignored files no build brings back, such as `.env`. Opening a card lists the commits and uncommitted files that would be lost. A copy of a project that another copy has replaced and nobody has used for a week shows as one card.
-- **Safe to clear**: merged or empty branches and worktrees nothing runs in, biggest first. **Clear…** reviews what the column shows; **Review and Clear…** at the top reviews all of it.
+- **Memory** separates AI tools and other repository work into layers. Selecting a layer lists the running work whose processes it counts. Work active in a session in the last few minutes remains listed even when there is no process there to measure. **Other memory** means memory not counted under AI tools or repository work, not necessarily unused memory.
+- **Storage** separates **Worktrees**, **Build cache**, **Tool storage**, **macOS and apps**, and **Free space**. Select a layer to see its relevant folders or explanation. **Tool storage** is read-only; usAIge never clears it.
+- The **Worktrees** layer groups cards under **Needs a look** and **Safe to clear**. Needs a look includes work that exists only on this Mac, work that isn't on main yet, and finished folders holding ignored files no build brings back, such as `.env`. Opening a card lists the commits and uncommitted files that would be lost. A copy of a project that another copy has replaced and nobody has used for a week shows as one card. Safe to clear contains merged or empty branches and worktrees nothing runs in, biggest first.
+- In Storage, **Preview clearing** shows the estimated effect of the default clear selection; **Show today** returns to current disk use. **Review and Clear…** reviews all safe items, while **Clear…** beside Safe to clear reviews only the items shown under the current search and project filter. Neither previewing nor opening a review deletes anything.
 
 Each card is named by what the work was: the session's title, else its own newest commit, else its folder, with the repository and branch underneath. Search finds a card by any of these, and the project buttons show one project, counting clones of one remote as one project. **Show in Finder** and **Open in Terminal** open a card's folder.
 
@@ -407,7 +408,7 @@ Each card's status says whether it's safe to delete:
 | **Main copy** | The repository's main checkout or main branch | No |
 | **Not checked** | In a folder macOS protects, or managed by iCloud | No |
 
-Opening a card shows where it lives, what's running there with ports, memory, and start times, its related sessions, and how much of its size is rebuildable cache. Sizes are what each folder measured, and APFS counts a file two folders share in both, so the disk can gain less than the tank shows. **Tool storage** lists what AI and developer tools keep on the Mac, including simulator runtimes and caches; usAIge only shows these and never clears them.
+Opening a card shows where it lives, what's running there with ports, memory, and start times, its related sessions, and how much of its size is rebuildable cache. Sizes are what each folder measured, and APFS counts a file two folders share in both, so the disk can gain less than the paperweight preview shows. The **Tool storage** layer lists what AI and developer tools keep on the Mac, including simulator runtimes and caches; usAIge only shows these and never clears them.
 
 Merges are detected by content, so squash and rebase merges count without asking GitHub: a branch is finished when a commit that reached your local copy of main after the branch began has exactly the same patch, compared with `git patch-id --verbatim`. If you haven't fetched lately, a merged branch shows as **Pushed**, which is the safe direction. A squash merge with extra edits can also show as **Pushed** or **Not saved**, and so can every merged branch with a Git older than 2.39, which can't make that comparison.
 
