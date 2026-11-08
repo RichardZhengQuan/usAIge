@@ -86,7 +86,7 @@ final class SailingSeaSimulation {
         let position = x.truncatingRemainder(dividingBy: wavelength) / wavelength * 2 * Double.pi
         let harmonic = x.truncatingRemainder(dividingBy: wavelength / 1.8) / (wavelength / 1.8) * 2 * Double.pi
         let slosh = x.truncatingRemainder(dividingBy: wavelength / 0.75) / (wavelength / 0.75) * 2 * Double.pi
-        let speed = weather == .storm ? 1.35 : weather == .rain ? 1.05 : 0.72
+        let speed = Double(weather.seaProfile.speed)
         let amplitude = min(displacementLimit * 0.55, (compact ? 1.5 : 4) * roughness)
         let ambient = amplitude * (sin(position - time * speed)
             + 0.3 * sin(harmonic + time * speed * 0.63 + 1.1))
@@ -100,14 +100,7 @@ final class SailingSeaSimulation {
     }
 
     private var roughness: Double {
-        switch weather {
-        case .sunny: 1
-        case .cloudy: 1.25
-        case .rain: 1.8
-        case .storm: 3
-        case .snow: 0.8
-        case .automatic, .night: 0.7
-        }
+        0.5 + 2.2 * Double(weather.seaProfile.roughness)
     }
 
     private func updateShipSize() {
@@ -159,8 +152,8 @@ final class SailingSeaSimulation {
     /// centre could leave the bow buried under a crest during a large shake.
     private func supportedWaterline(angle: Double) -> Double {
         let halfHull = Double(shipSize.width) * 0.4
-        let support = (-16...16).reduce(surface(at: boat.x)) { result, index in
-            let offset = halfHull * Double(index) / 16
+        let support = (-64...64).reduce(surface(at: boat.x)) { result, index in
+            let offset = halfHull * Double(index) / 64
             let water = surface(at: boat.x + offset * cos(angle))
             return min(result, water - offset * sin(angle))
         }

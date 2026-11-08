@@ -30,6 +30,20 @@ Reduce Motion states stop the host clock. The existing CPU illustration remains
 available when Metal cannot initialize. Live drawing performs no CPU readback;
 readback is reserved for qualification and frozen gallery exports.
 
+The shader and buoyancy model share a sea profile for each condition:
+
+| Weather | Water response |
+| --- | --- |
+| Sunny | Gentle rolling waves, warm broken sun glints, no whitecaps |
+| Cloudy | Broader rolling swell and muted sky reflections |
+| Rain | Faster wind ripples and expanding droplet impact rings |
+| Storm | Stronger, choppier swells and crest foam |
+| Snow | Slower, quieter cold-colored water |
+| Night | Calm low swells and restrained moon reflections |
+
+Water tests sample the actual buoyancy surface across the scene, check the
+weather ordering of swell strength, and verify afloat limits after shaking.
+
 Export all six conditions at both sizes and appearances, plus looping GIFs:
 
 ```sh

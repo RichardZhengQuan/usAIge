@@ -18,6 +18,7 @@ final class CruiseWeatherRenderer: NSObject, @preconcurrency MTKViewDelegate {
         var dark: Float
         var compact: Float
         var padding = SIMD2<Float>.zero
+        var sea: SIMD4<Float>
     }
 
     private static var resources: [UInt64: Resources] = [:]
@@ -137,15 +138,16 @@ final class CruiseWeatherRenderer: NSObject, @preconcurrency MTKViewDelegate {
     private func makeUniforms(size: CGSize, time: TimeInterval, weather: CruiseWeather, dark: Bool, compact: Bool) -> Uniforms {
         let condition: UInt32
         switch weather {
-        case .automatic, .sunny: condition = 0
+        case .sunny: condition = 0
         case .cloudy: condition = 1
         case .rain: condition = 2
         case .storm: condition = 3
         case .snow: condition = 4
-        case .night: condition = 5
+        case .automatic, .night: condition = 5
         }
         return Uniforms(resolution: SIMD2(Float(max(1, size.width)), Float(max(1, size.height))),
                         time: time.isFinite ? Float(time.truncatingRemainder(dividingBy: 3_600)) : 0,
-                        weather: condition, dark: dark ? 1 : 0, compact: compact ? 1 : 0)
+                        weather: condition, dark: dark ? 1 : 0, compact: compact ? 1 : 0,
+                        sea: weather.seaProfile.spectrum)
     }
 }

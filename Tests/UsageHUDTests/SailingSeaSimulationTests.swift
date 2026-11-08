@@ -162,8 +162,8 @@ import Testing
         #expect(abs(boat.angle) <= PaperweightConstants.maximumRoll + 0.000001, sourceLocation: sourceLocation)
         #expect(boat.y <= sea.surface(at: boat.x) + 0.001, sourceLocation: sourceLocation)
         // Test more points than the simulation samples, including bow/stern.
-        for index in 0...64 {
-            let offset = sea.shipSize.width * (Double(index) / 64 - 0.5) * 0.8
+        for index in 0...256 {
+            let offset = sea.shipSize.width * (Double(index) / 256 - 0.5) * 0.8
             let x = boat.x + offset * cos(boat.angle)
             let y = boat.y + offset * sin(boat.angle)
             #expect(y <= sea.surface(at: x) + 0.001, sourceLocation: sourceLocation)

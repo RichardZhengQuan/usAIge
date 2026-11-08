@@ -11,6 +11,7 @@ enum CruiseWeatherShader {
         float dark;
         float compact;
         float2 padding;
+        float4 sea;
     };
 
     struct CruiseWeatherRaster {
@@ -116,7 +117,7 @@ enum CruiseWeatherShader {
             float frequency = frequencies[i];
             float filter = 1.0 / (1.0 + footprint * frequency * 1.3);
             if (compact > 0.5 && i == 5u) { filter = 0.0; }
-            float amplitude = amplitudes[i] * filter * (0.72 + rough * 0.85);
+            float amplitude = amplitudes[i] * filter * (0.18 + rough * 1.50);
             float phase = dot(p, directions[i]) * frequency - time * (0.65 + sqrt(frequency) * 0.78) * (0.8 + rough * 0.65);
             phase += result.x * 0.46;
             float wave = sin(phase), slope = cos(phase) * frequency * amplitude;
@@ -146,9 +147,9 @@ enum CruiseWeatherShader {
         float depth = saturate((uv.y - horizon) / (1.0 - horizon));
         float perspective = 1.0 / (depth + 0.065);
         float2 world = float2((uv.x - 0.5) * aspect * 2.6, 3.3) * perspective;
-        float rough = u.weather == 3u ? 1.0 : (u.weather == 2u ? 0.62 : 0.21);
-        float3 field = cwWaveField(world, u.time, rough, u.compact);
-        float3 normal = normalize(float3(-field.y * 0.30, 1.0, -field.z * 0.30));
+        float rough = u.sea.x;
+        float3 field = cwWaveField(world, u.time * u.sea.y, rough, u.compact);
+        float3 normal = normalize(float3(-field.y * u.sea.z, 1.0, -field.z * u.sea.z));
         float3 view = normalize(float3((0.5 - uv.x) * aspect * 1.1, 0.12 + depth * 0.72, -1.2));
         float3 reflection = reflect(-view, normal);
         float2 reflectedUV = float2(0.5 + reflection.x * 0.62,
@@ -174,9 +175,10 @@ enum CruiseWeatherShader {
         float visibility = (u.weather == 0u || u.weather == 5u) ? 1.0 : (u.weather == 1u ? 0.18 : 0.035);
         float glint = pow(saturate(dot(normal, halfVector)), mix(190.0, 85.0, rough));
         float3 glintColor = u.weather == 5u ? float3(0.50, 0.67, 0.91) : float3(1.0, 0.85, 0.56);
-        water += glintColor * glint * visibility * (u.weather == 5u ? 0.6 : 1.7);
-        float crest = smoothstep(0.35, 0.80, field.x) * saturate(abs(field.y + field.z) * 0.8);
-        water += float3(0.53, 0.67, 0.69) * crest * rough * 0.15 * smoothstep(0.0, 0.18, depth);
+        water += glintColor * glint * visibility * (u.weather == 5u ? 0.55 : 1.10);
+        float crest = smoothstep(0.30, 0.95, field.x) * saturate(abs(field.y + field.z) * 0.8);
+        float foam = crest * u.sea.w * smoothstep(0.0, 0.18, depth);
+        water = mix(water, float3(0.65, 0.76, 0.78), saturate(foam * 0.64));
 
         if (u.weather == 2u || u.weather == 3u) {
             float impacts = cwRainImpacts(world, u.time, depth);
