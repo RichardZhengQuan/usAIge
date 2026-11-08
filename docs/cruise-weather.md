@@ -58,6 +58,11 @@ aspect ratio within 512 pixels per dimension. Still images are limited to
 ship animates only while its scene clock is running and visible; rail miniatures
 animate while hovered and visible.
 
+The ship stays near the horizontal centre of the scene, with a small, slow
+back-and-forth drift. Drift is bounded by the complete rolled sprite envelope,
+so the ship remains visible through weather changes, shaking and resizing.
+Water, sails and buoyancy continue moving without a trip offscreen or a wrap.
+
 The shader and buoyancy model share a sea profile for each condition:
 
 | Weather | Scene and water response |

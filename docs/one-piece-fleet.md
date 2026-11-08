@@ -35,6 +35,54 @@ The render check rejects empty snapshots and identical rendered models.
 Existing paperweight tests verify every choice's persistence and full rolled
 bounds; the rail render check covers every miniature at its actual display size.
 
+## Model detail
+
+The fleet uses curved, tapered hull meshes with a planked sheer deck, raised
+wales, shaped rails and stanchions. Billowed sails have shaped feet, fabric
+folds, panel seams and bolt ropes; their complete assemblies follow the wind.
+Masts carry stays, shrouds, ratlines and crow’s nests. Cabin galleries, framed
+ports, gun carriages, hatches and machinery vary by vessel.
+
+The most recognizable forms are modeled separately: Merry’s two masts and
+spiral-horned ram, Sunny’s lion and Soldier Dock, Moby Dick’s integrated whale
+jaw, and Polar Tang’s two-level bridge. These remain stylized interpretations.
+The original twelve ships retain their detailed hulls, fittings and moving parts.
+
+Official model-kit photographs informed these four vessels’ silhouettes:
+[Going Merry](https://www.bandaispirits.co.jp/products/search/detail.php?grp_id=5325&prd_id=4543112655097000),
+[Thousand Sunny](https://www.bandaispirits.co.jp/products/search/detail.php?grp_id=5325&prd_id=4543112752970000),
+[Polar Tang](https://www.bandaispirits.co.jp/products/search/detail.php?grp_id=5325&prd_id=4543112752987000), and
+[Moby Dick](https://www.bandaispirits.co.jp/products/search/detail.php?grp_id=5325&prd_id=4543112764942000).
+No kit images or external model assets are bundled.
+
+Export individual models, the flagship overview, a full fleet sheet and
+multi-angle detail renders, with mesh/resource metrics:
+
+```sh
+USAIGE_RENDER_SHIP_DETAILS=/absolute/output/path swift test --filter ShipCraftRender
+```
+
+## Direction and artwork
+
+Ships use +X for the bow, −X for the stern, +Y for up and Z across the beam.
+Square cloth, its yard and running lines share a braced assembly across the
+beam. Fore-and-aft triangular and junk sails retain their own mounting.
+Sunny’s lion mane and facial features face the bow; lateral animal eyes and
+stern-facing decorations keep their anatomical direction.
+
+Canvas artwork uses top-left image coordinates. Custom cloth meshes map their
+geometric foot to texture V=1 and their head to V=0, matching SceneKit planes.
+The back of physical cloth mirrors horizontally while remaining upright.
+Orientation tests render asymmetric markers and actual Straw Hat sail artwork
+from both sides, and check the forward lion, square yards and mechanical axes.
+
+```sh
+swift test --filter ShipOrientation
+```
+
+The detail export also writes bow and opposite-side views for every model,
+plus five viewing angles and two poses for each of the four flagships.
+
 ## Animation
 
 All 59 choices, including the classic ships, have rigged moving parts. Shared

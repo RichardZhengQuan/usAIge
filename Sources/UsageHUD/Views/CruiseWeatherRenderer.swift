@@ -1,6 +1,34 @@
 import AppKit
 import MetalKit
 
+/// Two GPU slots and one coalesced redraw request. Completion handlers use
+/// this tiny lock-protected gate without touching AppKit or the renderer.
+final class CruiseWeatherDrawAdmission: @unchecked Sendable {
+    private let lock = NSLock()
+    private var inFlight = 0
+    private var pending = false
+
+    func request() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard inFlight < 2 else { pending = true; return false }
+        inFlight += 1
+        pending = false
+        return true
+    }
+
+    /// Returns true once when a released slot can service a dropped redraw.
+    func complete() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard inFlight > 0 else { return false }
+        inFlight -= 1
+        let retry = pending
+        pending = false
+        return retry
+    }
+}
+
 /// Explicit draws share the scene's visibility-owned clock. The Metal view
 /// never starts a second display loop and keeps at most two frames in flight.
 @available(macOS 14.0, *)
@@ -28,7 +56,8 @@ final class CruiseWeatherRenderer: NSObject, MTKViewDelegate {
     private static var resources: [UInt64: Resources] = [:]
     private(set) static var lastError: String?
     private let resource: Resources
-    private let inFlight = DispatchSemaphore(value: 2)
+    private let drawAdmission = CruiseWeatherDrawAdmission()
+    private weak var pendingView: MTKView?
     private var time: TimeInterval = 0
     private var weather = CruiseWeather.sunny
     private var dark = false
@@ -94,9 +123,13 @@ final class CruiseWeatherRenderer: NSObject, MTKViewDelegate {
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
     func draw(in view: MTKView) {
-        guard inFlight.wait(timeout: .now()) == .success else { return }
+        // Publish the weak target before admission, so even a completion
+        // racing this request can never lose the terminal paused frame.
+        pendingView = view
+        guard drawAdmission.request() else { return }
+        pendingView = nil
         var committed = false
-        defer { if !committed { inFlight.signal() } }
+        defer { if !committed, drawAdmission.complete() { retryPendingDraw() } }
         guard let drawable = view.currentDrawable,
               let pass = view.currentRenderPassDescriptor,
               let command = resource.queue.makeCommandBuffer() else { return }
@@ -104,11 +137,23 @@ final class CruiseWeatherRenderer: NSObject, MTKViewDelegate {
                                     compact: compact, lightningEnabled: lightningEnabled,
                                     transition: transition, seaProfile: seaProfile, oceanTime: oceanTime, mix: mix)
         guard encode(pass: pass, command: command, uniforms: &uniforms) else { return }
-        let semaphore = inFlight
-        command.addCompletedHandler { _ in semaphore.signal() }
+        let admission = drawAdmission
+        command.addCompletedHandler { [weak self] _ in
+            guard admission.complete() else { return }
+            Task { @MainActor [weak self] in self?.retryPendingDraw() }
+        }
         command.present(drawable)
         command.commit()
         committed = true
+    }
+
+    private func retryPendingDraw() {
+        guard let view = pendingView else { return }
+        pendingView = nil
+        guard (view.delegate as AnyObject?) === self else { return }
+        // Use the newest configuration, not a captured animated frame. This
+        // is one completion-driven retry; it never starts a display clock.
+        view.draw()
     }
 
     /// Offscreen readback is only for gallery exports and visual qualification.

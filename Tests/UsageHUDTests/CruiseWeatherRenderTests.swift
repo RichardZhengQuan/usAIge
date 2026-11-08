@@ -62,10 +62,17 @@ struct CruiseWeatherRenderTests {
             #expect(strike.width == 192 && strike.height == 128)
             #expect(weatherChangedBytes(strikePixels, suppressedPixels) > 100,
                     "The authored thunder peak must visibly add a bolt and illumination")
+            #expect(weatherChangedBytes(strikePixels, suppressedPixels, minimumDelta: 4) > 100,
+                    "Lightning must exceed small GPU/readback rounding differences")
             #expect(weatherChangedBytes(strikePixels, restPixels) > 100,
                     "Thunder must include an intermittent strike, rather than a permanent flash")
-            #expect(restPixels == suppressedRestPixels,
-                    "Disabling lightning must leave the unlit weather unchanged at a rest phase")
+            // Equivalent shader branches and color conversion need not land
+            // on the same side of every 8-bit rounding boundary on all GPUs.
+            // Permit only imperceptible quantization noise, never a glow or
+            // changed scene; the strike assertion above requires real contrast.
+            let restError = weatherChannelError(restPixels, suppressedRestPixels)
+            #expect(restError.maximum <= 2 && restError.mean <= 0.5,
+                    "Rest-phase lightning suppression changed the scene: max channel error \(restError.maximum), mean \(restError.mean)")
             #expect(suppressedPixels.count == 192 * 128 * 4)
             #expect(weatherVisiblePixels(suppressedPixels) > 192 * 128 / 2,
                     "Suppressing lightning must keep the cloudy, rainy sea visible")
@@ -241,11 +248,22 @@ private func weatherVisiblePixels(_ pixels: Data) -> Int {
     }
 }
 
-private func weatherChangedBytes(_ before: Data, _ after: Data) -> Int {
+private func weatherChangedBytes(_ before: Data, _ after: Data, minimumDelta: Int = 0) -> Int {
     guard before.count == after.count else { return max(before.count, after.count) }
     return zip(before, after).reduce(into: 0) { count, pair in
-        if pair.0 != pair.1 { count += 1 }
+        if abs(Int(pair.0) - Int(pair.1)) > minimumDelta { count += 1 }
     }
+}
+
+private func weatherChannelError(_ before: Data, _ after: Data) -> (maximum: Int, mean: Double) {
+    guard before.count == after.count, !before.isEmpty else { return (255, 255) }
+    var maximum = 0, total = 0
+    for pair in zip(before, after) {
+        let error = abs(Int(pair.0) - Int(pair.1))
+        maximum = max(maximum, error)
+        total += error
+    }
+    return (maximum, Double(total) / Double(before.count))
 }
 
 private func weatherWritePNG(_ image: CGImage, to url: URL) throws {

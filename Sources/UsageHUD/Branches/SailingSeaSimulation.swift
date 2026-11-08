@@ -21,7 +21,7 @@ final class SailingSeaSimulation {
     private var shakeVelocity = 0.0
     private var shakeSequence = 0
     private var hasArea: Bool { size.width > 0 && size.height > 0 }
-    private var period: Double { compact ? 25 : 82 }
+    private var period: Double { compact ? 18 : 38 }
     private var baseWaterline: Double { Double(size.height) * (compact ? 0.79 : 0.61) }
     private var displacementLimit: Double { Double(size.height) * (compact ? 0.035 : 0.08) }
     private var padding: Double { min(2, Double(size.height) * 0.01) }
@@ -117,14 +117,30 @@ final class SailingSeaSimulation {
         let topLimit = max(0, baseWaterline - displacementLimit - padding - supportSafety) / (topExtent + supportLift)
         let bottomLimit = max(0, Double(size.height) - baseWaterline - displacementLimit - padding) / bottomExtent
         let desired = compact ? min(42, Double(size.width) * 0.52) : min(280, max(160, Double(size.width) * 0.21))
-        let width = max(0, min(desired, Double(size.width) * 0.8, topLimit, bottomLimit))
+        let cornerRadiusPerWidth = hypot(0.5, (2.0 / 3) * max(waterlineFraction, 1 - waterlineFraction))
+        let horizontalLimit = max(0, Double(size.width) / 2 - padding) / cornerRadiusPerWidth
+        let width = max(0, min(desired, Double(size.width) * 0.8, topLimit, bottomLimit, horizontalLimit))
         shipSize = CGSize(width: width, height: width * 2 / 3)
     }
 
+    private var driftAmplitude: Double {
+        guard hasArea else { return 0 }
+        let halfWidth = Double(shipSize.width) / 2
+        let verticalReach = Double(shipSize.height) * max(waterlineFraction, 1 - waterlineFraction)
+        // A corner's radius around the waterline bounds its horizontal reach
+        // at every roll angle, keeping even a tilted bow and mast on screen.
+        let rolledReach = hypot(halfWidth, verticalReach)
+        let clearance = max(0, Double(size.width) / 2 - rolledReach - padding)
+        let desired = min(compact ? 2.5 : 28, Double(size.width) * (compact ? 0.045 : 0.035))
+        return min(desired, clearance * 0.35)
+    }
+
     private func cruiseX() -> Double {
-        let margin = Double(shipSize.width) * 0.7
-        let progress = (time / period + 0.55).truncatingRemainder(dividingBy: 1)
-        return progress * (Double(size.width) + margin * 2) - margin
+        Double(size.width) / 2 + driftAmplitude * sin(time * 2 * .pi / period)
+    }
+
+    private var driftVelocity: Double {
+        driftAmplitude * (2 * .pi / period) * cos(time * 2 * .pi / period)
     }
 
     private func advance(_ dt: Double) {
@@ -142,7 +158,7 @@ final class SailingSeaSimulation {
         }
         if abs(shakeHeight) + abs(shakeVelocity) < 0.00001 { shakeHeight = 0; shakeVelocity = 0 }
         boat.x = cruiseX()
-        boat.velocityX = (Double(size.width) + Double(shipSize.width) * 1.4) / period
+        boat.velocityX = driftVelocity
         let targetAngle = clamped(atan(surfaceSlope(at: boat.x)),
                                   -PaperweightConstants.maximumRoll, PaperweightConstants.maximumRoll)
         boat.angularVelocity = (boat.angularVelocity + (targetAngle - boat.angle) * 90 * dt) * pow(0.88, dt * 120)
