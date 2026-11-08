@@ -12,6 +12,9 @@ final class BranchesStore: ObservableObject {
     @Published private(set) var snapshot = BranchesSnapshot()
     @Published private(set) var toolStorage: [ToolStorageEntry] = []
     @Published private(set) var isMeasuringToolStorage = false
+    @Published private(set) var hasMeasuredToolStorage = false
+    @Published private(set) var memoryShip: PaperweightShipKind = .sailboat
+    @Published private(set) var storageShip: PaperweightShipKind = .galleon
     @Published private(set) var isDeleting = false
     /// The latest result of a delete or undo, shown until the next one.
     @Published var resultMessage: ResultMessage?
@@ -40,14 +43,24 @@ final class BranchesStore: ObservableObject {
     private var evidenceTasks: [String: Task<Void, Never>] = [:]
     private var lastScanStartedAt: Date?
     private var isVisible = false
+    private var measuredToolsThisOpen = false
 
     init(
         defaults: UserDefaults = .standard,
         scanner: BranchesScanner? = nil,
-        diskURL: URL = FileManager.default.homeDirectoryForCurrentUser
+        diskURL: URL = FileManager.default.homeDirectoryForCurrentUser,
+        initialSnapshot: BranchesSnapshot = BranchesSnapshot(),
+        initialDiskSpace: DiskSpace? = nil,
+        initialToolStorage: [ToolStorageEntry] = []
     ) {
         self.defaults = defaults
         self.diskURL = diskURL
+        self.snapshot = initialSnapshot
+        self.diskSpace = initialDiskSpace
+        self.toolStorage = initialToolStorage
+        self.hasMeasuredToolStorage = !initialToolStorage.isEmpty
+        self.memoryShip = PaperweightShipPreferences.ship(for: .memory, defaults: defaults)
+        self.storageShip = PaperweightShipPreferences.ship(for: .storage, defaults: defaults)
         let key = Self.addedFoldersKey
         self.scanner = scanner ?? BranchesScanner(environment: .live(addedFolders: {
             UserDefaults.standard.stringArray(forKey: key) ?? []
@@ -62,6 +75,27 @@ final class BranchesStore: ObservableObject {
         setVisible(true)
         startScan(force: false)
         readDiskSpace()
+        if !measuredToolsThisOpen {
+            measuredToolsThisOpen = true
+            loadToolStorage(force: true)
+        }
+    }
+
+    func ship(for paperweight: PaperweightID) -> PaperweightShipKind {
+        paperweight == .memory ? memoryShip : storageShip
+    }
+
+    func chooseShip(_ ship: PaperweightShipKind, for paperweight: PaperweightID) {
+        guard self.ship(for: paperweight) != ship else { return }
+        if paperweight == .memory { memoryShip = ship } else { storageShip = ship }
+        PaperweightShipPreferences.set(ship, for: paperweight, defaults: defaults)
+    }
+
+    /// Keeps the latest finished measurement for the rail's Storage card.
+    /// Unchanged amounts aren't written again, so a quiet window writes nothing.
+    func recordStorageBreakdown(_ breakdown: StorageBreakdown) {
+        guard !breakdown.sameAmounts(as: StorageBreakdown.load(from: defaults)) else { return }
+        breakdown.save(to: defaults)
     }
 
     /// Asking the volume can take a moment when macOS works out what it
@@ -114,6 +148,8 @@ final class BranchesStore: ObservableObject {
         deleteTask = nil
         evidenceTasks = [:]
         isVisible = false
+        measuredToolsThisOpen = false
+        isMeasuringToolStorage = false
         let scanner = scanner
         Task { await scanner.saveAndStop() }
     }
@@ -173,6 +209,7 @@ final class BranchesStore: ObservableObject {
             let entries = await scanner.toolStorage(force: force)
             guard !Task.isCancelled else { return }
             self?.toolStorage = entries
+            self?.hasMeasuredToolStorage = true
             self?.isMeasuringToolStorage = false
             self?.toolStorageTask = nil
         }

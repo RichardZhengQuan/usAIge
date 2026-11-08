@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 import Testing
 @testable import UsageHUD
@@ -426,6 +427,154 @@ private final class ScanLog: @unchecked Sendable {
     var count: Int { lock.withLock { flags.count } }
 }
 
+private final class DiskSample: @unchecked Sendable {
+    private let lock = NSLock()
+    private var date = Date(timeIntervalSince1970: 1_800_000_000)
+    private var disk: DiskSpace?
+    private var mainThreadReads: [Bool] = []
+
+    init(_ disk: DiskSpace?) { self.disk = disk }
+
+    func now() -> Date { lock.withLock { date } }
+    func advance(by seconds: TimeInterval) { lock.withLock { date.addTimeInterval(seconds) } }
+    func set(_ disk: DiskSpace?) { lock.withLock { self.disk = disk } }
+    func read() -> DiskSpace? {
+        lock.withLock {
+            mainThreadReads.append(Thread.isMainThread)
+            return disk
+        }
+    }
+    var count: Int { lock.withLock { mainThreadReads.count } }
+    var readOnMainThread: Bool { lock.withLock { mainThreadReads.contains(true) } }
+}
+
+private final class DiskPublications: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [DiskSpace?] = []
+    func record(_ disk: DiskSpace?) { lock.withLock { values.append(disk) } }
+    var all: [DiskSpace?] { lock.withLock { values } }
+}
+
+@MainActor
+@Suite struct LiveWorkDiskSamplingTests {
+    private func monitor(_ sample: DiskSample) -> LiveWorkMonitor {
+        LiveWorkMonitor(
+            currentTasks: { [] },
+            runningApplications: { [:] },
+            locator: { locator },
+            scan: { _, _ in [] },
+            readDiskSpace: { sample.read() },
+            now: { sample.now() }
+        )
+    }
+
+    @Test func diskReadsStayOffMainAndWaitAMinuteEvenWhileShowingDetail() async {
+        let first = DiskSpace(totalBytes: 1_000, availableBytes: 400)
+        let second = DiskSpace(totalBytes: 1_000, availableBytes: 350)
+        let sample = DiskSample(first)
+        let monitor = monitor(sample)
+        #expect(monitor.diskSpace == nil)
+
+        await monitor.refresh()
+        #expect(monitor.diskSpace == first)
+        #expect(sample.count == 1)
+        #expect(!sample.readOnMainThread)
+
+        sample.set(second)
+        sample.advance(by: 59)
+        monitor.detailVisibilityChanged(true)
+        await monitor.refresh()
+        monitor.detailVisibilityChanged(false)
+        await monitor.refresh()
+        #expect(sample.count == 1)
+        #expect(monitor.diskSpace == first)
+
+        sample.advance(by: 1)
+        await monitor.refresh()
+        #expect(sample.count == 2)
+        #expect(monitor.diskSpace == second)
+        #expect(!sample.readOnMainThread)
+    }
+
+    @Test func unchangedDiskSamplesDoNotPublishAgain() async {
+        let first = DiskSpace(totalBytes: 1_000, availableBytes: 400)
+        let second = DiskSpace(totalBytes: 1_000, availableBytes: 350)
+        let sample = DiskSample(first)
+        let monitor = monitor(sample)
+        let publications = DiskPublications()
+        let observation = monitor.$diskSpace.sink { publications.record($0) }
+        defer { observation.cancel() }
+
+        await monitor.refresh()
+        sample.advance(by: 60)
+        await monitor.refresh()
+        #expect(sample.count == 2)
+        #expect(publications.all == [nil, first])
+
+        sample.set(second)
+        sample.advance(by: 60)
+        await monitor.refresh()
+        #expect(publications.all == [nil, first, second])
+
+        sample.set(nil)
+        sample.advance(by: 60)
+        await monitor.refresh()
+        sample.advance(by: 60)
+        await monitor.refresh()
+        #expect(publications.all == [nil, first, second, nil])
+    }
+
+    @Test func aSlowProcessScanDoesNotShortenTheDiskReadInterval() async {
+        let sample = DiskSample(DiskSpace(totalBytes: 1_000, availableBytes: 400))
+        let scans = ScanLog()
+        let monitor = LiveWorkMonitor(
+            currentTasks: { [task("a")] },
+            runningApplications: { [:] },
+            locator: { locator },
+            scan: { includePorts, _ in
+                if scans.count == 0 { sample.advance(by: 65) }
+                scans.record(includePorts)
+                return []
+            },
+            readDiskSpace: { sample.read() },
+            now: { sample.now() }
+        )
+
+        await monitor.refresh()
+        #expect(sample.count == 1)
+        await monitor.refresh()
+        #expect(scans.count == 2)
+        #expect(sample.count == 1)
+
+        sample.advance(by: 59)
+        await monitor.refresh()
+        #expect(sample.count == 1)
+        sample.advance(by: 1)
+        await monitor.refresh()
+        #expect(sample.count == 2)
+    }
+
+    @Test func anUnreadableDiskWaitsAMinuteBeforeRetrying() async {
+        let sample = DiskSample(nil)
+        let monitor = monitor(sample)
+        await monitor.refresh()
+        #expect(monitor.diskSpace == nil)
+        #expect(sample.count == 1)
+
+        let disk = DiskSpace(totalBytes: 1_000, availableBytes: 400)
+        sample.set(disk)
+        sample.advance(by: 59)
+        await monitor.refresh()
+        #expect(monitor.diskSpace == nil)
+        #expect(sample.count == 1)
+
+        sample.advance(by: 1)
+        await monitor.refresh()
+        #expect(monitor.diskSpace == disk)
+        #expect(sample.count == 2)
+    }
+}
+
 @MainActor
 @Test func portsAreOnlyReadWhileADetailCardIsOpen() async {
     let log = ScanLog()
@@ -474,12 +623,25 @@ private final class ScanLog: @unchecked Sendable {
 
 // MARK: The rail and its cards
 
-@Test func theTileMakesRoomInTheRail() {
-    let room = HUDMetrics.workTileHeight + 7
+@Test func theTilesMakeRoomInTheRail() {
+    let room = HUDMetrics.workTileHeight + HUDMetrics.columnSpacing
+    #expect(HUDMetrics.resourcePaperweightHeight == 35)
+    #expect(HUDMetrics.resourceTileHeight == 53)
+    #expect(2 * HUDMetrics.resourceTileHeight + HUDMetrics.resourcePaperweightGap == HUDMetrics.workTileHeight)
+    #expect(HUDMetrics.workTileHeight == 113)
+    #expect(HUDMetrics.railHeight(rowCount: 1, showsWorkTile: true) == 269)
     #expect(HUDMetrics.railHeight(rowCount: 1, showsWorkTile: true) == HUDMetrics.railHeight(rowCount: 1) + room)
     #expect(HUDMetrics.railHeight(rowCount: 8, showsWorkTile: true) == 450)
     #expect(HUDMetrics.railHeight(rowCount: 8, maximumHeight: 2_000, showsWorkTile: true)
         == HUDMetrics.railHeight(rowCount: 8, maximumHeight: 2_000) + room)
+}
+
+@Test func railFreeSpaceKeepsItsReadableUnitSpacing() {
+    #expect(RailResourceText.freeSpace(0) == "0 B")
+    #expect(RailResourceText.freeSpace(50_700_000_000) == "51 GB")
+    #expect(RailResourceText.freeSpace(212_000_000_000) == "212 GB")
+    #expect(RailResourceText.freeSpace(999_600_000_000) == "1 TB")
+    #expect(RailResourceText.freeSpace(-1) == "0 B")
 }
 
 @MainActor
@@ -524,6 +686,22 @@ private final class ScanLog: @unchecked Sendable {
         controller.update(liveWork: read([task("a")]))
         #expect(controller.shownSnapshotID == QuotaDetailPanelController.liveWorkID)
         controller.hide(snapshotID: QuotaDetailPanelController.liveWorkID)
+        #expect(controller.panel?.parent == nil)
+    }
+
+    /// Hovering Storage used to show nothing; its card shares the one panel and
+    /// survives usage and work updates like the Memory card.
+    @Test func theStorageCardOpensAndOutlivesUpdates() {
+        guard #available(macOS 14.0, *) else { return }
+        let rail = makeRail()
+        let controller = QuotaDetailPanelController(rail: { rail })
+        controller.showStorage(rowFrame: .zero, disk: DiskSpace(totalBytes: 1_000, availableBytes: 100), breakdown: nil)
+        #expect(controller.shownSnapshotID == QuotaDetailPanelController.storageID)
+        #expect(controller.panel?.parent === rail)
+        controller.update([snapshot("a")])
+        controller.update(liveWork: read([task("a")]))
+        #expect(controller.shownSnapshotID == QuotaDetailPanelController.storageID)
+        controller.hide(snapshotID: QuotaDetailPanelController.storageID)
         #expect(controller.panel?.parent == nil)
     }
 

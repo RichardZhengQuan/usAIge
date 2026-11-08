@@ -1,9 +1,32 @@
 import AppKit
+import Combine
 import SwiftUI
 
 enum AppWindowIdentifiers {
     /// Marks the window so the Settings opener never mistakes it for Settings.
     static let branches = NSUserInterfaceItemIdentifier("usAIge.branches")
+}
+
+/// Rail clicks can bring a paperweight forward without replacing the window
+/// or losing a search, review, or expanded row in it.
+@available(macOS 14.0, *)
+@MainActor
+final class BranchesPaperweightPresentation: ObservableObject {
+    struct Request: Equatable {
+        let id = UUID()
+        let front: PaperweightID
+
+        func selectedLayer(in configuration: PaperweightConfiguration,
+                           currentFront: PaperweightID, currentLayer: String) -> String {
+            if front == currentFront { return currentLayer }
+            if front == .storage, configuration.layers.contains(where: { $0.id == "wt" }) { return "wt" }
+            return configuration.layers.first?.id ?? configuration.freeLayer.id
+        }
+    }
+
+    @Published private(set) var request: Request?
+
+    func show(_ front: PaperweightID) { request = Request(front: front) }
 }
 
 /// Owns the Branches window and its store. Closing it lets both go, so an
@@ -13,6 +36,7 @@ enum AppWindowIdentifiers {
 final class BranchesWindowController: NSWindowController, NSWindowDelegate {
     private static let frameName = "BranchesWindow"
     private let store: BranchesStore
+    private let presentation = BranchesPaperweightPresentation()
     private let onClose: () -> Void
 
     /// `liveWork` is the rail's monitor, so the window's memory figure is the
@@ -33,14 +57,15 @@ final class BranchesWindowController: NSWindowController, NSWindowDelegate {
         window.setFrameAutosaveName(Self.frameName)
         super.init(window: window)
         window.delegate = self
-        window.contentView = NSHostingView(rootView: BranchesRootView(store: store, liveWork: liveWork))
+        window.contentView = NSHostingView(rootView: BranchesRootView(store: store, liveWork: liveWork, presentation: presentation))
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    func present() {
+    func present(front: PaperweightID? = nil) {
         guard let window else { return }
+        if let front { presentation.show(front) }
         NSApp.activate(ignoringOtherApps: true)
         if !window.isVisible, !window.setFrameUsingName(Self.frameName) { window.center() }
         window.makeKeyAndOrderFront(nil)

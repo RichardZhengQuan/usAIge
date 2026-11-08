@@ -1,4 +1,5 @@
 import AppKit
+import Metal
 import SwiftUI
 import Testing
 @testable import UsageHUD
@@ -152,6 +153,7 @@ private func render<V: View>(_ view: V, size: CGSize?, appearance: GalleryAppear
     // use up those threads, which stops everything else in the process.
     window.animationBehavior = .none
     window.orderBack(nil)
+    defer { window.orderOut(nil) }
     for _ in 0..<8 { RunLoop.main.run(until: Date().addingTimeInterval(0.1)) }
     if size == nil {
         hosting.setFrameSize(hosting.fittingSize)
@@ -161,10 +163,58 @@ private func render<V: View>(_ view: V, size: CGSize?, appearance: GalleryAppear
     hosting.layoutSubtreeIfNeeded()
     let bitmap = try #require(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
     hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
-    window.orderOut(nil)
-    let png = try #require(bitmap.representation(using: .png, properties: [:]))
+    // Native glass can omit the backing even from this offscreen capture.
+    // Restore the intended opaque canvas; wallpaper blur remains approximate.
+    let captured = try #require(bitmap.cgImage)
+    let canvas = try #require(CGContext(
+        data: nil, width: captured.width, height: captured.height,
+        bitsPerComponent: 8, bytesPerRow: 0,
+        space: captured.colorSpace ?? CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+    ))
+    let pixels = CGRect(x: 0, y: 0, width: CGFloat(captured.width), height: CGFloat(captured.height))
+    let drawingAppearance = try #require(NSAppearance(named: appearance.name))
+    drawingAppearance.performAsCurrentDrawingAppearance {
+        canvas.setFillColor(NSColor.windowBackgroundColor.cgColor)
+        canvas.fill(pixels)
+    }
+    canvas.interpolationQuality = .none
+    canvas.draw(captured, in: pixels)
+    if #available(macOS 14.0, *) {
+        try compositePaperweightSnapshots(in: hosting, on: canvas, pixelSize: pixels.size)
+    }
+    let flattened = NSBitmapImageRep(cgImage: try #require(canvas.makeImage()))
+    let png = try #require(flattened.representation(using: .png, properties: [:]))
     try png.write(to: directory.appendingPathComponent("\(name).png"))
     return hosting.bounds.size
+}
+
+/// AppKit's cached display omits Metal surfaces, so capture those views once
+/// and put them back at their existing positions in the opaque gallery image.
+@available(macOS 14.0, *)
+@MainActor
+private func compositePaperweightSnapshots(in hosting: NSView, on canvas: CGContext, pixelSize: CGSize) throws {
+    let scaleX = pixelSize.width / hosting.bounds.width
+    let scaleY = pixelSize.height / hosting.bounds.height
+    var remaining = [hosting]
+    while let view = remaining.popLast() {
+        guard let host = view as? PaperweightSceneHost else {
+            remaining.append(contentsOf: view.subviews)
+            continue
+        }
+        guard host.bounds.width > 0, host.bounds.height > 0 else { continue }
+        // The no-graphics fallback is native AppKit and is already in the cache.
+        guard MTLCreateSystemDefaultDevice() != nil else { continue }
+        let image = try #require(host.snapshot())
+        var proposed = NSRect(origin: .zero, size: image.size)
+        let captured = try #require(image.cgImage(forProposedRect: &proposed, context: nil, hints: nil))
+        let rect = hosting.convert(host.bounds, from: host)
+        let bottom = hosting.isFlipped ? hosting.bounds.maxY - rect.maxY : rect.minY - hosting.bounds.minY
+        canvas.draw(captured, in: CGRect(
+            x: (rect.minX - hosting.bounds.minX) * scaleX, y: bottom * scaleY,
+            width: rect.width * scaleX, height: rect.height * scaleY
+        ))
+    }
 }
 
 @MainActor
@@ -357,21 +407,60 @@ struct UIGalleryRenderTests {
         ]
     }
 
-    /// The rail's tile, the card beside it, and a row's card with its tool's
+    private var sampleDiskSpace: DiskSpace {
+        DiskSpace(totalBytes: 1_000_000_000_000, availableBytes: 212_000_000_000)
+    }
+
+    /// The rail's tiles, the card beside them, and a row's card with its tool's
     /// work, from sample sessions.
     @Test func rendersLiveWork() async throws {
         guard #available(macOS 14.0, *) else { return }
         let tasks = sampleLiveWork()
         let processes = sampleProcesses()
+        let disk = sampleDiskSpace
         let monitor = LiveWorkMonitor(
             currentTasks: { tasks },
             runningApplications: { [.claude: ["/Applications/Claude.app"]] },
             locator: { RepositoryLocator(home: "/Users/me") },
-            scan: { _, _ in processes }
+            scan: { _, _ in processes },
+            readDiskSpace: { disk }
         )
         await monitor.refresh()
-        let idleMonitor = LiveWorkMonitor(currentTasks: { [] }, runningApplications: { [:] }, locator: { RepositoryLocator(home: "/Users/me") }, scan: { _, _ in [] })
+        let idleMonitor = LiveWorkMonitor(
+            currentTasks: { [] },
+            runningApplications: { [:] },
+            locator: { RepositoryLocator(home: "/Users/me") },
+            scan: { _, _ in [] },
+            readDiskSpace: { disk }
+        )
         await idleMonitor.refresh()
+        let unreadMonitor = LiveWorkMonitor(
+            currentTasks: { [] },
+            runningApplications: { [:] },
+            locator: { RepositoryLocator(home: "/Users/me") },
+            scan: { _, _ in [] },
+            readDiskSpace: { nil }
+        )
+        var railScenes: [(String, LiveWorkMonitor)] = [
+            ("working", monitor), ("idle", idleMonitor), ("unread", unreadMonitor),
+        ]
+        // Both ends of the disk range keep the free-space label readable and
+        // show whether the small ship fits above a low or warning-level surface.
+        for (name, space) in [
+            ("disk-near-empty", DiskSpace(totalBytes: 1_000_000_000_000, availableBytes: 990_000_000_000)),
+            ("disk-nearly-full", DiskSpace(totalBytes: 1_000_000_000_000, availableBytes: 51_000_000_000)),
+            ("disk-full", DiskSpace(totalBytes: 1_000_000_000_000, availableBytes: 1_000_000_000)),
+        ] {
+            let sampled = LiveWorkMonitor(
+                currentTasks: { tasks },
+                runningApplications: { [.claude: ["/Applications/Claude.app"]] },
+                locator: { RepositoryLocator(home: "/Users/me") },
+                scan: { _, _ in processes },
+                readDiskSpace: { space }
+            )
+            await sampled.refresh()
+            railScenes.append((name, sampled))
+        }
 
         let snapshots = Array(mixedSnapshots.prefix(4))
         let store = UsageStore(provider: FixedUsageProvider(.success(.authenticated(snapshots))), monitorsNetworkChanges: false)
@@ -385,7 +474,7 @@ struct UIGalleryRenderTests {
         let canvas = CGSize(width: HUDMetrics.railWidth + 56, height: railHeight + 56)
         for appearance in GalleryAppearance.allCases {
             let wallpaper: GalleryWallpaper = appearance == .light ? .light : .dark
-            for (name, tile) in [("working", monitor), ("idle", idleMonitor)] {
+            for (name, tile) in railScenes {
                 for hovered in [false, true] {
                     let (settings, _) = makeSettings()
                     try render(
@@ -434,6 +523,32 @@ struct UIGalleryRenderTests {
                     LiveWorkCard(summary: idleMonitor.summary)
                 },
                 size: nil, appearance: appearance, name: "live-tile-card-idle-\(appearance.rawValue)"
+            )
+            let disk = DiskSpace(totalBytes: 994_000_000_000, availableBytes: 51_900_000_000)
+            let now = Date(timeIntervalSince1970: 1_800_000_000)
+            var measured = StorageBreakdown(
+                storage: PaperweightConfiguration(id: .storage, capacityBytes: disk.totalBytes, layers: [
+                    PaperweightLayer(id: "other", title: "macOS and apps", bytes: 288_000_000_000, colorHex: 0x5E9FE3, inkHex: 0),
+                    PaperweightLayer(id: "tool", title: "Tool storage", bytes: 102_770_000_000, colorHex: 0xF4B14A, inkHex: 0),
+                    PaperweightLayer(id: "cache", title: "Build cache", bytes: 40_340_000_000, colorHex: 0x3DB58C, inkHex: 0),
+                    PaperweightLayer(id: "wt", title: "Worktrees", bytes: 12_700_000_000, colorHex: 0xE2729A, inkHex: 0),
+                ], freeBytes: disk.availableBytes),
+                freeableBytes: 16_440_000_000, measuredAt: now
+            )
+            measured?.measuredAt = now.addingTimeInterval(-3 * 3600)
+            try render(
+                ZStack {
+                    wallpaper.view
+                    StorageCard(disk: disk, breakdown: measured, now: now, openBranches: {})
+                },
+                size: nil, appearance: appearance, name: "storage-tile-card-\(appearance.rawValue)"
+            )
+            try render(
+                ZStack {
+                    wallpaper.view
+                    StorageCard(disk: disk, breakdown: nil, now: now, openBranches: {})
+                },
+                size: nil, appearance: appearance, name: "storage-tile-card-unmeasured-\(appearance.rawValue)"
             )
         }
     }
@@ -507,50 +622,243 @@ struct UIGalleryRenderTests {
         }
     }
 
-    /// The Branches window over a throwaway repository, after one delete, and
-    /// the delete review with several rows.
-    @Test func rendersBranches() async throws {
+    /// Measured examples keep every storage view populated without scanning
+    /// this Mac or changing a repository just to review the layout.
+    private func sampleBranchesSnapshot(now: Date) -> BranchesSnapshot {
+        let app = "/Users/me/Documents/GPTUsage/.git"
+        let project = "/Users/me/Developer/OneMind/.git"
+        let old = now.addingTimeInterval(-10 * 86_400)
+        let processes = sampleProcesses()
+
+        func item(
+            _ id: String, _ title: String, repository: String = "/Users/me/Documents/GPTUsage/.git",
+            folder: String? = nil, gigabytes: Double, cacheGigabytes: Double
+        ) -> WorkItem {
+            var facts = WorkFacts()
+            facts.hasWorktree = true
+            facts.folderExists = true
+            facts.changedFiles = 0
+            facts.untrackedFiles = 0
+            facts.ownCommits = 2
+            facts.commitsAtRisk = 0
+            facts.merge = .sameCommits
+            let cache = Int64(cacheGigabytes * 1_000_000_000)
+            var row = WorkItem(
+                id: id, repositoryID: repository,
+                repositoryName: repository == app ? "usAIge" : "OneMind", branch: id,
+                worktreePath: folder ?? "/Users/me/Developer/worktrees/\(id)",
+                tip: "abc1234", upstream: "origin/\(id)", committedAt: old,
+                facts: facts, ignoredFiles: [".build"]
+            )
+            row.sessions = WorkSessionSummary(count: 1, tools: ["Codex"], lastActiveAt: old, title: title)
+            row.size = FolderSize(
+                totalBytes: Int64(gigabytes * 1_000_000_000), cacheBytes: cache,
+                cacheBytesByName: [".build": cache], ignored: [".build"],
+                otherIgnoredBytes: 0, measuredAt: now
+            )
+            return row
+        }
+
+        var running = item(
+            "branches-page", "Build the Branches page", repository: project,
+            folder: "/Users/me/Developer/OneMind/.codex/worktrees/branches-page",
+            gigabytes: 7.4, cacheGigabytes: 6.2
+        )
+        running.processes = processes.filter { $0.folder == running.worktreePath }
+        running.facts.runningProcesses = running.processes.count
+        running.sessions.lastActiveAt = now
+
+        var main = item(
+            "main", "Stop the rail's memory leaks", folder: "/Users/me/Documents/GPTUsage",
+            gigabytes: 3.8, cacheGigabytes: 2.1
+        )
+        main.facts.isMainCopy = true
+        main.facts.hasWorktree = false
+        main.processes = processes.filter { $0.folder == main.worktreePath }
+        main.facts.runningProcesses = main.processes.count
+        main.sessions = WorkSessionSummary(count: 1, tools: ["Claude Code"], lastActiveAt: now, title: main.workTitle)
+
+        var unsaved = item("folder-privacy", "Keep protected folders private", gigabytes: 6.7, cacheGigabytes: 5.2)
+        unsaved.facts.merge = nil
+        unsaved.facts.commitsAtRisk = 2
+        unsaved.facts.changedFiles = 3
+        unsaved.facts.untrackedFiles = 1
+        unsaved.sessions.lastActiveAt = now.addingTimeInterval(-86_400)
+
+        var pushed = item("settings-copy", "Make the settings easier to read", gigabytes: 4.2, cacheGigabytes: 2.8)
+        pushed.facts.merge = nil
+        let finished = item("finished-one", "Show usage across all tools", gigabytes: 8.6, cacheGigabytes: 7.4)
+        let alsoFinished = item("finished-two", "Keep the rail on this screen", gigabytes: 2.3, cacheGigabytes: 1.5)
+        var empty = item("empty-copy", "An unused experiment", gigabytes: 0.6, cacheGigabytes: 0.4)
+        empty.facts.merge = nil
+        empty.facts.ownCommits = 0
+
+        return BranchesSnapshot(
+            repositories: [
+                RepositoryInfo(id: app, name: "usAIge", baseRef: "main"),
+                RepositoryInfo(id: project, name: "OneMind", baseRef: "main"),
+            ],
+            items: [running, main, unsaved, pushed, finished, alsoFinished, empty]
+        )
+    }
+
+    private var sampleToolStorage: [ToolStorageEntry] {
+        [
+            ToolStorageEntry(name: "Xcode DerivedData", path: "/Users/me/Library/Developer/Xcode/DerivedData", bytes: 8_800_000_000, kind: .rebuildable),
+            ToolStorageEntry(name: "Claude Code transcripts", path: "/Users/me/.claude/projects", bytes: 4_200_000_000, kind: .history),
+            ToolStorageEntry(name: "Codex plugins", path: "/Users/me/.codex/plugins", bytes: 3_200_000_000, kind: .runtime),
+            ToolStorageEntry(name: "Codex sessions", path: "/Users/me/.codex/sessions", bytes: 2_400_000_000, kind: .history),
+            ToolStorageEntry(name: "SwiftPM cache", path: "/Users/me/Library/Caches/org.swift.swiftpm", bytes: 1_100_000_000, kind: .rebuildable),
+        ]
+    }
+
+    /// Each paperweight takes the front at both supported window sizes.
+    @Test(.enabled(if: MTLCreateSystemDefaultDevice() != nil))
+    func rendersBranches() async throws {
         guard #available(macOS 14.0, *) else { return }
-        let fixture = try GitFixture()
-        try fixture.commit(".gitignore", ".env\n", message: "Ignore")
-        try fixture.git(["push", "--quiet", "origin", "main"])
-        for (offset, name) in ["finished-one", "finished-two", "with-secrets", "deleted-earlier"].enumerated() {
-            try fixture.squashMerged(name, pullRequest: 101 + offset)
-        }
-        for name in ["finished-one", "finished-two", "with-secrets"] {
-            try fixture.git(["worktree", "add", "--quiet", fixture.worktreePath(name), name])
-        }
-        try fixture.write(".env", "SECRET=1\n", in: fixture.worktreePath("with-secrets"))
-        try fixture.git(["switch", "--quiet", "-c", "local-work"])
-        try fixture.commit("local.txt", "local\n", message: "Local work")
-        try fixture.git(["switch", "--quiet", "main"])
-
+        let snapshot = sampleBranchesSnapshot(now: Date())
         let defaults = try #require(UserDefaults(suiteName: "usaige.render.branches.\(UUID().uuidString)"))
-        let store = BranchesStore(defaults: defaults, scanner: fixture.scanner(now: { Date().addingTimeInterval(3600) }))
-        func waitForScan() async throws {
-            try await Task.sleep(nanoseconds: 300_000_000)
-            let deadline = Date().addingTimeInterval(30)
-            while store.snapshot.activity != .idle, Date() < deadline {
-                try await Task.sleep(nanoseconds: 50_000_000)
-            }
-        }
-        store.windowOpened()
-        try await waitForScan()
-        let deleted = try #require(store.snapshot.row(branch: "deleted-earlier"))
-        await store.delete([deleted])
-        try await waitForScan()
-        store.windowClosed()
-
-        let reviewed = ["finished-one", "finished-two", "with-secrets", "local-work"]
-            .compactMap { store.snapshot.row(branch: $0) }
-            .filter(\.eligibility.isAllowed)
+        let store = BranchesStore(
+            defaults: defaults, initialSnapshot: snapshot, initialDiskSpace: sampleDiskSpace,
+            initialToolStorage: sampleToolStorage
+        )
+        let reviewed = snapshot.items.filter(\.eligibility.isAllowed)
+        let tasks = sampleLiveWork()
+        let processes = sampleProcesses()
+        let disk = sampleDiskSpace
+        let monitor = LiveWorkMonitor(
+            currentTasks: { tasks },
+            runningApplications: { [.claude: ["/Applications/Claude.app"]] },
+            locator: { RepositoryLocator(home: "/Users/me") },
+            scan: { _, _ in processes },
+            readDiskSpace: { disk }
+        )
+        await monitor.refresh()
+        let sizes: [(String, CGSize)] = [
+            ("regular", CGSize(width: 1080, height: 640)),
+            ("minimum", CGSize(width: 900, height: 560)),
+        ]
         for appearance in GalleryAppearance.allCases {
-            try render(BranchesRootView(store: store), size: CGSize(width: 1080, height: 640),
-                       appearance: appearance, name: "branches-\(appearance.rawValue)")
+            for (sizeName, size) in sizes {
+                for front in PaperweightID.allCases {
+                    try render(
+                        BranchesRootView(store: store, liveWork: monitor, initialFront: front),
+                        size: size, appearance: appearance,
+                        name: "branches-paperweight-\(front.rawValue)-\(sizeName)-\(appearance.rawValue)"
+                    )
+                }
+            }
+            for layerID in ["cache", "tool", "other", "free"] {
+                try render(
+                    BranchesRootView(store: store, liveWork: monitor, initialFront: .storage, initialSelectedLayerID: layerID),
+                    size: CGSize(width: 900, height: 560), appearance: appearance,
+                    name: "branches-paperweight-storage-minimum-\(layerID)-\(appearance.rawValue)"
+                )
+            }
+            try render(BranchesRootView(store: store), size: CGSize(width: 900, height: 560),
+                       appearance: appearance, name: "branches-no-monitor-\(appearance.rawValue)")
             try render(
                 DeleteReviewView(request: DeleteReviewRequest(items: reviewed), confirm: { _ in }, cancel: {}),
                 size: nil, appearance: appearance, name: "branches-review-\(appearance.rawValue)"
             )
+        }
+        let undoRecord = DeletionRecord(
+            repositoryDirectory: "/Users/me/Documents/GPTUsage", repositoryName: "usAIge",
+            displayName: "finished-one", worktreePath: "/Users/me/Developer/worktrees/finished-one",
+            branch: "finished-one", branchWasDeleted: true, tip: "abc1234",
+            upstream: "origin/finished-one", deletedAt: Date()
+        )
+        var clearedSnapshot = snapshot
+        clearedSnapshot.items.removeAll { ["finished-one", "finished-two"].contains($0.id) }
+        clearedSnapshot.deletions = [undoRecord]
+        let clearedStore = BranchesStore(
+            defaults: defaults, initialSnapshot: clearedSnapshot, initialDiskSpace: sampleDiskSpace,
+            initialToolStorage: sampleToolStorage
+        )
+        clearedStore.resultMessage = BranchesStore.ResultMessage(
+            text: "2 items cleared.", isProblem: false, undoable: [undoRecord], freedBytes: 10_900_000_000,
+            deletedCount: 2
+        )
+        var clearingSnapshot = snapshot
+        clearingSnapshot.activity = .clearing(done: 1, total: 3)
+        let clearingStore = BranchesStore(
+            defaults: defaults, initialSnapshot: clearingSnapshot, initialDiskSpace: sampleDiskSpace,
+            initialToolStorage: sampleToolStorage
+        )
+        for appearance in GalleryAppearance.allCases {
+            try render(
+                BranchesRootView(store: clearedStore, liveWork: monitor),
+                size: CGSize(width: 900, height: 560), appearance: appearance,
+                name: "branches-paperweight-cleared-minimum-\(appearance.rawValue)"
+            )
+            try render(
+                BranchesRootView(store: clearingStore, liveWork: monitor),
+                size: CGSize(width: 900, height: 560), appearance: appearance,
+                name: "branches-paperweight-clearing-minimum-\(appearance.rawValue)"
+            )
+        }
+    }
+
+    @Test(.enabled(if: MTLCreateSystemDefaultDevice() != nil))
+    func rendersEveryPaperweightShip() async throws {
+        guard #available(macOS 14.0, *) else { return }
+        let tasks = sampleLiveWork(), processes = sampleProcesses(), disk = sampleDiskSpace
+        let monitor = LiveWorkMonitor(
+            currentTasks: { tasks }, runningApplications: { [.claude: ["/Applications/Claude.app"]] },
+            locator: { RepositoryLocator(home: "/Users/me") }, scan: { _, _ in processes },
+            readDiskSpace: { disk }
+        )
+        await monitor.refresh()
+        let now = Date()
+        let board = BranchesBoard.make(snapshot: sampleBranchesSnapshot(now: now), now: now)
+        let configurations = [
+            PaperweightData.memory(summary: monitor.summary, running: board.running, physicalMemory: 24 * 1_024 * 1_024 * 1_024),
+            PaperweightData.storage(disk: disk, board: board, toolStorage: sampleToolStorage, isMeasuring: false),
+        ]
+        for ship in PaperweightShipKind.allCases {
+            try render(
+                PaperweightSceneView(
+                    configurations: configurations, front: .storage, selectedLayerID: "wt",
+                    ships: [.memory: .sailboat, .storage: ship], command: nil,
+                    onSelect: { _, _ in }, onSwap: { _ in }, onMovingChanged: { _ in },
+                    reduceMotionOverride: true
+                ),
+                size: CGSize(width: 400, height: 260), appearance: .light,
+                name: "paperweight-ship-\(ship.rawValue)"
+            )
+        }
+    }
+
+    /// These images verify the native fallback and lists, rather than 3D output.
+    @Test(.enabled(if: MTLCreateSystemDefaultDevice() == nil))
+    func rendersBranchesWithoutGraphics() async throws {
+        guard #available(macOS 14.0, *) else { return }
+        let tasks = sampleLiveWork(), processes = sampleProcesses(), disk = sampleDiskSpace
+        let monitor = LiveWorkMonitor(
+            currentTasks: { tasks }, runningApplications: { [.claude: ["/Applications/Claude.app"]] },
+            locator: { RepositoryLocator(home: "/Users/me") }, scan: { _, _ in processes },
+            readDiskSpace: { disk }
+        )
+        await monitor.refresh()
+        let defaults = try #require(UserDefaults(suiteName: "usaige.render.no-graphics.\(UUID().uuidString)"))
+        let store = BranchesStore(
+            defaults: defaults, initialSnapshot: sampleBranchesSnapshot(now: Date()),
+            initialDiskSpace: disk, initialToolStorage: sampleToolStorage
+        )
+        let sizes: [(String, CGSize)] = [
+            ("minimum", CGSize(width: 900, height: 560)),
+            ("regular", CGSize(width: 1080, height: 640)),
+        ]
+        for appearance in GalleryAppearance.allCases {
+            for (sizeName, size) in sizes {
+                for front in PaperweightID.allCases {
+                    try render(
+                        BranchesRootView(store: store, liveWork: monitor, initialFront: front),
+                        size: size, appearance: appearance,
+                        name: "branches-no-graphics-\(front.rawValue)-\(sizeName)-\(appearance.rawValue)"
+                    )
+                }
+            }
         }
     }
 
