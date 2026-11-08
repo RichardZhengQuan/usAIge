@@ -1,8 +1,8 @@
 import Combine
 import Foundation
 
-/// The window's state. It exists only while the window is open: closing the
-/// window stops every scan and timer and frees everything the scan read.
+/// Window observations stop when hidden. An authorized cleanup owns its state
+/// until it finishes, so closing and reopening the window cannot interrupt it.
 @MainActor
 final class BranchesStore: ObservableObject {
     static let addedFoldersKey = "usageHUD.branches.addedFolders.v1"
@@ -16,11 +16,22 @@ final class BranchesStore: ObservableObject {
     @Published private(set) var memoryShip: PaperweightShipKind = .sailboat
     @Published private(set) var storageShip: PaperweightShipKind = .galleon
     @Published private(set) var isDeleting = false
+    /// Separate from scan activity: refreshes must never replace operation UI.
+    @Published private(set) var cleanupProgress: CleanupProgress?
     /// The latest result of a delete or undo, shown until the next one.
     @Published var resultMessage: ResultMessage?
     @Published private(set) var diskSpace: DiskSpace?
     /// What each card would lose, once someone opened it.
     @Published private(set) var evidence: [String: WorkEvidence] = [:]
+
+    struct CleanupProgress: Equatable, Sendable {
+        enum Operation: Equatable, Sendable { case clearing, restoring }
+        var operation: Operation
+        var completed: Int
+        var total: Int
+        var currentName: String?
+        var isStopping = false
+    }
 
     struct ResultMessage: Identifiable, Equatable {
         let id = UUID()
@@ -40,10 +51,14 @@ final class BranchesStore: ObservableObject {
     private var toolStorageTask: Task<Void, Never>?
     private var runningTask: Task<Void, Never>?
     private var deleteTask: Task<Void, Never>?
+    private var scanBeforeCleanup: Task<Void, Never>?
     private var evidenceTasks: [String: Task<Void, Never>] = [:]
     private var lastScanStartedAt: Date?
     private var isVisible = false
     private var measuredToolsThisOpen = false
+    /// Restoring changes Git without publishing repository rows. A hidden
+    /// window defers that read until it can show the restored work again.
+    private var needsRepositoryReadAfterRestore = false
 
     init(
         defaults: UserDefaults = .standard,
@@ -72,10 +87,11 @@ final class BranchesStore: ObservableObject {
     }
 
     func windowOpened() {
+        let resumesRestoredWork = !isVisible && needsRepositoryReadAfterRestore && !isDeleting
         setVisible(true)
-        startScan(force: false)
+        if !resumesRestoredWork { startScan(force: false) }
         readDiskSpace()
-        if !measuredToolsThisOpen {
+        if !isDeleting, !measuredToolsThisOpen {
             measuredToolsThisOpen = true
             loadToolStorage(force: true)
         }
@@ -138,7 +154,8 @@ final class BranchesStore: ObservableObject {
 
     /// Re-reads when the person comes back, unless that just happened.
     func windowBecameKey() {
-        if let lastScanStartedAt, Date().timeIntervalSince(lastScanStartedAt) < Self.rescanAfter { return }
+        if !needsRepositoryReadAfterRestore,
+           let lastScanStartedAt, Date().timeIntervalSince(lastScanStartedAt) < Self.rescanAfter { return }
         startScan(force: false)
     }
 
@@ -146,19 +163,20 @@ final class BranchesStore: ObservableObject {
         scanTask?.cancel()
         toolStorageTask?.cancel()
         runningTask?.cancel()
-        // A clear in progress finishes the row it's on and stops there.
-        deleteTask?.cancel()
+        // Cleanup continues independently of the window. Stop is an explicit
+        // operation command, not a side effect of closing or navigating away.
         evidenceTasks.values.forEach { $0.cancel() }
         scanTask = nil
         toolStorageTask = nil
         runningTask = nil
-        deleteTask = nil
         evidenceTasks = [:]
         isVisible = false
         measuredToolsThisOpen = false
         isMeasuringToolStorage = false
-        let scanner = scanner
-        Task { await scanner.saveAndStop() }
+        if !isDeleting {
+            let scanner = scanner
+            Task { await scanner.saveAndStop() }
+        }
     }
 
     /// What's running changes all the time, and reading it is cheap, so it
@@ -168,7 +186,8 @@ final class BranchesStore: ObservableObject {
         isVisible = visible
         runningTask?.cancel()
         runningTask = nil
-        guard visible else { return }
+        guard visible, !isDeleting else { return }
+        if needsRepositoryReadAfterRestore { startScan(force: false) }
         let scanner = scanner
         runningTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -182,7 +201,7 @@ final class BranchesStore: ObservableObject {
     }
 
     private func applyRunning(_ updated: BranchesSnapshot) {
-        guard snapshot.items != updated.items else { return }
+        guard !isDeleting, snapshot.items != updated.items else { return }
         snapshot = updated
     }
 
@@ -191,6 +210,8 @@ final class BranchesStore: ObservableObject {
     }
 
     private func startScan(force: Bool) {
+        guard !isDeleting else { return }
+        needsRepositoryReadAfterRestore = false
         scanTask?.cancel()
         lastScanStartedAt = Date()
         let scanner = scanner
@@ -202,14 +223,14 @@ final class BranchesStore: ObservableObject {
     }
 
     private func apply(_ updated: BranchesSnapshot) {
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, !isDeleting else { return }
         let finished = snapshot.activity != .idle && updated.activity == .idle
         snapshot = updated
         if finished { readDiskSpace() }
     }
 
     func loadToolStorage(force: Bool = false) {
-        guard toolStorageTask == nil else { return }
+        guard !isDeleting, toolStorageTask == nil else { return }
         isMeasuringToolStorage = true
         let scanner = scanner
         toolStorageTask = Task { [weak self] in
@@ -238,25 +259,66 @@ final class BranchesStore: ObservableObject {
 
     /// Starts clearing, which `stopDeleting` can stop between rows.
     func startDelete(_ items: [WorkItem]) {
-        guard !items.isEmpty, !isDeleting else { return }
+        guard beginCleanup(.clearing, names: items.map(\.displayName)) else { return }
         deleteTask = Task { [weak self] in
-            await self?.delete(items)
-            self?.deleteTask = nil
+            await self?.performDelete(items)
         }
     }
 
     func stopDeleting() {
+        guard cleanupProgress?.operation == .clearing, deleteTask != nil else { return }
+        cleanupProgress?.isStopping = true
         deleteTask?.cancel()
     }
 
     func delete(_ items: [WorkItem]) async {
-        guard !items.isEmpty, !isDeleting else { return }
+        guard beginCleanup(.clearing, names: items.map(\.displayName)) else { return }
+        await performDelete(items)
+    }
+
+    private func beginCleanup(_ operation: CleanupProgress.Operation, names: [String]) -> Bool {
+        guard !names.isEmpty, !isDeleting else { return false }
+        // Claim the operation before scheduling work, so a second click cannot
+        // replace its task handle before isDeleting becomes visible.
         isDeleting = true
-        defer { isDeleting = false }
+        cleanupProgress = CleanupProgress(operation: operation, completed: 0, total: names.count,
+                                          currentName: names.first)
+        resultMessage = nil
         scanTask?.cancel()
+        scanBeforeCleanup = scanTask
+        scanTask = nil
+        runningTask?.cancel()
+        runningTask = nil
+        toolStorageTask?.cancel()
+        toolStorageTask = nil
+        if isMeasuringToolStorage { measuredToolsThisOpen = false }
+        isMeasuringToolStorage = false
+        return true
+    }
+
+    private func finishCleanup() {
+        deleteTask = nil
+        cleanupProgress = nil
+        isDeleting = false
+        if isVisible {
+            // Visibility may have stayed true while monitoring was suspended.
+            setVisible(false)
+            windowOpened()
+        } else {
+            let scanner = scanner
+            Task { await scanner.saveAndStop() }
+        }
+    }
+
+    private func performDelete(_ items: [WorkItem]) async {
+        defer { finishCleanup() }
+        // The scanner is reentrant while Git is awaited. Let the cancelled
+        // read unwind before a destructive operation updates those same rows.
+        await scanBeforeCleanup?.value
+        scanBeforeCleanup = nil
         let scanner = scanner
         let outcomes = await scanner.delete(items) { [weak self] snapshot in
-            await self?.applyWhileDeleting(snapshot)
+            await self?.applyWhileDeleting(snapshot, items: items)
         }
         var message = Self.message(for: outcomes)
         message.freedBytes = Self.freedBytes(items: items, outcomes: outcomes)
@@ -272,14 +334,17 @@ final class BranchesStore: ObservableObject {
         }
         resultMessage = message
         readDiskSpace()
-        // A closed window has nothing to show a new scan to.
-        if isVisible { startScan(force: false) }
     }
 
     /// Updates sent while a delete runs, even after its task was stopped:
     /// stopping happens between rows, so they're still true.
-    private func applyWhileDeleting(_ updated: BranchesSnapshot) {
+    private func applyWhileDeleting(_ updated: BranchesSnapshot, items: [WorkItem]) {
         snapshot = updated
+        if case let .clearing(done, total) = updated.activity {
+            cleanupProgress?.completed = done
+            cleanupProgress?.total = total
+            cleanupProgress?.currentName = items.indices.contains(done) ? items[done].displayName : nil
+        }
     }
 
     /// The deleted folders' measured sizes. Outcomes come in the order of
@@ -292,22 +357,31 @@ final class BranchesStore: ObservableObject {
     }
 
     func undo(_ records: [DeletionRecord]) async {
-        guard !records.isEmpty, !isDeleting else { return }
-        isDeleting = true
-        defer { isDeleting = false }
-        scanTask?.cancel()
+        guard beginCleanup(.restoring, names: records.map(\.displayName)) else { return }
+        defer { finishCleanup() }
+        await scanBeforeCleanup?.value
+        scanBeforeCleanup = nil
         var failures: [String] = []
         var unfinished: [DeletionRecord] = []
-        for record in records {
+        for (index, record) in records.enumerated() {
+            cleanupProgress?.currentName = record.displayName
             if let failure = await scanner.undo(record) {
                 failures.append("\(record.displayName): \(failure)")
                 unfinished.append(record)
+            } else {
+                // The scanner has confirmed this record was restored. Keep
+                // recovery controls truthful even while the window is hidden.
+                snapshot.deletions.removeAll { $0.id == record.id }
             }
+            // A failed restoration can still have brought back its branch.
+            // Read Git again when visible, without polling a hidden window.
+            needsRepositoryReadAfterRestore = true
+            cleanupProgress?.completed = index + 1
         }
         resultMessage = failures.isEmpty
             ? ResultMessage(text: "Restored. Caches and ignored files don't come back.", isProblem: false, undoable: [])
             : ResultMessage(text: failures.joined(separator: "\n"), isProblem: true, undoable: unfinished)
-        startScan(force: false)
+        readDiskSpace()
     }
 
     static func message(for outcomes: [DeletionOutcome]) -> ResultMessage {

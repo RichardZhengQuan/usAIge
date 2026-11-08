@@ -25,7 +25,7 @@ struct DiskSpace: Equatable, Sendable {
 }
 
 /// The column a row belongs in: what a person would do about it.
-enum WorkLane: Equatable, Sendable {
+enum WorkLane: Hashable, Sendable {
     case running
     case needsLook
     case safeToClear

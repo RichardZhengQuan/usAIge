@@ -15,7 +15,9 @@ struct UsAIgeApp: App {
                         updateController: appDelegate.updateController,
                         relaySync: appDelegate.relaySync,
                         localToolStatus: appDelegate.localToolStatus,
-                        navigation: appDelegate.settingsNavigation
+                        navigation: appDelegate.settingsNavigation,
+                        refreshWorkspace: { appDelegate.refreshWorkspace() },
+                        addWorkspaceFolder: { appDelegate.addWorkspaceFolder() }
                     )
                 } else {
                     LegacyHUDSettingsRootView(
@@ -30,14 +32,15 @@ struct UsAIgeApp: App {
             }
         }
         .commands {
+            settingsCommands
             // A menu item added through AppKit at launch doesn't survive
             // SwiftUI rebuilding the menu bar, so this one is declared here.
             CommandGroup(after: .appInfo) {
-                Button("Open usAIge") { appDelegate.showAppWindow() }
+                Button("Open usAIge") { appDelegate.showMainWindow() }
                     .keyboardShortcut("0", modifiers: .command)
             }
             CommandGroup(replacing: .newItem) {
-                Button("Open usAIge") { appDelegate.showAppWindow() }
+                Button("Open usAIge") { appDelegate.showMainWindow() }
                     .keyboardShortcut("n", modifiers: .command)
             }
             CommandGroup(after: .toolbar) {
@@ -54,6 +57,24 @@ struct UsAIgeApp: App {
                     .keyboardShortcut("3", modifiers: .command)
                     .disabled(!AppDelegate.branchesAreAvailable)
             }
+        }
+    }
+
+    // Both branches have the same command type. Older systems keep SwiftUI's
+    // native Settings item; an empty additive group leaves it untouched.
+    private var settingsCommands: some Commands {
+        if #available(macOS 14.0, *) {
+            return CommandGroup(replacing: .appSettings) { settingsCommandContent }
+        } else {
+            return CommandGroup(after: .appSettings) { settingsCommandContent }
+        }
+    }
+
+    @ViewBuilder
+    private var settingsCommandContent: some View {
+        if #available(macOS 14.0, *) {
+            Button("Settings…") { appDelegate.showSettings() }
+                .keyboardShortcut(",", modifiers: .command)
         }
     }
 }

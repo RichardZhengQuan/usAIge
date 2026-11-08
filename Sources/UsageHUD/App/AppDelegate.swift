@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import Carbon
 import SwiftUI
 import UserNotifications
 
@@ -25,12 +26,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     private var branchesWindowController: NSWindowController?
     private var codexAttentionMonitor: CodexAttentionMonitor?
     var settingsSceneOpener: @MainActor () -> Void = SettingsScenePresenter.open
+    var settingsPageOpener: (@MainActor () -> Void)?
+    var mainWindowOpener: (@MainActor () -> Void)?
     private var isTerminationPending = false
     private var hasRepliedToTermination = false
     private var relaySettingsObserver: AnyCancellable?
     private var relayAgentObserver: AnyCancellable?
     private var liveWorkObserver: AnyCancellable?
     private var manualRefreshTask: Task<Void, Never>?
+    private var workspaceRefreshTask: Task<Void, Never>?
 
     override init() {
         let configuredSettings = HUDSettings()
@@ -196,12 +200,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         codexAttentionMonitor.start()
         self.codexAttentionMonitor = codexAttentionMonitor
         updateController.start()
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains("--show-branches") {
+            showBranches()
+        } else if arguments.contains("--show-cleanup") {
+            showCleanup()
+        } else if Self.shouldShowMainWindow(arguments: arguments,
+                                           launchEvent: NSAppleEventManager.shared().currentAppleEvent) {
+            showMainWindow()
+        }
         if updateController.shouldPresentWhatsNewAfterLaunch
             || ProcessInfo.processInfo.arguments.contains("--show-whats-new") {
             showWhatsNew()
-        }
-        if ProcessInfo.processInfo.arguments.contains("--show-branches") {
-            showBranches()
         }
     }
 
@@ -209,11 +219,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         _ sender: NSApplication,
         hasVisibleWindows flag: Bool
     ) -> Bool {
-        showSettings()
+        showMainWindow()
         return true
     }
 
+    /// Login and service launches keep the rail available without opening a
+    /// foreground window. Explicit app-window arguments still take precedence.
+    static func shouldShowMainWindow(arguments: [String], launchEvent: NSAppleEventDescriptor?) -> Bool {
+        if arguments.contains("--show-main") { return true }
+        if arguments.contains("--background") { return false }
+        guard launchEvent?.eventID == kAEOpenApplication else { return true }
+        let source = launchEvent?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue
+        return source != keyAELaunchedAsLogInItem && source != keyAELaunchedAsServiceItem
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        workspaceRefreshTask?.cancel()
         if updateController.isReplacementPrepared {
             updateController.stop()
             liveWork.stop()
@@ -283,7 +304,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     func showSettings() {
         launchAtLogin.refresh()
         settingsNavigation.showMainPage()
-        settingsSceneOpener()
+        if #available(macOS 14.0, *) {
+            if let settingsPageOpener { settingsPageOpener() }
+            else { presentMainWindow(destination: .settings) }
+        } else {
+            settingsSceneOpener()
+        }
     }
 
     func showWhatsNew() {
@@ -321,18 +347,81 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         return false
     }
 
-    /// The existing workspace is the app's foreground window; older macOS
-    /// versions expose the supported Settings window instead.
-    func showAppWindow() {
-        if #available(macOS 14.0, *) {
-            showBranches()
-        } else {
+    /// A Dock click restores the current destination; a new main window starts
+    /// at Overview. Settings is an explicit page in the same window.
+    func showMainWindow() {
+        if let mainWindowOpener {
+            mainWindowOpener()
+            return
+        }
+        guard #available(macOS 14.0, *) else {
             showSettings()
+            return
+        }
+        presentMainWindow()
+    }
+
+    func showBranches(front: PaperweightID? = nil) {
+        guard #available(macOS 14.0, *) else { return }
+        presentMainWindow(destination: front == nil ? .worktrees : .resources, front: front)
+    }
+
+    func showCleanup() {
+        guard #available(macOS 14.0, *) else { return }
+        presentMainWindow(destination: .cleanup)
+    }
+
+    func showResources() {
+        guard #available(macOS 14.0, *) else { return }
+        presentMainWindow(destination: .resources)
+    }
+
+    /// Settings can re-read workspace data without opening a main window or
+    /// starting the window's visibility-driven polling.
+    func refreshWorkspace() {
+        guard #available(macOS 14.0, *) else { return }
+        if let controller = branchesWindowController as? BranchesWindowController {
+            // Reuse the operation owner even when hidden. Its store defers
+            // refresh commands while an authorized cleanup is running.
+            controller.refresh()
+            return
+        }
+        guard workspaceRefreshTask == nil else { return }
+        let addedFoldersKey = BranchesStore.addedFoldersKey
+        let scanner = BranchesScanner(environment: .live(addedFolders: {
+            UserDefaults.standard.stringArray(forKey: addedFoldersKey) ?? []
+        }))
+        workspaceRefreshTask = Task { [weak self] in
+            defer { self?.workspaceRefreshTask = nil }
+            await scanner.scan(force: true) { _ in }
+            if !Task.isCancelled { _ = await scanner.toolStorage(force: true) }
+            await scanner.saveAndStop()
         }
     }
 
-    /// Refresh readings without opening a window. Repeated key presses share
-    /// the in-flight usage, session, and resource request.
+    func addWorkspaceFolder() {
+        guard #available(macOS 14.0, *) else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose a folder inside a Git repository."
+        panel.prompt = "Add"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let path = url.standardizedFileURL.path
+        if let controller = branchesWindowController as? BranchesWindowController {
+            controller.addFolder(path)
+        } else {
+            var folders = UserDefaults.standard.stringArray(forKey: BranchesStore.addedFoldersKey) ?? []
+            guard !folders.contains(path) else { return }
+            folders.append(path)
+            UserDefaults.standard.set(folders, forKey: BranchesStore.addedFoldersKey)
+            refreshWorkspace()
+        }
+    }
+
+    /// Refresh app-wide readings and any visible workspace without opening a
+    /// window. Repeated key presses share the in-flight request.
     func refresh() {
         guard manualRefreshTask == nil else { return }
         if #available(macOS 14.0, *),
@@ -350,19 +439,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         }
     }
 
-    /// Opens the Branches window. Nothing about it runs until this is called,
-    /// and closing the window lets all of it go.
-    func showBranches(front: PaperweightID? = nil) {
-        guard #available(macOS 14.0, *) else { return }
+    @available(macOS 14.0, *)
+    private func presentMainWindow(destination: MainPageDestination? = nil, front: PaperweightID? = nil) {
+        workspaceRefreshTask?.cancel()
         if let existing = branchesWindowController as? BranchesWindowController {
-            existing.present(front: front)
+            existing.present(destination: destination, front: front)
             return
         }
-        let controller = BranchesWindowController(liveWork: liveWork, agentStore: agentStore) { [weak self] in
+        let controller = BranchesWindowController(
+            liveWork: liveWork, agentStore: agentStore, usageStore: store, settings: settings,
+            settingsContent: AnyView(HUDSettingsRootView(
+                settings: settings, store: store, launchAtLogin: launchAtLogin,
+                updateController: updateController, relaySync: relaySync,
+                localToolStatus: localToolStatus, navigation: settingsNavigation,
+                refreshWorkspace: { [weak self] in self?.refreshWorkspace() },
+                addWorkspaceFolder: { [weak self] in self?.addWorkspaceFolder() },
+                layout: .page
+            )), updateController: updateController,
+            openSettings: { [weak self] in self?.showSettings() }
+        ) { [weak self] in
             self?.branchesWindowController = nil
         }
         branchesWindowController = controller
-        controller.present(front: front)
+        controller.present(destination: destination, front: front)
     }
 
     func showLimits() {

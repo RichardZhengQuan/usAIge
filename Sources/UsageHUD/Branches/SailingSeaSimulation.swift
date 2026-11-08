@@ -116,7 +116,7 @@ final class SailingSeaSimulation {
         let supportLift = sin(roll) * 0.4
         let topLimit = max(0, baseWaterline - displacementLimit - padding - supportSafety) / (topExtent + supportLift)
         let bottomLimit = max(0, Double(size.height) - baseWaterline - displacementLimit - padding) / bottomExtent
-        let desired = compact ? min(42, Double(size.width) * 0.52) : min(280, max(160, Double(size.width) * 0.21))
+        let desired = compact ? min(42, Double(size.width) * 0.52) : min(360, max(220, Double(size.width) * 0.28))
         let cornerRadiusPerWidth = hypot(0.5, (2.0 / 3) * max(waterlineFraction, 1 - waterlineFraction))
         let horizontalLimit = max(0, Double(size.width) / 2 - padding) / cornerRadiusPerWidth
         let width = max(0, min(desired, Double(size.width) * 0.8, topLimit, bottomLimit, horizontalLimit))

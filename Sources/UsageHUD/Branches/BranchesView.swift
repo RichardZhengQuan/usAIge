@@ -2,41 +2,75 @@ import AppKit
 import Combine
 import SwiftUI
 
+enum BranchesPageMode { case worktrees, resources }
+
+/// View filtering is separate from the classification of an individual item.
+enum WorkStatusFilter: Hashable { case all, running, needsLook, safeToClear }
+
+@available(macOS 14.0, *)
+@MainActor
+final class BranchesPageState: ObservableObject {
+    @Published var front: PaperweightID
+    @Published var selectedLayerID: String
+    @Published var query = ""
+    @Published var projectID: String?
+    @Published var expanded: Set<String> = []
+    @Published var cruisePaused = false
+    @Published var workStatus: WorkStatusFilter = .all
+    var lastPresentationRequestID: UUID?
+    var lastOverviewFocusID: UUID?
+
+    init(front: PaperweightID = .storage, selectedLayerID: String? = nil) {
+        self.front = front
+        self.selectedLayerID = selectedLayerID ?? (front == .storage ? "wt" : "")
+    }
+}
+
 /// The resource ocean chooses a layer; the lists keep the same reviews
 /// and protections as the repository board.
 @available(macOS 14.0, *)
 struct BranchesRootView: View {
     @ObservedObject var store: BranchesStore
+    var mode: BranchesPageMode
     var liveWork: LiveWorkMonitor?
+    private let overviewHeader: AnyView?
     private let presentation: BranchesPaperweightPresentation?
-    @State private var front: PaperweightID
-    @State private var selectedLayerID: String
+    @ObservedObject private var page: BranchesPageState
     @State private var summary: LiveWorkSummary
     @State private var preview = false
     @State private var commandID = 0
     @State private var sceneCommand: PaperweightSceneCommand?
-    @State private var lastPresentationRequestID: UUID?
-    @State private var query = ""
-    @State private var projectID: String?
     @AppStorage(CruiseWeather.defaultsKey) private var weatherName = CruiseWeather.automatic.rawValue
     @State private var memoryPressure: SystemMemoryPressure
-    @State private var cruisePaused = false
     @State private var clearReview: ClearReviewRequest?
-    @State private var expanded: Set<String> = []
     @State private var singleReview: DeleteReviewRequest?
-    @FocusState private var searchFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(store: BranchesStore, liveWork: LiveWorkMonitor? = nil, agentStore: CodexAgentStore? = nil,
          initialFront: PaperweightID = .storage, initialSelectedLayerID: String? = nil,
-         presentation: BranchesPaperweightPresentation? = nil) {
+         presentation: BranchesPaperweightPresentation? = nil, mode: BranchesPageMode = .resources,
+         overviewHeader: AnyView? = nil) {
         self.store = store
+        self.mode = mode
         self.liveWork = liveWork
+        self.overviewHeader = overviewHeader
         self.presentation = presentation
-        _front = State(initialValue: initialFront)
-        _selectedLayerID = State(initialValue: initialSelectedLayerID ?? (initialFront == .storage ? "wt" : ""))
+        let state = presentation.map { mode == .worktrees ? $0.worktreePage : $0.resourcePage }
+            ?? BranchesPageState(front: initialFront, selectedLayerID: initialSelectedLayerID)
+        _page = ObservedObject(wrappedValue: state)
         _summary = State(initialValue: liveWork?.summary ?? LiveWorkSummary())
         _memoryPressure = State(initialValue: liveWork?.memoryPressure ?? .unknown)
+    }
+
+    private var front: PaperweightID { get { page.front } nonmutating set { page.front = newValue } }
+    private var selectedLayerID: String { get { page.selectedLayerID } nonmutating set { page.selectedLayerID = newValue } }
+    private var query: String { get { page.query } nonmutating set { page.query = newValue } }
+    private var projectID: String? { get { page.projectID } nonmutating set { page.projectID = newValue } }
+    private var expanded: Set<String> { get { page.expanded } nonmutating set { page.expanded = newValue } }
+    private var cruisePaused: Bool { get { page.cruisePaused } nonmutating set { page.cruisePaused = newValue } }
+    private var lastPresentationRequestID: UUID? {
+        get { page.lastPresentationRequestID }
+        nonmutating set { page.lastPresentationRequestID = newValue }
     }
 
     private var weather: CruiseWeather {
@@ -65,6 +99,10 @@ struct BranchesRootView: View {
         presentation?.$request.eraseToAnyPublisher() ?? Just(nil).eraseToAnyPublisher()
     }
 
+    private var focusUpdates: AnyPublisher<BranchesPaperweightPresentation.FocusRequest?, Never> {
+        presentation?.$focusRequest.eraseToAnyPublisher() ?? Just(nil).eraseToAnyPublisher()
+    }
+
     var body: some View {
         let now = Date()
         let everything = BranchesBoard.make(snapshot: store.snapshot, now: now)
@@ -91,16 +129,31 @@ struct BranchesRootView: View {
             : storage
         let breakdown = StorageBreakdown(storage: measured, freeableBytes: picks.bytes(from: everything.safeToClear), measuredAt: now)
         VStack(spacing: 0) {
-            toolbar(projects: everything.projects)
-                .background(.regularMaterial)
-            Divider()
-            GeometryReader { geometry in
+            if mode == .worktrees {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 16) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Branches and Worktrees").font(.largeTitle.weight(.semibold))
+                            Text("See what’s running, review unfinished work, and clear merged branches.")
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.bottom, 8)
+                        if store.snapshot.activity != .idle { activityView }
+                        worktreeRows(shown, now: now)
+                    }
+                    .padding(24)
+                }
+            } else {
+            GeometryReader { geometry in
+                ScrollViewReader { scroll in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 16) {
+                        if let overviewHeader { overviewHeader.id(OverviewSection.overview) }
                         overview(memory: memory, storage: storage, board: everything, now: now)
                             .padding(.horizontal, 4)
-                            .padding(.top, 18)
+                            .padding(.top, 20)
                             .padding(.bottom, 4)
+                            .id(OverviewSection.resources)
                         ResourceOceanView(
                             configuration: configuration, selectedLayerID: selectedLayerID,
                             weather: weatherStatus.resolvedWeather(preference: weather),
@@ -108,11 +161,13 @@ struct BranchesRootView: View {
                             command: sceneCommand,
                             onSelect: { selectedLayerID = $0 }
                         )
-                        .frame(height: min(420, max(240, geometry.size.height * 0.5)))
+                        .frame(height: min(560, max(420, geometry.size.height * 0.7)))
                         .padding(.horizontal, -20)
 
-                        HStack(spacing: 12) {
-                            shipPicker
+                        HStack(alignment: .top, spacing: 12) {
+                            shipPicker.frame(width: 220)
+                            weatherControls
+                            Spacer(minLength: 8)
                             Button("Shake", systemImage: "water.waves") { send(.shake) }
                                 .disabled(cruisePaused || reduceMotion)
                                 .help("Make waves; the unsinkable ship rides them and rights itself")
@@ -126,20 +181,31 @@ struct BranchesRootView: View {
 
                         oceanLayers(configuration)
 
-                        headline(everything, picks: picks, memory: memory, storage: storage, now: now)
+                        if front == .storage, overviewHeader != nil {
+                            HStack {
+                                StorageRecoveryView(store: store, showProgress: showCleanupProgress)
+                                Spacer(minLength: 12)
+                                previewClearingButton(picks: picks, board: everything)
+                            }
                             .padding(.horizontal, 4)
                             .padding(.vertical, 8)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        } else {
+                            headline(everything, picks: picks, memory: memory, storage: storage, now: now)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 8)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
 
                         Divider()
 
+                        if overviewHeader == nil || front != .storage || selected.id != "wt" {
                         VStack(alignment: .leading, spacing: 12) {
                             HStack(alignment: .firstTextBaseline) {
                                 Text("\(selected.title) · \(selected.isMeasuring ? "Measuring…" : BoardText.bytes(selected.bytes))")
                                     .font(.headline)
                                     .accessibilityAddTraits(.isHeader)
                                 Spacer(minLength: 8)
-                                Picker("Layer", selection: $selectedLayerID) {
+                                Picker("Layer", selection: $page.selectedLayerID) {
                                     ForEach(configuration.layers + [configuration.freeLayer]) { layer in
                                         Text(layer.title).tag(layer.id)
                                     }
@@ -152,18 +218,68 @@ struct BranchesRootView: View {
                         .padding(18)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
+                        }
+
+                        if overviewHeader != nil {
+                            VStack(alignment: .leading, spacing: 16) {
+                            HStack(alignment: .firstTextBaseline) {
+                                Text("Branches and Worktrees")
+                                    .font(.title2.weight(.semibold))
+                                    .accessibilityAddTraits(.isHeader)
+                                Spacer(minLength: 12)
+                                Button(store.snapshot.activity == .idle ? "Rescan" : "Scanning…",
+                                       systemImage: "arrow.clockwise") {
+                                    store.refresh()
+                                    store.loadToolStorage(force: true)
+                                    store.readDiskSpace()
+                                }
+                                .controlSize(.large)
+                                .disabled(store.snapshot.activity != .idle || store.isDeleting)
+                                .help("Scan branches, worktrees, and local tool storage again")
+                            }
+                            Text("Running work, unfinished changes, and merged or empty folders. Folder sizes include their build cache.")
+                                .font(.callout).foregroundStyle(.secondary)
+                            if store.snapshot.activity != .idle { activityView }
+                            worktreeRows(shown, now: now)
+                            }
+                            .padding(.top, 24)
+                            .frame(minHeight: geometry.size.height, alignment: .top)
+                            .id(OverviewSection.branches)
+                        }
                     }
                     .padding(.horizontal, 20)
                     .padding(.bottom, 20)
                 }
+                .onReceive(focusUpdates) { request in
+                    guard overviewHeader != nil, let request, request.id != page.lastOverviewFocusID else { return }
+                    Task { @MainActor in
+                        await Task.yield()
+                        guard presentation?.focusRequest?.id == request.id,
+                              request.id != page.lastOverviewFocusID else { return }
+                        scroll.scrollTo(request.section, anchor: .top)
+                        page.lastOverviewFocusID = request.id
+                    }
+                }
+                }
             }
-            if let message = store.resultMessage, message.deletedCount == 0 {
-                Divider()
-                ResultBanner(message: message, store: store)
             }
         }
         .background(Color(nsColor: .windowBackgroundColor))
-        .frame(minWidth: 900, minHeight: 560)
+        .frame(minWidth: 620, minHeight: 480)
+        .searchable(text: $page.query, placement: .toolbar, prompt: "Find a branch or worktree")
+        .toolbar {
+            ToolbarItemGroup {
+                if everything.projects.count > 1 {
+                    Picker("Project", selection: $page.projectID) {
+                        Text("All Projects").tag(String?.none)
+                        ForEach(everything.projects) { project in
+                            Text(project.name).tag(Optional(project.id))
+                        }
+                    }
+                    .frame(maxWidth: 180)
+                }
+            }
+        }
         .onReceive(summaryUpdates) { updated in if updated != summary { summary = updated } }
         .onReceive(memoryPressureUpdates) { memoryPressure = $0 }
         .onReceive(diskUpdates) { store.updateObservedDiskSpace($0) }
@@ -174,7 +290,9 @@ struct BranchesRootView: View {
             selectedLayerID = request.selectedLayer(in: next, currentFront: front, currentLayer: selectedLayerID)
             front = request.front
         }
-        .onAppear { ensureSelection(configuration) }
+        .onAppear {
+            ensureSelection(configuration)
+        }
         .onChange(of: breakdown.map { [$0.worktreeBytes, $0.cacheBytes, $0.toolBytes, $0.freeableBytes] }) { _, _ in
             if let breakdown { store.recordStorageBreakdown(breakdown) }
         }
@@ -182,14 +300,14 @@ struct BranchesRootView: View {
         .onChange(of: projectID) { _, value in
             if let value, !everything.projects.contains(where: { $0.id == value }) { projectID = nil }
         }
-        .sheet(item: $singleReview) { request in
+        .sheet(item: $singleReview, onDismiss: reviewDismissed) { request in
             DeleteReviewView(request: request) { chosen in
                 singleReview = nil
                 preview = false
                 store.startDelete(chosen)
             } cancel: { singleReview = nil }
         }
-        .sheet(item: $clearReview) { request in
+        .sheet(item: $clearReview, onDismiss: reviewDismissed) { request in
             ClearReviewSheet(request: request, disk: store.diskSpace) { chosen in
                 clearReview = nil
                 expanded = []
@@ -205,6 +323,23 @@ struct BranchesRootView: View {
         selectedLayerID = configuration.layers.first?.id ?? configuration.freeLayer.id
     }
 
+    private func showCleanupProgress() {
+        presentation?.showsCleanupProgress = true
+    }
+
+    private func reviewDismissed() {
+        presentation?.isReviewingCleanup = false
+        if store.cleanupProgress != nil || store.resultMessage != nil { showCleanupProgress() }
+    }
+
+    private func previewClearingButton(picks: ClearSelection, board: BranchesBoard) -> some View {
+        Button(preview ? "Show today" : "Preview clearing") {
+            preview.toggle()
+            send(.preview)
+        }
+        .disabled(picks.bytes(from: board.safeToClear) <= 0 || store.isDeleting)
+    }
+
     private func send(_ kind: PaperweightSceneCommand.Kind) {
         commandID += 1
         sceneCommand = PaperweightSceneCommand(id: commandID, kind: kind)
@@ -212,18 +347,38 @@ struct BranchesRootView: View {
 
     private func overview(memory: PaperweightConfiguration, storage: PaperweightConfiguration,
                           board: BranchesBoard, now: Date) -> some View {
-        HStack(alignment: .center, spacing: 24) {
-            VStack(alignment: .leading, spacing: 2) {
+        let amount = Text(front == .storage
+                          ? storage.freeBytes.map { "\(BoardText.bytes($0)) free" } ?? "Measuring…"
+                          : liveWork == nil ? "Unavailable"
+                          : memory.freeBytes != nil ? "\(BoardText.bytes(memory.usedBytes)) in use" : "Measuring…")
+            .font(.system(size: 32, weight: .light, design: .rounded))
+            .monospacedDigit()
+            .contentTransition(.numericText())
+        return HStack(alignment: .top, spacing: 24) {
+            VStack(alignment: .leading, spacing: 8) {
+                if overviewHeader != nil {
+                    Text("Local workspace usage")
+                        .font(.title3.weight(.semibold))
+                        .accessibilityAddTraits(.isHeader)
+                }
                 Text(front == .storage ? "Storage" : "Memory")
                     .font(.title3.weight(.medium))
                     .foregroundStyle(.secondary)
-                Text(front == .storage
-                     ? storage.freeBytes.map { "\(BoardText.bytes($0)) free" } ?? "Measuring…"
-                     : liveWork == nil ? "Unavailable"
-                     : memory.freeBytes != nil ? "\(BoardText.bytes(memory.usedBytes)) in use" : "Measuring…")
-                    .font(.system(size: 32, weight: .light, design: .rounded))
-                    .monospacedDigit()
-                    .contentTransition(.numericText())
+                if front == .storage {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .firstTextBaseline, spacing: 14) {
+                            amount
+                            StorageCleanupSummary(store: store)
+                        }
+                        .fixedSize(horizontal: true, vertical: false)
+                        VStack(alignment: .leading, spacing: 6) {
+                            amount
+                            StorageCleanupSummary(store: store)
+                        }
+                    }
+                } else {
+                    amount
+                }
                 Text(preview && front == .storage
                      ? "Preview after clearing the default selection."
                      : front == .memory ? "AI tools and repository work form the ocean’s layers."
@@ -237,26 +392,11 @@ struct BranchesRootView: View {
                     paperweightButton(memory)
                     paperweightButton(storage)
                 }
-                HStack(spacing: 10) {
-                    Picker("Weather", selection: $weatherName) {
-                        ForEach(CruiseWeather.allCases) { condition in
-                            Label(condition.title, systemImage: condition.symbol).tag(condition.rawValue)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(width: 120)
-                    .help("Automatic weather follows this resource’s condition. Choose a weather condition to keep it.")
-                    if front == .storage {
-                        Button("Review and Clear…") { startReview(board.safeToClear, now: now) }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(board.safeToClear.isEmpty || store.isDeleting)
-                    }
+                if front == .storage {
+                    StorageCleanupButton(store: store,
+                                         review: { startReview(board.safeToClear, now: now) },
+                                         showProgress: showCleanupProgress)
                 }
-                Text(weather == .automatic ? weatherStatus.summary : "Manual weather · \(weather.title)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.trailing)
-                    .frame(maxWidth: 340, alignment: .trailing)
             }
         }
     }
@@ -314,13 +454,31 @@ struct BranchesRootView: View {
     }
 
     private var shipPicker: some View {
-        HStack {
-            PaperweightShipPicker(selected: store.ship(for: front)) { ship in
-                store.chooseShip(ship, for: front)
-                send(.shipDrop)
-            }
-            Spacer(minLength: 8)
+        PaperweightShipPicker(selected: store.ship(for: front)) { ship in
+            store.chooseShip(ship, for: front)
+            send(.shipDrop)
         }
+    }
+
+    private var weatherControls: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Text("Weather").foregroundStyle(.secondary)
+                Picker("Weather", selection: $weatherName) {
+                    ForEach(CruiseWeather.allCases) { condition in
+                        Label(condition.title, systemImage: condition.symbol).tag(condition.rawValue)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 140)
+                .help("Automatic weather follows this resource’s condition. Choose a weather condition to keep it.")
+            }
+            Text(weather == .automatic ? weatherStatus.summary : "Manual weather · \(weather.title)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(width: 230, alignment: .leading)
     }
 
     private func headline(_ board: BranchesBoard, picks: ClearSelection, memory: PaperweightConfiguration,
@@ -423,6 +581,7 @@ struct BranchesRootView: View {
         if let group { start.chosen = Set(items.filter { ClearGroup.group(for: $0, now: now) == group }.map(\.id)) }
         preview = false
         store.resultMessage = nil
+        presentation?.isReviewingCleanup = true
         clearReview = ClearReviewRequest(items: items, selection: start, now: now)
     }
 
@@ -433,91 +592,6 @@ struct BranchesRootView: View {
     }
 
     // MARK: Toolbar
-
-    private func toolbar(projects: [ProjectChoice]) -> some View {
-        HStack(spacing: 10) {
-            searchField
-            if projects.count > 1 { projectChips(projects) }
-            Spacer(minLength: 8)
-            activityView
-            recentlyDeletedMenu
-            Menu {
-                Button("Read Everything Again") {
-                    store.refresh()
-                    store.loadToolStorage(force: true)
-                }
-                Button("Add Folder…") { chooseFolder() }
-            } label: {
-                Image(systemName: "ellipsis.circle")
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help("Read again, or add a repository no AI tool has worked in")
-            .accessibilityLabel("More")
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 9)
-    }
-
-    private var searchField: some View {
-        HStack(spacing: 5) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
-            TextField("Find a branch or what it did", text: $query)
-                .textFieldStyle(.plain)
-                .focused($searchFocused)
-            if !query.isEmpty {
-                Button {
-                    query = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Clear search")
-            }
-        }
-        .padding(.horizontal, 8)
-        .frame(width: 230, height: 26)
-        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-        .background {
-            Button("Find") { searchFocused = true }
-                .keyboardShortcut("f")
-                .hidden()
-        }
-    }
-
-    private func projectChips(_ projects: [ProjectChoice]) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 5) {
-                chip("All", isOn: projectID == nil) { projectID = nil }
-                ForEach(projects) { project in
-                    chip(project.name, isOn: projectID == project.id) {
-                        projectID = projectID == project.id ? nil : project.id
-                    }
-                }
-            }
-        }
-        .frame(maxWidth: 300)
-        .frame(minWidth: 0)
-    }
-
-    private func chip(_ title: String, isOn: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.callout)
-                .padding(.horizontal, 10)
-                .frame(height: 24)
-                .foregroundStyle(isOn ? Color.accentColor : Color.primary)
-                .background(
-                    isOn ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.06),
-                    in: Capsule()
-                )
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(isOn ? .isSelected : [])
-    }
 
     @ViewBuilder
     private var activityView: some View {
@@ -544,42 +618,15 @@ struct BranchesRootView: View {
         .fixedSize()
     }
 
-    /// Undo for anything deleted lately, once the result has gone or the
-    /// window has been closed since.
-    @ViewBuilder
-    private var recentlyDeletedMenu: some View {
-        let records = BranchesPresentation.restorable(store.snapshot.deletions, now: Date())
-        if !records.isEmpty {
-            Menu("Recently Deleted") {
-                ForEach(records) { record in
-                    Button("Restore \(record.displayName)") {
-                        Task { await store.undo([record]) }
-                    }
-                }
-            }
-            .fixedSize()
-            .disabled(store.isDeleting)
-        }
-    }
-
-    private func chooseFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.message = "Choose a folder inside a Git repository."
-        panel.prompt = "Add"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        store.addFolder(url.path)
-    }
-
-
     private func card(_ item: WorkItem, _ kind: WorkCard.Kind, now: Date, share: Double, color: Color,
                       cacheBytes: Int64? = nil) -> some View {
         WorkCard(item: item, kind: kind, now: now, isExpanded: expanded.contains(item.id),
                  evidence: store.evidence[BranchesStore.evidenceKey(item)], isDeleting: store.isDeleting,
                  toggle: { toggle(item.id) }, loadEvidence: { store.loadEvidence(for: item) },
-                 requestDelete: { singleReview = DeleteReviewRequest(items: [item]) },
+                 requestDelete: {
+                     presentation?.isReviewingCleanup = true
+                     singleReview = DeleteReviewRequest(items: [item])
+                 },
                  tubeShare: share, tubeColor: color, cacheBytes: cacheBytes)
     }
 
@@ -597,13 +644,59 @@ struct BranchesRootView: View {
 
     @ViewBuilder
     private func worktreeRows(_ board: BranchesBoard, now: Date) -> some View {
-        let largest = max(board.needsLook.map(\.bytes).max() ?? 0, board.safeFolders.compactMap(\.size?.totalBytes).max() ?? 0)
-        let color = layerColor(0xE2729A)
+        Picker("Work status", selection: $page.workStatus) {
+            Text("All (\(board.running.count + board.needsLookCount + board.safeToClear.count))").tag(WorkStatusFilter.all)
+            Text("Running (\(board.running.count))").tag(WorkStatusFilter.running)
+            Text("Needs a look (\(board.needsLookCount))").tag(WorkStatusFilter.needsLook)
+            Text("Safe to clear (\(board.safeToClear.count))").tag(WorkStatusFilter.safeToClear)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(maxWidth: 680, alignment: .leading)
+        .accessibilityLabel("Branch and worktree status")
+
         if store.snapshot.gitIsMissing {
             LaneEmpty(text: "Git isn't installed. Install the Xcode Command Line Tools to see branches and worktrees here.")
-        } else if store.snapshot.items.isEmpty, store.snapshot.notCheckedFolders.isEmpty, store.snapshot.activity == .idle {
-            LaneEmpty(text: "No repositories yet. Use Add Folder in the … menu, or work in a repository with an AI tool.")
+        } else if store.snapshot.repositories.isEmpty, store.snapshot.items.isEmpty,
+                  store.snapshot.notCheckedFolders.isEmpty, store.snapshot.activity == .idle {
+            LaneEmpty(text: "No repositories yet. Use Add Folder in Settings → Workspace, or work in a repository with an AI tool.")
+        } else {
+            switch page.workStatus {
+            case .all:
+                if !board.running.isEmpty { runningRows(board, now: now) }
+                if board.needsLookCount > 0 { needsLookRows(board, now: now) }
+                if !board.safeToClear.isEmpty { safeToClearRows(board, now: now) }
+                if board.running.isEmpty && board.needsLookCount == 0 && board.safeToClear.isEmpty {
+                    LaneEmpty(text: "No branches or worktrees match this view.")
+                }
+            case .running:
+                runningRows(board, now: now)
+            case .needsLook:
+                needsLookRows(board, now: now)
+            case .safeToClear:
+                safeToClearRows(board, now: now)
+            }
         }
+    }
+
+    @ViewBuilder
+    private func runningRows(_ board: BranchesBoard, now: Date) -> some View {
+        HStack(spacing: 6) {
+            Text("Running").font(.headline)
+            Text("\(board.running.count)").foregroundStyle(.secondary)
+        }
+        if board.running.isEmpty {
+            LaneEmpty(text: "No repository work is running in this view.")
+        }
+        ForEach(board.running) { item in
+            card(item, .running, now: now, share: 0, color: .green)
+        }
+    }
+
+    @ViewBuilder
+    private func needsLookRows(_ board: BranchesBoard, now: Date) -> some View {
+        let largest = board.needsLook.map(\.bytes).max() ?? 0
+        let color = layerColor(0xE2729A)
         groupHeading("Needs a look", count: board.needsLookCount, bytes: board.needsLookBytes)
         if board.needsLook.isEmpty {
             LaneEmpty(text: "Work that exists only on this Mac, or isn't on main yet, shows here.")
@@ -632,6 +725,12 @@ struct BranchesRootView: View {
         if board.stillChecking > 0 {
             Text("Still checking \(board.stillChecking) more…").font(.caption).foregroundStyle(.secondary)
         }
+    }
+
+    @ViewBuilder
+    private func safeToClearRows(_ board: BranchesBoard, now: Date) -> some View {
+        let largest = board.safeFolders.compactMap(\.size?.totalBytes).max() ?? 0
+        let color = layerColor(0xE2729A)
         HStack {
             groupHeading("Safe to clear", count: board.safeToClear.count, bytes: board.safeBytes)
             if !board.safeToClear.isEmpty {
@@ -743,17 +842,17 @@ private struct StorageActions: View {
         return message
     }
 
-    private var clearing: (done: Int, total: Int)? {
-        if case let .clearing(done, total) = store.snapshot.activity { return (done, total) }
-        return nil
-    }
+    private var clearing: BranchesStore.CleanupProgress? { store.cleanupProgress }
 
     private var defaultCount: Int {
         ClearSelection(items: board.safeToClear, now: now).chosen.count
     }
 
     private var headline: String {
-        if let clearing { return "Clearing \(clearing.done + 1) of \(clearing.total)…" }
+        if let clearing {
+            return clearing.isStopping ? "Stopping after the current item…"
+                : "\(clearing.operation == .restoring ? "Restoring" : "Clearing") \(min(clearing.completed + 1, clearing.total)) of \(clearing.total)…"
+        }
         if let message = clearedMessage {
             return message.freedBytes > 0
                 ? "Freed about \(BoardText.bytes(message.freedBytes))"
@@ -829,7 +928,8 @@ private struct StorageActions: View {
     @ViewBuilder
     private var actionButtons: some View {
         if clearing != nil {
-            Button("Stop") { store.stopDeleting() }
+            Button(clearing?.isStopping == true ? "Stopping…" : "Stop After Current Item") { store.stopDeleting() }
+                .disabled(clearing?.isStopping == true || clearing?.operation == .restoring)
         } else if let message = clearedMessage {
             if !message.undoable.isEmpty {
                 Button("Undo") { Task { await store.undo(message.undoable) } }
@@ -975,7 +1075,7 @@ struct ClearReviewRequest: Identifiable {
 /// Picks what to clear, a group at a time, with every row inside a group
 /// one click away. Its own tank shows the disk after the ticked rows go.
 @available(macOS 14.0, *)
-private struct ClearReviewSheet: View {
+struct ClearReviewSheet: View {
     let request: ClearReviewRequest
     let disk: DiskSpace?
     let confirm: ([WorkItem]) -> Void
