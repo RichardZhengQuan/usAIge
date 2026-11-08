@@ -1,29 +1,29 @@
 {
-  "version": "0.2.25",
-  "build": 47,
+  "version": "0.2.26",
+  "build": 48,
   "releaseNotes": {
-    "headline": "See your AI work in one place",
-    "summary": "The rail now shows AI tools’ memory share and active work. Review local branches and worktrees in the new Branches window, alongside fixes for rail memory growth and idle CPU use.",
+    "headline": "Memory and storage, in glass",
+    "summary": "Explore memory and disk usage as interactive liquid paperweights, with matching miniatures in the rail and clearer access to active work.",
     "highlights": [
       {
-        "title": "Memory and work in the rail",
-        "detail": "A Memory tile shows AI tools’ share of this Mac’s memory and their branch and worktree counts. Hover the tile or a tool row for work details, processes, and ports.",
-        "systemImage": "memorychip"
+        "title": "Memory and storage paperweights",
+        "detail": "The Branches window opens on two glass paperweights. Their liquid layers show each AI tool’s memory share and the disk space used by the system, apps, tools, build cache, and worktrees.",
+        "systemImage": "chart.pie"
       },
       {
-        "title": "Review local branches and worktrees",
-        "detail": "The new Branches window groups running work, items that need a look, and candidates to clear. Open a card to review commits, changed-file names, and disk usage before choosing what to remove.",
+        "title": "Turn, zoom, and explore",
+        "detail": "Bring either paperweight to the front, drag to turn the camera, scroll or pinch to zoom, and select a layer to see what it contains. Choose the ships floating above the liquid.",
+        "systemImage": "hand.draw"
+      },
+      {
+        "title": "A matching view in the rail",
+        "detail": "Miniature Memory and Storage paperweights show your chosen ships and free space. Hover Storage for the latest measured breakdown and open the Branches window directly to Storage.",
+        "systemImage": "externaldrive"
+      },
+      {
+        "title": "Work stays visible",
+        "detail": "Recently active sessions remain listed even without a measured process in their folder. On-demand scene rendering and a bounded label cache reduce unnecessary graphics work.",
         "systemImage": "arrow.triangle.branch"
-      },
-      {
-        "title": "Clear with review and Undo",
-        "detail": "Review individual items before clearing them. Recent work starts unchecked, each item is checked again before removal, and Undo can restore branches and folders.",
-        "systemImage": "arrow.uturn.backward"
-      },
-      {
-        "title": "A lighter, steadier rail",
-        "detail": "Reused hover details and reset scheduling prevent accumulated memory and timers, while animations and Claude cache reads do less idle work. Rail corners are cleaner.",
-        "systemImage": "leaf"
       }
     ]
   }
