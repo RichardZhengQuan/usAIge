@@ -712,7 +712,8 @@ struct UIGalleryRenderTests {
         ]
     }
 
-    /// Each paperweight takes the front at both supported window sizes.
+    /// Check both fronts from the minimum window through the default and a
+    /// wide desktop, where a fixed camera leaves large empty side margins.
     @Test(.enabled(if: MTLCreateSystemDefaultDevice() != nil))
     func rendersBranches() async throws {
         guard #available(macOS 14.0, *) else { return }
@@ -737,12 +738,15 @@ struct UIGalleryRenderTests {
         let sizes: [(String, CGSize)] = [
             ("regular", CGSize(width: 1080, height: 640)),
             ("minimum", CGSize(width: 900, height: 560)),
+            ("default", CGSize(width: 1180, height: 780)),
+            ("wide", CGSize(width: 1600, height: 900)),
         ]
         for appearance in GalleryAppearance.allCases {
             for (sizeName, size) in sizes {
                 for front in PaperweightID.allCases {
                     try render(
-                        BranchesRootView(store: store, liveWork: monitor, initialFront: front),
+                        BranchesRootView(store: store, liveWork: monitor, initialFront: front, initialShowsLayers: true)
+                            .defaultAppStorage(defaults),
                         size: size, appearance: appearance,
                         name: "branches-paperweight-\(front.rawValue)-\(sizeName)-\(appearance.rawValue)"
                     )
@@ -750,12 +754,15 @@ struct UIGalleryRenderTests {
             }
             for layerID in ["cache", "tool", "other", "free"] {
                 try render(
-                    BranchesRootView(store: store, liveWork: monitor, initialFront: .storage, initialSelectedLayerID: layerID),
+                    BranchesRootView(store: store, liveWork: monitor, initialFront: .storage,
+                                     initialSelectedLayerID: layerID, initialShowsLayers: true)
+                        .defaultAppStorage(defaults),
                     size: CGSize(width: 900, height: 560), appearance: appearance,
                     name: "branches-paperweight-storage-minimum-\(layerID)-\(appearance.rawValue)"
                 )
             }
-            try render(BranchesRootView(store: store), size: CGSize(width: 900, height: 560),
+            try render(BranchesRootView(store: store, initialShowsLayers: true).defaultAppStorage(defaults),
+                       size: CGSize(width: 900, height: 560),
                        appearance: appearance, name: "branches-no-monitor-\(appearance.rawValue)")
             try render(
                 DeleteReviewView(request: DeleteReviewRequest(items: reviewed), confirm: { _ in }, cancel: {}),
@@ -787,15 +794,68 @@ struct UIGalleryRenderTests {
         )
         for appearance in GalleryAppearance.allCases {
             try render(
-                BranchesRootView(store: clearedStore, liveWork: monitor),
+                BranchesRootView(store: clearedStore, liveWork: monitor, initialShowsLayers: true)
+                    .defaultAppStorage(defaults),
                 size: CGSize(width: 900, height: 560), appearance: appearance,
                 name: "branches-paperweight-cleared-minimum-\(appearance.rawValue)"
             )
             try render(
-                BranchesRootView(store: clearingStore, liveWork: monitor),
+                BranchesRootView(store: clearingStore, liveWork: monitor, initialShowsLayers: true)
+                    .defaultAppStorage(defaults),
                 size: CGSize(width: 900, height: 560), appearance: appearance,
                 name: "branches-paperweight-clearing-minimum-\(appearance.rawValue)"
             )
+        }
+    }
+
+    /// The default scene reads only its isolated visual preference. Freeze its
+    /// clock so precipitation and ships can be compared across appearances.
+    @Test(.enabled(if: MTLCreateSystemDefaultDevice() != nil))
+    func rendersSailingWeather() async throws {
+        guard #available(macOS 14.0, *) else { return }
+        let suite = "usaige.render.sailing.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let tasks = sampleLiveWork(), processes = sampleProcesses(), disk = sampleDiskSpace
+        let monitor = LiveWorkMonitor(
+            currentTasks: { tasks },
+            runningApplications: { [.claude: ["/Applications/Claude.app"]] },
+            locator: { RepositoryLocator(home: "/Users/me") },
+            scan: { _, _ in processes },
+            readDiskSpace: { disk }
+        )
+        await monitor.refresh()
+        let store = BranchesStore(
+            defaults: defaults, initialSnapshot: sampleBranchesSnapshot(now: Date()),
+            initialDiskSpace: disk, initialToolStorage: sampleToolStorage
+        )
+        let normalSize = CGSize(width: 1180, height: 780)
+        for appearance in GalleryAppearance.allCases {
+            for weather in CruiseWeather.allCases where weather != .automatic {
+                defaults.set(weather.rawValue, forKey: CruiseWeather.defaultsKey)
+                let rendered = try render(
+                    BranchesRootView(store: store, liveWork: monitor)
+                        .defaultAppStorage(defaults)
+                        .environment(\.usageSceneFrozen, true),
+                    size: normalSize, appearance: appearance,
+                    name: "branches-sailing-\(weather.rawValue)-default-\(appearance.rawValue)"
+                )
+                #expect(rendered == normalSize)
+            }
+            defaults.set(CruiseWeather.sunny.rawValue, forKey: CruiseWeather.defaultsKey)
+            for (sizeName, size) in [
+                ("minimum", CGSize(width: 900, height: 560)),
+                ("wide", CGSize(width: 1600, height: 900)),
+            ] {
+                let rendered = try render(
+                    BranchesRootView(store: store, liveWork: monitor)
+                        .defaultAppStorage(defaults)
+                        .environment(\.usageSceneFrozen, true),
+                    size: size, appearance: appearance,
+                    name: "branches-sailing-sunny-\(sizeName)-\(appearance.rawValue)"
+                )
+                #expect(rendered == size)
+            }
         }
     }
 
@@ -853,7 +913,8 @@ struct UIGalleryRenderTests {
             for (sizeName, size) in sizes {
                 for front in PaperweightID.allCases {
                     try render(
-                        BranchesRootView(store: store, liveWork: monitor, initialFront: front),
+                        BranchesRootView(store: store, liveWork: monitor, initialFront: front, initialShowsLayers: true)
+                            .defaultAppStorage(defaults),
                         size: size, appearance: appearance,
                         name: "branches-no-graphics-\(front.rawValue)-\(sizeName)-\(appearance.rawValue)"
                     )

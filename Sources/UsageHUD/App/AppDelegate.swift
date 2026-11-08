@@ -328,7 +328,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
             existing.present(front: front)
             return
         }
-        let controller = BranchesWindowController(liveWork: liveWork) { [weak self] in
+        let controller = BranchesWindowController(liveWork: liveWork, agentStore: agentStore) { [weak self] in
             self?.branchesWindowController = nil
         }
         branchesWindowController = controller

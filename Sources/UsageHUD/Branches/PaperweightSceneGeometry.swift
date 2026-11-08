@@ -272,10 +272,16 @@ final class PaperweightBottle {
             if index == 0 { profile.move(to: point) } else { profile.line(to: point) }
         }
         shape.chamferProfile = profile
-        let frontMaterial = PaperweightSceneAssets.material(.white, opacity: 0.07, roughness: 0.02)
+        // Unlit glass keeps the weather visible through the empty interior.
+        // The existing bevel outlines still describe its rounded 3D shape.
+        let frontMaterial = PaperweightSceneAssets.material(.white, constant: true)
+        frontMaterial.transparency = 0.07
+        frontMaterial.writesToDepthBuffer = false
         frontMaterial.isDoubleSided = false
         frontMaterial.cullMode = .back
-        let backMaterial = PaperweightSceneAssets.material(.white, opacity: 0.05, roughness: 0.05)
+        let backMaterial = PaperweightSceneAssets.material(.white, constant: true)
+        backMaterial.transparency = 0.05
+        backMaterial.writesToDepthBuffer = false
         backMaterial.isDoubleSided = false
         backMaterial.cullMode = .front
         glass = SCNNode(geometry: shape)

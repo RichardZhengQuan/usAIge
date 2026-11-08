@@ -20,7 +20,7 @@ struct RailPaperweightShipImage: View {
 
     var body: some View {
         Group {
-            if let image = RailPaperweightShipImageCache.shared.image(for: kind, size: size, scale: displayScale) {
+            if let image = PaperweightShipImageCache.shared.image(for: kind, size: size, scale: displayScale) {
                 Image(nsImage: image).resizable().interpolation(.high)
             } else {
                 RailSailboatSilhouette().fill(Color.primary.opacity(0.78))
@@ -32,10 +32,11 @@ struct RailPaperweightShipImage: View {
     }
 }
 
+/// Shared snapshots let the rail and cruising ships reuse the same 3D artwork.
 @available(macOS 14.0, *)
 @MainActor
-private final class RailPaperweightShipImageCache {
-    static let shared = RailPaperweightShipImageCache()
+final class PaperweightShipImageCache {
+    static let shared = PaperweightShipImageCache()
     private lazy var device = MTLCreateSystemDefaultDevice()
     private var images: [Key: NSImage] = [:]
     private var unavailable: Set<Key> = []

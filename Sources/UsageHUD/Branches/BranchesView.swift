@@ -8,10 +8,12 @@ import SwiftUI
 struct BranchesRootView: View {
     @ObservedObject var store: BranchesStore
     var liveWork: LiveWorkMonitor?
+    private let agentStore: CodexAgentStore?
     private let presentation: BranchesPaperweightPresentation?
     @State private var front: PaperweightID
     @State private var selectedLayerID: String
     @State private var summary: LiveWorkSummary
+    @State private var activityPhases: [CodexAgentPhase]
     @State private var preview = false
     @State private var moving = false
     @State private var commandID = 0
@@ -19,21 +21,37 @@ struct BranchesRootView: View {
     @State private var lastPresentationRequestID: UUID?
     @State private var query = ""
     @State private var projectID: String?
+    @AppStorage(CruiseWeather.defaultsKey) private var weatherName = CruiseWeather.automatic.rawValue
+    @State private var showsLayers: Bool
+    @State private var cruisePaused = false
     @State private var clearReview: ClearReviewRequest?
     @State private var expanded: Set<String> = []
     @State private var singleReview: DeleteReviewRequest?
     @FocusState private var searchFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(store: BranchesStore, liveWork: LiveWorkMonitor? = nil,
+    init(store: BranchesStore, liveWork: LiveWorkMonitor? = nil, agentStore: CodexAgentStore? = nil,
          initialFront: PaperweightID = .storage, initialSelectedLayerID: String? = nil,
-         presentation: BranchesPaperweightPresentation? = nil) {
+         presentation: BranchesPaperweightPresentation? = nil, initialShowsLayers: Bool = false) {
         self.store = store
         self.liveWork = liveWork
+        self.agentStore = agentStore
         self.presentation = presentation
         _front = State(initialValue: initialFront)
         _selectedLayerID = State(initialValue: initialSelectedLayerID ?? (initialFront == .storage ? "wt" : ""))
         _summary = State(initialValue: liveWork?.summary ?? LiveWorkSummary())
+        _activityPhases = State(initialValue: agentStore?.aggregatesByTool.values.map(\.phase) ?? [])
+        _showsLayers = State(initialValue: initialShowsLayers)
+    }
+
+    private var weather: CruiseWeather {
+        (CruiseWeather(rawValue: weatherName) ?? .automatic)
+            .resolved(phases: agentStore == nil ? summary.sessions.map(\.phase) : activityPhases)
+    }
+
+    private var activityUpdates: AnyPublisher<[CodexAgentPhase], Never> {
+        agentStore?.$aggregatesByTool.map { $0.values.map(\.phase) }.eraseToAnyPublisher()
+            ?? Just([]).eraseToAnyPublisher()
     }
 
     private var summaryUpdates: AnyPublisher<LiveWorkSummary, Never> {
@@ -71,39 +89,83 @@ struct BranchesRootView: View {
         let breakdown = StorageBreakdown(storage: measured, freeableBytes: picks.bytes(from: everything.safeToClear), measuredAt: now)
         VStack(spacing: 0) {
             toolbar(projects: everything.projects)
+                .background(.ultraThinMaterial)
             Divider()
             GeometryReader { geometry in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 12) {
-                        PaperweightSceneView(
-                            configurations: [memory, storage], front: front,
-                            selectedLayerID: selectedLayerID,
-                            ships: [.memory: store.memoryShip, .storage: store.storageShip],
-                            command: sceneCommand,
-                            onSelect: { id, layer in front = id; selectedLayerID = layer },
-                            onSwap: { id in
-                                front = id
-                                let next = id == .storage ? storage : memory
-                                selectedLayerID = next.layers.first?.id ?? next.freeLayer.id
-                            },
-                            onMovingChanged: { moving = $0 }
-                        )
-                        .frame(height: min(330, max(260, geometry.size.height * 0.58)))
-                        .accessibilityHint("Click a paperweight or layer. Drag to turn, scroll or pinch to zoom, and double-click the table to reset.")
+                    LazyVStack(alignment: .leading, spacing: 16) {
+                        overview(memory: memory, storage: storage, board: everything, now: now)
+                            .padding(.horizontal, 8)
+                            .padding(.top, 20)
+                        if showsLayers {
+                            PaperweightSceneView(
+                                configurations: [memory, storage], front: front,
+                                selectedLayerID: selectedLayerID,
+                                ships: [.memory: store.memoryShip, .storage: store.storageShip],
+                                command: sceneCommand,
+                                onSelect: { id, layer in front = id; selectedLayerID = layer },
+                                onSwap: { id in
+                                    front = id
+                                    let next = id == .storage ? storage : memory
+                                    selectedLayerID = next.layers.first?.id ?? next.freeLayer.id
+                                },
+                                onMovingChanged: { moving = $0 }
+                            )
+                            .frame(height: min(540, max(300, geometry.size.height * 0.57)))
+                            .accessibilityHint("Click a paperweight or layer. Drag to turn, scroll or pinch to zoom, and double-click the table to reset.")
+                        } else {
+                            Color.clear
+                                .frame(height: min(540, max(300, geometry.size.height * 0.57)))
+                                .accessibilityElement()
+                                .accessibilityLabel("\(store.ship(for: front).title) cruising in \(weather.title.lowercased()) weather")
+                                .accessibilityValue(cruisePaused || reduceMotion ? "Animation paused" : "Cruising")
+                        }
+
+                        HStack(spacing: 12) {
+                            shipPicker
+                            if showsLayers {
+                                Button("Reset View", systemImage: "arrow.counterclockwise") { send(.reset) }
+                                    .help("Fit both paperweights to the window")
+                            } else {
+                                Button(cruisePaused ? "Resume" : "Pause", systemImage: cruisePaused ? "play.fill" : "pause.fill") {
+                                    cruisePaused.toggle()
+                                }
+                                .disabled(reduceMotion)
+                                .help(reduceMotion ? "Animation is paused by Reduce Motion" : "Pause or resume the sailing scene")
+                            }
+                        }
+                        .padding(.horizontal, 8)
 
                         headline(everything, picks: picks, memory: memory, storage: storage, now: now)
-                        shipPicker
-                        HStack(alignment: .firstTextBaseline) {
-                            Text("\(selected.title) · \(selected.isMeasuring ? "Measuring…" : BoardText.bytes(selected.bytes))")
-                                .font(.headline)
-                                .accessibilityAddTraits(.isHeader)
-                            Spacer(minLength: 8)
-                            Text(moving ? "Moving" : "Still").font(.caption).foregroundStyle(.secondary)
+                            .padding(18)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack(alignment: .firstTextBaseline) {
+                                Text("\(selected.title) · \(selected.isMeasuring ? "Measuring…" : BoardText.bytes(selected.bytes))")
+                                    .font(.headline)
+                                    .accessibilityAddTraits(.isHeader)
+                                Spacer(minLength: 8)
+                                Picker("Layer", selection: $selectedLayerID) {
+                                    ForEach(configuration.layers + [configuration.freeLayer]) { layer in
+                                        Text(layer.title).tag(layer.id)
+                                    }
+                                }
+                                .labelsHidden()
+                                .frame(maxWidth: 200)
+                                if showsLayers {
+                                    Text(moving ? "Moving" : "Still").font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                            selectedRows(selected, board: shown, configuration: configuration, now: now)
                         }
-                        selectedRows(selected, board: shown, configuration: configuration, now: now)
+                        .padding(18)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 16)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 20)
                 }
             }
             if let message = store.resultMessage, message.deletedCount == 0 {
@@ -111,8 +173,14 @@ struct BranchesRootView: View {
                 ResultBanner(message: message, store: store)
             }
         }
+        .background {
+            UsageAtmosphereBackground(isActive: !cruisePaused, weather: weather, ship: store.ship(for: front),
+                                      showsShip: !showsLayers)
+                .ignoresSafeArea()
+        }
         .frame(minWidth: 900, minHeight: 560)
         .onReceive(summaryUpdates) { updated in if updated != summary { summary = updated } }
+        .onReceive(activityUpdates) { activityPhases = $0 }
         .onReceive(presentationUpdates) { request in
             guard let request, request.id != lastPresentationRequestID else { return }
             lastPresentationRequestID = request.id
@@ -156,9 +224,90 @@ struct BranchesRootView: View {
         sceneCommand = PaperweightSceneCommand(id: commandID, kind: kind)
     }
 
+    private func overview(memory: PaperweightConfiguration, storage: PaperweightConfiguration,
+                          board: BranchesBoard, now: Date) -> some View {
+        HStack(alignment: .center, spacing: 24) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(front == .storage ? "Storage" : "Memory")
+                    .font(.title3.weight(.medium))
+                    .foregroundStyle(.secondary)
+                Text(front == .storage
+                     ? storage.freeBytes.map { "\(BoardText.bytes($0)) free" } ?? "Measuring…"
+                     : liveWork == nil ? "Unavailable"
+                     : memory.freeBytes != nil ? "\(BoardText.bytes(memory.usedBytes)) in use" : "Measuring…")
+                    .font(.system(size: 36, weight: .light, design: .rounded))
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+                Text(preview && front == .storage
+                     ? "Preview after clearing the default selection."
+                     : front == .memory ? "Used by AI tools and repository work on this Mac."
+                     : showsLayers ? "Click a layer to explore what’s using this Mac."
+                     : "Choose a layer below to explore what’s using this Mac.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+            VStack(alignment: .trailing, spacing: 10) {
+                HStack(spacing: 8) {
+                    paperweightButton(memory)
+                    paperweightButton(storage)
+                }
+                Picker("View", selection: $showsLayers) {
+                    Text("Sailing").tag(false)
+                    Text("Usage layers").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 230)
+                HStack(spacing: 10) {
+                    Picker("Weather", selection: $weatherName) {
+                        ForEach(CruiseWeather.allCases) { condition in
+                            Label(condition.title, systemImage: condition.symbol).tag(condition.rawValue)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 120)
+                    .help(weatherName == CruiseWeather.automatic.rawValue
+                          ? "\(weather.title), following AI activity. Choose a condition to override."
+                          : "Choose Automatic to follow AI activity again")
+                    if front == .storage {
+                        Button("Review and Clear…") { startReview(board.safeToClear, now: now) }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(board.safeToClear.isEmpty || store.isDeleting)
+                    }
+                }
+            }
+        }
+    }
+
+    private func paperweightButton(_ configuration: PaperweightConfiguration) -> some View {
+        let selected = front == configuration.id
+        return Button {
+            guard !selected else { return }
+            front = configuration.id
+            selectedLayerID = configuration.id == .storage ? "wt" : configuration.layers.first?.id ?? configuration.freeLayer.id
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                Label(configuration.id == .memory ? "Memory" : "Storage",
+                      systemImage: configuration.id == .memory ? "memorychip" : "internaldrive")
+                    .font(.callout.weight(.medium))
+                Text(configuration.freeBytes != nil && configuration.capacityBytes > 0
+                     ? "\(LiveWorkText.percent(Double(configuration.usedBytes) / Double(configuration.capacityBytes))) used"
+                     : "Measuring…")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 5)
+        }
+        .buttonStyle(.bordered)
+        .tint(selected ? .accentColor : .secondary)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityHint(showsLayers ? "Bring this paperweight forward" : "Show this resource and its cruising ship")
+    }
+
     private var shipPicker: some View {
         HStack {
-            Picker("Ship in the front paperweight", selection: Binding(
+            Picker(showsLayers ? "Ship in the front paperweight" : "Cruising ship", selection: Binding(
                 get: { store.ship(for: front) },
                 set: { ship in
                     store.chooseShip(ship, for: front)
@@ -204,7 +353,7 @@ struct BranchesRootView: View {
                     }
                     .disabled(picks.bytes(from: board.safeToClear) <= 0 || store.isDeleting)
                 }
-                Button("Shake") { send(.shake) }
+                if showsLayers { Button("Shake") { send(.shake) } }
             }
         }
     }
