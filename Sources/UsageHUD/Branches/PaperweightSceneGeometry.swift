@@ -244,6 +244,8 @@ final class PaperweightBottle {
     private var bubbles: [Bubble] = []
     private(set) var ship: SCNNode
     private(set) var shipKind: PaperweightShipKind
+    private var shipAnimation: PaperweightShipAnimation
+    private var shipTime: TimeInterval = 0
     private var order = -1
     private var dark = false
 
@@ -260,6 +262,7 @@ final class PaperweightBottle {
         self.simulation = PaperweightSimulation(configuration: configuration)
         self.shipKind = shipKind
         ship = PaperweightShipFactory.make(shipKind)
+        shipAnimation = PaperweightShipAnimation(ship: ship, kind: shipKind)
         let path = NSBezierPath(roundedRect: NSRect(x: -2, y: -0.95, width: 4, height: 1.9), xRadius: 0.22, yRadius: 0.22)
         path.flatness = 0.01
         let shape = SCNShape(path: path, extrusionDepth: 0.98)
@@ -272,10 +275,16 @@ final class PaperweightBottle {
             if index == 0 { profile.move(to: point) } else { profile.line(to: point) }
         }
         shape.chamferProfile = profile
-        let frontMaterial = PaperweightSceneAssets.material(.white, opacity: 0.07, roughness: 0.02)
+        // Unlit glass keeps the weather visible through the empty interior.
+        // The existing bevel outlines still describe its rounded 3D shape.
+        let frontMaterial = PaperweightSceneAssets.material(.white, constant: true)
+        frontMaterial.transparency = 0.07
+        frontMaterial.writesToDepthBuffer = false
         frontMaterial.isDoubleSided = false
         frontMaterial.cullMode = .back
-        let backMaterial = PaperweightSceneAssets.material(.white, opacity: 0.05, roughness: 0.05)
+        let backMaterial = PaperweightSceneAssets.material(.white, constant: true)
+        backMaterial.transparency = 0.05
+        backMaterial.writesToDepthBuffer = false
         backMaterial.isDoubleSided = false
         backMaterial.cullMode = .front
         glass = SCNNode(geometry: shape)
@@ -346,6 +355,8 @@ final class PaperweightBottle {
         ship.removeFromParentNode()
         ship = PaperweightShipFactory.make(kind)
         shipKind = kind
+        shipAnimation = PaperweightShipAnimation(ship: ship, kind: kind)
+        shipTime = 0
         inner.addChildNode(ship)
         let previous = order
         order = -1
@@ -363,9 +374,6 @@ final class PaperweightBottle {
         ship.eulerAngles.z = CGFloat(boat.angle)
         // Camera motion excites the liquid, while the glass stays on the table.
         inner.eulerAngles.z = 0
-        if moving, let wheel = ship.childNode(withName: "paddle-wheel", recursively: true) {
-            wheel.eulerAngles.z += CGFloat(dt * (1.6 + abs(boat.velocityX) * 0.02))
-        }
         for index in bubbles.indices {
             if moving {
                 bubbles[index].fraction += bubbles[index].speed * dt
@@ -378,6 +386,19 @@ final class PaperweightBottle {
             bubble.node.isHidden = simulation.configuration.usedBytes == 0
             bubble.node.position = PaperweightSceneAssets.vector(PaperweightConstants.X0 + (bubble.x + sin(bubble.phase) * 3) * PaperweightConstants.unitsPerPixel,
                                                                  PaperweightConstants.Y0 + y * PaperweightConstants.unitsPerPixel, bubble.z)
+        }
+    }
+
+    var hasShipAnimation: Bool { !ship.isHidden && shipAnimation.partCount > 0 }
+
+    /// Decorative parts never rebuild the liquid slabs or advance the water.
+    func animateShip(dt: TimeInterval, reduceMotion: Bool) {
+        if reduceMotion {
+            shipTime = 0
+            shipAnimation.reset()
+        } else if hasShipAnimation {
+            shipTime = (shipTime + dt).truncatingRemainder(dividingBy: PaperweightShipAnimation.cycleDuration)
+            shipAnimation.apply(time: shipTime)
         }
     }
 

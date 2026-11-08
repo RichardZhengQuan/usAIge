@@ -170,6 +170,16 @@ final class PaperweightSceneHost: NSView {
         updateVisibility()
     }
 
+    override func viewDidHide() {
+        super.viewDidHide()
+        updateVisibility()
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        updateVisibility()
+    }
+
     private func installVisibilityObservers() {
         NotificationCenter.default.removeObserver(self)
         for name in [NSWindow.didMiniaturizeNotification, NSWindow.didDeminiaturizeNotification,

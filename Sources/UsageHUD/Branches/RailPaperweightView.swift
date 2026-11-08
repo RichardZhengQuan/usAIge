@@ -1,13 +1,14 @@
 import SwiftUI
 
-/// The glass and readout stay still. Only this small liquid drawing publishes
-/// frames, and its task exists only for the slosh after a pointer enters.
+/// The glass and readout stay still. One visible-hover clock drives the brief
+/// liquid slosh and selects cached ship poses after the liquid has settled.
 @available(macOS 14.0, *)
 struct RailPaperweightView: View {
     let configuration: PaperweightConfiguration
     let ship: PaperweightShipKind
     let hovered: Bool
     @StateObject private var motion: RailPaperweightMotion
+    @State private var isVisible = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(configuration: PaperweightConfiguration, ship: PaperweightShipKind, hovered: Bool) {
@@ -35,7 +36,7 @@ struct RailPaperweightView: View {
                     RailLiquidEdge(frame: motion.frame, rect: rect)
                         .stroke(.white.opacity(0.55), lineWidth: 0.7)
                     let shipSize = CGSize(width: 18, height: 12)
-                    RailPaperweightShipImage(kind: ship, size: shipSize)
+                    RailPaperweightShipImage(kind: ship, size: shipSize, animationTime: motion.shipTime)
                         .rotationEffect(.radians(-motion.frame.boat.angle),
                                         anchor: UnitPoint(x: 0.5, y: RailPaperweightShipImage.waterlineFraction))
                         .position(x: rect.minX + rect.width * motion.frame.boat.x / PaperweightConstants.textureWidth,
@@ -56,15 +57,23 @@ struct RailPaperweightView: View {
         .transaction { $0.animation = nil }
         .accessibilityHidden(true)
         .allowsHitTesting(false)
+        .background {
+            RailPaperweightVisibility { visible in
+                isVisible = visible
+                updateMotion()
+            }
+        }
         .onAppear { updateMotion() }
         .onChange(of: configuration) { _, _ in updateMotion() }
         .onChange(of: hovered) { _, _ in updateMotion() }
         .onChange(of: reduceMotion) { _, _ in updateMotion() }
+        .onChange(of: ship) { _, _ in motion.stop(); updateMotion() }
         .onDisappear { motion.stop() }
     }
 
     private func updateMotion() {
-        motion.update(configuration: configuration, hovered: hovered && !reduceMotion)
+        motion.update(configuration: configuration, hovered: hovered && !reduceMotion,
+                      visible: isVisible, animateShip: RailPaperweightShipImage.canAnimate)
     }
 }
 
@@ -90,10 +99,13 @@ struct RailPaperweightFrame {
 @MainActor
 final class RailPaperweightMotion: ObservableObject {
     @Published private(set) var frame: RailPaperweightFrame
+    @Published private(set) var shipTime: TimeInterval? = nil
     private let simulation: PaperweightSimulation
     private var hovered = false
     private var animation: Task<Void, Never>?
     private var generation = 0
+    private var animatesShip = true
+    private var startedAt: TimeInterval = 0
 
     init(configuration: PaperweightConfiguration) {
         let simulation = PaperweightSimulation(configuration: configuration, reservesLabelSpace: false)
@@ -101,20 +113,23 @@ final class RailPaperweightMotion: ObservableObject {
         frame = RailPaperweightFrame(simulation)
     }
 
-    func update(configuration: PaperweightConfiguration, hovered: Bool) {
-        let entered = hovered && !self.hovered
-        self.hovered = hovered
+    func update(configuration: PaperweightConfiguration, hovered: Bool,
+                visible: Bool = true, animateShip: Bool = true) {
+        let active = hovered && visible && configuration.usedBytes > 0
+        let entered = active && !self.hovered
+        self.hovered = active
+        animatesShip = animateShip
+        if !animateShip { shipTime = nil }
         simulation.update(configuration: configuration)
-        if !hovered || configuration.usedBytes == 0 { stop(); return }
+        if !active { stop(); return }
         if entered {
             simulation.shake(amplitude: 130)
             // Give pointer entry a visible first frame before the next wake.
             simulation.step(dt: 1.0 / 20)
             start()
         } else if animation == nil {
-            // Data can change after a hover has settled without starting
-            // another slosh or keeping an idle clock alive.
-            simulation.settle()
+            if animatesShip { start() }
+            else { simulation.settle() }
         }
         frame = RailPaperweightFrame(simulation)
     }
@@ -124,6 +139,7 @@ final class RailPaperweightMotion: ObservableObject {
         animation?.cancel()
         animation = nil
         hovered = false
+        shipTime = nil
         simulation.settle()
         frame = RailPaperweightFrame(simulation)
     }
@@ -132,22 +148,39 @@ final class RailPaperweightMotion: ObservableObject {
         animation?.cancel()
         generation += 1
         let current = generation
+        startedAt = ProcessInfo.processInfo.systemUptime
+        shipTime = animatesShip ? 0 : nil
         animation = Task { @MainActor [weak self] in
             var previous = ProcessInfo.processInfo.systemUptime
             while !Task.isCancelled {
-                guard let self, self.hovered, self.generation == current else { return }
                 let now = ProcessInfo.processInfo.systemUptime
-                self.simulation.step(dt: min(0.05, max(1.0 / 120, now - previous)))
+                // No strong owner crosses the sleep. Discarding the view can
+                // release this motion object even before an explicit stop.
+                guard let delay = self?.advance(now: now, previous: previous, generation: current) else { return }
                 previous = now
-                self.frame = RailPaperweightFrame(self.simulation)
-                if self.simulation.isSettled {
-                    self.animation = nil
-                    return
-                }
-                do { try await Task.sleep(nanoseconds: 50_000_000) }
+                do { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
                 catch { return }
             }
         }
+    }
+
+    private func advance(now: TimeInterval, previous: TimeInterval, generation current: Int) -> TimeInterval? {
+        guard hovered, generation == current else { return nil }
+        if !simulation.isSettled {
+            simulation.step(dt: min(0.05, max(1.0 / 120, now - previous)))
+            frame = RailPaperweightFrame(simulation)
+        }
+        if animatesShip {
+            let index = RailPaperweightShipTiming.frameIndex(at: now - startedAt)
+            let time = Double(index) * RailPaperweightShipTiming.frameDuration
+            if shipTime != time { shipTime = time }
+        } else if simulation.isSettled {
+            animation = nil
+            return nil
+        }
+        // Once settled, keep the cached fluid frame and wake only when the
+        // tiny sprite can advance. No grid stepping or curve reconstruction.
+        return simulation.isSettled ? RailPaperweightShipTiming.frameDuration : 0.05
     }
 }
 

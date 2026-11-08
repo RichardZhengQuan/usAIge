@@ -9,6 +9,8 @@ jobs:
   macos:
     name: macOS app
     runs-on: macos-26
+    env:
+      SHIP_RENDER_TEST_FILTER: 'PaperweightShipAnimationTests|ShipDetailRenderTests|everyRailShipImageHasVisiblePixels|CruiseWeatherRenderTests|AutomaticWeatherIntegrationTests'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Select Xcode
@@ -19,7 +21,11 @@ jobs:
       - name: Build
         run: swift build --build-tests
       - name: Test
-        run: swift test --skip-build
+        # SceneKit rendering occupies the main actor long enough to delay
+        # unrelated async fixtures. Run those suites in their own process.
+        run: swift test --skip-build --skip "$SHIP_RENDER_TEST_FILTER"
+      - name: Ship rendering and motion
+        run: swift test --skip-build --no-parallel --filter "$SHIP_RENDER_TEST_FILTER"
       - name: Installer staging regression
         run: python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 

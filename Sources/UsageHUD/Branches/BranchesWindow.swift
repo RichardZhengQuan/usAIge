@@ -41,23 +41,27 @@ final class BranchesWindowController: NSWindowController, NSWindowDelegate {
 
     /// `liveWork` is the rail's monitor, so the window's memory figure is the
     /// rail's, not a second reading of its own.
-    init(store: BranchesStore = BranchesStore(), liveWork: LiveWorkMonitor? = nil, onClose: @escaping () -> Void) {
+    init(store: BranchesStore = BranchesStore(), liveWork: LiveWorkMonitor? = nil,
+         agentStore: CodexAgentStore? = nil, onClose: @escaping () -> Void) {
         self.store = store
         self.onClose = onClose
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1180, height: 780),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         window.title = "Branches"
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
         window.identifier = AppWindowIdentifiers.branches
         window.minSize = NSSize(width: 900, height: 560)
         window.isReleasedWhenClosed = false
         window.setFrameAutosaveName(Self.frameName)
         super.init(window: window)
         window.delegate = self
-        window.contentView = NSHostingView(rootView: BranchesRootView(store: store, liveWork: liveWork, presentation: presentation))
+        window.contentView = NSHostingView(rootView: BranchesRootView(store: store, liveWork: liveWork,
+                                                                    agentStore: agentStore, presentation: presentation))
     }
 
     @available(*, unavailable)

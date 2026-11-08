@@ -40,6 +40,7 @@ cp "$root/Integrations/.claude-plugin/marketplace.json" "$app/Contents/Resources
 cp "$root/Integrations/ClaudeUsageBridge/.claude-plugin/plugin.json" "$app/Contents/Resources/ClaudeUsageBridge/.claude-plugin/plugin.json"
 cp "$root/Integrations/ClaudeUsageBridge/hooks/hooks.json" "$root/Integrations/ClaudeUsageBridge/hooks/register.mjs" "$app/Contents/Resources/ClaudeUsageBridge/hooks/"
 cp "$root/Sources/CZstd/LICENSE.txt" "$app/Contents/Resources/ThirdPartyNotices/Zstandard.txt"
+cp "$root/Sources/UsageHUD/Resources/ThirdPartyNotices/DriftClouds.txt" "$app/Contents/Resources/ThirdPartyNotices/DriftClouds.txt"
 
 plutil -lint "$app/Contents/Info.plist"
 test -x "$app/Contents/MacOS/usAIge"

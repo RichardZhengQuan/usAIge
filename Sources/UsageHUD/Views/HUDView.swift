@@ -22,6 +22,14 @@ struct HUDView: View {
     @State private var isPanelHovered = false
     @State private var detailHoveredSnapshotIDs: Set<String> = []
     @State private var isRefreshing = false
+    @State private var sailingShakeID = 0
+    @AppStorage(CruiseWeather.defaultsKey) private var sailingWeatherRaw = CruiseWeather.automatic.rawValue
+    @AppStorage(PaperweightShipPreferences.storageKey) private var sailingShipRaw = PaperweightShipKind.galleon.rawValue
+
+    private var sailingWeather: CruiseWeather {
+        CruiseWeather(rawValue: sailingWeatherRaw) ?? .automatic
+    }
+    private var sailingShip: PaperweightShipKind { PaperweightShipKind(rawValue: sailingShipRaw) ?? .galleon }
 
     private var availableSnapshots: [QuotaSnapshot] {
         switch store.state {
@@ -113,6 +121,16 @@ struct HUDView: View {
                 }
             }
             .contentShape(panelShape)
+            .contextMenu {
+                Picker("Sailing weather", selection: $sailingWeatherRaw) {
+                    ForEach(CruiseWeather.allCases) { weather in
+                        Label(weather.title, systemImage: weather.symbol).tag(weather.rawValue)
+                    }
+                }
+                Divider()
+                Button("Shake the sea", systemImage: "water.waves") { sailingShakeID += 1 }
+                    .disabled(reduceMotion)
+            }
             .onHover { isHovered in
                 isPanelHovered = isHovered
                 guard isHovered else { return }
@@ -154,13 +172,23 @@ struct HUDView: View {
 
     @ViewBuilder
     private var panelSurface: some View {
-        HUDGlassSurface(
-            severity: currentLimitSeverity,
-            isActive: reduceTransparency || HUDMetrics.glassSurfaceOpacity(
-                isHovered: isPanelHovered,
-                forceVisible: showsStatusSurface
-            ) > 0
-        )
+        ZStack {
+            UsageAtmosphereBackground(compact: true,
+                                      weather: sailingWeather, ship: sailingShip,
+                                      command: sailingShakeID > 0 ? PaperweightSceneCommand(id: sailingShakeID, kind: .shake) : nil)
+            if !reduceTransparency {
+                HUDGlassSurface(
+                    severity: currentLimitSeverity,
+                    isActive: HUDMetrics.glassSurfaceOpacity(
+                        isHovered: isPanelHovered,
+                        forceVisible: showsStatusSurface
+                    ) > 0
+                )
+            }
+        }
+        .clipShape(panelShape)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     @ViewBuilder

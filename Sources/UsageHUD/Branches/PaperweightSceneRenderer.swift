@@ -1,5 +1,6 @@
 import AppKit
 import SceneKit
+import simd
 
 @available(macOS 14.0, *)
 struct PaperweightSceneHit {
@@ -8,15 +9,14 @@ struct PaperweightSceneHit {
     let x: Double
 }
 
-/// Motion owns a short-lived timer. Once the two fluids and camera settle,
-/// SceneKit is paused and no frame or SwiftUI update is scheduled.
+/// One visibility-owned clock runs physics at 60 Hz and settled ship parts at
+/// 15 Hz. Decorative ticks leave the fluid geometry and SwiftUI state alone.
 @available(macOS 14.0, *)
 @MainActor
 final class PaperweightSceneRenderer: NSObject {
     private weak var view: SCNView?
     private let scene = SCNScene()
     private let camera = SCNNode()
-    private let table = SCNNode()
     private var bottles: [PaperweightID: PaperweightBottle] = [:]
     private var front = PaperweightID.storage
     private var selectedLayerID: String?
@@ -25,6 +25,8 @@ final class PaperweightSceneRenderer: NSObject {
     private var isVisible = false
     private var initialMotionPending = true
     private var timer: Timer?
+    private(set) var frameInterval: TimeInterval = 0
+    var hasDrawingClock: Bool { timer != nil }
     private lazy var tickTarget = PaperweightTickTarget(owner: self)
     private var lastTime: TimeInterval = 0
     private var lastCommand: Int?
@@ -32,8 +34,8 @@ final class PaperweightSceneRenderer: NSObject {
     private var cameraReset: CameraReset?
     private var yaw = atan2(-0.6, 8.6)
     private var pitch = atan2(2.5, hypot(0.6, 8.6))
-    private var radius = sqrt(0.6 * 0.6 + 2.5 * 2.5 + 8.6 * 8.6)
-    private var radiusTarget = sqrt(0.6 * 0.6 + 2.5 * 2.5 + 8.6 * 8.6)
+    private var zoomScale = 1.0
+    private var zoomTarget = 1.0
     private var yawVelocity = 0.0
     private var pitchVelocity = 0.0
     private var dragging = false
@@ -45,7 +47,7 @@ final class PaperweightSceneRenderer: NSObject {
     private var lastInputs: Inputs?
 
     private struct Swap { let from: PaperweightID; let to: PaperweightID; var progress = 0.0 }
-    private struct CameraReset { let yaw: Double; let pitch: Double; let radius: Double; var progress = 0.0 }
+    private struct CameraReset { let yaw: Double; let pitch: Double; let zoom: Double; var progress = 0.0 }
     private struct Inputs: Equatable {
         let configurations: [PaperweightConfiguration]
         let front: PaperweightID
@@ -73,6 +75,7 @@ final class PaperweightSceneRenderer: NSObject {
         scene.lightingEnvironment.intensity = 1.3
         camera.camera = SCNCamera()
         camera.camera?.fieldOfView = 30
+        camera.camera?.projectionDirection = .vertical
         camera.camera?.zNear = 0.1
         camera.camera?.zFar = 100
         camera.camera?.wantsHDR = false
@@ -80,13 +83,6 @@ final class PaperweightSceneRenderer: NSObject {
         scene.rootNode.addChildNode(camera)
         view.pointOfView = camera
         addLighting()
-        let floor = SCNFloor()
-        floor.reflectivity = 0
-        table.geometry = floor
-        table.geometry?.materials = [PaperweightSceneAssets.material(NSColor.labelColor, opacity: 0.035, constant: true)]
-        table.position.y = -0.001
-        table.categoryBitMask = 2
-        scene.rootNode.addChildNode(table)
     }
 
     func update(configurations: [PaperweightConfiguration], front requestedFront: PaperweightID, selectedLayerID: String?,
@@ -134,7 +130,6 @@ final class PaperweightSceneRenderer: NSObject {
         // A swap brings the camera back to the default view, so the newly
         // fronted paperweight is always seen whole, however it was zoomed.
         if swapping { resetCamera() }
-        table.geometry?.firstMaterial?.diffuse.contents = PaperweightSceneAssets.ink(dark: isDark)
         if reduceMotion { settleAll() }
         placeBottles()
         updateCamera()
@@ -151,6 +146,7 @@ final class PaperweightSceneRenderer: NSObject {
     func resize(_ newSize: CGSize) {
         guard newSize != size else { return }
         size = newSize
+        placeBottles()
         updateCamera()
         requestRender()
     }
@@ -241,10 +237,12 @@ final class PaperweightSceneRenderer: NSObject {
     func zoom(by amount: Double) {
         guard amount.isFinite else { return }
         cameraReset = nil
-        let closest = minimumCameraDistance(margin: 1.05)
-        let furthest = max(closest, sqrt(0.6 * 0.6 + 2.5 * 2.5 + 8.6 * 8.6) * 1.2)
-        radiusTarget = clamped(radiusTarget * exp(clamped(amount, -0.4, 0.4)), closest, furthest)
-        if reduceMotion || !isVisible { radius = radiusTarget }
+        let frame = cameraFrame()
+        let frontFrame = cameraFrame(for: [bottles[front]].compactMap { $0 })
+        let closest = frontFrame.distance / frame.distance
+        let furthest = max(closest, 1.2)
+        zoomTarget = clamped(zoomTarget * exp(clamped(amount, -0.4, 0.4)), closest, furthest)
+        if reduceMotion || !isVisible { zoomScale = zoomTarget }
         kick()
         updateCamera()
         requestRender()
@@ -252,11 +250,11 @@ final class PaperweightSceneRenderer: NSObject {
 
     func resetCamera() {
         yawVelocity = 0; pitchVelocity = 0; dragging = false
-        radiusTarget = sqrt(0.6 * 0.6 + 2.5 * 2.5 + 8.6 * 8.6)
+        zoomTarget = 1
         if reduceMotion || !isVisible {
             cameraReset = nil
             setDefaultCamera()
-        } else { cameraReset = CameraReset(yaw: yaw, pitch: pitch, radius: radius) }
+        } else { cameraReset = CameraReset(yaw: yaw, pitch: pitch, zoom: zoomScale) }
         for bottle in bottles.values { bottle.simulation.tiltTarget = 0; bottle.simulation.acceleration = 0 }
         kick()
         updateCamera()
@@ -264,25 +262,31 @@ final class PaperweightSceneRenderer: NSObject {
     }
 
     private var needsMotion: Bool {
-        swap != nil || cameraReset != nil || abs(radiusTarget - radius) > 0.002 || abs(yawVelocity) + abs(pitchVelocity) > 0.001 || bottles.values.contains { !$0.simulation.isSettled }
+        swap != nil || cameraReset != nil || abs(zoomTarget - zoomScale) > 0.002 || abs(yawVelocity) + abs(pitchVelocity) > 0.001 || bottles.values.contains { !$0.simulation.isSettled }
     }
+
+    private var needsShipAnimation: Bool { bottles.values.contains(where: \.hasShipAnimation) }
 
     private func kick() {
         guard isVisible, !reduceMotion else { settleAll(); stopTimer(); return }
-        guard needsMotion else { stopTimer(); return }
-        guard timer == nil else { return }
+        guard needsMotion || needsShipAnimation else { stopTimer(); return }
+        let interval = needsMotion ? 1.0 / 60 : 1.0 / 15
+        setMoving(needsMotion)
+        guard timer == nil || abs(frameInterval - interval) > 0.0001 else { return }
+        timer?.invalidate()
+        frameInterval = interval
         lastTime = ProcessInfo.processInfo.systemUptime
-        let timer = Timer(timeInterval: 1.0 / 60, target: tickTarget, selector: #selector(PaperweightTickTarget.tick(_:)), userInfo: nil, repeats: true)
+        let timer = Timer(timeInterval: interval, target: tickTarget, selector: #selector(PaperweightTickTarget.tick(_:)), userInfo: nil, repeats: true)
         self.timer = timer
         RunLoop.main.add(timer, forMode: .common)
-        scene.isPaused = false
-        setMoving(true)
+        scene.isPaused = true
     }
 
     fileprivate func tick() {
         guard isVisible, !reduceMotion else { settleAll(); stopTimer(); return }
         let time = ProcessInfo.processInfo.systemUptime
-        let dt = min(0.05, max(1.0 / 240, time - lastTime))
+        let elapsed = min(0.15, max(1.0 / 240, time - lastTime))
+        let dt = min(0.05, elapsed)
         lastTime = time
         SCNTransaction.begin()
         SCNTransaction.disableActions = true
@@ -294,17 +298,19 @@ final class PaperweightSceneRenderer: NSObject {
                 bottle.simulation.step(dt: dt)
                 bottle.updateVisuals(dt: dt, moving: true, geometryChanged: true)
             }
+            bottle.animateShip(dt: elapsed, reduceMotion: false)
         }
         placeBottles()
         updateCamera()
         SCNTransaction.commit()
         requestRender()
-        if !needsMotion { stopTimer() }
+        kick()
     }
 
     private func stopTimer() {
         timer?.invalidate()
         timer = nil
+        frameInterval = 0
         scene.isPaused = true
         view?.isPlaying = false
         view?.rendersContinuously = false
@@ -321,7 +327,7 @@ final class PaperweightSceneRenderer: NSObject {
 
     private func settleAll() {
         if cameraReset != nil { setDefaultCamera() }
-        else { radius = radiusTarget }
+        else { zoomScale = zoomTarget }
         swap = nil; cameraReset = nil; dragging = false
         yawVelocity = 0; pitchVelocity = 0
         for bottle in bottles.values {
@@ -329,6 +335,7 @@ final class PaperweightSceneRenderer: NSObject {
                 || bottle.simulation.currentLevels != bottle.simulation.targetLevels
             bottle.simulation.settle()
             bottle.updateVisuals(dt: 0, moving: false, geometryChanged: changed)
+            bottle.animateShip(dt: 0, reduceMotion: true)
         }
         placeBottles()
         updateCamera()
@@ -353,7 +360,7 @@ final class PaperweightSceneRenderer: NSObject {
             let amount = eased(reset.progress)
             yaw = lerp(reset.yaw, atan2(-0.6, 8.6), amount)
             pitch = lerp(reset.pitch, atan2(2.5, hypot(0.6, 8.6)), amount)
-            radius = lerp(reset.radius, sqrt(0.6 * 0.6 + 2.5 * 2.5 + 8.6 * 8.6), amount)
+            zoomScale = lerp(reset.zoom, 1, amount)
             cameraReset = reset.progress < 1 ? reset : nil
         } else {
             if !dragging {
@@ -374,12 +381,13 @@ final class PaperweightSceneRenderer: NSObject {
             if abs(simulation.acceleration) < 0.0001 { simulation.acceleration = 0 }
         }
         if cameraReset == nil {
-            radius += (radiusTarget - radius) * min(1, dt * 12)
-            if abs(radiusTarget - radius) <= 0.002 { radius = radiusTarget }
+            zoomScale += (zoomTarget - zoomScale) * min(1, dt * 12)
+            if abs(zoomTarget - zoomScale) <= 0.002 { zoomScale = zoomTarget }
         }
     }
 
     private func placeBottles() {
+        let layout = PaperweightSceneFraming.placement(aspect: Double(size.width / max(1, size.height)))
         for (id, bottle) in bottles {
             var amount = id == front ? 1.0 : 0.0
             var lift = 0.0, side = 0.0, deep = 0.0
@@ -389,7 +397,10 @@ final class PaperweightSceneRenderer: NSObject {
                 if id == swap.to { lift = arc * 0.7; side = -arc * 1.9 }
                 else { side = arc * 1.5; deep = -arc * 0.9 }
             }
-            bottle.group.position = PaperweightSceneAssets.vector(lerp(3.6, 0, amount) + side, 1.01 + lift, lerp(-5, 1.1, amount) + deep)
+            bottle.group.position = PaperweightSceneAssets.vector(
+                lerp(layout.rear.x, layout.front.x, amount) + side, 1.01 + lift,
+                lerp(layout.rear.z, layout.front.z, amount) + deep
+            )
             bottle.group.eulerAngles.y = CGFloat(lerp(-0.34, 0.07, amount))
             bottle.caption.opacity = CGFloat(1 - amount)
             bottle.shadow.opacity = CGFloat(max(0, 1 - lift))
@@ -399,35 +410,36 @@ final class PaperweightSceneRenderer: NSObject {
 
     private func updateCamera() {
         guard size.width > 0, size.height > 0 else { return }
-        let target = (x: 0.6, y: 0.7, z: -1.0)
-        let direction = (x: sin(yaw) * cos(pitch), y: sin(pitch), z: cos(yaw) * cos(pitch))
-        let distance = max(radius, minimumCameraDistance(margin: 1.05))
-        camera.position = PaperweightSceneAssets.vector(target.x + direction.x * distance, target.y + direction.y * distance, target.z + direction.z * distance)
+        let frame = cameraFrame()
+        let frontFrame = cameraFrame(for: [bottles[front]].compactMap { $0 })
+        // Zoom toward the selected object; the default view keeps both visible.
+        let focus = clamped((1 - zoomScale) / 0.35, 0, 1)
+        let target = frame.target + (frontFrame.target - frame.target) * focus
+        let direction = SIMD3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch))
+        let distance = max(zoomScale * frame.distance, minimumCameraDistance(target: target, margin: 1.04))
+        let position = target + direction * distance
+        camera.position = PaperweightSceneAssets.vector(position.x, position.y, position.z)
         camera.look(at: PaperweightSceneAssets.vector(target.x, target.y, target.z))
     }
 
-    private func minimumCameraDistance(margin: Double) -> Double {
-        guard size.width > 0, size.height > 0 else { return 7.5 }
-        let target = (x: 0.6, y: 0.7, z: -1.0)
-        let direction = (x: sin(yaw) * cos(pitch), y: sin(pitch), z: cos(yaw) * cos(pitch))
-        let right = (x: cos(yaw), y: 0.0, z: -sin(yaw))
-        let up = (x: -sin(yaw) * sin(pitch), y: cos(pitch), z: -cos(yaw) * sin(pitch))
-        let tangent = tan(15 * Double.pi / 180)
-        let horizontal = tangent * Double(size.width / size.height)
-        var minimum = 0.5
-        // The closest stop fits the front glass, so it can nearly fill the
-        // scene while the default camera still shows the rear paperweight.
-        for bottle in [bottles[front]].compactMap({ $0 }) {
-            for x in [-2.12, 2.12] { for y in [-1.03, 1.08] { for z in [-0.62, 0.62] {
-                let point = bottle.group.convertPosition(PaperweightSceneAssets.vector(x, y, z), to: nil)
-                let p = (x: Double(point.x) - target.x, y: Double(point.y) - target.y, z: Double(point.z) - target.z)
-                let along = p.x * direction.x + p.y * direction.y + p.z * direction.z
-                let across = abs(p.x * right.x + p.y * right.y + p.z * right.z)
-                let vertical = abs(p.x * up.x + p.y * up.y + p.z * up.z)
-                minimum = max(minimum, along + max(across / max(0.05, horizontal), vertical / tangent) * margin, along + 0.3)
-            } } }
+    private func framingPoints(for nodes: [PaperweightBottle]) -> [SIMD3<Double>] {
+        nodes.flatMap { bottle in
+            PaperweightSceneFraming.glassCorners.map { corner in
+                let point = bottle.group.convertPosition(PaperweightSceneAssets.vector(corner.x, corner.y, corner.z), to: nil)
+                return SIMD3(Double(point.x), Double(point.y), Double(point.z))
+            }
         }
-        return minimum
+    }
+
+    private func cameraFrame(for nodes: [PaperweightBottle]? = nil) -> PaperweightSceneFraming.Frame {
+        PaperweightSceneFraming.fit(points: framingPoints(for: nodes ?? Array(bottles.values)),
+                                    aspect: Double(size.width / max(1, size.height)), yaw: yaw, pitch: pitch)
+    }
+
+    private func minimumCameraDistance(target: SIMD3<Double>, margin: Double) -> Double {
+        PaperweightSceneFraming.distance(points: framingPoints(for: [bottles[front]].compactMap { $0 }),
+                                        target: target, aspect: Double(size.width / max(1, size.height)),
+                                        yaw: yaw, pitch: pitch, margin: margin)
     }
 
     private func addLighting() {
@@ -455,8 +467,8 @@ final class PaperweightSceneRenderer: NSObject {
 
     private func setDefaultCamera() {
         yaw = atan2(-0.6, 8.6); pitch = atan2(2.5, hypot(0.6, 8.6))
-        radius = sqrt(0.6 * 0.6 + 2.5 * 2.5 + 8.6 * 8.6)
-        radiusTarget = radius
+        zoomScale = 1
+        zoomTarget = zoomScale
     }
     private func requestRender() { view?.needsDisplay = true }
     private func clamped(_ value: Double, _ lower: Double, _ upper: Double) -> Double { min(upper, max(lower, value)) }
