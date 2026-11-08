@@ -1,6 +1,6 @@
 import Foundation
 
-/// A remembered visual setting for the ships, independent of local forecasts.
+/// A remembered visual setting for the ships, independent of local forecasts or AI activity.
 enum CruiseWeather: String, CaseIterable, Identifiable, Sendable {
     case automatic, sunny, cloudy, rain, thunder, storm, typhoon, snow, night
 
@@ -36,14 +36,4 @@ enum CruiseWeather: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// A manual choice stays selected while automatic weather follows the
-    /// most urgent activity reported by the app's existing agent store.
-    func resolved(phases: [CodexAgentPhase]) -> CruiseWeather {
-        guard self == .automatic else { return self }
-        if phases.contains(.error) { return .storm }
-        if phases.contains(.needsInput) { return .rain }
-        if phases.contains(.thinking) { return .cloudy }
-        if phases.contains(.complete) { return .sunny }
-        return .night
-    }
 }

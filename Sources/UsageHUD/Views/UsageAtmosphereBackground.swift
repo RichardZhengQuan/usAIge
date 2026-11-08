@@ -39,7 +39,7 @@ struct UsageAtmosphereBackground: NSViewRepresentable {
     static func dismantleNSView(_ view: UsageAtmosphereView, coordinator: ()) { view.stop() }
 
     private func configure(_ view: UsageAtmosphereView) {
-        view.configure(active: isActive, compact: compact, weather: weather.resolved(phases: []), ship: ship,
+        view.configure(active: isActive, compact: compact, weather: weather, ship: ship,
                        showsShip: showsShip, dark: colorScheme == .dark,
                        reduced: reduceMotion || frozen, capturesWeather: frozen, command: command)
     }
@@ -53,7 +53,16 @@ final class UsageAtmosphereView: NSView {
     private var dark = false
     private var reduced = false
     private var capturesWeather = false
-    private var weather = CruiseWeather.sunny
+    private var weatherPreference = CruiseWeather.sunny
+    private(set) var weatherTransition = CruiseWeatherTransition(from: .sunny, to: .sunny, progress: 0)
+    private(set) var seaProfile = CruiseWeather.sunny.seaProfile
+    private(set) var weatherMix = CruiseWeatherMix(transition: .init(from: .sunny, to: .sunny, progress: 0))
+    private var weather: CruiseWeather { weatherTransition.current }
+    var weatherCycle = CruiseWeatherCycle.shared
+    var weatherNow: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+    private var hasWeatherSample = false
+    private var lastWeatherSampleTime: TimeInterval?
+    private var weatherRecovery: (from: CruiseWeatherMix, start: TimeInterval)?
     private var ship = PaperweightShipKind.galleon
     private var showsShip = true
     private var shipSnapshot: CGImage?
@@ -99,7 +108,7 @@ final class UsageAtmosphereView: NSView {
                    dark: Bool, reduced: Bool, capturesWeather: Bool = false,
                    command: PaperweightSceneCommand? = nil) {
         let changed = self.active != active || self.compact != compact || self.dark != dark || self.reduced != reduced
-            || self.weather != weather || self.ship != ship || self.showsShip != showsShip
+            || self.weatherPreference != weather || self.ship != ship || self.showsShip != showsShip
             || self.capturesWeather != capturesWeather
         let cadenceChanged = self.compact != compact
         let commandChanged = command.map { $0.id != lastCommandID } ?? false
@@ -109,14 +118,19 @@ final class UsageAtmosphereView: NSView {
         self.reduced = reduced
         self.capturesWeather = capturesWeather
         weatherView?.isHidden = capturesWeather
-        self.weather = weather
+        if !hasWeatherSample || weatherPreference != weather {
+            weatherPreference = weather
+            weatherRecovery = nil
+            lastWeatherSampleTime = nil
+            sampleWeather()
+        }
         self.ship = ship
         self.showsShip = showsShip
-        sea.configure(size: bounds.size, compact: compact, weather: weather)
-        if reduced { sea.settle() }
+        sea.configure(size: bounds.size, compact: compact, weather: self.weather, profile: seaProfile)
+        if reduced || capturesWeather { sea.settle() }
         if let command, command.id != lastCommandID {
             lastCommandID = command.id
-            if active && !reduced {
+            if active && !reduced && !capturesWeather {
                 switch command.kind {
                 case .shake: sea.shake()
                 case .shipDrop: sea.shake(amplitude: 0.45)
@@ -173,8 +187,8 @@ final class UsageAtmosphereView: NSView {
 
     override func layout() {
         super.layout()
-        sea.configure(size: bounds.size, compact: compact, weather: weather)
-        if reduced { sea.settle() }
+        sea.configure(size: bounds.size, compact: compact, weather: self.weather, profile: seaProfile)
+        if reduced || capturesWeather { sea.settle() }
         let limit: CGFloat = compact ? 240 : 960
         let scale = min(1, limit / max(1, max(bounds.width, bounds.height)))
         weatherView?.drawableSize = CGSize(width: max(1, bounds.width * scale), height: max(1, bounds.height * scale))
@@ -197,7 +211,7 @@ final class UsageAtmosphereView: NSView {
     @objc private func visibilityChanged(_ notification: Notification) {
         if notification.name == NSWindow.didMoveNotification, notification.object as? NSWindow === window,
            let origin = window?.frame.origin {
-            if let previous = lastWindowOrigin, active, !reduced, showsShip {
+            if let previous = lastWindowOrigin, active, !reduced, !capturesWeather, showsShip {
                 let distance = hypot(origin.x - previous.x, origin.y - previous.y)
                 if distance > 2 {
                     sea.shake(amplitude: min(1, distance / 120))
@@ -219,7 +233,7 @@ final class UsageAtmosphereView: NSView {
     }
 
     private func updateVisibility() {
-        guard active, !reduced, isSceneVisible else {
+        guard active, !reduced, !capturesWeather, isSceneVisible else {
             stopClock()
             return
         }
@@ -256,9 +270,37 @@ final class UsageAtmosphereView: NSView {
     /// Advances the same frame for the native clock and deterministic exports.
     /// Visibility gates the clock above; explicit exports can run offscreen.
     func advanceAnimation(by interval: TimeInterval) {
-        guard active, !reduced else { return }
+        guard active, !reduced, !capturesWeather, interval.isFinite, interval > 0 else { return }
+        sampleWeather()
+        sea.configure(size: bounds.size, compact: compact, weather: weather, profile: seaProfile)
         sea.step(dt: interval)
         invalidateFrame()
+    }
+
+    private func sampleWeather() {
+        let now = weatherNow()
+        let target = weatherPreference == .automatic
+            ? weatherCycle.sample(at: now)
+            : CruiseWeatherTransition(from: weatherPreference, to: weatherPreference, progress: 0)
+        if hasWeatherSample, weatherPreference == .automatic,
+           let previousTime = lastWeatherSampleTime, now.isFinite, now - previousTime > 1,
+           (target != weatherTransition || weatherRecovery != nil) {
+            // A paused/hidden scene holds its own look. Rejoin the shared
+            // cycle gradually when its visible clock resumes.
+            weatherRecovery = (weatherMix, now)
+        }
+        if let recovery = weatherRecovery {
+            let linear = min(1, max(0, (now - recovery.start) / CruiseWeatherCycle.transitionDuration))
+            let blend = linear * linear * (3 - 2 * linear)
+            weatherMix = recovery.from.interpolated(to: CruiseWeatherMix(transition: target), progress: blend)
+            if linear >= 1 { weatherRecovery = nil }
+        } else {
+            weatherMix = CruiseWeatherMix(transition: target)
+        }
+        weatherTransition = target
+        seaProfile = weatherMix.seaProfile
+        hasWeatherSample = true
+        lastWeatherSampleTime = now.isFinite ? now : lastWeatherSampleTime
     }
 
     private func invalidateFrame() {
@@ -269,7 +311,8 @@ final class UsageAtmosphereView: NSView {
         shipOverlay?.needsDisplay = true
         guard !capturesWeather, let weatherRenderer, let weatherView else { return }
         weatherRenderer.configure(time: phase, weather: weather, dark: dark, compact: compact,
-                                  lightningEnabled: active && !reduced && !capturesWeather)
+                                  lightningEnabled: active && !reduced && !capturesWeather,
+                                  transition: weatherTransition, seaProfile: seaProfile, oceanTime: sea.oceanTime, mix: weatherMix)
         weatherView.draw()
     }
 
@@ -305,7 +348,8 @@ final class UsageAtmosphereView: NSView {
         let height = min(2_048, max(1, Int(bounds.height * scale)))
         guard let background = weatherRenderer.snapshot(size: CGSize(width: width, height: height),
                                                         time: phase, weather: weather, dark: dark, compact: compact,
-                                                        lightningEnabled: active && !reduced && !capturesWeather),
+                                                        lightningEnabled: active && !reduced && !capturesWeather,
+                                                        transition: weatherTransition, seaProfile: seaProfile, oceanTime: sea.oceanTime, mix: weatherMix),
               let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
                                       bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
@@ -320,7 +364,8 @@ final class UsageAtmosphereView: NSView {
         if let weatherRenderer {
             if capturesWeather, let context = NSGraphicsContext.current?.cgContext,
                let image = weatherRenderer.snapshot(size: bounds.size, time: phase, weather: weather, dark: dark, compact: compact,
-                                                    lightningEnabled: false) {
+                                                    lightningEnabled: false, transition: weatherTransition,
+                                                    seaProfile: seaProfile, oceanTime: sea.oceanTime, mix: weatherMix) {
                 context.saveGState()
                 context.translateBy(x: 0, y: bounds.height)
                 context.scaleBy(x: 1, y: -1)
@@ -330,31 +375,56 @@ final class UsageAtmosphereView: NSView {
             return
         }
         guard bounds.width > 0, bounds.height > 0, let context = NSGraphicsContext.current?.cgContext else { return }
+        var accumulated = 0.0
+        for index in CruiseWeatherMix.conditions.indices {
+            let weight = weatherMix.weights[index]
+            guard weight > 0 else { continue }
+            context.saveGState()
+            context.setAlpha(weight / (accumulated + weight))
+            context.beginTransparencyLayer(auxiliaryInfo: nil)
+            drawFallbackBackground(context, weather: CruiseWeatherMix.conditions[index])
+            context.endTransparencyLayer()
+            context.restoreGState()
+            accumulated += weight
+        }
+        // Composite one ship above the same sampled waterline as Metal.
+        drawShipOverlay(context)
+        for index in CruiseWeatherMix.conditions.indices {
+            drawFallbackPrecipitation(context, weather: CruiseWeatherMix.conditions[index],
+                                      opacity: weatherMix.weights[index])
+        }
+    }
+
+    private func drawFallbackBackground(_ context: CGContext, weather: CruiseWeather) {
         let width = bounds.width, height = bounds.height
         let time = sea.time
         let horizon = height * (compact ? 0.58 : 0.40)
-        let palette = scenePalette
+        let palette = scenePalette(for: weather)
         let space = CGColorSpaceCreateDeviceRGB()
         gradient(context, colors: [palette.sky, palette.horizon], from: .zero,
                  to: CGPoint(x: 0, y: horizon + height * 0.12), space: space)
-        drawCelestialBody(context, time: time, width: width, height: height, space: space)
-        drawClouds(context, time: time, width: width, height: height, space: space)
+        drawCelestialBody(context, time: time, width: width, height: height, space: space, weather: weather)
+        drawClouds(context, time: time, width: width, height: height, space: space, weather: weather)
         context.saveGState()
         context.clip(to: CGRect(x: 0, y: horizon, width: width, height: height - horizon))
         gradient(context, colors: [palette.sea, palette.deep], from: CGPoint(x: 0, y: horizon),
                  to: CGPoint(x: 0, y: height), space: space)
-        drawOcean(context, time: time, width: width, height: height, horizon: horizon)
+        drawOcean(context, time: time, width: width, height: height, horizon: horizon, weather: weather)
         context.restoreGState()
-        if showsShip {
-            drawCruisingShip(context, time: time, width: width, height: height)
-            drawForegroundWater(context, time: time, width: width, height: height, horizon: horizon, space: space)
-            drawWake(context, time: time)
-        }
-        drawPrecipitation(context, time: time, width: width, height: height, horizon: horizon)
-        drawLightning(context, time: time, width: width, height: height)
     }
 
-    private var scenePalette: (sky: CGColor, horizon: CGColor, sea: CGColor, deep: CGColor) {
+    private func drawFallbackPrecipitation(_ context: CGContext, weather: CruiseWeather, opacity: Double) {
+        guard opacity > 0 else { return }
+        context.saveGState()
+        context.setAlpha(opacity)
+        let width = bounds.width, height = bounds.height
+        drawPrecipitation(context, time: phase, width: width, height: height,
+                          horizon: height * (compact ? 0.58 : 0.40), weather: weather)
+        drawLightning(context, time: phase, width: width, height: height, weather: weather)
+        context.restoreGState()
+    }
+
+    private func scenePalette(for weather: CruiseWeather) -> (sky: CGColor, horizon: CGColor, sea: CGColor, deep: CGColor) {
         switch weather {
         case .automatic, .sunny:
             return dark
@@ -383,7 +453,7 @@ final class UsageAtmosphereView: NSView {
         }
     }
 
-    private func drawCelestialBody(_ context: CGContext, time: Double, width: CGFloat, height: CGFloat, space: CGColorSpace) {
+    private func drawCelestialBody(_ context: CGContext, time: Double, width: CGFloat, height: CGFloat, space: CGColorSpace, weather: CruiseWeather) {
         guard weather == .sunny || weather == .night else { return }
         let center = CGPoint(x: width * 0.81, y: height * (compact ? 0.17 : 0.16))
         let radius = compact ? min(12, width * 0.16) : min(48, max(28, width * 0.037))
@@ -415,7 +485,7 @@ final class UsageAtmosphereView: NSView {
         }
     }
 
-    private func drawClouds(_ context: CGContext, time: Double, width: CGFloat, height: CGFloat, space: CGColorSpace) {
+    private func drawClouds(_ context: CGContext, time: Double, width: CGFloat, height: CGFloat, space: CGColorSpace, weather: CruiseWeather) {
         let count = compact ? (weather == .sunny ? 2 : 4) : (weather == .sunny || weather == .night ? 3 : 8)
         let stormy = [.rain, .thunder, .storm, .typhoon].contains(weather)
         for index in 0..<count {
@@ -450,8 +520,8 @@ final class UsageAtmosphereView: NSView {
         }
     }
 
-    private func drawOcean(_ context: CGContext, time: Double, width: CGFloat, height: CGFloat, horizon: CGFloat) {
-        let rough = 0.5 + Double(weather.seaProfile.roughness) * 2.2
+    private func drawOcean(_ context: CGContext, time: Double, width: CGFloat, height: CGFloat, horizon: CGFloat, weather: CruiseWeather) {
+        let rough = 0.5 + Double(seaProfile.roughness) * 2.2
         for index in 0..<6 {
             let amount = Double(index) / 5
             let level = horizon + (height - horizon) * (0.04 + amount * 0.9)
@@ -523,35 +593,6 @@ final class UsageAtmosphereView: NSView {
         context.restoreGState()
     }
 
-    /// The same curve both supports the hull and hides its submerged keel.
-    private func drawForegroundWater(_ context: CGContext, time: Double, width: CGFloat, height: CGFloat,
-                                     horizon: CGFloat, space: CGColorSpace) {
-        let surface = CGMutablePath()
-        surface.move(to: CGPoint(x: 0, y: sea.surface(at: 0)))
-        let samples = compact ? 48 : 144
-        for index in 1...samples {
-            let x = Double(index) / Double(samples) * Double(width)
-            surface.addLine(to: CGPoint(x: x, y: sea.surface(at: x)))
-        }
-        let water = CGMutablePath()
-        water.addPath(surface)
-        water.addLine(to: CGPoint(x: width, y: height))
-        water.addLine(to: CGPoint(x: 0, y: height))
-        water.closeSubpath()
-        context.saveGState()
-        context.addPath(water)
-        context.clip()
-        let palette = scenePalette
-        gradient(context, colors: [palette.sea, palette.deep], from: CGPoint(x: 0, y: horizon),
-                 to: CGPoint(x: 0, y: height), space: space)
-        drawOcean(context, time: time, width: width, height: height, horizon: horizon)
-        context.restoreGState()
-        context.addPath(surface)
-        context.setLineWidth(compact ? 0.8 : 1.4)
-        context.setStrokeColor(rgb(0.90, 0.99, 1, dark ? 0.30 : 0.48))
-        context.strokePath()
-    }
-
     private func drawWake(_ context: CGContext, time: Double) {
         let x = sea.boat.x, shipWidth = Double(sea.shipSize.width)
         for index in 0..<5 {
@@ -591,7 +632,7 @@ final class UsageAtmosphereView: NSView {
         context.fillPath()
     }
 
-    private func drawPrecipitation(_ context: CGContext, time: Double, width: CGFloat, height: CGFloat, horizon: CGFloat) {
+    private func drawPrecipitation(_ context: CGContext, time: Double, width: CGFloat, height: CGFloat, horizon: CGFloat, weather: CruiseWeather) {
         guard [.rain, .thunder, .storm, .typhoon, .snow].contains(weather) else { return }
         let snow = weather == .snow
         let count = compact ? (snow ? 20 : weather == .typhoon ? 48 : 26) : (snow ? 110 : weather == .typhoon ? 240 : 150)
@@ -622,7 +663,7 @@ final class UsageAtmosphereView: NSView {
         }
     }
 
-    private func drawLightning(_ context: CGContext, time: Double, width: CGFloat, height: CGFloat) {
+    private func drawLightning(_ context: CGContext, time: Double, width: CGFloat, height: CGFloat, weather: CruiseWeather) {
         guard [.thunder, .storm, .typhoon].contains(weather), active, !reduced, !capturesWeather else { return }
         // One softly rising and falling flash every 28 seconds, with no
         // repeated pulses or whole-screen flashes.

@@ -8,40 +8,12 @@ import Testing
         #expect(CruiseWeather.automatic.title == "Automatic")
     }
 
-    @Test func automaticFollowsActivityTransitions() {
-        let preference = CruiseWeather.automatic
-        let transitions: [(CodexAgentPhase, CruiseWeather)] = [
-            (.idle, .night), (.thinking, .cloudy), (.needsInput, .rain),
-            (.error, .storm), (.thinking, .cloudy), (.complete, .sunny), (.idle, .night),
-        ]
-        for (phase, expected) in transitions {
-            #expect(preference.resolved(phases: [phase]) == expected)
-        }
-        #expect(preference == .automatic)
-    }
-
-    @Test func urgentActivityWinsRegardlessOfToolOrder() {
-        let preference = CruiseWeather.automatic
-        #expect(preference.resolved(phases: [.complete, .idle]) == .sunny)
-        #expect(preference.resolved(phases: [.complete, .thinking]) == .cloudy)
-        #expect(preference.resolved(phases: [.thinking, .needsInput, .complete]) == .rain)
-        #expect(preference.resolved(phases: [.complete, .thinking, .needsInput, .error]) == .storm)
-        #expect(preference.resolved(phases: [.error, .needsInput, .thinking, .complete]) == .storm)
-    }
-
-    @Test func noActivityAndIdleActivityUseNight() {
-        #expect(CruiseWeather.automatic.resolved(phases: []) == .night)
-        #expect(CruiseWeather.automatic.resolved(phases: [.idle, .idle]) == .night)
-    }
-
-    @Test func rememberedManualWeatherSurvivesActivityChanges() {
-        let scenarios: [[CodexAgentPhase]] = [[], [.idle], [.thinking], [.needsInput], [.error], [.complete]]
-        for manual in CruiseWeather.allCases where manual != .automatic {
-            let restored = CruiseWeather(rawValue: manual.rawValue)
-            #expect(restored == manual)
-            for phases in scenarios {
-                #expect(restored?.resolved(phases: phases) == manual)
-            }
+    @Test func manualWeatherPreferencesRemainCompatible() {
+        let conditions: [CruiseWeather] = [.sunny, .cloudy, .rain, .thunder, .storm, .typhoon, .snow, .night]
+        #expect(CruiseWeather.allCases.filter { $0 != .automatic } == conditions)
+        for condition in conditions {
+            #expect(CruiseWeather(rawValue: condition.rawValue) == condition)
+            #expect(!condition.title.isEmpty && !condition.symbol.isEmpty)
         }
     }
 }

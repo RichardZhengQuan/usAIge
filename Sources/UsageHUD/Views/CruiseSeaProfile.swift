@@ -7,6 +7,12 @@ struct CruiseSeaProfile: Equatable, Sendable {
     let choppiness: Float
     let foam: Float
 
+    func interpolated(to other: CruiseSeaProfile, progress: Double) -> CruiseSeaProfile {
+        let amount = Float(progress.isFinite ? min(1, max(0, progress)) : 0)
+        let value = spectrum + (other.spectrum - spectrum) * amount
+        return CruiseSeaProfile(roughness: value.x, speed: value.y, choppiness: value.z, foam: value.w)
+    }
+
     var spectrum: SIMD4<Float> { SIMD4(roughness, speed, choppiness, foam) }
 }
 
@@ -23,4 +29,8 @@ extension CruiseWeather {
         case .automatic, .night: CruiseSeaProfile(roughness: 0.12, speed: 0.50, choppiness: 0.18, foam: 0)
         }
     }
+}
+
+extension CruiseWeatherTransition {
+    var seaProfile: CruiseSeaProfile { from.seaProfile.interpolated(to: to.seaProfile, progress: progress) }
 }

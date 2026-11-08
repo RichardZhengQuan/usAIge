@@ -4,10 +4,16 @@ The sailing scene uses a native Metal background for sky, textured clouds,
 perspective ocean shading, reflections and haze, depth-layered rain and snow,
 and rain impacts on the sea. The ship and its existing sailing/buoyancy model
 remain a separate overlay. There are eight explicit conditions: Sunny, Cloudy,
-Rain, Thunder, Storm, Typhoon, Snow and Night, plus activity-driven Automatic.
-Automatic maps errors to Storm, requests for input to Rain, running work to
-Cloudy, completed work to Sunny, and idle tools to Night. Thunder and Typhoon
-are manual choices. All conditions are visual scenes, not location forecasts.
+Rain, Thunder, Storm, Typhoon, Snow and Night, plus Automatic.
+
+Select **Automatic** to enable a shared random weather cycle in the window and
+rail. The cycle draws from a shuffled bag containing all eight conditions,
+including Thunder and Typhoon, before reshuffling. Consecutive conditions never
+repeat, including across bag boundaries. Each condition holds for a random
+90–180 seconds, then the sky and water blend into the next condition over six
+seconds. Manual choices pin their condition until Automatic is selected again.
+All conditions are decorative scenes, not location forecasts or AI activity
+indicators.
 
 Thunder adds sparse, distant lightning without sound. Typhoon combines rotating
 cloud and rain bands with windblown spray, crest foam and the strongest sea
@@ -32,6 +38,11 @@ with the application under `Resources/ThirdPartyNotices/DriftClouds.txt`.
 
 The existing host owns the only drawing clock: 24 Hz for the large scene and
 12 Hz for the rail. MetalKit is paused and draws explicitly from that clock.
+The same scene clocks sample one shared automatic weather schedule; cycling
+adds no timer. Pause and Reduce Motion hold that scene’s exact weather mixture,
+including any blend in flight. On resume it blends into the shared current
+weather. Hidden or covered scenes stop their clock instead of running an unseen
+weather loop.
 The background is capped at 960 pixels on its longest side (240 for the rail),
 with at most two GPU frames in flight. Covered, hidden, closed, paused and
 Reduce Motion states stop the host clock. The existing CPU illustration remains

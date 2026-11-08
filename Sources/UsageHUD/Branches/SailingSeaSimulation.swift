@@ -4,6 +4,7 @@ import Foundation
 /// flipped drawing space, so a smaller boat y is above the water.
 final class SailingSeaSimulation {
     private(set) var time = 0.0
+    private(set) var oceanTime = 0.0
     private(set) var boat = PaperweightBoat(x: 0, y: 0)
     private(set) var shipSize = CGSize.zero
 
@@ -15,7 +16,7 @@ final class SailingSeaSimulation {
 
     private var size = CGSize.zero
     private var compact = false
-    private var weather = CruiseWeather.sunny
+    private var profile = CruiseWeather.sunny.seaProfile
     private var shakeHeight = 0.0
     private var shakeVelocity = 0.0
     private var shakeSequence = 0
@@ -26,13 +27,13 @@ final class SailingSeaSimulation {
     private var padding: Double { min(2, Double(size.height) * 0.01) }
     private var supportSafety: Double { min(0.05, displacementLimit * 0.003) }
 
-    func configure(size: CGSize, compact: Bool, weather: CruiseWeather) {
+    func configure(size: CGSize, compact: Bool, weather: CruiseWeather, profile: CruiseSeaProfile? = nil) {
         let safeSize = CGSize(width: size.width.isFinite ? max(0, size.width) : 0,
                               height: size.height.isFinite ? max(0, size.height) : 0)
         let layoutChanged = self.size != safeSize || self.compact != compact
         self.size = safeSize
         self.compact = compact
-        self.weather = weather
+        self.profile = profile ?? weather.seaProfile
         updateShipSize()
         guard hasArea else {
             boat = PaperweightBoat(x: 0, y: 0)
@@ -86,12 +87,11 @@ final class SailingSeaSimulation {
         let position = x.truncatingRemainder(dividingBy: wavelength) / wavelength * 2 * Double.pi
         let harmonic = x.truncatingRemainder(dividingBy: wavelength / 1.8) / (wavelength / 1.8) * 2 * Double.pi
         let slosh = x.truncatingRemainder(dividingBy: wavelength / 0.75) / (wavelength / 0.75) * 2 * Double.pi
-        let speed = Double(weather.seaProfile.speed)
         let cap = displacementLimit * 0.55
         let nominal = (compact ? 1.5 : 4) * roughness
         let amplitude = cap > 0 ? cap * tanh(nominal / cap) : 0
-        let ambient = amplitude * (sin(position - time * speed)
-            + 0.3 * sin(harmonic + time * speed * 0.63 + 1.1))
+        let ambient = amplitude * (sin(position - oceanTime)
+            + 0.3 * sin(harmonic + oceanTime * 0.63 + 1.1))
         let impulse = shakeHeight * sin(slosh - time * 1.2 + 0.6)
         return baseWaterline + clamped(ambient + impulse, -displacementLimit, displacementLimit)
     }
@@ -102,7 +102,7 @@ final class SailingSeaSimulation {
     }
 
     private var roughness: Double {
-        0.5 + 2.2 * Double(weather.seaProfile.roughness)
+        0.5 + 2.2 * Double(profile.roughness)
     }
 
     private func updateShipSize() {
@@ -129,6 +129,9 @@ final class SailingSeaSimulation {
 
     private func advance(_ dt: Double) {
         time += dt
+        // Integrating speed keeps changing weather from rotating an old wave
+        // by time × a new speed, which would jerk the hull after long runs.
+        oceanTime += dt * Double(profile.speed) * (0.8 + Double(profile.roughness) * 0.65)
         guard hasArea else { return }
         shakeVelocity = (shakeVelocity - shakeHeight * 28 * dt) * exp(-2.2 * dt)
         shakeHeight += shakeVelocity * dt

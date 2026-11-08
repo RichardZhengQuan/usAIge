@@ -11,8 +11,11 @@ enum CruiseWeatherShader {
         float dark;
         float compact;
         float allowsLightning;
-        float padding;
+        uint nextWeather;
         float4 sea;
+        float4 transition;
+        float4 weatherWeightsLow;
+        float4 weatherWeightsHigh;
     };
 
     struct CruiseWeatherRaster {
@@ -38,7 +41,7 @@ enum CruiseWeatherShader {
 
     // One distant strike per 15.5 seconds, with a single rise and soft decay.
     // Paused/Reduce Motion scenes can suppress the entire effect in uniforms.
-    float cwLightningEnvelope(constant WeatherUniforms &u) {
+    float cwLightningEnvelope(thread const WeatherUniforms &u) {
         if (u.weather != 6u || u.allowsLightning < 0.5) return 0.0;
         float local = fmod(max(0.0, u.time), 15.5);
         return smoothstep(1.80, 1.88, local) * (1.0 - smoothstep(2.00, 2.42, local));
@@ -78,7 +81,7 @@ enum CruiseWeatherShader {
         return distance;
     }
 
-    float3 cwSky(float2 uv, constant WeatherUniforms &u, float horizon) {
+    float3 cwSky(float2 uv, thread const WeatherUniforms &u, float horizon) {
         float aspect = u.resolution.x / max(1.0, u.resolution.y);
         float skyY = saturate(uv.y / horizon);
         float3 zenith = float3(0.29, 0.61, 0.85);
@@ -206,7 +209,7 @@ enum CruiseWeatherShader {
             float filter = 1.0 / (1.0 + footprint * frequency * 1.3);
             if (compact > 0.5 && i == 5u) { filter = 0.0; }
             float amplitude = amplitudes[i] * filter * (0.18 + rough * 1.50);
-            float phase = dot(p, directions[i]) * frequency - time * (0.65 + sqrt(frequency) * 0.78) * (0.8 + rough * 0.65);
+            float phase = dot(p, directions[i]) * frequency - time * (0.65 + sqrt(frequency) * 0.78);
             phase += result.x * 0.46;
             float wave = sin(phase), slope = cos(phase) * frequency * amplitude;
             result.x += wave * amplitude;
@@ -230,13 +233,13 @@ enum CruiseWeatherShader {
         return impacts;
     }
 
-    float3 cwOcean(float2 uv, constant WeatherUniforms &u, float horizon) {
+    float3 cwOcean(float2 uv, thread const WeatherUniforms &u, float horizon) {
         float aspect = u.resolution.x / max(1.0, u.resolution.y);
         float depth = saturate((uv.y - horizon) / (1.0 - horizon));
         float perspective = 1.0 / (depth + 0.065);
         float2 world = float2((uv.x - 0.5) * aspect * 2.6, 3.3) * perspective;
         float rough = u.sea.x;
-        float3 field = cwWaveField(world, u.time * u.sea.y, rough, u.compact);
+        float3 field = cwWaveField(world, u.transition.y, rough, u.compact);
         float3 normal = normalize(float3(-field.y * u.sea.z, 1.0, -field.z * u.sea.z));
         float3 view = normalize(float3((0.5 - uv.x) * aspect * 1.1, 0.12 + depth * 0.72, -1.2));
         float3 reflection = reflect(-view, normal);
@@ -292,7 +295,7 @@ enum CruiseWeatherShader {
         return mix(horizonHaze, water, smoothstep(0.0, 0.11, depth));
     }
 
-    float cwRain(float2 uv, constant WeatherUniforms &u) {
+    float cwRain(float2 uv, thread const WeatherUniforms &u) {
         float aspect = u.resolution.x / max(1.0, u.resolution.y);
         float storm = u.weather == 3u || u.weather == 7u ? 1.0 : (u.weather == 6u ? 0.65 : 0.0);
         float typhoon = u.weather == 7u ? 1.0 : 0.0;
@@ -319,7 +322,7 @@ enum CruiseWeatherShader {
         return saturate(rain);
     }
 
-    float cwTyphoonSpray(float2 uv, constant WeatherUniforms &u, float horizon) {
+    float cwTyphoonSpray(float2 uv, thread const WeatherUniforms &u, float horizon) {
         if (uv.y <= horizon) return 0.0;
         float aspect = u.resolution.x / max(1.0, u.resolution.y);
         float depth = (uv.y - horizon) / (1.0 - horizon);
@@ -337,7 +340,7 @@ enum CruiseWeatherShader {
         return saturate(spray * smoothstep(0.015, 0.20, depth));
     }
 
-    float cwSnow(float2 uv, constant WeatherUniforms &u) {
+    float cwSnow(float2 uv, thread const WeatherUniforms &u) {
         float aspect = u.resolution.x / max(1.0, u.resolution.y);
         float snow = 0.0;
         for (uint layer = 0u; layer < 3u; ++layer) {
@@ -358,9 +361,7 @@ enum CruiseWeatherShader {
         return saturate(snow);
     }
 
-    fragment float4 cruiseWeatherFragment(CruiseWeatherRaster in [[stage_in]],
-                                           constant WeatherUniforms &u [[buffer(0)]]) {
-        float2 uv = in.position.xy / max(u.resolution, float2(1.0));
+    float3 cwScene(float2 uv, thread const WeatherUniforms &u) {
         float horizon = mix(0.40, 0.58, step(0.5, u.compact));
         float3 color = uv.y < horizon ? cwSky(uv, u, horizon) : cwOcean(uv, u, horizon);
         if (u.weather == 2u || u.weather == 3u || u.weather == 6u || u.weather == 7u) {
@@ -372,6 +373,24 @@ enum CruiseWeatherShader {
         } else if (u.weather == 4u) {
             float snow = cwSnow(uv, u);
             color = mix(color, float3(0.96, 0.98, 1.0), snow);
+        }
+        return color;
+    }
+
+    fragment float4 cruiseWeatherFragment(CruiseWeatherRaster in [[stage_in]],
+                                           constant WeatherUniforms &uniforms [[buffer(0)]]) {
+        float2 uv = in.position.xy / max(uniforms.resolution, float2(1.0));
+        WeatherUniforms condition = uniforms;
+        float3 color = 0.0;
+        // A resting scene evaluates one condition, a normal fade two. Extra
+        // weights preserve a paused partial fade while rejoining the cycle.
+        for (uint index = 0u; index < 8u; ++index) {
+            float weight = index < 4u ? uniforms.weatherWeightsLow[index]
+                                     : uniforms.weatherWeightsHigh[index - 4u];
+            if (weight > 0.0) {
+                condition.weather = index;
+                color += cwScene(uv, condition) * weight;
+            }
         }
         return float4(saturate(color), 1.0);
     }

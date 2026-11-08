@@ -8,12 +8,10 @@ import SwiftUI
 struct BranchesRootView: View {
     @ObservedObject var store: BranchesStore
     var liveWork: LiveWorkMonitor?
-    private let agentStore: CodexAgentStore?
     private let presentation: BranchesPaperweightPresentation?
     @State private var front: PaperweightID
     @State private var selectedLayerID: String
     @State private var summary: LiveWorkSummary
-    @State private var activityPhases: [CodexAgentPhase]
     @State private var preview = false
     @State private var moving = false
     @State private var commandID = 0
@@ -35,23 +33,15 @@ struct BranchesRootView: View {
          presentation: BranchesPaperweightPresentation? = nil, initialShowsLayers: Bool = false) {
         self.store = store
         self.liveWork = liveWork
-        self.agentStore = agentStore
         self.presentation = presentation
         _front = State(initialValue: initialFront)
         _selectedLayerID = State(initialValue: initialSelectedLayerID ?? (initialFront == .storage ? "wt" : ""))
         _summary = State(initialValue: liveWork?.summary ?? LiveWorkSummary())
-        _activityPhases = State(initialValue: agentStore?.aggregatesByTool.values.map(\.phase) ?? [])
         _showsLayers = State(initialValue: initialShowsLayers)
     }
 
     private var weather: CruiseWeather {
-        (CruiseWeather(rawValue: weatherName) ?? .automatic)
-            .resolved(phases: agentStore == nil ? summary.sessions.map(\.phase) : activityPhases)
-    }
-
-    private var activityUpdates: AnyPublisher<[CodexAgentPhase], Never> {
-        agentStore?.$aggregatesByTool.map { $0.values.map(\.phase) }.eraseToAnyPublisher()
-            ?? Just([]).eraseToAnyPublisher()
+        CruiseWeather(rawValue: weatherName) ?? .automatic
     }
 
     private var summaryUpdates: AnyPublisher<LiveWorkSummary, Never> {
@@ -122,7 +112,7 @@ struct BranchesRootView: View {
                                     if !cruisePaused && !reduceMotion { send(.shake) }
                                 })
                                 .accessibilityElement()
-                                .accessibilityLabel("\(store.ship(for: front).title) cruising in \(weather.title.lowercased()) weather")
+                                .accessibilityLabel("\(store.ship(for: front).title) cruising in \(weather == .automatic ? "automatically changing" : weather.title.lowercased()) weather")
                                 .accessibilityValue(cruisePaused || reduceMotion ? "Animation paused" : "Cruising")
                                 .accessibilityHint("Click or drag the sea to make waves. The ship stays afloat and rights itself.")
                                 .accessibilityAction(named: "Shake the sea") {
@@ -192,7 +182,6 @@ struct BranchesRootView: View {
         }
         .frame(minWidth: 900, minHeight: 560)
         .onReceive(summaryUpdates) { updated in if updated != summary { summary = updated } }
-        .onReceive(activityUpdates) { activityPhases = $0 }
         .onReceive(presentationUpdates) { request in
             guard let request, request.id != lastPresentationRequestID else { return }
             lastPresentationRequestID = request.id
@@ -279,8 +268,8 @@ struct BranchesRootView: View {
                     .labelsHidden()
                     .frame(width: 120)
                     .help(weatherName == CruiseWeather.automatic.rawValue
-                          ? "\(weather.title), following AI activity. Choose a condition to override."
-                          : "Choose Automatic to follow AI activity again")
+                          ? "Weather changes randomly every 1½–3 minutes. Choose a condition to keep it."
+                          : "Choose Automatic for random weather changes")
                     if front == .storage {
                         Button("Review and Clear…") { startReview(board.safeToClear, now: now) }
                             .buttonStyle(.borderedProminent)

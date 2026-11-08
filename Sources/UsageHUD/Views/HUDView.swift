@@ -27,8 +27,7 @@ struct HUDView: View {
     @AppStorage(PaperweightShipPreferences.storageKey) private var sailingShipRaw = PaperweightShipKind.galleon.rawValue
 
     private var sailingWeather: CruiseWeather {
-        (CruiseWeather(rawValue: sailingWeatherRaw) ?? .automatic)
-            .resolved(phases: agentStore.aggregatesByTool.values.map(\.phase))
+        CruiseWeather(rawValue: sailingWeatherRaw) ?? .automatic
     }
     private var sailingShip: PaperweightShipKind { PaperweightShipKind(rawValue: sailingShipRaw) ?? .galleon }
 
