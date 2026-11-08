@@ -175,9 +175,9 @@ The packaged application includes the custom usAIge icon in Finder, the Dock, Sp
 
 ## Install the public alpha
 
-Download `usAIge-0.2.27-alpha.dmg` and its checksum from the website. Open the disk image, then drag `usAIge.app` onto the Applications shortcut.
+Download `usAIge-0.2.28-alpha.dmg` and its checksum from the website. Open the disk image, then drag `usAIge.app` onto the Applications shortcut.
 
-The 0.2.27 alpha makes each resource’s usage layers the sailing ocean itself. Open Memory or Storage, read category names and byte counts on the colored water, and select a layer to inspect its contents. Choose among 59 animated ships with refined details and centered framing; Memory and Storage remember separate choices. Automatic weather follows macOS memory pressure or actual disk headroom. Local branch review and Undo remain available; Undo restores Git branches and folders, but not ignored files. Claude usage still refreshes quietly in the background without an extra sign-in, Keychain access, or **Detect** action.
+The 0.2.28 alpha brings AI tools usage, the full Memory and Storage sailing ocean, and Branches and Worktrees into one main **Overview** on macOS 14 and later. Compact, equal-size cards show multiple AI tools per row. Branch tabs start on **All**, and **Rescan** reads the workspace again. **Settings** sits at the bottom of the sidebar, with an update reminder directly above it. Reviewed cleanup runs in a popup with **Stop After Current Item**, results, and restoration; closing the main window keeps the operation and its result available. Native keyboard shortcuts open the main window, branches, Memory, Storage, and Settings, or refresh readings; see the shortcut table above. The ocean retains 59 animated ships and resource-driven weather. Restore brings back Git branches and folders, but not ignored files. Claude usage still refreshes quietly in the background without an extra sign-in, Keychain access, or **Detect** action.
 
 This alpha is ad-hoc signed and is not notarized because the project does not yet have a Developer ID Application certificate. On first launch:
 
@@ -191,7 +191,7 @@ To build and verify the installer locally:
 
 ```bash
 scripts/package-dmg.sh
-(cd dist && shasum -a 256 -c usAIge-0.2.27-alpha.dmg.sha256)
+(cd dist && shasum -a 256 -c usAIge-0.2.28-alpha.dmg.sha256)
 ```
 
 For headless packaging, reuse the layout from a trusted previous installer:
@@ -375,7 +375,7 @@ Contract details:
 
 ## Settings
 
-Use the gear button on the panel to open native macOS Settings. Available preferences include:
+Open **Settings** at the bottom of the main window’s sidebar, use Command-comma, or use the gear button on the rail. Settings opens as a page on macOS 14 and later and as a native Settings window on older systems. Available preferences include:
 
 - Active AI tool visibility, and the rail order of tools by dragging them, or with **Move Up** and **Move Down** in a row's Control-click menu, in **AI Tools**.
 - Quota visibility and vertical ordering within a tool.
