@@ -189,7 +189,7 @@ enum PaperweightShipFactory {
         rz: Double = 0, rx: Double = 0
     ) {
         let geometry = SCNCone(topRadius: top, bottomRadius: bottom, height: height)
-        geometry.radialSegmentCount = 14
+        geometry.radialSegmentCount = 24
         put(group, geometry, material, x, y, z, rx: rx, rz: rz)
     }
 
@@ -203,7 +203,7 @@ enum PaperweightShipFactory {
         _ x: Double, _ y: Double, _ z: Double = 0
     ) -> SCNNode {
         let geometry = SCNSphere(radius: radius)
-        geometry.segmentCount = segments
+        geometry.segmentCount = max(radius >= 1.8 ? 28 : radius >= 0.65 ? 20 : 12, segments)
         return put(group, geometry, material, x, y, z)
     }
 
@@ -298,30 +298,12 @@ enum PaperweightShipFactory {
         _ material: SCNMaterial, brace: Double = 0.5, bulge: Double? = nil,
         columns: Int = 12, z: Double = 0
     ) {
-        let bow = bulge ?? width * 0.13
-        var vertices: [SCNVector3] = []
-        var coordinates: [CGPoint] = []
-        var indices: [Int32] = []
-        let rows = 6
-        for row in 0...rows {
-            for column in 0...columns {
-                let u = Double(column) / Double(columns)
-                let v = Double(row) / Double(rows)
-                let across = u * 2 - 1
-                let fullness = sin(.pi * (0.15 + v * 0.7))
-                let foot = (1 - v) * height * 0.08 * across * across
-                let taper = 0.92 + 0.08 * v - 0.07 * sin(.pi * v)
-                vertices.append(vector((u - 0.5) * width * taper, (v - 0.5) * height + foot,
-                                       (1 - across * across) * bow * fullness))
-                coordinates.append(CGPoint(x: u, y: 1 - v))
-                if row < rows, column < columns {
-                    let a = Int32(row * (columns + 1) + column)
-                    let b = a + 1, c = a + Int32(columns + 1), d = c + 1
-                    indices.append(contentsOf: [a, b, c, b, d, c])
-                }
-            }
-        }
-        PaperweightShipAnimation.tag(put(group, smoothMesh(vertices, coordinates, indices), material, x, y, z, ry: brace), as: .sail)
+        // Rich historic ships retain their own sculpted cloth in squareCourse;
+        // this shared path supplies sewn curved cloth to the fan miniatures.
+        let node = craftedSail(group, x: x, y: y, width: width, height: height,
+                               material: material, bulge: bulge ?? width * 0.13)
+        node.position.z = CGFloat(z)
+        node.eulerAngles.y = CGFloat(brace)
     }
 
     static func disc(
@@ -755,8 +737,8 @@ enum PaperweightShipFactory {
             }
         }
         mast(group, 0, 5, 17.7, darkWood)
-        sail(group, 0.2, 12.7, 11.4, 8.5, textured(skullSail, roughness: 0.8), brace: 0.12, bulge: 1.15, z: 0.35)
-        rail(group, from: (-6.2, 17, 0), to: (6.5, 17, 0), radius: 0.18, material: darkWood)
+        riggedSquareSail(group, x: 0.2, y: 12.7, width: 11.4, height: 8.5,
+                         cloth: textured(skullSail, roughness: 0.8), yard: darkWood)
         cylinder(group, 1.6, 1.15, 1.2, timber, 0, 20.0)
         torus(group, 1.6, 0.13, rings: 24, sides: 6, brass, 0, 20.6, rx: .pi / 2)
         // A rippled flag, instead of a rigid rectangular card.

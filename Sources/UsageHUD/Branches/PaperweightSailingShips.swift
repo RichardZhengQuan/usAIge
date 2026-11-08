@@ -17,21 +17,13 @@ extension PaperweightShipFactory {
         let rope = material(ghost ? "#8DBCA0" : "#A18B67", roughness: 1)
         let dark = material(ghost ? "#2D6559" : "#251F1B", roughness: 0.85)
         let cloth = sailCloth(hex: ghost ? "#D7EFE0" : "#C4B697")
-        if ghost {
-            cloth.transparent.contents = tornSail
-            cloth.transparencyMode = .aOne
-            cloth.transparency = 0.84
-            cloth.writesToDepthBuffer = false
-            for surface in [timber, deck, spars, trim, cloth] {
-                surface.emission.contents = color("#275A43")
-                surface.emission.intensity = 0.25
-            }
-        }
+        if ghost { cloth.transparent.contents = tornSail }
+        defer { if ghost { makeHistoricGhostSpectral(group) } }
 
         let hull = historicHull(group, beam: 9.6, material: timber, sternHeight: 8.6)
         hull.name = "carved-timber-hull"
-        // Keep timber depth-writing and opaque: overlapping translucent hull
-        // triangles otherwise expose station seams as dark vertical bands.
+        // Keep the continuous carved hull. The ghost applies one
+        // consistent spectral policy after all its rigging and galleries exist.
         historicDeck(group, from: -13.5, to: 14.3, y: 5.0, beam: 9.3, material: deck)
         box(group, 5.8, 0.48, 9.5, deck, -11.2, 8.6)
         box(group, 4.8, 0.45, 8.4, deck, 10.8, 6.4)
@@ -88,6 +80,39 @@ extension PaperweightShipFactory {
         if ghost { flag.emission.contents = color("#326E4C") }
         plane(group, 2.1, 1.35, flag, 1.95, 22.45, 0.12)
         return group
+    }
+
+    private static func makeHistoricGhostSpectral(_ group: SCNNode) {
+        var seen = Set<ObjectIdentifier>()
+        var nodes = [group]
+        group.enumerateChildNodes { node, _ in nodes.append(node) }
+        for node in nodes {
+            for surface in node.geometry?.materials ?? [] where seen.insert(ObjectIdentifier(surface)).inserted {
+                if let mask = surface.transparent.contents as? NSImage {
+                    surface.transparent.contents = historicGhostMask(mask)
+                    surface.transparency = 1
+                    surface.transparencyMode = .aOne
+                } else {
+                    PaperweightSceneAssets.setOpacity(0.55, of: surface)
+                }
+                surface.emission.contents = color("#275A43")
+                surface.emission.intensity = 0.35
+                surface.writesToDepthBuffer = false
+                surface.blendMode = .alpha
+            }
+        }
+    }
+
+    private static func historicGhostMask(_ mask: NSImage) -> NSImage {
+        guard let image = mask.cgImage(forProposedRect: nil, context: nil, hints: nil),
+              let context = CGContext(data: nil, width: image.width, height: image.height,
+                                      bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return mask }
+        context.setAlpha(0.62)
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        guard let result = context.makeImage() else { return mask }
+        return NSImage(cgImage: result, size: mask.size)
     }
 
     static func detailedVictory() -> SCNNode {
@@ -415,9 +440,10 @@ extension PaperweightShipFactory {
 
     private static func squareCourse(_ group: SCNNode, x: Double, y: Double, width: Double, height: Double,
                                      cloth: SCNMaterial, yard: SCNMaterial, rope: SCNMaterial,
-                                     brace: Double = 0.18, tattered: Bool = false) {
+                                     brace: Double = 0.35, tattered: Bool = false) {
         let course = SCNNode()
-        course.eulerAngles.y = CGFloat(brace)
+        course.name = "classic-square-rig"
+        course.eulerAngles.y = CGFloat.pi / 2 - CGFloat(brace)
         course.position = vector(x, y, 0.4)
         group.addChildNode(course)
         PaperweightShipAnimation.tag(course, as: .sail)
@@ -505,14 +531,15 @@ extension PaperweightShipFactory {
                 fill(context, "#C9B58B", CGRect(x: left + 3, y: 34, width: 25, height: 2))
             }
         }
-        plane(group, width, 1.9, textured(image, roughness: 0.65), x, y, z)
+        put(group, SCNPlane(width: width, height: 1.9), textured(image, roughness: 0.65), x, y, z)
         box(group, width + 0.3, 0.18, 0.25, trim, x, y + 1.02, z)
         box(group, width + 0.4, 0.22, 0.4, trim, x, y - 1.05, z)
     }
 
     private static func shroud(_ group: SCNNode, x: Double, bottom: Double, top: Double,
                                width: Double, z: Double, material: SCNMaterial) {
-        plane(group, width, top - bottom, material, x, (bottom + top) / 2, z)
+        // Standing rigging is fixed to the mast; it must not flutter as cloth.
+        put(group, SCNPlane(width: width, height: top - bottom), material, x, (bottom + top) / 2, z)
     }
 
     private static func ratlineMaterial(ghost: Bool) -> SCNMaterial {
@@ -522,6 +549,7 @@ extension PaperweightShipFactory {
         result.writesToDepthBuffer = false
         result.transparent.contents = image
         result.transparencyMode = .aOne
+        result.blendMode = .alpha
         return result
     }
 

@@ -172,28 +172,14 @@ final class PaperweightShipImageCache {
         scene.isPaused = true
         scene.background.contents = NSColor.clear
         let ship = PaperweightShipFactory.make(kind)
-        // A little yaw shows the bow, stern and depth of the fittings. Keep
-        // pitch at zero: projecting the water plane obliquely would move its
-        // visible edge away from the buoyancy model's exact waterline.
+        // A little yaw reveals the fittings. The elevated camera below shows
+        // the deck while keeping the model origin at the shared keel anchor.
         ship.eulerAngles.y = -CGFloat.pi / 18
         scene.rootNode.addChildNode(ship)
         scene.lightingEnvironment.contents = PaperweightSceneAssets.environmentTexture()
         scene.lightingEnvironment.intensity = 0.55
 
-        let camera = SCNNode()
-        camera.camera = SCNCamera()
-        camera.camera?.usesOrthographicProjection = true
-        camera.camera?.wantsHDR = true
-        camera.camera?.exposureOffset = -0.2
-        camera.position.z = 3
-        // Fixed bounds preserve the ships' relative sizes and put every hull
-        // at the same waterline instead of centring each model differently.
-        let top = CGFloat(PaperweightConstants.boatHeight * PaperweightConstants.unitsPerPixel + 0.02)
-        let bottom = -CGFloat(PaperweightConstants.boatDraft * PaperweightConstants.unitsPerPixel + 0.02)
-        // A hand-built projection matrix rendered an empty image, so the
-        // camera's own orthographic scale (half the visible height) frames it.
-        camera.camera?.orthographicScale = Double(top - bottom) / 2
-        camera.position.y = (top + bottom) / 2
+        let camera = PaperweightShipSpriteCamera.make()
         scene.rootNode.addChildNode(camera)
 
         addLight(to: scene, type: .ambient, intensity: 330,
@@ -224,6 +210,38 @@ final class PaperweightShipImageCache {
         node.light?.color = color
         node.eulerAngles = angles
         scene.rootNode.addChildNode(node)
+    }
+}
+
+/// The same camera frames cached sprites and the GPU projection regression.
+/// Padding and elevation must not move the root away from the waterline used
+/// by both the rail and the sailing scene.
+@available(macOS 14.0, *)
+@MainActor
+enum PaperweightShipSpriteCamera {
+    static func make() -> SCNNode {
+        let camera = SCNNode()
+        camera.camera = SCNCamera()
+        camera.camera?.usesOrthographicProjection = true
+        camera.camera?.wantsHDR = true
+        camera.camera?.exposureOffset = -0.2
+        let top = PaperweightConstants.boatHeight * PaperweightConstants.unitsPerPixel + 0.02
+        let bottom = -PaperweightConstants.boatDraft * PaperweightConstants.unitsPerPixel - 0.02
+        let scale = (top - bottom) / 2 * 1.06
+        let horizontalOffset = 0.48, rise = 0.27, distance = 3.0
+        let horizontal = hypot(horizontalOffset, distance)
+        let verticalProjection = horizontal / hypot(horizontal, rise)
+        let center = (Double(RailPaperweightShipImage.waterlineFraction) - 0.5) * 2 * scale / verticalProjection
+        SCNTransaction.begin()
+        SCNTransaction.disableActions = true
+        camera.camera?.orthographicScale = scale
+        camera.position = SCNVector3(horizontalOffset, center + rise, distance)
+        camera.eulerAngles = SCNVector3(-atan2(rise, horizontal), atan2(horizontalOffset, distance), 0)
+        SCNTransaction.commit()
+        camera.camera?.screenSpaceAmbientOcclusionIntensity = 0.55
+        camera.camera?.screenSpaceAmbientOcclusionRadius = 0.035
+        camera.camera?.screenSpaceAmbientOcclusionBias = 0.003
+        return camera
     }
 }
 
