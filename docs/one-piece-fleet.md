@@ -34,3 +34,27 @@ USAIGE_RENDER_FLEET=/absolute/output/path swift test --filter OnePieceFleetRende
 The render check rejects empty snapshots and identical rendered models.
 Existing paperweight tests verify every choice's persistence and full rolled
 bounds; the rail render check covers every miniature at its actual display size.
+
+## Animation
+
+All 59 choices, including the classic ships, have rigged moving parts. Shared
+wind motion drives sails and flags; vessel details add nodding figureheads,
+rowing oars, rotating screws, paddle wheels, radar and flying-ark rotors,
+slithering serpents, pulsing flames and candles, and drifting funnel steam.
+The hull keeps following the existing liquid simulation.
+
+One scene clock runs at 60 Hz during liquid/camera motion and 15 Hz for settled
+ship parts. Decorative frames leave settled water and liquid geometry alone.
+Visibility and Reduce Motion stop the clock and restore the rest pose. The rail
+uses 20 cached poses per four-second cycle while hovered and visible, retaining
+at most eight sprite strips and 128 static images. No renderer is retained by
+the rail cache. Animated bounds are checked throughout the pose cycle and roll.
+
+To export and verify a looping GIF for every ship plus a representative sheet:
+
+```sh
+USAIGE_RENDER_SHIP_ANIMATIONS=/absolute/output/path swift test --filter ShipAnimationRender
+```
+
+This checks rendered pixel changes at multiple phases, including the original
+ships, and writes a JSON verification receipt alongside the GIFs.

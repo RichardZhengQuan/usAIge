@@ -98,7 +98,7 @@ struct BranchesRootView: View {
                                 .font(.headline)
                                 .accessibilityAddTraits(.isHeader)
                             Spacer(minLength: 8)
-                            Text(moving ? "Moving" : "Still").font(.caption).foregroundStyle(.secondary)
+                            Text(moving ? "Water moving" : "Water settled").font(.caption).foregroundStyle(.secondary)
                         }
                         selectedRows(selected, board: shown, configuration: configuration, now: now)
                     }

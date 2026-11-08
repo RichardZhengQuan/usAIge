@@ -85,19 +85,51 @@ extension PaperweightShipFactory {
         }
     }
 
+    /// Put existing detail geometry around its physical hinge without moving it.
+    /// Hulls, decks and buildings remain outside these animation groups.
+    private static func specialMovingPart(_ root: SCNNode, from index: Int,
+                                          pivot: SCNVector3) -> SCNNode {
+        let children = Array(root.childNodes.dropFirst(index))
+        let part = SCNNode()
+        part.position = pivot
+        for child in children {
+            child.removeFromParentNode()
+            child.position = SCNVector3(child.position.x - pivot.x, child.position.y - pivot.y,
+                                       child.position.z - pivot.z)
+            part.addChildNode(child)
+        }
+        root.addChildNode(part)
+        return part
+    }
+
+    private static func specialScrew(_ group: SCNNode, x: Double, y: Double, radius: Double,
+                                     color hex: String = "#C2A461") {
+        let rotor = SCNNode(), bronze = material(hex, metalness: 0.45)
+        rotor.position = vector(x, y, 0)
+        sphere(rotor, 0.55, 10, bronze, 0, 0)
+        box(rotor, 0.35, radius * 2, 0.75, bronze, 0, 0)
+        box(rotor, 0.35, 0.75, radius * 2, bronze, 0, 0)
+        group.addChildNode(rotor)
+        PaperweightShipAnimation.tag(rotor, as: .propeller)
+    }
+
     private static func specialMiniMerry() -> SCNNode {
         let group = SCNNode(), cream = material("#FFF4DA"), gold = material("#E4AB48")
         specialHull(group, color: "#DCA066", width: 8, length: 20, rail: "#FDF2DB")
         box(group, 4, 2, 7, material("#A74633"), -3, 6)
+        let figureStart = group.childNodes.count
         sphere(group, 3.2, 14, cream, 11, 6).scale = vector(1.1, 1, 0.9)
         cylinder(group, 1.5, 1.8, 3, cream, 10, 4)
         for side in [-1.0, 1] {
             torus(group, 1.1, 0.35, rings: 14, sides: 6, gold, 10, 7, side * 2.5)
             sphere(group, 0.5, 8, material("#252020"), 12.7, 6.5, side * 1.5)
         }
+        PaperweightShipAnimation.tag(specialMovingPart(group, from: figureStart,
+                                                       pivot: vector(10, 4, 0)), as: .figurehead)
         box(group, 3.3, 3.7, 3, material("#456C83"), -11, 2)
         cylinder(group, 0.4, 0.4, 5, material("#444950"), -11, -0.6, rz: .pi / 2)
         torus(group, 1.2, 0.3, rings: 12, sides: 6, material("#777D83"), -13.5, -0.6, ry: .pi / 2)
+        specialScrew(group, x: -13.5, y: -0.6, radius: 1.2, color: "#777D83")
         return group
     }
 
@@ -136,6 +168,7 @@ extension PaperweightShipFactory {
                 torus(group, 1, 0.2, rings: 14, sides: 6, hull, -2, 6, side * 2.65)
             }
         }
+        specialScrew(group, x: shark ? -16.7 : -16.2, y: 0.7, radius: 2.2)
         return group
     }
 
@@ -152,17 +185,22 @@ extension PaperweightShipFactory {
         }
         mast(group, -1, 5, 21, material("#9F4D6B"))
         sail(group, -1, 21, 12, 7, material("#F4B5C8", doubleSided: true), brace: 0.15)
+        for side in [-1.0, 1] {
+            cylinder(group, 0, 0.7, 4, icing, 5, 13, side * 3)
+        }
+        let figureStart = group.childNodes.count
         sphere(group, 4.1, 16, icing, 14, 6.5).scale = vector(0.65, 1, 1)
         sphere(group, 1.1, 10, material("#D9506C"), 17, 6.5)
         specialEyes(group, 16.3, 8, 0, spacing: 1.6, radius: 0.7)
         for side in [-1.0, 1] {
             sphere(group, 1.4, 10, pink, 14.5, 6, side * 3.4)
-            cylinder(group, 0, 0.7, 4, icing, 5, 13, side * 3)
         }
         for z in [-1.2, 0, 1.2] {
             cylinder(group, 0, 0.5, 2, material("#EFC257"), 14, 11, z)
         }
         box(group, 0.3, 0.6, 3.6, material("#A83461"), 16.8, 5.3)
+        PaperweightShipAnimation.tag(specialMovingPart(group, from: figureStart,
+                                                       pivot: vector(13, 5, 0)), as: .figurehead)
         return group
     }
 
@@ -185,6 +223,10 @@ extension PaperweightShipFactory {
             }
             for x in [-6.0, -2, 2] { box(group, 1, 2, 0.2, material("#243141"), x, 9, side * 5.6) }
         }
+        // The castle stays still while a small lookout pennant catches the wind.
+        mast(group, -2, 16, 4, material("#73664C"))
+        plane(group, 3.2, 1.7, textured(pirateFlag), -0.4, 19.2)
+        specialScrew(group, x: -14, y: -0.7, radius: 1.7)
         return group
     }
 
@@ -198,6 +240,7 @@ extension PaperweightShipFactory {
                     material("#273F38"), bevel: 0.25).position.x = -4
         }
         for side in [-1.0, 1] {
+            let serpentStart = group.childNodes.count
             for index in 0..<7 {
                 let t = Double(index)
                 sphere(group, 1.6, 10, green, 8 + t * 1.8, 2 + sin(t * 0.9) * 1.3,
@@ -207,6 +250,8 @@ extension PaperweightShipFactory {
             sphere(group, 0.5, 8, material("#F8EBC5"), 21.5, 6, side * 6.9)
             sphere(group, 0.22, 8, material("#161B20"), 21.5, 6, side * 7.25)
             box(group, 2, 0.3, 0.5, material("#D83C47"), 23.6, 4.9, side * 5.5)
+            PaperweightShipAnimation.tag(specialMovingPart(group, from: serpentStart,
+                                                           pivot: vector(8, 2, side * 4.2)), as: .serpent)
         }
         return group
     }
@@ -249,7 +294,9 @@ extension PaperweightShipFactory {
             cylinder(group, 0.3, 0.3, 3, gold, 8, 3, z)
             let flame = material("#78D887")
             flame.emission.contents = color("#2D8E54")
-            sphere(group, 0.55, 8, flame, 8, 4.8, z).scale = vector(0.75, 1.7, 0.75)
+            let candle = sphere(group, 0.55, 8, flame, 8, 4.8, z)
+            candle.scale = vector(0.75, 1.7, 0.75)
+            PaperweightShipAnimation.tag(candle, as: .pulse)
         }
         return group
     }
@@ -259,11 +306,14 @@ extension PaperweightShipFactory {
         specialHull(group, color: "#D87B9C", rail: "#F3CAD5")
         specialRig(group, x: -3, height: 17, sailColor: "#F9DBE2", width: 13)
         box(group, 7, 4, 8, pink, -8, 7)
+        let headStart = group.childNodes.count
         cylinder(group, 1.9, 2.7, 7, white, 12.5, 7.5, rz: -0.25)
         sphere(group, 3.6, 14, white, 14, 12.5)
         sphere(group, 1.8, 12, material("#E6AF4A"), 17, 11.9).scale = vector(1.7, 0.5, 1)
         specialEyes(group, 15.5, 13.4, 0, spacing: 2, radius: 0.6)
         sphere(group, 1, 10, pink, 14, 16)
+        PaperweightShipAnimation.tag(specialMovingPart(group, from: headStart,
+                                                       pivot: vector(12.5, 5, 0)), as: .figurehead)
         for side in [-1.0, 1] {
             sphere(group, 3, 12, white, 5, 4.5, side * 5.7).scale = vector(1.4, 0.6, 0.35)
         }
@@ -276,6 +326,7 @@ extension PaperweightShipFactory {
         box(group, 24, 1.7, 11.6, material("#76764C"), -1, -1.8)
         specialRig(group, x: -4, height: 19, width: 11)
         specialRig(group, x: 5, height: 14, width: 8)
+        let headStart = group.childNodes.count
         sphere(group, 3.6, 12, dark, 13.8, 8)
         for z in [-2.0, 2] {
             cylinder(group, 0, 1.4, 4.3, dark, 13.5, 11.6, z)
@@ -286,6 +337,8 @@ extension PaperweightShipFactory {
         }
         sphere(group, 0.65, 8, material("#D38D94"), 17, 7.4)
         sphere(group, 1.4, 10, material("#141719"), 16.5, 5.9).scale = vector(0.6, 0.65, 1)
+        PaperweightShipAnimation.tag(specialMovingPart(group, from: headStart,
+                                                       pivot: vector(13, 5, 0)), as: .figurehead)
         for side in [-1.0, 1] {
             sphere(group, 2, 10, dark, 10.5, 5.8, side * 5.3).scale = vector(1.4, 0.7, 1)
             for x in [-9.0, -4, 1, 6] {
@@ -306,10 +359,16 @@ extension PaperweightShipFactory {
         for side in [-1.0, 1] {
             for x in [-6.0, -2, 2, 6] { box(group, 1.2, 2.2, 0.2, material("#496375"), x, 8, side * 7.5) }
         }
+        let headStart = group.childNodes.count
         sphere(group, 4.2, 14, cream, 14, 5).scale = vector(1.3, 1, 1)
         specialEyes(group, 16.5, 6, 0, spacing: 2.6, radius: 0.8)
         torus(group, 1.6, 0.4, rings: 16, sides: 6, material("#A94E44"), 18, 4.8, ry: .pi / 2)
+        PaperweightShipAnimation.tag(specialMovingPart(group, from: headStart,
+                                                       pivot: vector(12, 4, 0)), as: .figurehead)
+        let tailStart = group.childNodes.count
         profile(group, [(-14, 3), (-20, 8), (-18, 2), (-20, -2)], 1.2, green)
+        PaperweightShipAnimation.tag(specialMovingPart(group, from: tailStart,
+                                                       pivot: vector(-14, 3, 0)), as: .serpent)
         return group
     }
 
@@ -326,8 +385,11 @@ extension PaperweightShipFactory {
             box(group, 5.5, 0.7, 1.8, material("#E9C48A"), -6, 11, side * 5.8)
         }
         cylinder(group, 0, 1.4, 5, purple, -10, 13)
+        let tailStart = group.childNodes.count
         sphere(group, 3.4, 12, wood, -16, 7).scale = vector(1.2, 1.5, 0.7)
         sphere(group, 2, 10, material("#F0D8B0"), -17, 11).scale = vector(0.8, 1.2, 0.7)
+        PaperweightShipAnimation.tag(specialMovingPart(group, from: tailStart,
+                                                       pivot: vector(-14, 5, 0)), as: .serpent)
         for side in [-1.0, 1] {
             cylinder(group, 0.18, 0.18, 3.5, material("#5B5C5A"), 12, 1.5, side * 5.4)
             sphere(group, 1.6, 10, material("#686C6D"), 12, -0.7, side * 5.4)
@@ -348,10 +410,13 @@ extension PaperweightShipFactory {
             cylinder(group, 0.4, 1, 7, ivory, 16.5, 5, side * 2.5, rz: -0.7)
             sphere(group, 0.5, 8, material("#1C2024"), 16, 9.1, side * 1.7)
         }
+        let trunkStart = group.childNodes.count
         for index in 0..<5 {
             let t = Double(index)
             sphere(group, 1.35 - t * 0.15, 10, brown, 16 + t * 0.55, 6.7 - t * 1.3)
         }
+        PaperweightShipAnimation.tag(specialMovingPart(group, from: trunkStart,
+                                                       pivot: vector(16, 6.7, 0)), as: .serpent)
         return group
     }
 
@@ -366,7 +431,10 @@ extension PaperweightShipFactory {
         for z in [-2.0, 2] {
             cylinder(group, 0, 0.7, 2.4, cream, 15, 9.6, z)
         }
+        let tailStart = group.childNodes.count
         profile(group, [(-13, 4), (-20, 9), (-18, 3), (-20, -2)], 1, blue)
+        PaperweightShipAnimation.tag(specialMovingPart(group, from: tailStart,
+                                                       pivot: vector(-13, 4, 0)), as: .serpent)
         for z in [-5.5, 5.5] {
             for index in 0..<5 {
                 let x = 6 + Double(index)
@@ -387,8 +455,12 @@ extension PaperweightShipFactory {
             box(group, 23, 0.5, 2.2, gold, 0, 8, z)
             for x in [-10.0, 0, 10] {
                 cylinder(group, 0.25, 0.25, 5, dark, x, 10, z)
-                box(group, 7, 0.25, 0.8, gold, x, 12.6, z)
-                box(group, 0.8, 0.25, 7, gold, x, 12.65, z)
+                let rotor = SCNNode()
+                rotor.position = vector(x, 12.6, z)
+                box(rotor, 7, 0.25, 0.8, gold, 0, 0)
+                box(rotor, 0.8, 0.25, 7, gold, 0, 0.05)
+                group.addChildNode(rotor)
+                PaperweightShipAnimation.tag(rotor, as: .rotor)
             }
         }
         for index in 0..<4 {
@@ -445,12 +517,15 @@ extension PaperweightShipFactory {
                 }
                 box(group, 0.3, 10, 0.3, material("#B18D5E"), x + 1.3, 9.5, side * 6.8)
             }
-            // The ark's immense towing chains are a readable part of its silhouette.
+            // The ark's immense towing chains sway as a unit from their attachment.
+            let chainStart = group.childNodes.count
             for index in 0..<5 {
                 torus(group, 0.85, 0.22, rings: 10, sides: 6, material("#575E60", metalness: 0.5),
                       15 + Double(index) * 1.1, 4 - Double(index) * 0.5, side * 5,
                       ry: index.isMultiple(of: 2) ? 0 : .pi / 2)
             }
+            PaperweightShipAnimation.tag(specialMovingPart(group, from: chainStart,
+                                                           pivot: vector(15, 4, side * 5)), as: .serpent)
         }
         return group
     }
@@ -468,7 +543,9 @@ extension PaperweightShipFactory {
         flat(group, [(3.4, 13.8), (3.4, 4), (10, 4)], material("#EEE2C1", doubleSided: true))
         cylinder(group, 1.2, 1.8, 3, material("#605F56"), -7, 2.5, rz: .pi / 2)
         let flame = material("#F29A37")
-        sphere(group, 1.3, 10, flame, -10, 2.5).scale = vector(2, 0.8, 0.8)
+        let fire = sphere(group, 1.3, 10, flame, -10, 2.5)
+        fire.scale = vector(2, 0.8, 0.8)
+        PaperweightShipAnimation.tag(fire, as: .pulse)
         return group
     }
 
@@ -478,6 +555,7 @@ extension PaperweightShipFactory {
         specialRig(group, x: -6, height: 20, sailColor: "#46524B", width: 11)
         specialRig(group, x: 4, height: 17, sailColor: "#46524B", width: 9)
         // Dragon-shaped bow with a curling neck and swept-back horns.
+        let dragonStart = group.childNodes.count
         for index in 0..<4 {
             let t = Double(index)
             sphere(group, 1.7, 10, green, 12.5 + sin(t * 0.6) * 2, 6 + t * 1.7)
@@ -487,7 +565,12 @@ extension PaperweightShipFactory {
             cylinder(group, 0, 0.6, 4, gold, 14.5, 15, z, rz: 0.7)
             sphere(group, 0.45, 8, material("#EBD99B"), 18, 13.4, z)
         }
+        PaperweightShipAnimation.tag(specialMovingPart(group, from: dragonStart,
+                                                       pivot: vector(12.5, 6, 0)), as: .figurehead)
+        let tailStart = group.childNodes.count
         profile(group, [(-13, 3), (-17, 7), (-19, 7.5), (-18, 5), (-15, 2)], 2, green)
+        PaperweightShipAnimation.tag(specialMovingPart(group, from: tailStart,
+                                                       pivot: vector(-13, 3, 0)), as: .serpent)
         return group
     }
 
@@ -505,12 +588,15 @@ extension PaperweightShipFactory {
                               wall: cream, roof: material("#416A89"))
             }
         }
+        let headStart = group.childNodes.count
         sphere(group, 3.6, 14, material("#A5AD8B"), 13, 2.7)
         for z in [-2.0, 2] {
             cylinder(group, 0.35, 0.5, 5, material("#A5AD8B"), 13, 7, z, rz: -0.1)
             sphere(group, 1.1, 12, cream, 13.3, 9.5, z)
             sphere(group, 0.5, 8, material("#202731"), 14.15, 9.5, z)
         }
+        PaperweightShipAnimation.tag(specialMovingPart(group, from: headStart,
+                                                       pivot: vector(10, 3, 0)), as: .serpent)
         for x in [-8.0, 0] {
             mast(group, x, 13, 14, material("#252C37"))
             sail(group, x, 22.5, 6.5, 6, material("#272D37", doubleSided: true), brace: 0)
@@ -549,6 +635,7 @@ extension PaperweightShipFactory {
             }
         }
         if garp {
+            let headStart = group.childNodes.count
             sphere(group, 3.8, 14, material("#F4E9D6"), 15, 7)
             sphere(group, 2, 12, material("#D6B88C"), 18, 6.2).scale = vector(1.4, 0.8, 1)
             sphere(group, 0.9, 10, material("#29313A"), 20.3, 6.8)
@@ -559,6 +646,8 @@ extension PaperweightShipFactory {
             // The dog's bone is visible even at miniature size.
             box(group, 0.8, 0.8, 8, white, 18.7, 5.7)
             for z in [-4.0, 4] { sphere(group, 0.8, 10, white, 18.7, 5.7, z) }
+            PaperweightShipAnimation.tag(specialMovingPart(group, from: headStart,
+                                                           pivot: vector(13, 5, 0)), as: .figurehead)
         } else {
             profile(group, [(13, 5), (17, 11), (19, 10), (17, 4)], 2.5, white)
         }

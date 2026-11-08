@@ -8,8 +8,8 @@ struct PaperweightSceneHit {
     let x: Double
 }
 
-/// Motion owns a short-lived timer. Once the two fluids and camera settle,
-/// SceneKit is paused and no frame or SwiftUI update is scheduled.
+/// One visibility-owned clock runs physics at 60 Hz and settled ship parts at
+/// 15 Hz. Decorative ticks leave the fluid geometry and SwiftUI state alone.
 @available(macOS 14.0, *)
 @MainActor
 final class PaperweightSceneRenderer: NSObject {
@@ -25,6 +25,8 @@ final class PaperweightSceneRenderer: NSObject {
     private var isVisible = false
     private var initialMotionPending = true
     private var timer: Timer?
+    private(set) var frameInterval: TimeInterval = 0
+    var hasDrawingClock: Bool { timer != nil }
     private lazy var tickTarget = PaperweightTickTarget(owner: self)
     private var lastTime: TimeInterval = 0
     private var lastCommand: Int?
@@ -267,22 +269,28 @@ final class PaperweightSceneRenderer: NSObject {
         swap != nil || cameraReset != nil || abs(radiusTarget - radius) > 0.002 || abs(yawVelocity) + abs(pitchVelocity) > 0.001 || bottles.values.contains { !$0.simulation.isSettled }
     }
 
+    private var needsShipAnimation: Bool { bottles.values.contains(where: \.hasShipAnimation) }
+
     private func kick() {
         guard isVisible, !reduceMotion else { settleAll(); stopTimer(); return }
-        guard needsMotion else { stopTimer(); return }
-        guard timer == nil else { return }
+        guard needsMotion || needsShipAnimation else { stopTimer(); return }
+        let interval = needsMotion ? 1.0 / 60 : 1.0 / 15
+        setMoving(needsMotion)
+        guard timer == nil || abs(frameInterval - interval) > 0.0001 else { return }
+        timer?.invalidate()
+        frameInterval = interval
         lastTime = ProcessInfo.processInfo.systemUptime
-        let timer = Timer(timeInterval: 1.0 / 60, target: tickTarget, selector: #selector(PaperweightTickTarget.tick(_:)), userInfo: nil, repeats: true)
+        let timer = Timer(timeInterval: interval, target: tickTarget, selector: #selector(PaperweightTickTarget.tick(_:)), userInfo: nil, repeats: true)
         self.timer = timer
         RunLoop.main.add(timer, forMode: .common)
-        scene.isPaused = false
-        setMoving(true)
+        scene.isPaused = true
     }
 
     fileprivate func tick() {
         guard isVisible, !reduceMotion else { settleAll(); stopTimer(); return }
         let time = ProcessInfo.processInfo.systemUptime
-        let dt = min(0.05, max(1.0 / 240, time - lastTime))
+        let elapsed = min(0.15, max(1.0 / 240, time - lastTime))
+        let dt = min(0.05, elapsed)
         lastTime = time
         SCNTransaction.begin()
         SCNTransaction.disableActions = true
@@ -294,17 +302,19 @@ final class PaperweightSceneRenderer: NSObject {
                 bottle.simulation.step(dt: dt)
                 bottle.updateVisuals(dt: dt, moving: true, geometryChanged: true)
             }
+            bottle.animateShip(dt: elapsed, reduceMotion: false)
         }
         placeBottles()
         updateCamera()
         SCNTransaction.commit()
         requestRender()
-        if !needsMotion { stopTimer() }
+        kick()
     }
 
     private func stopTimer() {
         timer?.invalidate()
         timer = nil
+        frameInterval = 0
         scene.isPaused = true
         view?.isPlaying = false
         view?.rendersContinuously = false
@@ -329,6 +339,7 @@ final class PaperweightSceneRenderer: NSObject {
                 || bottle.simulation.currentLevels != bottle.simulation.targetLevels
             bottle.simulation.settle()
             bottle.updateVisuals(dt: 0, moving: false, geometryChanged: changed)
+            bottle.animateShip(dt: 0, reduceMotion: true)
         }
         placeBottles()
         updateCamera()

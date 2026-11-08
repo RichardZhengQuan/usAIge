@@ -138,6 +138,26 @@ extension PaperweightShipFactory {
         cylinder(group, 0, 0.7, length, material(hex), x, y, z, rz: rz)
     }
 
+    /// Reparent a just-built assembly around its mechanical joint, preserving
+    /// every child's original transform before the animation engine captures it.
+    private static func pirateJoint(_ group: SCNNode, since index: Int, at pivot: SCNVector3) -> SCNNode {
+        let parts = Array(group.childNodes.dropFirst(index))
+        let joint = SCNNode()
+        joint.position = pivot
+        for part in parts {
+            let position = part.position
+            part.removeFromParentNode()
+            joint.addChildNode(part)
+            part.position = SCNVector3(position.x - pivot.x, position.y - pivot.y, position.z - pivot.z)
+        }
+        group.addChildNode(joint)
+        return joint
+    }
+
+    private static func pirateFigurehead(_ group: SCNNode, since index: Int, at pivot: SCNVector3) {
+        PaperweightShipAnimation.tag(pirateJoint(group, since: index, at: pivot), as: .figurehead)
+    }
+
     // MARK: Straw Hats, Roger, and the Emperors
 
     private static func pirateMerry() -> SCNNode {
@@ -145,12 +165,14 @@ extension PaperweightShipFactory {
         pirateHull(g, "#a96939", trim: "#f8e8bd", length: 25, width: 9, stern: 7)
         pirateRig(g, [(-1, 17)], strawHat: true, rows: 1)
         pirateCabin(g, x: -8, y: 7, roof: "#b75441", width: 5)
+        let bowStart = g.childNodes.count
         pirateEllipsoid(g, 2.2, "#f7efcf", 14, 6, scale: vector(1.2, 1, 1))
         pirateEllipsoid(g, 1.2, "#e5d5a9", 15.7, 5.4)
         pirateEyes(g, x: 14.3, y: 6.7, z: 1.9)
         for side in [-1.0, 1] {
             torus(g, 1.2, 0.42, rings: 14, sides: 6, material("#b38c58"), 12.5, 6.6, side * 1.6)
         }
+        pirateFigurehead(g, since: bowStart, at: vector(13, 5, 0))
         // Merry's curved forward rail and orange tree distinguish her from a brig.
         pirateEllipsoid(g, 1.3, "#448a3b", -9, 11, -2)
         sphere(g, 0.35, 8, material("#ec9b35"), -8.4, 11.2, -1.1)
@@ -171,6 +193,7 @@ extension PaperweightShipFactory {
         pirateEllipsoid(face, 2.5, "#ffd567", 0, 0)
         pirateEllipsoid(face, 0.9, "#f4b341", 1.9, -0.2, scale: vector(1, 0.7, 1))
         pirateEyes(face, x: 0.8, y: 0.6, z: 2.15, large: true)
+        PaperweightShipAnimation.tag(face, as: .figurehead)
         for x in [-10.0, -6, -2] { pirateEllipsoid(g, 1.15, "#488e3e", x, 10, -3) }
         for side in [-1.0, 1] { disc(g, 2, 18, material("#f4eee0"), -6, 1, side * 6.2, ry: side < 0 ? .pi : 0) }
         return g
@@ -181,11 +204,13 @@ extension PaperweightShipFactory {
         pirateHull(g, "#a82e2c", trim: "#dfbb55", stern: 10)
         pirateRig(g, [(-7, 17), (1, 20), (9, 16)], cloth: "#e8cead", stripe: "#a62932")
         pirateCabin(g, x: -10, y: 10, color: "#e9d8ba", roof: "#aa3936")
+        let bowStart = g.childNodes.count
         profile(g, [(13, 4), (16, 7), (18, 11), (20, 12), (20, 10), (18, 8), (17, 3)], 3, material("#e9b95e"))
         pirateEllipsoid(g, 1.5, "#e9b95e", 18, 11.5)
         for side in [-1.0, 1] {
             profile(g, [(12, 8), (17, 12), (17, 9), (13, 5)], 0.6, material("#d8994e")).position.z = CGFloat(side * 2.5)
         }
+        pirateFigurehead(g, since: bowStart, at: vector(14, 5, 0))
         pirateCannons(g)
         return g
     }
@@ -194,8 +219,10 @@ extension PaperweightShipFactory {
         let g = SCNNode()
         pirateHull(g, "#e8e9d8", trim: "#547f9a", length: 31, width: 12, stern: 9)
         pirateRig(g, [(-8, 17), (0, 19), (8, 15)], cloth: "#f4eee1")
+        let bowStart = g.childNodes.count
         pirateEllipsoid(g, 4.2, "#f2f2df", 14, 3.8, scale: vector(1.5, 0.9, 1))
         pirateEyes(g, x: 15.5, y: 5.5, z: 3.5, large: true)
+        pirateFigurehead(g, since: bowStart, at: vector(12, 3.8, 0))
         for side in [-1.0, 1] {
             box(g, 12, 0.5, 0.5, material("#687b8e"), 9, 2.9, side * 4)
             profile(g, [(-10, 1), (-13, 4), (-15, 3), (-13, -1)], 0.6, material("#b8d0cf")).position.z = CGFloat(side * 6)
@@ -209,11 +236,13 @@ extension PaperweightShipFactory {
         pirateHull(g, "#8b252b", trim: "#cda559", length: 30, width: 10, stern: 10)
         pirateRig(g, [(-8, 16), (0, 19), (8, 16)], cloth: "#eee1c5", stripe: "#a83a3b")
         pirateCabin(g, x: -11, y: 10, color: "#ac3430", roof: "#d4b069")
+        let bowStart = g.childNodes.count
         profile(g, [(12, 3), (16, 4), (17, 10), (20, 12), (21, 10), (18, 8), (18, 3)], 2.3, material("#b3312e"))
         pirateEllipsoid(g, 1.7, "#bf3a2e", 19.5, 11, scale: vector(1.5, 0.75, 0.8))
         pirateHorn(g, 18.2, 13, -0.8, length: 2.8)
         pirateHorn(g, 18.2, 13, 0.8, length: 2.8)
         pirateEyes(g, x: 19.5, y: 11.5, z: 1.1)
+        pirateFigurehead(g, since: bowStart, at: vector(14, 4, 0))
         pirateCannons(g)
         return g
     }
@@ -223,12 +252,14 @@ extension PaperweightShipFactory {
         pirateHull(g, "#30272c", trim: "#b59751", length: 34, width: 11, stern: 11)
         pirateRig(g, [(-10, 16), (-2, 19), (7, 17)], cloth: "#7f2d32", stripe: "#30272c")
         pirateCabin(g, x: -12, y: 11, color: "#352e38", roof: "#9c3c43")
+        let bowStart = g.childNodes.count
         pirateEllipsoid(g, 3.1, "#d1c4a4", 18, 7, scale: vector(1.1, 1.2, 1))
         for side in [-1.0, 1] {
             disc(g, 1, 12, material("#28222b"), 18.2, 7.8, side * 2.8, ry: side < 0 ? .pi : 0)
             pirateHorn(g, 16.3, 10.5, side * 2, length: 3.5, rz: side * 0.5)
         }
         for x in [16.5, 17.8, 19.1] { box(g, 0.7, 1.8, 4, material("#d1c4a4"), x, 4.2) }
+        pirateFigurehead(g, since: bowStart, at: vector(16, 5, 0))
         pirateCannons(g, count: 6)
         return g
     }
@@ -242,6 +273,7 @@ extension PaperweightShipFactory {
             box(g, 7, 4, 0.4, material("#faf2d4"), -8, 7, side * 3.8)
             box(g, 1.2, 4, 0.5, material("#e34950"), -8, 7, side * 4.1)
         }
+        let bowStart = g.childNodes.count
         if blaster {
             pirateEllipsoid(g, 4, "#f3dbc2", 15, 7)
             pirateEllipsoid(g, 1.4, "#e93847", 18.5, 7.5)
@@ -258,6 +290,7 @@ extension PaperweightShipFactory {
                 pirateHorn(g, 17, 4.5, side * 1.4, length: 3.3, rz: -1)
             }
         }
+        pirateFigurehead(g, since: bowStart, at: vector(13, 5, 0))
         return g
     }
 
@@ -265,6 +298,7 @@ extension PaperweightShipFactory {
         let g = SCNNode()
         pirateHull(g, "#7a2b36", trim: "#d6b969", width: 11, stern: 9)
         pirateRig(g, [(-5, 19), (5, 15)], cloth: "#ddd3bc", stripe: "#6b3139")
+        let bowStart = g.childNodes.count
         pirateEllipsoid(g, 3.5, "#e8dfc4", 16, 7, scale: vector(1.7, 0.85, 0.9))
         pirateEllipsoid(g, 2, "#30292b", 15.5, 8.2, 2.6)
         pirateEllipsoid(g, 2, "#30292b", 15.5, 8.2, -2.6)
@@ -272,6 +306,7 @@ extension PaperweightShipFactory {
         for x in [15.0, 17, 19] {
             for side in [-1.0, 1] { pirateHorn(g, x, 4.6, side * 2, length: 1.6, rz: .pi) }
         }
+        pirateFigurehead(g, since: bowStart, at: vector(13, 5, 0))
         for x in [-11.0, -7, -3, 1, 5, 9] {
             for side in [-1.0, 1] { pirateHorn(g, x, 6, side * 5.6, length: 3, rz: side * 0.6) }
         }
@@ -295,7 +330,7 @@ extension PaperweightShipFactory {
         for side in [-1.0, 1] {
             for x in [-9.0, -3, 3, 9] { disc(g, 0.8, 12, material("#fff2cf"), x, 0.5, side * 6.15, ry: side < 0 ? .pi : 0) }
         }
-        pirateEllipsoid(g, 2.5, "#f0c271", 15, 4, scale: vector(1.3, 0.7, 1))
+        PaperweightShipAnimation.tag(pirateEllipsoid(g, 2.5, "#f0c271", 15, 4, scale: vector(1.3, 0.7, 1)), as: .figurehead)
         return g
     }
 
@@ -305,12 +340,14 @@ extension PaperweightShipFactory {
         pirateRig(g, [(-4, 16), (5, 13)], cloth: "#343139")
         pirateCabin(g, x: -10, y: 8, color: "#69523b", roof: "#c8ad67")
         cylinder(g, 0.8, 0.8, 3, material("#e9d5aa"), -4, 23)
-        pirateEllipsoid(g, 0.6, "#f4ad42", -4, 25, scale: vector(0.7, 1.6, 0.7))
+        PaperweightShipAnimation.tag(pirateEllipsoid(g, 0.6, "#f4ad42", -4, 25, scale: vector(0.7, 1.6, 0.7)), as: .pulse)
+        let bowStart = g.childNodes.count
         pirateEllipsoid(g, 2.1, "#cbb47c", 15, 8, scale: vector(0.8, 1.2, 0.8))
         box(g, 1.4, 5, 1.5, material("#cbb47c"), 15, 4.3)
         box(g, 1.2, 0.9, 7, material("#cbb47c"), 15, 5.8)
         cylinder(g, 0.15, 0.3, 5, material("#6c7378", metalness: 0.5), 15.4, 10.8, rz: -0.35)
         for side in [-1.0, 1] { box(g, 0.4, 1, 0.2, material("#443a31"), 15.6, 8, side * 1.6, rz: 0.65) }
+        pirateFigurehead(g, since: bowStart, at: vector(14, 4, 0))
         return g
     }
 
@@ -320,8 +357,10 @@ extension PaperweightShipFactory {
         pirateRig(g, [(-7, 16), (3, 19)], cloth: "#dddcc8")
         pirateCabin(g, x: -11, y: 10, color: "#eee9d5", roof: "#4a7a8c")
         pirateCannons(g, count: 6)
+        let flagStart = g.childNodes.count
         box(g, 5, 3.2, 0.25, material("#a63d3e"), 5.2, 23)
         for angle in [-0.6, 0.6] { box(g, 3, 0.25, 0.3, material("#efeadc"), 5.2, 23, 0.2, rz: angle) }
+        PaperweightShipAnimation.tag(pirateJoint(g, since: flagStart, at: vector(3, 23, 0)), as: .flag)
         return g
     }
 
@@ -330,8 +369,10 @@ extension PaperweightShipFactory {
         pirateHull(g, "#62483e", trim: "#e4b966", width: 11, stern: 7)
         pirateRig(g, [(-6, 17), (4, 19)], cloth: "#ece6ce", stripe: "#6e5e72")
         pirateCabin(g, x: -10, y: 8, color: "#d2af72", roof: "#a14c59")
+        let hornStart = g.childNodes.count
         cylinder(g, 2.8, 0.9, 6, material("#d9b05e", metalness: 0.25), 16, 7, rz: -.pi / 2)
         disc(g, 2.1, 14, material("#41372e"), 19.05, 7, 0, ry: .pi / 2)
+        PaperweightShipAnimation.tag(pirateJoint(g, since: hornStart, at: vector(16, 7, 0)), as: .pulse)
         for side in [-1.0, 1] {
             torus(g, 1.5, 0.35, rings: 16, sides: 6, material("#d9b05e"), -8, 4, side * 5.7)
             box(g, 0.5, 4.5, 0.5, material("#d9b05e"), -6.5, 6, side * 5.7)
@@ -345,6 +386,7 @@ extension PaperweightShipFactory {
         pirateRig(g, [(0, 19)], cloth: "#efe0c7", stripe: "#795099")
         pirateCabin(g, x: -10, y: 9, color: "#ba6b54", roof: "#4e5368", width: 8)
         pirateCabin(g, x: -10, y: 13, color: "#d3b490", roof: "#4e5368", width: 5)
+        let bowStart = g.childNodes.count
         pirateEllipsoid(g, 3.2, "#bd594b", 15, 7, scale: vector(0.75, 1.2, 1))
         pirateEyes(g, x: 15.5, y: 8, z: 2.6)
         for side in [-1.0, 1] {
@@ -352,6 +394,7 @@ extension PaperweightShipFactory {
             for index in 0..<4 { pirateEllipsoid(g, 0.75, "#f3dfab", 12, 6 + Double(index), side * 3.7) }
             profile(g, [(10, 5), (13, 9), (9, 8), (7, 6)], 0.5, material("#cdb07b")).position.z = CGFloat(side * 4.2)
         }
+        pirateFigurehead(g, since: bowStart, at: vector(13, 5, 0))
         return g
     }
 
@@ -360,10 +403,12 @@ extension PaperweightShipFactory {
         pirateHull(g, "#c14a76", trim: "#f0c87d", width: 11, stern: 8)
         pirateRig(g, [(-5, 16), (4, 19)], cloth: "#f6d4dd", stripe: "#cd598d")
         pirateCabin(g, x: -10, y: 8, color: "#f6c2cd", roof: "#8c3d65")
+        let bowStart = g.childNodes.count
         profile(g, [(13, 3), (16, 4), (16, 14), (18, 17), (17, 18.5), (14, 16), (14, 7), (12, 6)], 2, material("#ed8bae"))
         pirateEllipsoid(g, 1.7, "#ef9abc", 17.2, 17, scale: vector(1.1, 0.9, 0.75))
         cylinder(g, 0.4, 0.9, 3, material("#252931"), 19, 16.6, rz: -1.1)
         pirateEyes(g, x: 17.5, y: 17.5, z: 1.2)
+        pirateFigurehead(g, since: bowStart, at: vector(14, 5, 0))
         return g
     }
 
@@ -385,6 +430,7 @@ extension PaperweightShipFactory {
         let g = SCNNode()
         pirateHull(g, "#7b8194", trim: "#ced4d9", width: 12, stern: 8)
         pirateRig(g, [(-5, 16), (5, 18)], cloth: "#e6e0cc", stripe: "#65758d")
+        let bowStart = g.childNodes.count
         pirateEllipsoid(g, 3.4, "#9ba9b4", 14, 4.3, scale: vector(1.8, 0.9, 1.2))
         pirateEyes(g, x: 15.5, y: 5.5, z: 3.4)
         box(g, 8.5, 0.6, 1, material("#aebcc1"), 21, 5.1)
@@ -397,6 +443,7 @@ extension PaperweightShipFactory {
             box(g, 7, 0.5, 0.2, material("#34404c"), 16, 3.5, side * 3.5)
             for x in [14.0, 16, 18] { pirateHorn(g, x, 3.5, side * 3.65, length: 1.3, rz: .pi) }
         }
+        pirateFigurehead(g, since: bowStart, at: vector(13, 4.3, 0))
         profile(g, [(0, 5), (3, 10), (5, 5)], 1.2, material("#8c9dab"))
         pirateCabin(g, x: -10, y: 8, color: "#a5b1b5", roof: "#526879")
         return g
@@ -413,21 +460,27 @@ extension PaperweightShipFactory {
             for (index, x) in [-11.0, -7, -3, 1, 5, 9].enumerated() {
                 disc(g, 1.55, 14, material(index.isMultiple(of: 2) ? "#b7453d" : "#dcb95f"), x, 3.3, side * 4.8, ry: side < 0 ? .pi : 0)
                 disc(g, 0.45, 10, material("#c2bda4", metalness: 0.25), x, 3.3, side * 4.85, ry: side < 0 ? .pi : 0)
+                let oarStart = g.childNodes.count
                 cylinder(g, 0.2, 0.25, 10, material("#6b4b32"), x, 0.5, side * 7, rx: side * 1.05)
+                PaperweightShipAnimation.tag(pirateJoint(g, since: oarStart, at: vector(x, 3, side * 4.5)), as: .oar)
             }
         }
         if naglfar {
             pirateCabin(g, x: -9, y: 9, color: "#886c49", roof: "#b49c61", width: 8)
+            let bowStart = g.childNodes.count
             for index in -3...3 {
                 box(g, 0.6, 6, 1.1, material("#cfaa67"), 16, 9, Double(index), rz: Double(index) * 0.2)
             }
             pirateEllipsoid(g, 2.4, "#e8ddbf", 17.5, 9, scale: vector(0.7, 1.3, 1))
             for side in [-1.0, 1] { pirateHorn(g, 17.5, 11.5, side * 2.4, length: 5, rz: side * 0.8) }
             pirateEyes(g, x: 18, y: 9.6, z: 2)
+            pirateFigurehead(g, since: bowStart, at: vector(16, 7, 0))
         } else {
+            let bowStart = g.childNodes.count
             pirateEllipsoid(g, 1.8, "#b88449", 17, 12, scale: vector(1.5, 0.8, 0.8))
             pirateEyes(g, x: 17.5, y: 12.5, z: 1.1)
             pirateHorn(g, 15.5, 14, 0, length: 2.5)
+            pirateFigurehead(g, since: bowStart, at: vector(16, 11, 0))
         }
         return g
     }
@@ -437,12 +490,15 @@ extension PaperweightShipFactory {
         pirateHull(g, "#b54c38", trim: "#efd16e", width: 11, stern: 8)
         pirateRig(g, [(-4, 18), (6, 14)], cloth: "#b63842", strawHat: true)
         pirateCabin(g, x: -10, y: 8, color: "#e6cba0", roof: "#d1463a")
+        let bowStart = g.childNodes.count
         pirateEllipsoid(g, 2.4, "#f1c9a1", 16, 8, scale: vector(0.9, 1.2, 1))
         cylinder(g, 2.6, 2.8, 1.4, material("#edc95d"), 16, 10.7)
         cylinder(g, 3.7, 3.7, 0.35, material("#edc95d"), 16, 10.2)
         cylinder(g, 2.7, 2.7, 0.45, material("#ce433d"), 16, 10.1)
         box(g, 2.7, 4, 3.2, material("#d94636"), 14.6, 4.4)
         pirateEyes(g, x: 17, y: 8.4, z: 2)
+        pirateFigurehead(g, since: bowStart, at: vector(14.6, 5, 0))
+        let sternStart = g.childNodes.count
         // The Chopper stern and antlers remain legible opposite the Luffy bow.
         pirateEllipsoid(g, 2.1, "#c18f65", -15, 8)
         cylinder(g, 2.3, 2.3, 1.8, material("#d55c84"), -15, 10)
@@ -452,6 +508,7 @@ extension PaperweightShipFactory {
         }
         box(g, 1.4, 0.3, 0.2, material("#f9efda"), -15, 10, 2.35)
         box(g, 0.3, 1.4, 0.2, material("#f9efda"), -15, 10, 2.35)
+        pirateFigurehead(g, since: sternStart, at: vector(-15, 7, 0))
         return g
     }
 
@@ -466,11 +523,13 @@ extension PaperweightShipFactory {
         pirateCabin(g, x: -10, y: 9, color: "#e9e5ce", roof: "#7ea194")
         cylinder(g, 3.3, 3.3, 2.2, material("#dfbd68"), -13, 12)
         for z in [-2.5, 0, 2.5] { pirateHorn(g, -13, 14, z, length: 2.3, rz: 0, hex: "#dfbd68") }
+        let bowStart = g.childNodes.count
         pirateEllipsoid(g, 2, "#f5efdc", 15, 8, scale: vector(0.7, 1.8, 0.9))
         pirateEllipsoid(g, 2, "#f5efdc", 17, 11.2, scale: vector(1.6, 0.8, 0.75))
         pirateEyes(g, x: 17.2, y: 11.8, z: 1.4)
         for side in [-1.0, 1] { pirateHorn(g, 15.7, 13.5, side * 0.9, length: 2.3, rz: 0.3, hex: "#f5efdc") }
         for y in [8.0, 10, 12] { pirateEllipsoid(g, 0.9, "#bdc7bb", 13.8, y, scale: vector(0.7, 1, 1.6)) }
+        pirateFigurehead(g, since: bowStart, at: vector(14.5, 6, 0))
         return g
     }
 
@@ -483,6 +542,7 @@ extension PaperweightShipFactory {
         pirateCannons(g, count: 7)
         for side in [-1.0, 1] { box(g, 31, 0.7, 0.2, material("#e3c16c"), 0, -1, side * 6.1) }
         cylinder(g, 0.3, 0.4, 8, material("#bc9c58"), 19, 8, rz: -1.1)
+        let bowStart = g.childNodes.count
         pirateEllipsoid(g, 1.2, "#e4c783", 18.5, 10.5)
         cylinder(g, 0.8, 1.3, 4, material("#e4c783"), 17, 7.5, rz: -0.4)
         for side in [-1.0, 1] {
@@ -490,6 +550,7 @@ extension PaperweightShipFactory {
             wing.position.z = CGFloat(side * 2.4)
             wing.eulerAngles.x = CGFloat(side * 0.5)
         }
+        pirateFigurehead(g, since: bowStart, at: vector(16, 6, 0))
         return g
     }
 
@@ -505,9 +566,11 @@ extension PaperweightShipFactory {
         for angle in stride(from: 0.0, to: .pi * 2, by: .pi / 3) {
             pirateHorn(g, cos(angle) * 1.7, 20.1, sin(angle) * 1.7, length: 1.6, rz: 0, hex: "#d6ba65")
         }
+        let bowStart = g.childNodes.count
         pirateEllipsoid(g, 2.2, "#d7aa7a", 14, 6)
         cylinder(g, 0.55, 0.65, 5, material("#d7aa7a"), 17, 6.8, rz: -.pi / 2)
         pirateEyes(g, x: 14.6, y: 7.1, z: 1.9, large: true)
+        pirateFigurehead(g, since: bowStart, at: vector(13, 5, 0))
         return g
     }
 
@@ -524,6 +587,7 @@ extension PaperweightShipFactory {
         box(g, 0.7, 2.7, 0.25, ink, 0, 12.7, 1.1)
         // Ace's bow is a flaming horse skull; its unknown stern is interpreted
         // as a modest wooden cabin rather than copied from merchandise.
+        let bowStart = g.childNodes.count
         pirateEllipsoid(g, 2.1, "#e8dfc7", 14, 7, scale: vector(0.75, 1.2, 0.9))
         pirateEllipsoid(g, 1.8, "#e8dfc7", 16, 6, scale: vector(1.5, 0.7, 0.7))
         for side in [-1.0, 1] {
@@ -533,11 +597,14 @@ extension PaperweightShipFactory {
                       11.2 + Double(index), 4 + Double(index) * 0.5, side * 2.4)
             }
         }
+        pirateFigurehead(g, since: bowStart, at: vector(13, 5, 0))
+        let flameStart = g.childNodes.count
         for index in 0..<5 {
             let x = 12 + Double(index) * 0.9
             profile(g, [(x - 1, 8), (x - 0.5, 12.5 + Double(index % 2)), (x + 0.6, 10), (x + 1, 8)],
                     1, material(index.isMultiple(of: 2) ? "#ef7736" : "#f2ba49"))
         }
+        PaperweightShipAnimation.tag(pirateJoint(g, since: flameStart, at: vector(14, 10, 0)), as: .pulse)
         return g
     }
 }
