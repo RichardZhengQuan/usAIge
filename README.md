@@ -3,7 +3,9 @@
 usAIge has native clients for macOS, iPhone, iPad, and Apple Watch. The Mac is
 the trusted limit collector: it reads the local Codex app-server, Claude
 desktop usage data, Cursor and Grok Build sign-ins already on the Mac, the AI
-quota JetBrains IDEs and Windsurf save locally, and paired remote tools, then relays only normalized percentages and reset times to paired
+quota JetBrains IDEs and Windsurf save locally, the usage that nine more AI
+tools report through their own CLIs, sign-in files, or local server, and paired
+remote tools, then relays only normalized percentages and reset times to paired
 iPhones.
 
 ## Roadmap
@@ -128,6 +130,10 @@ While idle, the panel surface is fully transparent and every visible control is 
 - For Grok Build limits: the Grok Build CLI signed in with `grok login`.
 - For JetBrains AI credits: a JetBrains IDE (or Android Studio) signed in to JetBrains AI that has used AI Assistant at least once.
 - For Windsurf limits: Devin Desktop (Windsurf's new name) or Windsurf, signed in and opened at least once.
+- For Antigravity limits: the Antigravity app or `agy`, signed in and running.
+- For GitHub Copilot limits: the GitHub CLI signed in with `gh auth login`, and Copilot turned on in **AI Tools**.
+- For Kiro, Amp, Muse Code, or Oh My Pi limits: that tool's CLI (`kiro-cli`, `amp`, `muse`, `omp`) installed and signed in.
+- For Command Code, Cline, or OpenCode Go limits: that tool's CLI login (`cmd login`, `cline auth`, or `opencode auth login` with OpenCode Zen).
 - For remote limits: a compatible adapter that can claim a one-time usAIge pairing code and upload normalized limits.
 
 Each tool's ring also breathes while that tool has an agent session running, turns green when a session finishes, amber when one is waiting on you (for Claude Code, a question or a plan awaiting approval; permission prompts leave no record on disk), and pink on an error; clicking the ring opens the tool and settles the light. The signals are read locally: Codex through its app-server, Claude Code from the record types at the end of its session transcripts in `~/.claude` (never the text), Cursor from the conversation status fields in its own state database, and Grok Build from its unified log. Paired iPhones and the Watch show the same per-tool session status.
@@ -331,7 +337,32 @@ instead of showing old numbers as current. Where these files live and what their
 fields mean was learned from the documentation of
 [ClaudeBar](https://github.com/tddworks/ClaudeBar) (Apache-2.0); usAIge's
 readers are its own code. [More AI tools](docs/more-ai-tools.md) lists the other
-tools ClaudeBar reads and which are worth adding next.
+tools ClaudeBar reads and why they aren't built in.
+
+### Tools read through their own CLI, sign-in file, or local server
+
+| Tool | What usAIge reads | Buckets |
+| --- | --- | --- |
+| Antigravity | The running app's or `agy`'s local language server on `127.0.0.1`, found with `pgrep` and `lsof`, using the per-launch token from its own arguments | **Gemini** and **Claude & others** (5-hour inner ring, weekly outer ring), **Gemini Argon** weekly, or per-model quotas on older builds |
+| GitHub Copilot | Off until turned on. `gh auth token`, sent only to GitHub's `copilot_internal/user` endpoint | **AI credits** for the month, plus any other limited Copilot quota, with GitHub's reset date |
+| Kiro | `kiro-cli acp`'s `_kiro/account/getUsage` | **Plan credits** with the billing-cycle reset, and each bonus-credit grant |
+| Amp | `amp usage --no-color` | Each capped credit line (**Free**, …). They refill gradually, so they have no reset time |
+| Muse Code | `muse usage --json` | **Muse Code** session (inner ring; Muse doesn't state its length) and weekly (outer ring), with Muse's tier |
+| Oh My Pi | `omp usage --json` | One limit per upstream account (**Claude**, **Codex**, …), never named by email |
+| Command Code | The API key `cmd login` saved in `~/.commandcode/auth.json`, sent only to `api.commandcode.ai` | **Plan limits** (5-hour, weekly) and **Credits** when the plan states an allowance |
+| Cline | The login `cline auth` saved in `~/.cline/data/settings/providers.json`, sent only to `api.cline.bot` | **Plan limits** (5-hour, weekly) and **Monthly** |
+| OpenCode Go | The OpenCode Zen key in opencode's `auth.json`, sent only to `opencode.ai` | **Plan limits** (5-hour, weekly) and **Monthly** |
+
+Antigravity's local server uses a self-signed certificate, so usAIge accepts
+that certificate only for a connection to `127.0.0.1`, follows no redirects,
+and uses no proxy for it. GitHub Copilot is off by default because the GitHub
+CLI's sign-in also covers your repositories; turning it on in **AI Tools**
+lets usAIge ask `gh` for it on each refresh. CLIs are found in `PATH` and in the
+usual install folders (`~/.local/bin`, `~/.bun/bin`, `/opt/homebrew/bin`,
+`/usr/local/bin`), since an app opened from the Finder doesn't see your shell's
+`PATH`. Tools that start a process are polled every three to five minutes.
+**AI Tools** lists these tools only once they're found on this Mac, so the list
+stays short.
 
 Claude reports several weekly buckets. The rail shows **All models** by
 default and keeps the others available under **AI Tools**, mirroring
@@ -412,7 +443,7 @@ Open **Settings** at the bottom of the main window’s sidebar, use Command-comm
 
 Drag the panel by its background. Its safe position is stored separately for each display. If a display disappears, the panel is clamped onto an available screen the next time it is positioned.
 
-The built-in Codex, Cursor, and Grok Build sources reuse existing sign-ins, while Claude, JetBrains AI, and Windsurf read only local usage data; **AI Tools** shows each one's connection state. Other tools appear only after a paired adapter uploads valid normalized usage data; usAIge does not scrape provider websites or invent missing values.
+The built-in Codex, Cursor, Grok Build, Copilot, Command Code, Cline, and OpenCode Go sources reuse existing sign-ins; Kiro, Amp, Muse Code, and Oh My Pi report through their own CLIs; Antigravity answers on this Mac while it runs; and Claude, JetBrains AI, and Windsurf read only local usage data; **AI Tools** shows each one's connection state. Other tools appear only after a paired adapter uploads valid normalized usage data; usAIge does not scrape provider websites or invent missing values.
 
 ## Branches and worktrees
 
@@ -497,6 +528,7 @@ When a quota resets, the new window starts its own notification cycle. Selecting
 - No browser cookies, cookie stores, or web pages are read. For Claude, usAIge reads filtered extension reports, `plan-usage-history.json`, and validated local usage-cache responses, never its sign-in, OAuth tokens, or Keychain item. Claude itself performs the extension's first-party usage requests with a host-owned opaque handle. Usage collection does not open Claude's Usage page, reopen Code sessions, or bring Claude to the front.
 - No provider credentials are copied or stored by usAIge. The Cursor and Grok Build sign-ins already on this Mac are read into memory only to request each provider's current limits, and are never written to disk, logged, refreshed, or relayed.
 - For JetBrains AI and Windsurf, usAIge reads only the quota each app saves (`AIAssistantQuotaManager2.xml`, and the saved-plan rows of `state.vscdb`, opened read-only). It reads no sign-in for them and sends no request.
+- The Command Code, Cline, and OpenCode Go keys and the GitHub CLI token are held in memory only for that tool's own usage request. The GitHub CLI token is read only after you turn Copilot on. Kiro, Amp, Muse Code, and Oh My Pi are asked for usage through their own CLIs, whose output is parsed for limits and otherwise discarded; error messages never repeat it.
 - The Mac relay credential is stored in an owner-only local application-support file. Each remote tool keeps its own write credential outside usAIge.
 - No screen pixels are captured or inspected.
 - The rail's work tile and the Branches window read Git repositories, AI session logs' working-folder, branch, and title fields, and process lists on this Mac only, and send none of it anywhere. It never reads transcript text or the contents of ignored files; opening a card reads commit subjects and the names of changed files, never what's in them. It changes a repository only when you press **Delete** or **Undo**.
@@ -520,14 +552,17 @@ Start the ChatGPT or Codex app, confirm that it is signed in, then press the ref
 - `/opt/homebrew/bin/codex`
 - `/usr/local/bin/codex`
 
-### Claude, Cursor, Grok Build, JetBrains AI, or Windsurf is missing from the rail
+### A local AI tool is missing from the rail
 
 Open **Settings → AI Tools**. The **Local AI Tools** list shows
 each tool's state. Claude usage is checked automatically without a sign-in or
 **Detect** action. Cursor may need its own sign-in refreshed; Grok Build uses
 `grok login`. JetBrains AI appears once a JetBrains IDE has used AI Assistant,
 and Windsurf once Devin Desktop or Windsurf has been opened signed in; reopen
-either app when **AI Tools** says its saved numbers have reset. A provider
+either app when **AI Tools** says its saved numbers have reset. Antigravity
+shows limits only while it runs. Copilot needs its switch in **AI Tools**
+turned on. A CLI-based tool appears once its CLI is installed where usAIge
+looks; **Detect** checks again at once. A provider
 failure keeps the last accepted values while usAIge retries.
 
 ### Stale values
@@ -548,7 +583,7 @@ scripts/package-dmg.sh
 codesign --verify --deep --strict 'dist/usAIge.app'
 ```
 
-The automated suite covers quota normalization, JSON-RPC framing, account/rate-limit parsing, Claude Code, Cursor, Grok Build, JetBrains AI, and Windsurf decoding and throttling, one-time remote pairing payloads, state recovery, countdowns, notification thresholds and routing, settings persistence, panel geometry, and severity thresholds.
+The automated suite covers quota normalization, JSON-RPC framing, account/rate-limit parsing, Claude Code, Cursor, Grok Build, JetBrains AI, Windsurf, Antigravity, Copilot, Kiro, Amp, Muse Code, Oh My Pi, Command Code, Cline, and OpenCode Go decoding and throttling, one-time remote pairing payloads, state recovery, countdowns, notification thresholds and routing, settings persistence, panel geometry, and severity thresholds.
 
 Opt-in smoke tests exercise local usage sources on this Mac and print only normalized limits:
 
@@ -556,7 +591,9 @@ Opt-in smoke tests exercise local usage sources on this Mac and print only norma
 USAIGE_LIVE_LOCAL_TOOLS=1 swift test --filter LiveLocalTools
 ```
 
-Add `USAIGE_LIVE_CLAUDE=1` to include Claude's local usage files. A separate
+Add `USAIGE_LIVE_CLAUDE=1` to include Claude's local usage files, and
+`USAIGE_LIVE_COPILOT=1` to read GitHub Copilot with the GitHub CLI's sign-in
+whether or not it is turned on in **AI Tools**. A separate
 cache smoke test verifies real reset timestamps with credential and network
 dependencies explicitly blocked:
 
@@ -586,6 +623,7 @@ vulnerability privately.
 ## License
 
 usAIge is open source under the [MIT License](LICENSE). Codex, ChatGPT,
-Claude, Cursor, Grok, JetBrains, Windsurf, and Devin are trademarks of their respective owners; their names
+Claude, Cursor, Grok, JetBrains, Windsurf, Devin, Antigravity, GitHub Copilot, Kiro, Amp,
+Muse, Oh My Pi, Command Code, Cline, and OpenCode are trademarks of their respective owners; their names
 and marks in this repository identify the tools usAIge reads and are not
 covered by that license.

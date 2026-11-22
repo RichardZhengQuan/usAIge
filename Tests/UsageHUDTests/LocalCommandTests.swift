@@ -85,3 +85,22 @@ import Testing
     #expect(off.text.contains("GitHub CLI"))
     #expect(!off.isProblem)
 }
+
+@Test func aiToolsListsNewerToolsOnlyOnceTheyAreFoundOnThisMac() {
+    let statuses: [AIToolID: LocalToolStatus] = [
+        .jetBrainsAI: .connected,
+        .windsurf: .notInstalled,
+        .kiro: .signedOut,
+        .amp: .unknown,
+        .grok: .notInstalled,
+        .copilot: .optInRequired,
+        .openCodeGo: .credentialExpired,
+    ]
+    let order: [AIToolID] = [.kiro, .claude, .chatGPT]
+
+    let listed = LocalToolGuidance.listed(order: order) { statuses[$0] ?? .notInstalled }.map(\.id)
+
+    // The user's order first, then the rest in catalog order.
+    #expect(listed == [.kiro, .claude, .chatGPT, .cursor, .grok, .jetBrainsAI, .copilot, .openCodeGo])
+    #expect(LocalToolGuidance.alwaysListed == [.chatGPT, .claude, .cursor, .grok, .copilot])
+}

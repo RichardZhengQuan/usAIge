@@ -4,7 +4,8 @@ import Foundation
 /// provider tolerates. Anthropic throttles its usage endpoint aggressively,
 /// so Claude is polled least often; Cursor and Grok Build are polled on a
 /// two-minute floor. JetBrains AI and Windsurf only read files their own apps
-/// saved, so they are also read on every automatic tick. A manual refresh may
+/// saved, so they are also read on every automatic tick. Tools read through
+/// their own CLI are polled less often, since each reading starts a process. A manual refresh may
 /// go sooner, but never faster than the manual floor, so hovering the rail
 /// cannot hammer a provider.
 enum LocalToolProviders {
@@ -39,6 +40,55 @@ enum LocalToolProviders {
                 minimumInterval: 60,
                 manualMinimumInterval: 5
             ),
+            // Antigravity answers on this Mac while it runs, so it is cheap.
+            ThrottledUsageProvider(
+                base: AntigravityUsageProvider(statusRegistry: statusRegistry),
+                minimumInterval: 60,
+                manualMinimumInterval: 10
+            ),
+            // Reads nothing until the user turns it on in AI Tools.
+            ThrottledUsageProvider(
+                base: CopilotUsageProvider(statusRegistry: statusRegistry),
+                minimumInterval: 180,
+                manualMinimumInterval: 20
+            ),
+            // `kiro-cli acp` starts the Kiro engine for each reading.
+            ThrottledUsageProvider(
+                base: KiroUsageProvider(statusRegistry: statusRegistry),
+                minimumInterval: 300,
+                manualMinimumInterval: 60
+            ),
+            ThrottledUsageProvider(
+                base: AmpUsageProvider(statusRegistry: statusRegistry),
+                minimumInterval: 180,
+                manualMinimumInterval: 30
+            ),
+            ThrottledUsageProvider(
+                base: MuseUsageProvider(statusRegistry: statusRegistry),
+                minimumInterval: 180,
+                manualMinimumInterval: 30
+            ),
+            // `omp usage` caches its upstream reports for five minutes.
+            ThrottledUsageProvider(
+                base: OhMyPiUsageProvider(statusRegistry: statusRegistry),
+                minimumInterval: 300,
+                manualMinimumInterval: 60
+            ),
+            ThrottledUsageProvider(
+                base: CommandCodeUsageProvider(statusRegistry: statusRegistry),
+                minimumInterval: 120,
+                manualMinimumInterval: 20
+            ),
+            ThrottledUsageProvider(
+                base: ClineUsageProvider(statusRegistry: statusRegistry),
+                minimumInterval: 120,
+                manualMinimumInterval: 20
+            ),
+            ThrottledUsageProvider(
+                base: OpenCodeGoUsageProvider(statusRegistry: statusRegistry),
+                minimumInterval: 120,
+                manualMinimumInterval: 20
+            ),
         ]
     }
 }
@@ -53,6 +103,29 @@ struct LocalToolGuidance: Identifiable, Sendable {
     /// Set for tools whose sign-in is broader than their usage, such as the
     /// GitHub CLI's token: usAIge reads nothing until the user turns them on.
     var optInHint: String? = nil
+
+    /// Tools AI Tools always lists: the original four, and tools that need
+    /// the user to turn them on, since that switch is how they are found.
+    static let alwaysListed: Set<AIToolID> = Set<AIToolID>([.chatGPT, .claude, .cursor, .grok])
+        .union(LocalToolOptIn.optInToolIDs)
+
+    /// The supported tools in the user's rail order, leaving out the newer
+    /// tools that aren't on this Mac (or haven't been checked yet) so the
+    /// list fits without scrolling.
+    static func listed(
+        order: [AIToolID],
+        status: (AIToolID) -> LocalToolStatus
+    ) -> [LocalToolGuidance] {
+        let ranked = order.compactMap { id in supported.first { $0.id == id } }
+        let all = ranked + supported.filter { guidance in !ranked.contains { $0.id == guidance.id } }
+        return all.filter { guidance in
+            if alwaysListed.contains(guidance.id) { return true }
+            switch status(guidance.id) {
+            case .unknown, .notInstalled: return false
+            default: return true
+            }
+        }
+    }
 
     static let supported: [LocalToolGuidance] = [
         LocalToolGuidance(

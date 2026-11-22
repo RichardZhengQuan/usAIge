@@ -63,6 +63,33 @@ struct LiveLocalToolsSmokeTests {
         print("[live] Windsurf (\(await registry.status(for: .windsurf))):\n\(describe(result))")
     }
 
+    @Test func moreLocalToolsLive() async throws {
+        let registry = await LocalToolStatusRegistry()
+        let providers: [(AIToolID, any CodexUsageProviding)] = [
+            (.antigravity, AntigravityUsageProvider(statusRegistry: registry)),
+            (.kiro, KiroUsageProvider(statusRegistry: registry)),
+            (.amp, AmpUsageProvider(statusRegistry: registry)),
+            (.muse, MuseUsageProvider(statusRegistry: registry)),
+            (.ohMyPi, OhMyPiUsageProvider(statusRegistry: registry)),
+            (.commandCode, CommandCodeUsageProvider(statusRegistry: registry)),
+            (.cline, ClineUsageProvider(statusRegistry: registry)),
+            (.openCodeGo, OpenCodeGoUsageProvider(statusRegistry: registry)),
+        ]
+        for (id, provider) in providers {
+            let text: String
+            do { text = describe(try await provider.refresh()) } catch { text = "error \(error)" }
+            print("[live] \(id.rawValue) (\(await registry.status(for: id))):\n\(text)")
+        }
+    }
+
+    /// Reads the GitHub CLI's sign-in, so it runs only with USAIGE_LIVE_COPILOT=1.
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["USAIGE_LIVE_COPILOT"] == "1"))
+    func copilotLive() async throws {
+        let registry = await LocalToolStatusRegistry()
+        let result = try await CopilotUsageProvider(isOptedIn: { true }, statusRegistry: registry).refresh()
+        print("[live] Copilot (\(await registry.status(for: .copilot))):\n\(describe(result))")
+    }
+
     @Test(.enabled(if: liveClaudeEnabled)) func claudeLive() async throws {
         let result = try await ClaudeUsageProvider().refresh()
         print("[live] Claude:\n\(describe(result))")
