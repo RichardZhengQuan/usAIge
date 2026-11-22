@@ -18,40 +18,26 @@ enum WidgetLimitSelection {
     ) -> [QuotaSnapshot] {
         guard maximumCount > 0 else { return [] }
 
-        let orderedSnapshots = snapshots.sorted(by: areInDisplayOrder)
-        let requestedIDs = Array(selectedIDs.prefix(maximumCount))
-        guard !requestedIDs.isEmpty else {
-            return Array(orderedSnapshots.prefix(maximumCount))
-        }
-
         let snapshotsByID = Dictionary(
             snapshots.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
-        var selectedSnapshots = requestedIDs.compactMap { snapshotsByID[$0] }
-        // A configured limit can disappear (its tool was removed); fill the
-        // empty slots from the automatic ordering instead of shrinking the
-        // widget.
-        if selectedSnapshots.count < maximumCount {
-            let chosen = Set(selectedSnapshots.map(\.id))
-            let missing = maximumCount - selectedSnapshots.count
-            selectedSnapshots.append(
-                contentsOf: orderedSnapshots.filter { !chosen.contains($0.id) }.prefix(missing)
-            )
+        var selectedSnapshots = selectedIDs.prefix(maximumCount).compactMap { snapshotsByID[$0] }
+        guard selectedSnapshots.count < maximumCount else { return selectedSnapshots }
+
+        // In tightness order, the first snapshot for each tool is its tightest limit.
+        var shownToolIDs = Set(selectedSnapshots.map(\.toolID))
+        for snapshot in snapshots.sorted(by: areInDisplayOrder) {
+            guard shownToolIDs.insert(snapshot.toolID).inserted else { continue }
+            selectedSnapshots.append(snapshot)
+            if selectedSnapshots.count == maximumCount { break }
         }
         return selectedSnapshots
     }
 
     static func areInDisplayOrder(_ left: QuotaSnapshot, _ right: QuotaSnapshot) -> Bool {
-        let leftRemaining = min(
-            left.remainingPercent,
-            left.secondaryWindow?.remainingPercent ?? 100
-        )
-        let rightRemaining = min(
-            right.remainingPercent,
-            right.secondaryWindow?.remainingPercent ?? 100
-        )
-
+        let leftRemaining = left.tightness
+        let rightRemaining = right.tightness
         if leftRemaining != rightRemaining {
             return leftRemaining < rightRemaining
         }
