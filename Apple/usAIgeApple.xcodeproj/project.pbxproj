@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		F85A981403ACAE4A6698B98B /* ToolDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02927034A794E3AAA5E8E100 /* ToolDetailView.swift */; };
 		23426469D95A9C61442155E5 /* WatchUsagePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EAEBC313C9299F54EB2B2D9 /* WatchUsagePresentation.swift */; };
 		41AD1D61ABA21ABE6B5407D8 /* WatchUsagePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EAEBC313C9299F54EB2B2D9 /* WatchUsagePresentation.swift */; };
 		F4A7EE714B344A55FF320086 /* WatchUsagePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EAEBC313C9299F54EB2B2D9 /* WatchUsagePresentation.swift */; };
@@ -141,6 +142,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		02927034A794E3AAA5E8E100 /* ToolDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolDetailView.swift; sourceTree = "<group>"; };
 		9EAEBC313C9299F54EB2B2D9 /* WatchUsagePresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchUsagePresentation.swift; sourceTree = "<group>"; };
 		CD8BCF10CD17A0E5624D9294 /* ToolUsageSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolUsageSummary.swift; sourceTree = "<group>"; };
 		63F80B13EEFA0F262A495A64 /* ToolMark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolMark.swift; sourceTree = "<group>"; };
@@ -298,6 +300,7 @@
 		A990EC1F466709EEA8919101 /* App */ = {
 			isa = PBXGroup;
 			children = (
+				02927034A794E3AAA5E8E100 /* ToolDetailView.swift */,
 				5B40D91178C457E64933BA17 /* AppModel.swift */,
 				D1C0A7E20260719000000002 /* AppIcon.png */,
 				6FC7614EF737DCD73A9DA265 /* Assets.xcassets */,
@@ -541,6 +544,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F85A981403ACAE4A6698B98B /* ToolDetailView.swift in Sources */,
 				4AC65868D3EBF1F6DA1835AD /* WatchUsagePresentation.swift in Sources */,
 				CB6406D5D3B50827B3F67DBD /* ToolUsageSummary.swift in Sources */,
 				8DDC1A4FB408B3CDB82A46E9 /* ToolMark.swift in Sources */,

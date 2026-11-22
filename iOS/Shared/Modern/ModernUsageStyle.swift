@@ -70,12 +70,12 @@ struct ModernQuotaRing<Center: View>: View {
     /// window at 45 pt; these keep those proportions at any size.
     static func outerLineWidth(size: CGFloat) -> CGFloat { size * 0.08 }
     static var innerScale: CGFloat { 45.0 / 58.0 }
+    static var markScale: CGFloat { 23.0 / 58.0 }
 
     var body: some View {
         let outerLine = Self.outerLineWidth(size: size)
         let outerDiameter = size - outerLine
         let innerDiameter = outerDiameter * Self.innerScale
-        let hole = (secondary == nil ? outerDiameter : innerDiameter) - outerLine
         ZStack {
             if let secondary {
                 ring(remaining: secondary, diameter: outerDiameter, lineWidth: outerLine * 0.9)
@@ -83,8 +83,10 @@ struct ModernQuotaRing<Center: View>: View {
             } else {
                 ring(remaining: primary, diameter: outerDiameter, lineWidth: outerLine)
             }
+            // One mark size for every tool, as on the Mac rail (23 pt in a
+            // 58 pt ring), whether or not a second window nests the first.
             center
-                .frame(width: hole * 0.72, height: hole * 0.72)
+                .frame(width: size * Self.markScale, height: size * Self.markScale)
         }
         .frame(width: size, height: size)
         .opacity(isDimmed ? 0.55 : 1)
@@ -135,7 +137,9 @@ struct ModernQuotaBar: View {
                     .font(.callout.weight(.semibold))
                     .monospacedDigit()
                     .foregroundStyle(color)
-                    .frame(width: 46, alignment: .trailing)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .frame(width: 54, alignment: .trailing)
                 Text(ResetCountdown.phrase(until: resetAt, now: context.date) ?? "")
                     .font(.caption)
                     .monospacedDigit()
