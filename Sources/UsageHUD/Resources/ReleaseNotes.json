@@ -1,14 +1,24 @@
 {
-  "version": "0.2.29",
-  "build": 51,
+  "version": "0.2.30",
+  "build": 52,
   "releaseNotes": {
-    "headline": "Accurate memory totals",
-    "summary": "The Memory view now reports the RAM in use across your Mac.",
+    "headline": "Clean up generated files",
+    "summary": "Scan main checkouts and linked worktrees for generated files. Review the paths and confirm permanent deletion. usAIge rechecks each folder before removing it.",
     "highlights": [
       {
-        "title": "Clearer memory breakdown",
-        "detail": "The ocean shows available RAM separately. The layers for AI tools and dev servers are estimates.",
-        "systemImage": "memorychip"
+        "title": "Storage cleanup",
+        "detail": "Find generated dependencies, Xcode build files, and selected tool caches. Largest Folders shows measured sizes for inspection.",
+        "systemImage": "internaldrive"
+      },
+      {
+        "title": "Safer worktree review",
+        "detail": "Ignored contents are checked before bulk review. If ignored files change after review, usAIge asks you to review the worktree again.",
+        "systemImage": "checkmark.shield"
+      },
+      {
+        "title": "More reliable Claude usage refresh",
+        "detail": "The macOS app keeps a valid usage reading during brief rewrites of the Claude Desktop cache and checks freshness before reusing it.",
+        "systemImage": "arrow.clockwise"
       }
     ]
   }
