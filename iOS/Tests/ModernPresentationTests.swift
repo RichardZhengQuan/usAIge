@@ -140,27 +140,48 @@ final class ModernPresentationTests: XCTestCase {
         XCTAssertTrue(ToolUsageSummary.group([]).isEmpty)
     }
 
-    func testToolMarkKindRecognizesVendorsAndFallsBackToSymbols() {
-        let cases: [(String, String?, ToolMarkKind)] = [
-            ("ChatGPT", "sparkles", .chatGPT),
-            ("Codex", nil, .chatGPT),
-            ("OpenAI", nil, .chatGPT),
-            ("Claude Max", nil, .claude),
-            ("Cursor", nil, .cursor),
-            ("Grok Build", nil, .grok),
-            ("Gemini", nil, .gemini),
-            ("Unknown", "cpu", .symbol("cpu")),
-            ("Unknown", nil, .symbol("sparkles")),
-            ("Unknown", "", .symbol("sparkles")),
-            ("Unknown", "  ", .symbol("sparkles")),
+    func testToolMarkKindMatchesVendorNamesToAssets() {
+        let cases: [(String, ToolMarkKind, String)] = [
+            ("ChatGPT", .chatGPT, "ToolMarkChatGPT"),
+            ("Codex", .chatGPT, "ToolMarkChatGPT"),
+            ("OpenAI", .chatGPT, "ToolMarkChatGPT"),
+            ("Claude Max", .claude, "ToolMarkClaude"),
+            ("Cursor", .cursor, "ToolMarkCursor"),
+            ("Grok Build", .grok, "ToolMarkGrok"),
+            ("Gemini", .gemini, "ToolMarkGemini"),
+            ("JetBrains AI", .jetBrains, "ToolMarkJetBrains"),
+            ("WINDSURF", .windsurf, "ToolMarkWindsurf"),
+            ("GitHub Copilot", .githubCopilot, "ToolMarkGitHubCopilot"),
+            ("CLINE-CLI", .cline, "ToolMarkCline"),
+            ("OpenCode Go", .openCode, "ToolMarkOpenCode"),
+            ("OpenCode with Codex", .chatGPT, "ToolMarkChatGPT"),
         ]
 
-        for (toolName, symbolName, expected) in cases {
-            XCTAssertEqual(
-                ToolMarkKind(toolName: toolName, symbolName: symbolName),
-                expected,
-                "\(toolName) with symbol \(String(reflecting: symbolName))"
-            )
+        for (toolName, expectedKind, expectedAssetName) in cases {
+            let kind = ToolMarkKind(toolName: toolName, symbolName: "cpu")
+            XCTAssertEqual(kind, expectedKind, toolName)
+            XCTAssertEqual(kind.assetName, expectedAssetName, toolName)
+        }
+    }
+
+    func testToolMarkKindFallsBackToSymbolsForOtherTools() {
+        let cases: [(String, String?, String)] = [
+            ("Command Code", "command", "command"),
+            ("Antigravity", "a.circle", "a.circle"),
+            ("Decline", "cpu", "cpu"),
+            ("Clineage", "cpu", "cpu"),
+            ("Unknown", " cpu ", "cpu"),
+            ("Unknown", nil, "sparkles"),
+            ("Unknown", "", "sparkles"),
+            ("Unknown", "  ", "sparkles"),
+            ("Unknown", "usaige.invalid.symbol", "sparkles"),
+        ]
+
+        for (toolName, symbolName, expectedSymbol) in cases {
+            let kind = ToolMarkKind(toolName: toolName, symbolName: symbolName)
+            let label = "\(toolName) with symbol \(String(reflecting: symbolName))"
+            XCTAssertEqual(kind, .symbol(expectedSymbol), label)
+            XCTAssertNil(kind.assetName, label)
         }
     }
 

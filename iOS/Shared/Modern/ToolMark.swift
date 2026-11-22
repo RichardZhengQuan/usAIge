@@ -1,16 +1,19 @@
+import Foundation
 import SwiftUI
-#if canImport(UIKit)
 import UIKit
-#endif
 
-/// Which mark a tool is drawn with: the vendor's own mark where usAIge has
-/// one, otherwise the SF Symbol the Mac chose for it.
+/// The vendor's own mark where available, or the SF Symbol the Mac chose.
 enum ToolMarkKind: Equatable, Sendable {
     case chatGPT
     case claude
     case cursor
     case grok
     case gemini
+    case jetBrains
+    case windsurf
+    case githubCopilot
+    case cline
+    case openCode
     case symbol(String)
 
     static let fallbackSymbol = "sparkles"
@@ -27,10 +30,56 @@ enum ToolMarkKind: Equatable, Sendable {
             self = .grok
         } else if name.contains("gemini") {
             self = .gemini
+        } else if name.contains("jetbrains") {
+            self = .jetBrains
+        } else if name.contains("windsurf") {
+            self = .windsurf
+        } else if name.contains("copilot") {
+            self = .githubCopilot
+        } else if name.range(of: #"\bcline\b"#, options: .regularExpression) != nil {
+            self = .cline
+        } else if name.contains("opencode") {
+            self = .openCode
         } else {
-            let symbol = symbolName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            self = .symbol(symbol.isEmpty ? Self.fallbackSymbol : symbol)
+            self = .symbol(Self.validSymbolName(symbolName))
         }
+    }
+
+    var assetName: String? {
+        switch self {
+        case .chatGPT: "ToolMarkChatGPT"
+        case .claude: "ToolMarkClaude"
+        case .cursor: "ToolMarkCursor"
+        case .grok: "ToolMarkGrok"
+        case .gemini: "ToolMarkGemini"
+        case .jetBrains: "ToolMarkJetBrains"
+        case .windsurf: "ToolMarkWindsurf"
+        case .githubCopilot: "ToolMarkGitHubCopilot"
+        case .cline: "ToolMarkCline"
+        case .openCode: "ToolMarkOpenCode"
+        case .symbol: nil
+        }
+    }
+
+    // Balance the artwork's built-in margins and visual weight within the same frame.
+    fileprivate var assetScale: CGFloat {
+        switch self {
+        case .chatGPT, .symbol: 1
+        case .claude, .githubCopilot: 0.94
+        case .cursor: 0.86
+        case .grok, .windsurf: 0.96
+        case .gemini: 0.92
+        case .jetBrains: 0.82
+        case .cline, .openCode: 0.90
+        }
+    }
+
+    fileprivate static func validSymbolName(_ symbolName: String?) -> String {
+        guard let name = symbolName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !name.isEmpty, UIImage(systemName: name) != nil else {
+            return fallbackSymbol
+        }
+        return name
     }
 }
 
@@ -50,66 +99,30 @@ struct ToolMark: View {
     }
 
     var body: some View {
-        GeometryReader { proxy in
-            let side = min(proxy.size.width, proxy.size.height)
-            let rect = CGRect(
-                x: (proxy.size.width - side) / 2,
-                y: (proxy.size.height - side) / 2,
-                width: side,
-                height: side
-            )
-            ZStack {
-                switch kind {
-                case .chatGPT: chatGPT
-                case .claude: ClaudeSparkMark(rect: rect)
-                case .cursor: CursorCubeMark(rect: rect)
-                case .grok: GrokDiscMark(rect: rect)
-                case .gemini: GeminiSparkMark(rect: rect)
-                case .symbol(let name): symbol(name)
-                }
+        Group {
+            if let assetName = kind.assetName, UIImage(named: assetName) != nil {
+                Image(assetName)
+                    .resizable()
+                    .renderingMode(.template)
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .scaleEffect(kind.assetScale)
+            } else if case .symbol(let name) = kind {
+                symbol(name)
+            } else {
+                symbol(fallbackSymbol)
             }
         }
         .aspectRatio(1, contentMode: .fit)
         .accessibilityHidden(true)
     }
 
-    /// ChatGPT's mark ships as an image in the app's asset catalog; a target
-    /// without it, such as the complication, falls back to a symbol.
-    @ViewBuilder
-    private var chatGPT: some View {
-        if Self.hasImage(named: "ChatGPTMark") {
-            Image("ChatGPTMark")
-                .resizable()
-                .interpolation(.high)
-                .renderingMode(.template)
-                .scaledToFit()
-        } else {
-            symbol(fallbackSymbol ?? ToolMarkKind.fallbackSymbol)
-        }
-    }
-
-    private func symbol(_ name: String) -> some View {
-        Image(systemName: Self.hasSymbol(named: name) ? name : ToolMarkKind.fallbackSymbol)
+    private func symbol(_ name: String?) -> some View {
+        Image(systemName: ToolMarkKind.validSymbolName(name))
             .resizable()
             .scaledToFit()
             .fontWeight(.semibold)
             .padding(2)
-    }
-
-    private static func hasImage(named name: String) -> Bool {
-        #if canImport(UIKit)
-        UIImage(named: name) != nil
-        #else
-        true
-        #endif
-    }
-
-    private static func hasSymbol(named name: String) -> Bool {
-        #if canImport(UIKit)
-        UIImage(systemName: name) != nil
-        #else
-        true
-        #endif
     }
 }
 
@@ -125,111 +138,5 @@ struct ToolMarkTile: View {
             .frame(width: size, height: size)
             .background(Color.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: size * 0.27, style: .continuous))
             .accessibilityHidden(true)
-    }
-}
-
-// The vendor marks below are the same vector renditions the Mac draws.
-
-/// Claude's starburst: spokes of alternating length with rounded ends.
-private struct ClaudeSparkMark: View {
-    let rect: CGRect
-
-    var body: some View {
-        Path { path in
-            let center = CGPoint(x: rect.midX, y: rect.midY)
-            let lengths: [Double] = [0.47, 0.30, 0.40, 0.33, 0.46, 0.29, 0.42, 0.35, 0.47, 0.31, 0.39, 0.34]
-            let spokes = lengths.count
-            for (index, factor) in lengths.enumerated() {
-                let angle = Double(index) / Double(spokes) * 2 * .pi - .pi / 2 + (index.isMultiple(of: 3) ? 0.08 : -0.05)
-                let length = rect.width * factor
-                let inner = rect.width * 0.05
-                path.move(to: CGPoint(x: center.x + cos(angle) * inner, y: center.y + sin(angle) * inner))
-                path.addLine(to: CGPoint(x: center.x + cos(angle) * length, y: center.y + sin(angle) * length))
-            }
-        }
-        .stroke(style: StrokeStyle(lineWidth: rect.width * 0.11, lineCap: .round))
-    }
-}
-
-/// Cursor's isometric cube.
-private struct CursorCubeMark: View {
-    let rect: CGRect
-
-    private var vertices: [CGPoint] {
-        let center = CGPoint(x: rect.midX, y: rect.midY)
-        let radius = rect.width * 0.46
-        return (0..<6).map { index in
-            let angle = Double(index) * .pi / 3 - .pi / 2
-            return CGPoint(x: center.x + cos(angle) * radius, y: center.y + sin(angle) * radius)
-        }
-    }
-
-    var body: some View {
-        let points = vertices
-        let center = CGPoint(x: rect.midX, y: rect.midY)
-        ZStack {
-            Path { path in
-                path.move(to: points[0])
-                path.addLine(to: points[1])
-                path.addLine(to: center)
-                path.addLine(to: points[5])
-                path.closeSubpath()
-            }
-            .fill(Color.primary.opacity(0.28))
-            Path { path in
-                path.move(to: points[5])
-                path.addLine(to: center)
-                path.addLine(to: points[3])
-                path.addLine(to: points[4])
-                path.closeSubpath()
-            }
-            .fill(Color.primary.opacity(0.62))
-            Path { path in
-                path.addLines(points)
-                path.closeSubpath()
-                for index in [0, 2, 4] {
-                    path.move(to: center)
-                    path.addLine(to: points[index])
-                }
-            }
-            .stroke(style: StrokeStyle(lineWidth: rect.width * 0.07, lineCap: .round, lineJoin: .round))
-        }
-    }
-}
-
-/// Grok's mark: a ring open on the right whose lower end sweeps inward.
-private struct GrokDiscMark: View {
-    let rect: CGRect
-
-    var body: some View {
-        Path { path in
-            let center = CGPoint(x: rect.midX, y: rect.midY)
-            let radius = rect.width * 0.36
-            path.addArc(center: center, radius: radius, startAngle: .degrees(14), endAngle: .degrees(318), clockwise: false)
-            let tailY = center.y + sin(14 * Double.pi / 180) * radius
-            path.move(to: CGPoint(x: center.x + cos(14 * Double.pi / 180) * radius, y: tailY))
-            path.addLine(to: CGPoint(x: center.x - radius * 0.05, y: tailY))
-        }
-        .stroke(style: StrokeStyle(lineWidth: rect.width * 0.17, lineCap: .round, lineJoin: .round))
-    }
-}
-
-/// Gemini's four-point spark with concave sides.
-private struct GeminiSparkMark: View {
-    let rect: CGRect
-
-    var body: some View {
-        Path { path in
-            let center = CGPoint(x: rect.midX, y: rect.midY)
-            let outer = rect.width * 0.5
-            let pinch = rect.width * 0.11
-            path.move(to: CGPoint(x: center.x, y: center.y - outer))
-            path.addQuadCurve(to: CGPoint(x: center.x + outer, y: center.y), control: CGPoint(x: center.x + pinch, y: center.y - pinch))
-            path.addQuadCurve(to: CGPoint(x: center.x, y: center.y + outer), control: CGPoint(x: center.x + pinch, y: center.y + pinch))
-            path.addQuadCurve(to: CGPoint(x: center.x - outer, y: center.y), control: CGPoint(x: center.x - pinch, y: center.y + pinch))
-            path.addQuadCurve(to: CGPoint(x: center.x, y: center.y - outer), control: CGPoint(x: center.x - pinch, y: center.y - pinch))
-            path.closeSubpath()
-        }
-        .fill()
     }
 }

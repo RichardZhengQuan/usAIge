@@ -409,43 +409,15 @@ private struct WidgetToolMark: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        Group {
-            if WidgetToolSymbol.isChatGPT(snapshot) {
-                Image("ChatGPTMark")
-                    .resizable()
-                    .interpolation(.high)
-                    .renderingMode(.template)
-                    .scaledToFit()
-            } else {
-                Image(systemName: WidgetToolSymbol.forSnapshot(snapshot))
-                    .resizable()
-                    .scaledToFit()
-                    .padding(size * 0.12)
-            }
-        }
-        .frame(width: size, height: size)
-        .foregroundStyle(Color.primary.opacity(0.88))
-        .shadow(
-            color: colorScheme == .dark ? .black.opacity(0.65) : .white.opacity(0.8),
-            radius: colorScheme == .dark ? 3 : 1,
-            y: 1
-        )
-        .accessibilityHidden(true)
-    }
-}
-
-private enum WidgetToolSymbol {
-    static func isChatGPT(_ snapshot: QuotaSnapshot) -> Bool {
-        let value = "\(snapshot.toolName) \(snapshot.displayName)".lowercased()
-        return value.contains("chatgpt") || value.contains("codex")
-    }
-
-    static func forSnapshot(_ snapshot: QuotaSnapshot) -> String {
-        let value = "\(snapshot.toolName) \(snapshot.displayName)".lowercased()
-        if value.contains("claude") { return "brain.head.profile" }
-        if value.contains("gemini") { return "diamond.fill" }
-        if value.contains("cursor") { return "cursorarrow.rays" }
-        return "cpu"
+        ToolMark(toolName: snapshot.toolName, symbolName: snapshot.toolSymbolName)
+            .frame(width: size, height: size)
+            .foregroundStyle(Color.primary.opacity(0.88))
+            .shadow(
+                color: colorScheme == .dark ? .black.opacity(0.65) : .white.opacity(0.8),
+                radius: colorScheme == .dark ? 3 : 1,
+                y: 1
+            )
+            .accessibilityHidden(true)
     }
 }
 
