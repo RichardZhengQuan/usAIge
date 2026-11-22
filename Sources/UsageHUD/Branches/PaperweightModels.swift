@@ -2,6 +2,13 @@ import Foundation
 
 enum PaperweightID: String, CaseIterable, Sendable {
     case memory, storage
+
+    func formatBytes(_ bytes: Int64) -> String {
+        switch self {
+        case .memory: LiveWorkText.memory(UInt64(clamping: bytes))
+        case .storage: BoardText.bytes(bytes)
+        }
+    }
 }
 
 /// What the Branches window last measured on the disk. The rail's Storage
@@ -59,23 +66,34 @@ struct PaperweightConfiguration: Equatable, Sendable {
     var layers: [PaperweightLayer]
     var freeBytes: Int64?
     var allocationIsEstimated = false
-    /// The original category sum remains available when overlapping estimates
-    /// have to be fitted inside the disk's observed used space.
+    /// The original category sum before fitting estimates to measured usage.
     var measuredBytes: Int64? = nil
 
     var usedBytes: Int64 { PaperweightData.total(layers.map(\.bytes)) }
 
+    var usedShare: Double? {
+        guard freeBytes != nil, capacityBytes > 0 else { return nil }
+        return Double(usedBytes) / Double(capacityBytes)
+    }
+
     var freeLayer: PaperweightLayer {
         PaperweightLayer(
             id: id == .storage ? "free" : "mfree",
-            title: id == .storage ? "Free space" : "Other memory",
+            title: id == .storage ? "Free space" : "Available memory",
             bytes: max(0, freeBytes ?? 0), colorHex: 0xB4B2A9, inkHex: 0x343430,
             isMeasuring: freeBytes == nil
         )
     }
+
+    func amount(for layer: PaperweightLayer) -> String {
+        if layer.isMeasuring { return id == .memory ? "Unavailable" : "Measuring…" }
+        return id.formatBytes(layer.bytes)
+    }
 }
 
 enum PaperweightData {
+    static let otherMemoryLayerID = "memory-other"
+
     static func storage(
         disk: DiskSpace?, board: BranchesBoard, toolStorage: [ToolStorageEntry],
         isMeasuring: Bool, freeing: Int64 = 0, freeingCacheBytes: Int64 = 0
@@ -116,7 +134,7 @@ enum PaperweightData {
     /// The running rows a Memory layer lists. `measured` rows own processes
     /// counted in that layer. A worktree that counts as running only because
     /// its session wrote lately has no process to measure; it is listed under
-    /// its tool's layer, or under other memory when that tool has no layer,
+    /// its tool's layer, or under other apps and macOS when that tool has no layer,
     /// so it never drops out of the window.
     static func memoryRows(for layer: PaperweightLayer, in configuration: PaperweightConfiguration,
                            running: [WorkItem]) -> (measured: [WorkItem], sessionOnly: [WorkItem]) {
@@ -130,10 +148,11 @@ enum PaperweightData {
         }
         let counted = Set(configuration.layers.flatMap(\.processIDs))
         let layerIDs = Set(configuration.layers.map(\.id))
+        let fallbackLayerID = layerIDs.contains(otherMemoryLayerID) ? otherMemoryLayerID : configuration.freeLayer.id
         let sessionOnly = running.filter { item in
             guard !item.processes.contains(where: { counted.contains($0.id) }) else { return false }
             let home = item.sessions.tools.compactMap(toolLayerID).first(where: layerIDs.contains)
-            return (home ?? configuration.freeLayer.id) == layer.id
+            return (home ?? fallbackLayerID) == layer.id
         }
         return (measured, sessionOnly)
     }
@@ -150,8 +169,31 @@ enum PaperweightData {
     }
 
     static func memory(
-        summary: LiveWorkSummary, running: [WorkItem], physicalMemory: UInt64
+        summary: LiveWorkSummary, running: [WorkItem], systemUsage: SystemMemoryUsage?
     ) -> PaperweightConfiguration {
+        var layers = memoryLayers(summary: summary, running: running)
+        let footprints = layers.map(\.bytes)
+        let measured = total(footprints)
+        guard let systemUsage else {
+            return PaperweightConfiguration(id: .memory, capacityBytes: 0, layers: layers, freeBytes: nil,
+                                            measuredBytes: measured)
+        }
+
+        let used = systemUsage.usedBytes
+        let overlaps = measured > used
+        if overlaps {
+            let allocated = bounded(footprints, to: used)
+            for index in layers.indices { layers[index].bytes = allocated[index] }
+        }
+        layers.append(PaperweightLayer(id: otherMemoryLayerID, title: "Other apps and macOS",
+                                       bytes: max(0, used - measured), colorHex: 0x447F9C, inkHex: 0x042C53))
+        return PaperweightConfiguration(
+            id: .memory, capacityBytes: systemUsage.capacityBytes, layers: layers, freeBytes: systemUsage.availableBytes,
+            allocationIsEstimated: overlaps, measuredBytes: measured
+        )
+    }
+
+    static func memoryLayers(summary: LiveWorkSummary, running: [WorkItem]) -> [PaperweightLayer] {
         let toolIDs = Set(summary.sessions.map(\.toolID) + Array(summary.appProcesses.keys)).sorted {
             let left = AIToolID.builtInIDs.firstIndex(of: $0) ?? Int.max
             let right = AIToolID.builtInIDs.firstIndex(of: $1) ?? Int.max
@@ -177,12 +219,7 @@ enum PaperweightData {
             layers.append(PaperweightLayer(id: "dev", title: "Dev servers", bytes: devBytes, colorHex: 0x7DB343, inkHex: 0x173404, processIDs: Set(dev.map(\.id))))
         }
         layers += tools.sorted { $0.bytes == $1.bytes ? $0.id < $1.id : $0.bytes < $1.bytes }
-        let capacity = Int64(clamping: physicalMemory)
-        let used = total(layers.map(\.bytes))
-        return PaperweightConfiguration(
-            id: .memory, capacityBytes: capacity, layers: layers, freeBytes: max(0, capacity - used),
-            allocationIsEstimated: used > capacity, measuredBytes: used
-        )
+        return layers
     }
 
     static func total(_ values: [Int64]) -> Int64 {

@@ -25,11 +25,13 @@ import Testing
         let second = WorkProcess(id: 2, name: "Codex", folder: "/repo", memoryBytes: 100, startedAt: nil, ports: [])
         let summary = LiveWorkSummary(appProcesses: [.claude: [first], .chatGPT: [second]])
         let rail = RailPaperweightData.memory(summary, physicalMemory: 1_000)
-        let detail = PaperweightData.memory(summary: summary, running: [], physicalMemory: 1_000)
-        #expect(rail == detail)
+        let usage = SystemMemoryUsage(capacityBytes: 1_000, usedBytes: 750)
+        let detail = PaperweightData.memory(summary: summary, running: [], systemUsage: usage)
+        #expect(rail.layers == detail.layers.filter { !$0.processIDs.isEmpty })
         #expect(rail.layers.map(\.id) == ["tool-claude", "tool-chatGPT"])
         #expect(rail.layers.map(\.colorHex) == [0xE8794F, 0x9690E3])
         #expect(rail.usedBytes == 150)
+        #expect(detail.usedBytes == 750)
     }
 
     @Test func theDiskHasOneLayerAndAnUnreadDiskStaysEmpty() {
