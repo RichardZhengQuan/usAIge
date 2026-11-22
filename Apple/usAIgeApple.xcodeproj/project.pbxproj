@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		DAA71685142E040E5E053111 /* UsageComplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFCB83ACE67932543D3877F1 /* UsageComplication.swift */; };
+		1D1CE6D0EFC661F54DA33CF1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 89A5345F871E99E46510FF5D /* Assets.xcassets */; };
+		6D531ABD33404DDCDB6E9ECC /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 89A5345F871E99E46510FF5D /* Assets.xcassets */; };
 		F85A981403ACAE4A6698B98B /* ToolDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02927034A794E3AAA5E8E100 /* ToolDetailView.swift */; };
 		23426469D95A9C61442155E5 /* WatchUsagePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EAEBC313C9299F54EB2B2D9 /* WatchUsagePresentation.swift */; };
 		41AD1D61ABA21ABE6B5407D8 /* WatchUsagePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EAEBC313C9299F54EB2B2D9 /* WatchUsagePresentation.swift */; };
@@ -142,6 +145,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		89A5345F871E99E46510FF5D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		02927034A794E3AAA5E8E100 /* ToolDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolDetailView.swift; sourceTree = "<group>"; };
 		9EAEBC313C9299F54EB2B2D9 /* WatchUsagePresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchUsagePresentation.swift; sourceTree = "<group>"; };
 		CD8BCF10CD17A0E5624D9294 /* ToolUsageSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolUsageSummary.swift; sourceTree = "<group>"; };
@@ -290,6 +294,7 @@
 		856596FFAD927C0A8DE8B0A1 /* Widget */ = {
 			isa = PBXGroup;
 			children = (
+				89A5345F871E99E46510FF5D /* Assets.xcassets */,
 				6E84F94942FEBC2B09F6F3D4 /* QuotaTimelineProvider.swift */,
 				4AA2252EA139FAA733344090 /* UsageWidget.swift */,
 				71F38CCFD95322DFBF5B3130 /* UsageWidgetEntryView.swift */,
@@ -366,6 +371,7 @@
 			buildConfigurationList = 4C3D3D5B65D20606240DB843 /* Build configuration list for PBXNativeTarget "usAIgeWatchWidget" */;
 			buildPhases = (
 				1A6B287441DD9337832C82D7 /* Sources */,
+				08D10C9DB67DF33B83417E4F /* Resources */,
 			);
 			buildRules = (
 			);
@@ -383,6 +389,7 @@
 			buildConfigurationList = 15B47558EFD70ECBA0202298 /* Build configuration list for PBXNativeTarget "UsageWidget" */;
 			buildPhases = (
 				D704E9038440CF2D93A6D53B /* Sources */,
+				D686E346BB8FCF364D8CFA31 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -503,6 +510,22 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		D686E346BB8FCF364D8CFA31 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1D1CE6D0EFC661F54DA33CF1 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		08D10C9DB67DF33B83417E4F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6D531ABD33404DDCDB6E9ECC /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		6E99CA8CAA4A754BA89C06DD /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -603,6 +626,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DAA71685142E040E5E053111 /* UsageComplication.swift in Sources */,
 				41AD1D61ABA21ABE6B5407D8 /* WatchUsagePresentation.swift in Sources */,
 				4E040E5060E1CEBDA33FCC92 /* ToolMark.swift in Sources */,
 				A69DC64ADAFACF9B81E99DF1 /* ResetCountdown.swift in Sources */,
