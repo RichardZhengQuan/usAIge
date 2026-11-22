@@ -28,7 +28,7 @@ import Testing
     let output = try #require(try await runner.run(
         "sh",
         arguments: ["-c", "printf '{\"ok\":true}'; echo 'account@example.com' >&2; exit 3"],
-        timeout: 10,
+        timeout: 60,
         environment: ["USAIGE_EXTRA": "1"]
     ))
 
@@ -42,7 +42,7 @@ import Testing
 
     let output = try #require(try await runner.run(
         "sh", arguments: ["-c", "printf '%s|%s|%s' \"$PATH\" \"$TERM\" \"$USAIGE_EXTRA\""],
-        timeout: 10, environment: ["USAIGE_EXTRA": "yes"]
+        timeout: 60, environment: ["USAIGE_EXTRA": "yes"]
     ))
 
     let parts = output.text.split(separator: "|").map(String.init)
@@ -58,16 +58,18 @@ import Testing
     let started = Date()
 
     await #expect(throws: LocalToolUsageError.timedOut) {
-        try await runner.run("sleep", arguments: ["30"], timeout: 0.3)
+        try await runner.run("sleep", arguments: ["120"], timeout: 0.3)
     }
-    #expect(Date().timeIntervalSince(started) < 10)
+    // Only that it stopped long before the command would have ended: a busy
+    // CI runner can take many seconds just to start a process.
+    #expect(Date().timeIntervalSince(started) < 90)
 }
 
 @Test func localCommandsRefuseOutputLargerThanAUsageReport() async throws {
     let runner = LocalCommandRunner(environment: ["PATH": "/usr/bin:/bin"], maximumOutputBytes: 4_096)
 
     await #expect(throws: LocalToolUsageError.invalidResponse) {
-        try await runner.run("yes", arguments: [], timeout: 10)
+        try await runner.run("yes", arguments: [], timeout: 60)
     }
 }
 

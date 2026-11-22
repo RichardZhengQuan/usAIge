@@ -264,7 +264,14 @@ private struct StateDatabaseFixture {
     let saved = try #require(try WindsurfStateDatabases(homeDirectory: fixture.home).load())
 
     #expect(saved.rows == [WindsurfPlanRow(key: devinKey, value: devinPro)])
-    #expect(abs(saved.modifiedAt.timeIntervalSinceNow + 60) < 5)
+    // The reading carries the Devin database's own write time, not the clock's.
+    let devinDatabase = fixture.home.appendingPathComponent(
+        "Library/Application Support/Devin/User/globalStorage/state.vscdb"
+    )
+    let written = try #require(
+        FileManager.default.attributesOfItem(atPath: devinDatabase.path)[.modificationDate] as? Date
+    )
+    #expect(saved.modifiedAt == written)
 }
 
 @Test func windsurfFindsNoSavedPlansWhenNeitherEditorHasRun() throws {
