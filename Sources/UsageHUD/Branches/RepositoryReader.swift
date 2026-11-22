@@ -197,9 +197,9 @@ enum RepositoryReader {
 }
 
 extension WorkItem {
-    /// Git-ignored files no build recreates, which deleting the folder loses.
+    /// Ignored paths the scan couldn't verify as generated output.
     var irreplaceableIgnored: [String] {
-        (ignoredFiles ?? []).filter { FolderSizer.cacheName(forIgnoredPath: $0) == nil }
+        ignoredReview?.unverifiedPaths ?? ignoredFiles ?? []
     }
 
     mutating func apply(_ probe: RepositoryReader.RowProbe, hadFolderToRead: Bool) {

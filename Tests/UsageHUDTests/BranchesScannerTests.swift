@@ -384,11 +384,14 @@ import Testing
 @Test func ignoredFilesSplitIntoCachesAndFilesNoBuildBringsBack() async throws {
     let fixture = try GitFixture()
     try fixture.commit(".gitignore", "node_modules/\n.env\n", message: "Ignore")
+    try fixture.commit("package.json", #"{"name":"fixture"}"#, message: "Package manifest")
+    try fixture.commit("package-lock.json", #"{"packages":{"node_modules/dep":{"version":"1.0.0"}}}"#,
+                       message: "Dependency lock")
     try fixture.git(["push", "--quiet", "origin", "main"])
     try fixture.squashMerged("topic", pullRequest: nil)
     let path = fixture.worktreePath("topic")
     try fixture.git(["worktree", "add", "--quiet", path, "topic"])
-    try fixture.write("node_modules/dep.js", String(repeating: "x", count: 100_000), in: path)
+    try fixture.write("node_modules/dep/index.js", String(repeating: "x", count: 100_000), in: path)
     try fixture.write(".env", "SECRET=1\n", in: path)
     let row = try #require(await fixture.scan().row(worktree: path))
     #expect(row.status == .finished)
@@ -662,6 +665,34 @@ private func finishedWorktree(_ fixture: GitFixture, ignored: String? = nil) asy
     try fixture.write(".env", "SECRET=1\n", in: path)
     expectRefused(await delete(row, in: fixture, scanner: scanner))
     #expect(FileManager.default.fileExists(atPath: path + "/.env"))
+}
+
+@Test func ignoredBuildContentsAreKeptOutOfBulkReview() async throws {
+    let fixture = try GitFixture()
+    let (path, _, scanner) = try await finishedWorktree(fixture, ignored: "build/")
+    try fixture.write("build/output.o", "generated", in: path)
+    let reviewed = try #require(await fixture.scan(with: scanner).row(worktree: path))
+    try fixture.write("build/.env", "FIXTURE=keep\n", in: path)
+    expectRefused(await delete(reviewed, in: fixture, scanner: scanner))
+    let snapshot = await fixture.scan(with: scanner)
+    let item = try #require(snapshot.row(worktree: path))
+    #expect(item.ignoredFiles == reviewed.ignoredFiles)
+    #expect(item.irreplaceableIgnored == ["build/.env"])
+    let board = BranchesBoard.make(snapshot: snapshot, now: Date().addingTimeInterval(4 * 86_400))
+    #expect(!board.safeToClear.contains { $0.id == item.id })
+    #expect(FileManager.default.fileExists(atPath: path + "/build/.env"))
+}
+
+@Test func editingAReviewedIgnoredFileRequiresAnotherReview() async throws {
+    let fixture = try GitFixture()
+    let (path, _, scanner) = try await finishedWorktree(fixture, ignored: ".env")
+    try fixture.write(".env", "FIXTURE=before\n", in: path)
+    let row = try #require(await fixture.scan(with: scanner).row(worktree: path))
+    // An in-place write keeps the filename and inode.
+    let file = URL(fileURLWithPath: path + "/.env")
+    try Data("FIXTURE=after\n".utf8).write(to: file)
+    expectRefused(await delete(row, in: fixture, scanner: scanner))
+    #expect(try String(contentsOf: file, encoding: .utf8) == "FIXTURE=after\n")
 }
 
 @Test func anIgnoredFileThePersonReviewedDoesNotStopTheDelete() async throws {

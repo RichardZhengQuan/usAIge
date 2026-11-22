@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 @testable import UsageHUD
@@ -51,7 +52,11 @@ private func repository(_ id: String, name: String = "app", remote: String? = "g
 /// "Safe to clear" promises nothing is lost, so a folder holding a file no
 /// build recreates can't be in it, even though it may be deleted.
 @Test func aFolderWithFilesNoBuildBringsBackNeedsALook() {
-    let secrets = row("secrets") { $0.ignoredFiles = ["node_modules", ".env"] }
+    let secrets = row("secrets") {
+        $0.ignoredFiles = ["node_modules", ".env"]
+        $0.ignoredReview = WorktreeIgnoredReview(identity: CleanupFileIdentity(stat()), fingerprint: "fixture",
+                                               unverifiedPaths: [".env"])
+    }
     #expect(secrets.eligibility.isAllowed)
     #expect(BranchesBoard.lane(for: secrets) == .needsLook)
     #expect(BoardText.reason(secrets)?.text == "Keeps .env, which no build brings back")

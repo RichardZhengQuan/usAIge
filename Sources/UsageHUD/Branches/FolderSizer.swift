@@ -20,7 +20,7 @@ enum FolderSizer {
             maximumOutputBytes: 64 * 1024
         )
         // du also reports files it can't read, on stderr, and exits non-zero.
-        guard !output.timedOut, let field = output.text.split(whereSeparator: \.isWhitespace).first,
+        guard output.succeeded, let field = output.text.split(whereSeparator: \.isWhitespace).first,
               let kilobytes = Int64(field) else { return nil }
         return kilobytes * 1024
     }
@@ -37,7 +37,7 @@ enum FolderSizer {
                 ShellCommand(executable: duExecutable, arguments: ["-sk"] + batch),
                 timeout: timeout
             )
-            guard !output.timedOut else { continue }
+            guard output.succeeded else { continue }
             for line in output.text.split(separator: "\n") {
                 let fields = line.split(separator: "\t", maxSplits: 1)
                 guard fields.count == 2, let kilobytes = Int64(fields[0]) else { continue }

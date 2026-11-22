@@ -80,6 +80,7 @@ actor BranchesScanner {
         var addedFolders: @Sendable () -> [String]
         var processes: @Sendable () -> [WorkProcess]
         var now: @Sendable () -> Date
+        var storageProcesses: (@Sendable () -> [WorkProcess])? = nil
 
         static func live(addedFolders: @escaping @Sendable () -> [String]) -> Environment {
             let fileManager = FileManager.default
@@ -95,7 +96,13 @@ actor BranchesScanner {
                 git: GitClient.locate(),
                 addedFolders: addedFolders,
                 processes: { ProcessScanner.scan() },
-                now: Date.init
+                now: Date.init,
+                storageProcesses: {
+                    ProcessScanner.scan(includePorts: false) { _, folder, executable in
+                        let name = executable.map { ($0 as NSString).lastPathComponent } ?? ""
+                        return folder != "/" || StorageArtifactKind.processMayUseStorage(name, executable: executable)
+                    }
+                }
             )
         }
     }
@@ -185,7 +192,10 @@ actor BranchesScanner {
         var item = item
         if let path = item.worktreePath, let size = cache.sizes[path] {
             item.size = size
-            item.ignoredFiles = size.ignored
+            if let review = size.ignoredReview {
+                item.ignoredFiles = size.ignored
+                item.ignoredReview = review
+            }
         }
         if let tip = item.tip, let base = snapshot.baseCommit,
            let known = cache.repositories[item.repositoryID]?.tips[tip], known.isCurrent(forBase: base) {
@@ -310,12 +320,16 @@ actor BranchesScanner {
             if Task.isCancelled { return }
             guard let path = item.worktreePath else { continue }
             activity = .measuring(done: done, total: candidates.count)
-            if !force, let known = cache.sizes[path], now.timeIntervalSince(known.measuredAt) < Self.sizeFreshness {
+            if !force, let known = cache.sizes[path], item.facts.isMainCopy || known.ignoredReview != nil,
+               now.timeIntervalSince(known.measuredAt) < Self.sizeFreshness {
                 nested[path] = known.totalBytes
             } else if let git = environment.git,
                       let ignored = await RepositoryReader.ignoredFiles(git: git, folder: path) {
+                let review = item.facts.isMainCopy ? nil : WorktreeIgnoredReview.read(worktree: path, ignored: ignored)
                 rows[item.id]?.ignoredFiles = ignored
-                if let size = await FolderSizer.measure(folder: path, ignored: ignored, nestedSizes: nested, now: now) {
+                rows[item.id]?.ignoredReview = review
+                if var size = await FolderSizer.measure(folder: path, ignored: ignored, nestedSizes: nested, now: now) {
+                    size.ignoredReview = review
                     cache.sizes[path] = size
                     nested[path] = size.totalBytes
                     rows[item.id]?.size = size
@@ -450,6 +464,36 @@ actor BranchesScanner {
         return entries
     }
 
+    func scanStorage(addedFolders: [String]) async -> StorageCleanupInventory {
+        let folders = environment.addedFolders() + addedFolders
+        let scanner = storageScanner(allowedFolders: folders)
+        return await scanner.scan(sessionFolders: scanner.sessions.map(\.folder), addedFolders: folders)
+    }
+
+    func removeStorageArtifact(_ candidate: StorageCleanupCandidate, addedFolders: [String]) async -> String? {
+        let scanner = storageScanner(allowedFolders: environment.addedFolders() + addedFolders)
+        let failure = await scanner.remove(candidate)
+        // A partially removed folder also invalidates prior measurements.
+        for path in Array(cache.sizes.keys) where RepositoryLocator.contains(path, candidate.id) {
+            cache.sizes[path] = nil
+        }
+        cache.toolStorageMeasuredAt = nil
+        persistCache()
+        return failure
+    }
+
+    private func storageScanner(allowedFolders: [String]) -> StorageArtifactScanner {
+        loadPersistedState()
+        let sessions = SessionLogIndexer(home: environment.home, cursorDatabase: environment.cursorDatabase)
+            .update(from: cache.sessions)
+        return StorageArtifactScanner(
+            home: CleanupFileInspection.normalized(environment.home.path),
+            locator: RepositoryLocator(home: environment.home.path, allowedFolders: allowedFolders),
+            git: environment.git, processes: environment.storageProcesses ?? environment.processes,
+            sessions: Array(sessions.values), now: environment.now()
+        )
+    }
+
     // MARK: Evidence
 
     /// The commits and files a card shows before anyone deletes it. Read only
@@ -574,10 +618,17 @@ actor BranchesScanner {
         )
 
         if hadFolder, let path = fresh.worktreePath {
-            guard let ignored = await RepositoryReader.ignoredFiles(git: git, folder: path) else {
-                return "usAIge couldn't re-check this folder's ignored files."
+            guard let ignored = await RepositoryReader.ignoredFiles(git: git, folder: path),
+                  let review = WorktreeIgnoredReview.read(worktree: path, ignored: ignored) else {
+                cache.sizes[path] = nil
+                return "usAIge couldn't re-check all ignored contents."
             }
             fresh.ignoredFiles = ignored
+            fresh.ignoredReview = review
+            guard review == reviewed.ignoredReview else {
+                cache.sizes[path] = nil
+                return changed
+            }
         }
 
         if case let .blocked(reason) = fresh.eligibility { return reason }
@@ -586,14 +637,6 @@ actor BranchesScanner {
             // Merge evidence outlasts main moving forward, so without this a
             // rewound main would keep showing a status that can't be deleted.
             if let tip = fresh.tip { cache.repositories[reviewed.repositoryID]?.tips[tip] = nil }
-            return changed
-        }
-        // Files that appeared since the review were never shown to the person.
-        let unreviewed = Set(fresh.irreplaceableIgnored).subtracting(reviewed.irreplaceableIgnored)
-        if !unreviewed.isEmpty {
-            // The list comes with the size reading, which otherwise lasts an
-            // hour, and the next review has to show these files.
-            if let path = fresh.worktreePath { cache.sizes[path] = nil }
             return changed
         }
         return nil
