@@ -356,6 +356,18 @@ private func simpleIndex(filenames: [String], packedInfo: UInt64 = 256) -> Data 
 
         #expect(reader.latestUsage(organizationID: cacheOrganization, now: cacheTestNow) == nil)
         try usage.data.write(to: file)
-        #expect(reader.latestUsage(organizationID: cacheOrganization, now: cacheTestNow) != nil)
+        let original = try #require(reader.latestUsage(organizationID: cacheOrganization, now: cacheTestNow))
+
+        let updated = SimpleUsageFixture(fetchedAt: cacheTestNow.addingTimeInterval(5))
+        try updated.data.prefix(10).write(to: file)
+        #expect(reader.latestUsage(organizationID: cacheOrganization, now: cacheTestNow.addingTimeInterval(5)) == original)
+        #expect(reader.latestUsage(organizationID: cacheOrganization, now: cacheTestNow.addingTimeInterval(10)) == original)
+
+        try updated.data.write(to: file)
+        let verified = reader.latestUsage(organizationID: cacheOrganization, now: cacheTestNow.addingTimeInterval(10))
+        #expect(verified?.recordedAt == cacheTestNow.addingTimeInterval(5))
+
+        try updated.data.prefix(10).write(to: file)
+        #expect(reader.latestUsage(organizationID: cacheOrganization, now: cacheTestNow.addingTimeInterval(26)) == nil)
     }
 }

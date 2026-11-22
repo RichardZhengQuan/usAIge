@@ -368,10 +368,6 @@ actor ClaudeUsageProvider: LocalUsageProviding {
     }
 
     func refreshLocalUsage() async -> AccountUsageResult? {
-        if let fromCache = claudeAppResult(requireCachedUsage: true) {
-            await report(fromCache.status)
-            return fromCache.result
-        }
         if let fromApp = claudeAppResult() {
             await report(fromApp.status)
             return fromApp.result
@@ -383,17 +379,20 @@ actor ClaudeUsageProvider: LocalUsageProviding {
     }
 
     private func claudeAppResult(requireCachedUsage: Bool = false) -> (result: AccountUsageResult, status: LocalToolStatus)? {
+        guard let sample = claudeApp.latestSample() else { return nil }
         let date = now()
-        guard let sample = claudeApp.latestSample(),
-              (0...Self.claudeAppMaximumAge).contains(date.timeIntervalSince(sample.recordedAt)) else { return nil }
-        if requireCachedUsage {
-            guard let cache = sample.cachedUsage,
-                  (0...Self.claudeAppMaximumAge).contains(date.timeIntervalSince(cache.recordedAt)),
-                  let payload = ClaudeDesktopUsageCache.validatedPayload(cache.payload, now: date) else { return nil }
+        guard (0...Self.claudeAppMaximumAge).contains(date.timeIntervalSince(sample.recordedAt)) else { return nil }
+        if let cache = sample.cachedUsage,
+           (0...Self.claudeAppMaximumAge).contains(date.timeIntervalSince(cache.recordedAt)),
+           let payload = ClaudeDesktopUsageCache.validatedPayload(cache.payload, now: date) {
             let snapshots = Self.snapshots(from: payload, planType: nil, updatedAt: cache.recordedAt)
-            return snapshots.isEmpty ? nil : (.authenticated(snapshots),
-                sample.origin == .bridge ? .connectedThroughClaudeBridge : .connectedThroughClaudeAppCache)
+            if !snapshots.isEmpty {
+                let status: LocalToolStatus = sample.origin == .bridge
+                    ? .connectedThroughClaudeBridge : .connectedThroughClaudeAppCache
+                return (.authenticated(snapshots), status)
+            }
         }
+        guard !requireCachedUsage else { return nil }
         var historyOnly = sample
         historyOnly.cachedUsage = nil
         let snapshots = Self.snapshots(fromClaudeApp: historyOnly, planType: nil)
