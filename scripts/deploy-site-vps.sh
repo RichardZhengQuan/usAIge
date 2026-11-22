@@ -118,6 +118,9 @@ def check_reference(value, document_url):
 class References(HTMLParser):
     def handle_starttag(self, tag, attributes):
         for name, value in attributes:
+            # The attribution link navigates to the portfolio homepage.
+            if tag == "a" and name == "href" and value == "https://pmrichq.com/":
+                continue
             if name in ("href", "src", "poster"):
                 check_reference(value, base_url + "/")
             elif name in ("srcset", "imagesrcset") and value:

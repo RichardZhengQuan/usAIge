@@ -175,9 +175,9 @@ The packaged application includes the custom usAIge icon in Finder, the Dock, Sp
 
 ## Install the public alpha
 
-Download `usAIge-0.2.28-alpha.dmg` and its checksum from the website. Open the disk image, then drag `usAIge.app` onto the Applications shortcut.
+Download `usAIge-0.2.29-alpha.dmg` and its checksum from the website. Open the disk image, then drag `usAIge.app` onto the Applications shortcut.
 
-The 0.2.28 alpha brings AI tools usage, the full Memory and Storage sailing ocean, and Branches and Worktrees into one main **Overview** on macOS 14 and later. Compact, equal-size cards show multiple AI tools per row. Branch tabs start on **All**, and **Rescan** reads the workspace again. **Settings** sits at the bottom of the sidebar, with an update reminder directly above it. Reviewed cleanup runs in a popup with **Stop After Current Item**, results, and restoration; closing the main window keeps the operation and its result available. Native keyboard shortcuts open the main window, branches, Memory, Storage, and Settings, or refresh readings; see the shortcut table above. The ocean retains 59 animated ships and resource-driven weather. Restore brings back Git branches and folders, but not ignored files. Claude usage still refreshes quietly in the background without an extra sign-in, Keychain access, or **Detect** action.
+The 0.2.29 alpha corrects the system memory total and percentage in **Resources** on macOS 14 and later. The ocean gives available RAM its own layer and shows estimates for AI tools and dev servers.
 
 This alpha is ad-hoc signed and is not notarized because the project does not yet have a Developer ID Application certificate. On first launch:
 
@@ -191,7 +191,7 @@ To build and verify the installer locally:
 
 ```bash
 scripts/package-dmg.sh
-(cd dist && shasum -a 256 -c usAIge-0.2.28-alpha.dmg.sha256)
+(cd dist && shasum -a 256 -c usAIge-0.2.29-alpha.dmg.sha256)
 ```
 
 For headless packaging, reuse the layout from a trusted previous installer:
