@@ -2,7 +2,13 @@ import Foundation
 
 enum RailPaperweightData {
     static func memory(_ summary: LiveWorkSummary, physicalMemory: UInt64) -> PaperweightConfiguration {
-        PaperweightData.memory(summary: summary, running: [], physicalMemory: physicalMemory)
+        let layers = PaperweightData.memoryLayers(summary: summary, running: [])
+        let capacity = Int64(clamping: physicalMemory)
+        let measured = PaperweightData.total(layers.map(\.bytes))
+        return PaperweightConfiguration(
+            id: .memory, capacityBytes: capacity, layers: layers, freeBytes: max(0, capacity - measured),
+            allocationIsEstimated: measured > capacity, measuredBytes: measured
+        )
     }
 
     static func storage(_ disk: DiskSpace?) -> PaperweightConfiguration {

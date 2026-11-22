@@ -73,15 +73,15 @@ enum PaperweightSceneAssets {
         labels.removeAllObjects()
     }
 
-    static func layerTexture(_ layer: PaperweightLayer, thickness: Double, selected: Bool, dark: Bool) -> NSImage {
+    static func layerTexture(_ layer: PaperweightLayer, amount: String, thickness: Double, selected: Bool, dark: Bool) -> NSImage {
         let height = max(48, Int((1024 * thickness / PaperweightConstants.textureWidth).rounded()))
-        let key = "layer-gradient|\(layer.id)|\(layer.title)|\(layer.bytes)|\(layer.isMeasuring)|\(layer.colorHex)|\(layer.inkHex)|\(height)|\(selected)|\(dark)"
+        let key = "layer-gradient|\(layer.id)|\(layer.title)|\(amount)|\(layer.colorHex)|\(layer.inkHex)|\(height)|\(selected)|\(dark)"
         return image(key: key, size: NSSize(width: 1024, height: CGFloat(height))) {
             let top = color(layer.colorHex)
             let bottom = top.blended(withFraction: 0.26, of: .black) ?? top
             NSGradient(starting: bottom, ending: top)?
                 .draw(in: NSRect(x: 0, y: 0, width: 1024, height: CGFloat(height)), angle: 90)
-            let text = "\(layer.title)   \(layer.isMeasuring ? "Measuring…" : BoardText.bytes(layer.bytes))"
+            let text = "\(layer.title)   \(amount)"
             let font = NSFont.systemFont(ofSize: 1024 * 15 / 440, weight: selected ? .semibold : .medium)
             let style = NSMutableParagraphStyle()
             style.lineBreakMode = .byTruncatingTail
@@ -173,13 +173,13 @@ final class PaperweightSlab {
     func attach(to node: SCNNode) { [front, back, surface, line].forEach(node.addChildNode) }
     func remove() { [front, back, surface, line].forEach { $0.removeFromParentNode() } }
 
-    func updateLabel(thickness: Double, selected: Bool, dark: Bool) {
+    func updateLabel(amount: String, thickness: Double, selected: Bool, dark: Bool) {
         self.selected = selected
         updateEdge()
-        let key = "\(layer)|\(Int(thickness.rounded()))|\(selected)|\(dark)"
+        let key = "\(layer)|\(amount)|\(Int(thickness.rounded()))|\(selected)|\(dark)"
         guard key != labelKey else { return }
         labelKey = key
-        frontMaterial.diffuse.contents = PaperweightSceneAssets.layerTexture(layer, thickness: thickness, selected: selected, dark: dark)
+        frontMaterial.diffuse.contents = PaperweightSceneAssets.layerTexture(layer, amount: amount, thickness: thickness, selected: selected, dark: dark)
         frontMaterial.emission.contents = selected ? NSColor(calibratedWhite: 0.08, alpha: 1) : NSColor.black
     }
 
@@ -334,12 +334,15 @@ final class PaperweightBottle {
         let configuration = simulation.configuration
         for (index, slab) in slabs.enumerated() {
             let bottom = index > 0 ? simulation.targetLevels[index - 1] : 0
-            slab.updateLabel(thickness: simulation.targetLevels[index] - bottom, selected: slab.layer.id == selected, dark: dark)
+            slab.updateLabel(amount: configuration.amount(for: slab.layer), thickness: simulation.targetLevels[index] - bottom,
+                             selected: slab.layer.id == selected, dark: dark)
         }
-        let free = configuration.freeBytes.map { BoardText.bytes($0) + (configuration.id == .memory ? " other memory" : " free") } ?? "Not read"
+        let unread = configuration.id == .memory ? "Unavailable" : "Not read"
+        let free = configuration.freeBytes.map {
+            configuration.id.formatBytes($0) + (configuration.id == .memory ? " available" : " free")
+        } ?? unread
         freeLabel.geometry?.firstMaterial?.diffuse.contents = PaperweightSceneAssets.textTexture(free, width: 1.7, height: 0.22, size: 0.13, dark: dark)
-        let share = configuration.capacityBytes > 0 ? Double(configuration.usedBytes) / Double(configuration.capacityBytes) : 0
-        let percent = configuration.capacityBytes > 0 && configuration.freeBytes != nil ? LiveWorkText.percent(share) : "–"
+        let percent = configuration.usedShare.map(LiveWorkText.percent) ?? "–"
         let title = configuration.id == .memory ? "Memory · \(percent)" : "Storage · \(percent) used"
         caption.geometry?.firstMaterial?.diffuse.contents = PaperweightSceneAssets.textTexture(title, width: 2.6, height: 0.34, size: 0.2, dark: dark)
         for (index, outline) in outlines.enumerated() {

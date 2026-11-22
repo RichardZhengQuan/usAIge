@@ -110,17 +110,16 @@ final class PaperweightSceneHost: NSView {
         fallbackMenu?.removeAllItems()
         let values = configurations.map { configuration in
             let title = configuration.id == .memory ? "Memory" : "Storage"
-            let percent = configuration.capacityBytes > 0 && configuration.freeBytes != nil
-                ? LiveWorkText.percent(Double(configuration.usedBytes) / Double(configuration.capacityBytes)) : "–"
-            let available = configuration.freeBytes.map(BoardText.bytes) ?? "–"
-            let used = configuration.capacityBytes > 0 && configuration.freeBytes != nil ? BoardText.bytes(configuration.usedBytes) : "–"
-            return "\(title): \(percent) used, \(used) in use, \(available) \(configuration.id == .memory ? "other memory" : "free")"
+            let percent = configuration.usedShare.map(LiveWorkText.percent) ?? "–"
+            let available = configuration.freeBytes.map(configuration.id.formatBytes) ?? "–"
+            let used = configuration.usedShare == nil ? "–" : configuration.id.formatBytes(configuration.usedBytes)
+            return "\(title): \(percent) used, \(used) in use, \(available) \(configuration.id == .memory ? "available" : "free")"
         }
         var selectedText = "No layer selected"
         accessibilityTargets = configurations.flatMap { configuration in
             ([configuration.freeLayer] + configuration.layers).map { layer in
                 let title = configuration.id == .memory ? "Memory" : "Storage"
-                let amount = layer.isMeasuring ? "Measuring" : BoardText.bytes(layer.bytes)
+                let amount = configuration.amount(for: layer)
                 let selected = configuration.id == front && layer.id == selectedLayerID
                 if selected { selectedText = "Selected \(title) layer: \(layer.title), \(amount)" }
                 let item = NSMenuItem(title: "\(title) · \(layer.title) — \(amount)", action: nil, keyEquivalent: "")

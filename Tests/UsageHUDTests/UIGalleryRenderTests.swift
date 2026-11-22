@@ -423,6 +423,10 @@ struct UIGalleryRenderTests {
         DiskSpace(totalBytes: 1_000_000_000_000, availableBytes: 212_000_000_000)
     }
 
+    private var sampleMemoryUsage: SystemMemoryUsage {
+        SystemMemoryUsage(capacityBytes: 24 * 1_024 * 1_024 * 1_024, usedBytes: 20 * 1_024 * 1_024 * 1_024)
+    }
+
     /// The rail's tiles, the card beside them, and a row's card with its tool's
     /// work, from sample sessions.
     @Test func rendersLiveWork() async throws {
@@ -741,12 +745,13 @@ struct UIGalleryRenderTests {
         let tasks = sampleLiveWork()
         let processes = sampleProcesses()
         let disk = sampleDiskSpace
+        let memory = sampleMemoryUsage
         let monitor = LiveWorkMonitor(
             currentTasks: { tasks },
             runningApplications: { [.claude: ["/Applications/Claude.app"]] },
             locator: { RepositoryLocator(home: "/Users/me") },
             scan: { _, _ in processes },
-            readDiskSpace: { disk }, readMemoryPressure: { .normal }
+            readDiskSpace: { disk }, readMemoryPressure: { .normal }, readMemoryUsage: { memory }
         )
         await monitor.refresh()
         let sizes: [(String, CGSize)] = [
@@ -924,7 +929,7 @@ struct UIGalleryRenderTests {
         let now = Date()
         let board = BranchesBoard.make(snapshot: sampleBranchesSnapshot(now: now), now: now)
         let configurations = [
-            PaperweightData.memory(summary: monitor.summary, running: board.running, physicalMemory: 24 * 1_024 * 1_024 * 1_024),
+            PaperweightData.memory(summary: monitor.summary, running: board.running, systemUsage: sampleMemoryUsage),
             PaperweightData.storage(disk: disk, board: board, toolStorage: sampleToolStorage, isMeasuring: false),
         ]
         for ship in PaperweightShipKind.allCases {
@@ -946,10 +951,11 @@ struct UIGalleryRenderTests {
     func rendersBranchesWithoutGraphics() async throws {
         guard #available(macOS 14.0, *) else { return }
         let tasks = sampleLiveWork(), processes = sampleProcesses(), disk = sampleDiskSpace
+        let memory = sampleMemoryUsage
         let monitor = LiveWorkMonitor(
             currentTasks: { tasks }, runningApplications: { [.claude: ["/Applications/Claude.app"]] },
             locator: { RepositoryLocator(home: "/Users/me") }, scan: { _, _ in processes },
-            readDiskSpace: { disk }, readMemoryPressure: { .normal }
+            readDiskSpace: { disk }, readMemoryPressure: { .normal }, readMemoryUsage: { memory }
         )
         await monitor.refresh()
         let defaults = try #require(UserDefaults(suiteName: "usaige.render.no-graphics.\(UUID().uuidString)"))

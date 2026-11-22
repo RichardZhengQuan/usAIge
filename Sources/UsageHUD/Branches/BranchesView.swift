@@ -42,6 +42,7 @@ struct BranchesRootView: View {
     @State private var sceneCommand: PaperweightSceneCommand?
     @AppStorage(CruiseWeather.defaultsKey) private var weatherName = CruiseWeather.automatic.rawValue
     @State private var memoryPressure: SystemMemoryPressure
+    @State private var memoryUsage: SystemMemoryUsage?
     @State private var clearReview: ClearReviewRequest?
     @State private var singleReview: DeleteReviewRequest?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -60,6 +61,7 @@ struct BranchesRootView: View {
         _page = ObservedObject(wrappedValue: state)
         _summary = State(initialValue: liveWork?.summary ?? LiveWorkSummary())
         _memoryPressure = State(initialValue: liveWork?.memoryPressure ?? .unknown)
+        _memoryUsage = State(initialValue: liveWork?.memoryUsage)
     }
 
     private var front: PaperweightID { get { page.front } nonmutating set { page.front = newValue } }
@@ -83,6 +85,10 @@ struct BranchesRootView: View {
 
     private var memoryPressureUpdates: AnyPublisher<SystemMemoryPressure, Never> {
         liveWork?.$memoryPressure.eraseToAnyPublisher() ?? Just(.unknown).eraseToAnyPublisher()
+    }
+
+    private var memoryUsageUpdates: AnyPublisher<SystemMemoryUsage?, Never> {
+        liveWork?.$memoryUsage.eraseToAnyPublisher() ?? Just(nil).eraseToAnyPublisher()
     }
 
     private var diskUpdates: AnyPublisher<DiskSpace?, Never> {
@@ -111,11 +117,7 @@ struct BranchesRootView: View {
         let selectedItems = picks.chosenItems(from: everything.safeToClear)
         let freeing = preview ? picks.bytes(from: everything.safeToClear) : 0
         let freeingCache = preview ? selectedItems.compactMap(\.size?.cacheBytes).reduce(0, +) : 0
-        let memory = liveWork == nil
-            ? PaperweightConfiguration(id: .memory, capacityBytes: Int64(clamping: ProcessInfo.processInfo.physicalMemory),
-                                       layers: [], freeBytes: nil)
-            : PaperweightData.memory(summary: summary, running: everything.running,
-                                     physicalMemory: ProcessInfo.processInfo.physicalMemory)
+        let memory = PaperweightData.memory(summary: summary, running: everything.running, systemUsage: memoryUsage)
         let storage = PaperweightData.storage(disk: store.diskSpace, board: everything,
                                              toolStorage: store.toolStorage,
                                              isMeasuring: store.isMeasuringToolStorage || !store.hasMeasuredToolStorage,
@@ -190,7 +192,7 @@ struct BranchesRootView: View {
                             .padding(.horizontal, 4)
                             .padding(.vertical, 8)
                         } else {
-                            headline(everything, picks: picks, memory: memory, storage: storage, now: now)
+                            headline(everything, picks: picks, storage: storage, now: now)
                                 .padding(.horizontal, 4)
                                 .padding(.vertical, 8)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -201,7 +203,7 @@ struct BranchesRootView: View {
                         if overviewHeader == nil || front != .storage || selected.id != "wt" {
                         VStack(alignment: .leading, spacing: 12) {
                             HStack(alignment: .firstTextBaseline) {
-                                Text("\(selected.title) · \(selected.isMeasuring ? "Measuring…" : BoardText.bytes(selected.bytes))")
+                                Text("\(selected.title) · \(configuration.amount(for: selected))")
                                     .font(.headline)
                                     .accessibilityAddTraits(.isHeader)
                                 Spacer(minLength: 8)
@@ -282,6 +284,7 @@ struct BranchesRootView: View {
         }
         .onReceive(summaryUpdates) { updated in if updated != summary { summary = updated } }
         .onReceive(memoryPressureUpdates) { memoryPressure = $0 }
+        .onReceive(memoryUsageUpdates) { memoryUsage = $0 }
         .onReceive(diskUpdates) { store.updateObservedDiskSpace($0) }
         .onReceive(presentationUpdates) { request in
             guard let request, request.id != lastPresentationRequestID else { return }
@@ -347,21 +350,20 @@ struct BranchesRootView: View {
 
     private func overview(memory: PaperweightConfiguration, storage: PaperweightConfiguration,
                           board: BranchesBoard, now: Date) -> some View {
-        let amount = Text(front == .storage
-                          ? storage.freeBytes.map { "\(BoardText.bytes($0)) free" } ?? "Measuring…"
-                          : liveWork == nil ? "Unavailable"
-                          : memory.freeBytes != nil ? "\(BoardText.bytes(memory.usedBytes)) in use" : "Measuring…")
+        let memoryAmount = memory.freeBytes.map { _ in "\(memory.id.formatBytes(memory.usedBytes)) in use" }
+        let storageAmount = storage.freeBytes.map { "\(BoardText.bytes($0)) free" }
+        let amount = Text(front == .storage ? storageAmount ?? "Measuring…" : memoryAmount ?? "Unavailable")
             .font(.system(size: 32, weight: .light, design: .rounded))
             .monospacedDigit()
             .contentTransition(.numericText())
         return HStack(alignment: .top, spacing: 24) {
             VStack(alignment: .leading, spacing: 8) {
                 if overviewHeader != nil {
-                    Text("Local workspace usage")
+                    Text("Local resources")
                         .font(.title3.weight(.semibold))
                         .accessibilityAddTraits(.isHeader)
                 }
-                Text(front == .storage ? "Storage" : "Memory")
+                Text(front == .storage ? "Storage" : "System memory")
                     .font(.title3.weight(.medium))
                     .foregroundStyle(.secondary)
                 if front == .storage {
@@ -381,7 +383,7 @@ struct BranchesRootView: View {
                 }
                 Text(preview && front == .storage
                      ? "Preview after clearing the default selection."
-                     : front == .memory ? "AI tools and repository work form the ocean’s layers."
+                     : front == .memory ? "Layer sizes for AI tools and dev servers are estimates."
                      : "Click an ocean layer to explore what’s using this Mac.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -411,7 +413,7 @@ struct BranchesRootView: View {
                         HStack(spacing: 6) {
                             Circle().fill(layerColor(ResourceOceanRenderData.pigmentHex(for: layer))).frame(width: 8, height: 8)
                             Text(layer.title)
-                            Text(layer.isMeasuring ? "Measuring…" : BoardText.bytes(layer.bytes))
+                            Text(configuration.amount(for: layer))
                                 .foregroundStyle(.secondary)
                                 .monospacedDigit()
                         }
@@ -429,6 +431,7 @@ struct BranchesRootView: View {
 
     private func paperweightButton(_ configuration: PaperweightConfiguration) -> some View {
         let selected = front == configuration.id
+        let usage = configuration.usedShare.map { "\(LiveWorkText.percent($0)) used" }
         return Button {
             guard !selected else { return }
             front = configuration.id
@@ -438,9 +441,7 @@ struct BranchesRootView: View {
                 Label(configuration.id == .memory ? "Memory" : "Storage",
                       systemImage: configuration.id == .memory ? "memorychip" : "internaldrive")
                     .font(.callout.weight(.medium))
-                Text(configuration.freeBytes != nil && configuration.capacityBytes > 0
-                     ? "\(LiveWorkText.percent(Double(configuration.usedBytes) / Double(configuration.capacityBytes))) used"
-                     : "Measuring…")
+                Text(usage ?? (configuration.id == .memory ? "Unavailable" : "Measuring…"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -481,7 +482,7 @@ struct BranchesRootView: View {
         .frame(width: 230, alignment: .leading)
     }
 
-    private func headline(_ board: BranchesBoard, picks: ClearSelection, memory: PaperweightConfiguration,
+    private func headline(_ board: BranchesBoard, picks: ClearSelection,
                           storage: PaperweightConfiguration, now: Date) -> some View {
         HStack(alignment: .top, spacing: 12) {
             if front == .storage {
@@ -492,18 +493,10 @@ struct BranchesRootView: View {
                                previewDisk: preview ? DiskSpace(totalBytes: storage.capacityBytes,
                                                                availableBytes: storage.freeBytes ?? 0) : nil)
                     .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(liveWork == nil ? "Memory isn't available" : "AI tools use \(LiveWorkText.memory(summary.memoryBytes)) of memory")
-                        .font(.system(size: 17, weight: .semibold))
-                    Text(liveWork == nil ? "No memory reading is available." : LiveWorkText.memorySentence(summary.memoryBytes))
-                        .font(.callout).foregroundStyle(.secondary)
-                    if let dev = memory.layers.first(where: { $0.id == "dev" }) {
-                        Text("Other repository work uses \(BoardText.bytes(dev.bytes)).")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+            } else if liveWork != nil {
+                Text("AI tool footprints total \(LiveWorkText.memory(summary.memoryBytes))")
+                    .font(.system(size: 17, weight: .semibold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             VStack(alignment: .trailing, spacing: 6) {
                 if front == .storage {
@@ -523,7 +516,7 @@ struct BranchesRootView: View {
         if configuration.allocationIsEstimated {
             Text(front == .storage
                  ? "Measured folder sizes can overlap. Layer shares are scaled to disk use."
-                 : "Memory footprints can exceed physical memory when macOS compresses or swaps memory. Layer heights are capped to fit.")
+                 : "Process footprints include memory that macOS compresses or swaps. The ocean scales the estimates to fit system memory in use.")
                 .font(.caption).foregroundStyle(.secondary)
         }
         if front == .storage {
@@ -542,7 +535,10 @@ struct BranchesRootView: View {
         } else {
             let rows = PaperweightData.memoryRows(for: layer, in: configuration, running: board.running)
             if layer.id == configuration.freeLayer.id {
-                Text("Memory not counted under AI tools or repository work. Other apps may be using it.")
+                Text(layer.isMeasuring ? "No system memory reading is available." : "Physical memory outside the in-use total, including reclaimable cache.")
+                    .foregroundStyle(.secondary)
+            } else if layer.id == PaperweightData.otherMemoryLayerID {
+                Text("Estimated memory in use by macOS and other apps.")
                     .foregroundStyle(.secondary)
             } else if rows.measured.isEmpty, rows.sessionOnly.isEmpty {
                 Text("This memory belongs to the app and its helpers outside repository folders.")

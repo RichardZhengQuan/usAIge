@@ -396,7 +396,9 @@ private func repository(_ id: String, name: String = "app", remote: String? = "g
     let unknownTool = row("unknown-tool") { $0.sessions.tools = ["Somebody Else"] }
     let claude = PaperweightLayer(id: "tool-" + AIToolID.claude.rawValue, title: "Claude", bytes: 900, colorHex: 0, inkHex: 0, processIDs: [3])
     let dev = PaperweightLayer(id: "dev", title: "Dev servers", bytes: 500, colorHex: 0, inkHex: 0, processIDs: [7])
-    let memory = PaperweightConfiguration(id: .memory, capacityBytes: 10_000, layers: [dev, claude], freeBytes: 8_600)
+    let other = PaperweightLayer(id: PaperweightData.otherMemoryLayerID, title: "Other apps and macOS",
+                                 bytes: 6_600, colorHex: 0, inkHex: 0)
+    let memory = PaperweightConfiguration(id: .memory, capacityBytes: 10_000, layers: [dev, claude, other], freeBytes: 2_000)
     let running = [measured, claudeSession, unknownTool]
 
     let devRows = PaperweightData.memoryRows(for: dev, in: memory, running: running)
@@ -407,7 +409,7 @@ private func repository(_ id: String, name: String = "app", remote: String? = "g
     #expect(claudeRows.measured.isEmpty)
     #expect(claudeRows.sessionOnly.map(\.id) == ["claude-session"])
 
-    // A tool with no layer of its own still has a place: other memory.
-    let otherRows = PaperweightData.memoryRows(for: memory.freeLayer, in: memory, running: running)
+    let otherRows = PaperweightData.memoryRows(for: other, in: memory, running: running)
     #expect(otherRows.sessionOnly.map(\.id) == ["unknown-tool"])
+    #expect(PaperweightData.memoryRows(for: memory.freeLayer, in: memory, running: running).sessionOnly.isEmpty)
 }

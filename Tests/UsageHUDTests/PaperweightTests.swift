@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 @testable import UsageHUD
@@ -108,10 +109,14 @@ private func paperweightConfiguration(_ id: PaperweightID = .storage, bytes: [In
         first.processes = [shared, helper, codex, server]
         var second = first
         second.processes = [server]
-        let config = PaperweightData.memory(summary: summary, running: [first, second], physicalMemory: 2_000)
-        #expect(config.usedBytes == 1_000)
-        #expect(config.freeBytes == 1_000)
+        let usage = SystemMemoryUsage(capacityBytes: 2_000, usedBytes: 1_700)
+        let config = PaperweightData.memory(summary: summary, running: [first, second], systemUsage: usage)
+        #expect(config.usedBytes == 1_700)
+        #expect(config.usedShare == 0.85)
+        #expect(config.freeBytes == 300)
         #expect(config.freeLayer.id == "mfree")
+        #expect(config.freeLayer.title == "Available memory")
+        #expect(config.layers.first { $0.id == PaperweightData.otherMemoryLayerID }?.bytes == 700)
         #expect(config.layers.first { $0.id == "dev" }?.processIDs == [4])
         #expect(config.layers.first { $0.id == "tool-chatGPT" }?.processIDs == [1, 3])
         #expect(config.layers.first { $0.id == "tool-claude" }?.processIDs == [2])
@@ -120,21 +125,51 @@ private func paperweightConfiguration(_ id: PaperweightID = .storage, bytes: [In
         #expect(Set(config.layers.flatMap(\.processIDs)).count == 4)
     }
 
-    @Test func overcommittedMemoryKeepsMeasuredBytesAndDisclosesTheEstimate() {
-        let summary = LiveWorkSummary(sessions: [paperweightSession("a", tool: .claude, processes: [paperweightProcess(1, bytes: 2_000)])])
-        let config = PaperweightData.memory(summary: summary, running: [], physicalMemory: 1_000)
-        #expect(config.usedBytes == 2_000)
-        #expect(config.freeBytes == 0)
+    @Test func processFootprintsThatExceedSystemUseFitInsideIt() {
+        let summary = LiveWorkSummary(appProcesses: [
+            .claude: [paperweightProcess(1, bytes: 300)],
+            .chatGPT: [paperweightProcess(2, bytes: 600)],
+        ])
+        let usage = SystemMemoryUsage(capacityBytes: 1_000, usedBytes: 600)
+        let config = PaperweightData.memory(summary: summary, running: [], systemUsage: usage)
+        #expect(config.layers.map(\.bytes) == [200, 400, 0])
+        #expect(config.measuredBytes == 900)
+        #expect(config.usedBytes == 600)
+        #expect(config.freeBytes == 400)
         #expect(config.allocationIsEstimated)
-        #expect((PaperweightSimulation(configuration: config).currentLevels.last ?? 0) <= PaperweightConstants.liquidHeight)
     }
 
-    @Test func noObservedProcessesMakeAnEmptyMemoryTank() {
-        let config = PaperweightData.memory(summary: LiveWorkSummary(), running: [], physicalMemory: 1_000)
-        #expect(config.layers.isEmpty)
-        #expect(config.usedBytes == 0)
-        #expect(config.freeBytes == 1_000)
-        #expect(PaperweightSimulation(configuration: config).surface(at: 220) == 0)
+    @Test func noObservedProcessesStillShowSystemUsage() {
+        let usage = SystemMemoryUsage(capacityBytes: 1_000, usedBytes: 750)
+        let config = PaperweightData.memory(summary: LiveWorkSummary(), running: [], systemUsage: usage)
+        #expect(config.layers.map(\.id) == [PaperweightData.otherMemoryLayerID])
+        #expect(config.usedBytes == 750)
+        #expect(config.freeBytes == 250)
+    }
+
+    @Test func anUnreadSystemSampleDoesNotClaimAvailableMemory() {
+        let summary = LiveWorkSummary(appProcesses: [.claude: [paperweightProcess(1, bytes: 300)]])
+        let config = PaperweightData.memory(summary: summary, running: [], systemUsage: nil)
+        #expect(config.layers.map(\.id) == ["tool-claude"])
+        #expect(config.capacityBytes == 0)
+        #expect(config.freeBytes == nil)
+        #expect(config.usedShare == nil)
+        #expect(config.amount(for: config.freeLayer) == "Unavailable")
+    }
+
+    @Test func systemMemoryUsesPhysicalCompressorPagesAndExcludesReclaimableMemory() {
+        var stats = vm_statistics64_data_t()
+        stats.internal_page_count = 500
+        stats.purgeable_count = 10
+        stats.wire_count = 150
+        stats.compressor_page_count = 60
+        stats.total_uncompressed_pages_in_compressor = 200
+        stats.external_page_count = 250
+        stats.free_count = 40
+        let pageSize: Int64 = 16_384
+        let usage = SystemMemoryUsage(capacityBytes: 1_000 * pageSize, pageSize: pageSize, statistics: stats)
+        #expect(usage.usedBytes == 700 * pageSize)
+        #expect(usage.availableBytes == 300 * pageSize)
     }
 }
 

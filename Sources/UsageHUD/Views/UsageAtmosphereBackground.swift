@@ -126,9 +126,9 @@ final class UsageAtmosphereView: NSView {
         setAccessibilityHelp("Select an ocean layer to explore it. Drag the water to make waves.")
         let layers = configuration.layers + [configuration.freeLayer]
         let selected = layers.first { $0.id == selectedLayerID }
-        setAccessibilityValue(selected.map { "Selected \($0.title), \($0.isMeasuring ? "Measuring" : BoardText.bytes($0.bytes))" })
+        setAccessibilityValue(selected.map { "Selected \($0.title), \(configuration.amount(for: $0))" })
         resourceAccessibilityTargets = layers.map { layer in
-            ResourceOceanAccessibilityTarget(name: "Show \(layer.title), \(layer.isMeasuring ? "Measuring" : BoardText.bytes(layer.bytes))") {
+            ResourceOceanAccessibilityTarget(name: "Show \(layer.title), \(configuration.amount(for: layer))") {
                 onSelect(layer.id)
             }
         }
@@ -447,7 +447,7 @@ final class UsageAtmosphereView: NSView {
         for band in ResourceOceanLayout(configuration: configuration).bands {
             let layer = band.layer
             let selected = layer.id == selectedResourceLayerID
-            let amount = layer.isMeasuring ? "Measuring…" : BoardText.bytes(layer.bytes)
+            let amount = configuration.amount(for: layer)
             let text = NSAttributedString(string: "\(layer.title) · \(amount)", attributes: [
                 .font: NSFont.systemFont(ofSize: 12, weight: selected ? .semibold : .medium),
                 .foregroundColor: NSColor.white.withAlphaComponent(selected ? 1 : 0.92),

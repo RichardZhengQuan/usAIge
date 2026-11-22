@@ -88,6 +88,18 @@ private final class PressurePublications: @unchecked Sendable {
 
 @MainActor
 @Suite struct ResourceWeatherSamplingTests {
+    @Test func systemMemoryPublishesWithoutTrackedProcesses() async {
+        let memory = SystemMemoryUsage(capacityBytes: 1_000, usedBytes: 700)
+        let monitor = LiveWorkMonitor(currentTasks: { [] }, runningApplications: { [:] },
+                                      locator: { RepositoryLocator(home: "/resource-weather-tests", allowedFolders: []) },
+                                      scan: { _, _ in [] }, readDiskSpace: { nil },
+                                      readMemoryPressure: { .normal }, readMemoryUsage: { memory })
+        #expect(monitor.memoryUsage == nil)
+        await monitor.refresh()
+        #expect(monitor.summary == LiveWorkSummary())
+        #expect(monitor.memoryUsage == memory)
+    }
+
     @Test func sharedDiskReadingsUpdateBothStorageWeatherAndLayersWithoutRepeatPublications() {
         let first = DiskSpace(totalBytes: 1_000, availableBytes: 400)
         let full = DiskSpace(totalBytes: 1_000, availableBytes: 40)
