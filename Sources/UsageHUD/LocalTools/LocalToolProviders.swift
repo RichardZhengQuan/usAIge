@@ -50,6 +50,9 @@ struct LocalToolGuidance: Identifiable, Sendable {
     let source: String
     let signInHint: String
     let expiredHint: String
+    /// Set for tools whose sign-in is broader than their usage, such as the
+    /// GitHub CLI's token: usAIge reads nothing until the user turns them on.
+    var optInHint: String? = nil
 
     static let supported: [LocalToolGuidance] = [
         LocalToolGuidance(
@@ -88,6 +91,61 @@ struct LocalToolGuidance: Identifiable, Sendable {
             signInHint: "Open Devin Desktop or Windsurf and sign in.",
             expiredHint: "Open Devin Desktop or Windsurf and sign in again."
         ),
+        LocalToolGuidance(
+            id: .antigravity,
+            source: "Antigravity running on this Mac",
+            signInHint: "Open Antigravity, or run `agy`, and sign in. usAIge reads its limits while it runs.",
+            expiredHint: "Sign in to Antigravity again."
+        ),
+        LocalToolGuidance(
+            id: .copilot,
+            source: "GitHub CLI sign-in on this Mac",
+            signInHint: "Run `gh auth login` in Terminal.",
+            expiredHint: "Run `gh auth login` in Terminal to sign in again.",
+            optInHint: "Off. Turn on to read Copilot limits with the GitHub CLI sign-in on this Mac."
+        ),
+        LocalToolGuidance(
+            id: .kiro,
+            source: "Kiro CLI on this Mac",
+            signInHint: "Install the Kiro CLI and run `kiro-cli` to sign in.",
+            expiredHint: "Run `kiro-cli` in Terminal to sign in again."
+        ),
+        LocalToolGuidance(
+            id: .amp,
+            source: "Amp CLI on this Mac",
+            signInHint: "Install the Amp CLI and sign in with `amp login`.",
+            expiredHint: "Run `amp login` in Terminal to sign in again."
+        ),
+        LocalToolGuidance(
+            id: .muse,
+            source: "Muse Code CLI on this Mac",
+            signInHint: "Install Muse Code and run `muse login`.",
+            expiredHint: "Run `muse login` in Terminal to sign in again."
+        ),
+        LocalToolGuidance(
+            id: .ohMyPi,
+            source: "Oh My Pi on this Mac",
+            signInHint: "Install Oh My Pi and sign in to your accounts in `omp`.",
+            expiredHint: "Run `omp login` in Terminal to sign in again."
+        ),
+        LocalToolGuidance(
+            id: .commandCode,
+            source: "Command Code sign-in on this Mac",
+            signInHint: "Install the `cmd` CLI and run `cmd login`.",
+            expiredHint: "Run `cmd login` in Terminal to sign in again."
+        ),
+        LocalToolGuidance(
+            id: .cline,
+            source: "Cline CLI sign-in on this Mac",
+            signInHint: "Install the Cline CLI and run `cline auth`.",
+            expiredHint: "Run `cline auth` in Terminal to sign in again."
+        ),
+        LocalToolGuidance(
+            id: .openCodeGo,
+            source: "OpenCode Zen sign-in on this Mac",
+            signInHint: "Run `opencode auth login` and pick OpenCode Zen.",
+            expiredHint: "Run `opencode auth login` and pick OpenCode Zen again."
+        ),
     ]
 
     struct Presentation: Equatable {
@@ -98,6 +156,8 @@ struct LocalToolGuidance: Identifiable, Sendable {
     func presentation(for status: LocalToolStatus) -> Presentation {
         switch status {
         case .unknown: Presentation(text: "Checking…", isProblem: false)
+        case .optInRequired:
+            Presentation(text: optInHint ?? "Off. Turn on to read limits from \(source).", isProblem: false)
         case .apiKeyOnly:
             Presentation(
                 text: "Claude Code uses an API key. usAIge checks the Claude app session automatically for plan limits.",

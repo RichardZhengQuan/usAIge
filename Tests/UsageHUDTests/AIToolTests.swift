@@ -3,7 +3,8 @@ import Testing
 @testable import UsageHUD
 
 @Test func catalogProvidesDistinctLaunchTargetsForCommonAITools() {
-    #expect(AIToolDescriptor.all.map(\.id) == [.chatGPT, .claude, .gemini, .cursor, .grok, .jetBrainsAI, .windsurf])
+    #expect(AIToolDescriptor.all.map(\.id).prefix(7) == [.chatGPT, .claude, .gemini, .cursor, .grok, .jetBrainsAI, .windsurf])
+    #expect(Set(AIToolDescriptor.all.map(\.id.rawValue)).count == AIToolDescriptor.all.count)
     #expect(AIToolDescriptor.all.map(\.id) == AIToolID.builtInIDs)
     #expect(AIToolDescriptor.descriptor(for: .jetBrainsAI).name == "JetBrains AI")
     #expect(AIToolDescriptor.descriptor(for: .jetBrainsAI).bundleIdentifiers.contains("com.jetbrains.intellij"))

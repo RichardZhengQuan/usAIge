@@ -15,7 +15,19 @@ struct AIToolID: RawRepresentable, Hashable, Codable, Identifiable, Sendable {
     static let grok = Self(rawValue: "grok")
     static let jetBrainsAI = Self(rawValue: "jetbrainsAI")
     static let windsurf = Self(rawValue: "windsurf")
-    static let builtInIDs: [Self] = [.chatGPT, .claude, .gemini, .cursor, .grok, .jetBrainsAI, .windsurf]
+    static let antigravity = Self(rawValue: "antigravity")
+    static let copilot = Self(rawValue: "copilot")
+    static let kiro = Self(rawValue: "kiro")
+    static let amp = Self(rawValue: "amp")
+    static let muse = Self(rawValue: "muse")
+    static let ohMyPi = Self(rawValue: "ohMyPi")
+    static let commandCode = Self(rawValue: "commandCode")
+    static let cline = Self(rawValue: "cline")
+    static let openCodeGo = Self(rawValue: "openCodeGo")
+    static let builtInIDs: [Self] = [
+        .chatGPT, .claude, .gemini, .cursor, .grok, .jetBrainsAI, .windsurf,
+        .antigravity, .copilot, .kiro, .amp, .muse, .ohMyPi, .commandCode, .cline, .openCodeGo,
+    ]
 
     init(from decoder: Decoder) throws {
         rawValue = try decoder.singleValueContainer().decode(String.self)
@@ -99,6 +111,69 @@ struct AIToolDescriptor: Identifiable, Equatable, Sendable {
             systemImage: "wind",
             bundleIdentifiers: ["com.exafunction.windsurf"],
             webURL: URL(string: "https://windsurf.com")
+        ),
+        Self(
+            id: .antigravity,
+            name: "Antigravity",
+            systemImage: "a.circle",
+            bundleIdentifiers: [],
+            webURL: URL(string: "https://antigravity.google")
+        ),
+        Self(
+            id: .copilot,
+            name: "GitHub Copilot",
+            systemImage: "chevron.left.forwardslash.chevron.right",
+            bundleIdentifiers: [],
+            webURL: URL(string: "https://github.com/settings/copilot/features")
+        ),
+        Self(
+            id: .kiro,
+            name: "Kiro",
+            systemImage: "k.circle",
+            bundleIdentifiers: [],
+            webURL: URL(string: "https://app.kiro.dev/account/usage")
+        ),
+        Self(
+            id: .amp,
+            name: "Amp",
+            systemImage: "bolt.circle",
+            bundleIdentifiers: [],
+            webURL: URL(string: "https://ampcode.com/settings")
+        ),
+        Self(
+            id: .muse,
+            name: "Muse Code",
+            systemImage: "m.circle",
+            bundleIdentifiers: [],
+            webURL: URL(string: "https://www.meta.ai")
+        ),
+        Self(
+            id: .ohMyPi,
+            name: "Oh My Pi",
+            systemImage: "function",
+            bundleIdentifiers: [],
+            webURL: URL(string: "https://omp.sh")
+        ),
+        Self(
+            id: .commandCode,
+            name: "Command Code",
+            systemImage: "command",
+            bundleIdentifiers: [],
+            webURL: URL(string: "https://commandcode.ai/usage")
+        ),
+        Self(
+            id: .cline,
+            name: "Cline",
+            systemImage: "c.circle",
+            bundleIdentifiers: [],
+            webURL: URL(string: "https://app.cline.bot/dashboard")
+        ),
+        Self(
+            id: .openCodeGo,
+            name: "OpenCode Go",
+            systemImage: "o.circle",
+            bundleIdentifiers: [],
+            webURL: URL(string: "https://opencode.ai/auth")
         ),
     ]
 
