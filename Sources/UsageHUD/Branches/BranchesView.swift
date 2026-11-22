@@ -45,6 +45,8 @@ struct BranchesRootView: View {
     @State private var memoryUsage: SystemMemoryUsage?
     @State private var clearReview: ClearReviewRequest?
     @State private var singleReview: DeleteReviewRequest?
+    @State private var showsStorageReview = false
+    @State private var storageCleanupStarted = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(store: BranchesStore, liveWork: LiveWorkMonitor? = nil, agentStore: CodexAgentStore? = nil,
@@ -151,7 +153,7 @@ struct BranchesRootView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 16) {
                         if let overviewHeader { overviewHeader.id(OverviewSection.overview) }
-                        overview(memory: memory, storage: storage, board: everything, now: now)
+                        overview(memory: memory, storage: storage)
                             .padding(.horizontal, 4)
                             .padding(.top, 20)
                             .padding(.bottom, 4)
@@ -318,6 +320,14 @@ struct BranchesRootView: View {
                 store.startDelete(chosen)
             } cancel: { clearReview = nil }
         }
+        .sheet(isPresented: $showsStorageReview, onDismiss: storageReviewDismissed) {
+            StorageCleanupReview(store: store) { chosen in
+                guard store.startStorageCleanup(chosen) else { return false }
+                storageCleanupStarted = true
+                showsStorageReview = false
+                return true
+            } cancel: { showsStorageReview = false }
+        }
     }
 
     private func ensureSelection(_ configuration: PaperweightConfiguration) {
@@ -335,8 +345,20 @@ struct BranchesRootView: View {
         if store.cleanupProgress != nil || store.resultMessage != nil { showCleanupProgress() }
     }
 
+    private func startStorageReview() {
+        preview = false
+        presentation?.isReviewingCleanup = true
+        showsStorageReview = true
+    }
+
+    private func storageReviewDismissed() {
+        presentation?.isReviewingCleanup = false
+        if storageCleanupStarted { showCleanupProgress() }
+        storageCleanupStarted = false
+    }
+
     private func previewClearingButton(picks: ClearSelection, board: BranchesBoard) -> some View {
-        Button(preview ? "Show today" : "Preview clearing") {
+        Button(preview ? "Show today" : "Preview worktree removal") {
             preview.toggle()
             send(.preview)
         }
@@ -348,8 +370,7 @@ struct BranchesRootView: View {
         sceneCommand = PaperweightSceneCommand(id: commandID, kind: kind)
     }
 
-    private func overview(memory: PaperweightConfiguration, storage: PaperweightConfiguration,
-                          board: BranchesBoard, now: Date) -> some View {
+    private func overview(memory: PaperweightConfiguration, storage: PaperweightConfiguration) -> some View {
         let memoryAmount = memory.freeBytes.map { _ in "\(memory.id.formatBytes(memory.usedBytes)) in use" }
         let storageAmount = storage.freeBytes.map { "\(BoardText.bytes($0)) free" }
         let amount = Text(front == .storage ? storageAmount ?? "Measuring…" : memoryAmount ?? "Unavailable")
@@ -382,7 +403,7 @@ struct BranchesRootView: View {
                     amount
                 }
                 Text(preview && front == .storage
-                     ? "Preview after clearing the default selection."
+                     ? "Preview after removing the default worktree selection."
                      : front == .memory ? "Layer sizes for AI tools and dev servers are estimates."
                      : "Click an ocean layer to explore what’s using this Mac.")
                     .font(.callout)
@@ -396,7 +417,7 @@ struct BranchesRootView: View {
                 }
                 if front == .storage {
                     StorageCleanupButton(store: store,
-                                         review: { startReview(board.safeToClear, now: now) },
+                                         review: startStorageReview,
                                          showProgress: showCleanupProgress)
                 }
             }
@@ -500,7 +521,7 @@ struct BranchesRootView: View {
             }
             VStack(alignment: .trailing, spacing: 6) {
                 if front == .storage {
-                    Button(preview ? "Show today" : "Preview clearing") {
+                    Button(preview ? "Show today" : "Preview worktree removal") {
                         preview.toggle()
                         send(.preview)
                     }
@@ -865,7 +886,7 @@ private struct StorageActions: View {
             return "You can tidy \(count) \(count == 1 ? "item" : "items")"
         }
         if store.snapshot.activity != .idle { return "Reading your repositories…" }
-        return "Nothing to clear right now"
+        return "No worktrees ready to clear"
     }
 
     private var freeText: String? {
@@ -936,7 +957,7 @@ private struct StorageActions: View {
             }
             Button("Done") { store.resultMessage = nil }
         } else if !isReviewing, !board.safeToClear.isEmpty {
-            Button("Review and Clear…", action: review)
+            Button("Review worktrees…", action: review)
                 .buttonStyle(.borderedProminent)
                 .disabled(store.isDeleting)
                 .help("Review all \(board.safeToClear.count) safe items")

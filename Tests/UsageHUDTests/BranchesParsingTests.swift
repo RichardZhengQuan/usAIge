@@ -249,6 +249,8 @@ private func facts(_ change: (inout WorkFacts) -> Void = { _ in }) -> WorkFacts 
     #expect(item.status == .empty)
     #expect(!item.eligibility.isAllowed)
     item.ignoredFiles = [".env"]
+    #expect(!item.eligibility.isAllowed)
+    item.ignoredFiles = []
     #expect(item.eligibility.isAllowed)
     // With no folder there's nothing to read.
     item.ignoredFiles = nil
@@ -517,13 +519,13 @@ private func presentationItem(
     let usedLongAgo = presentationItem { $0.sessions.lastActiveAt = now.addingTimeInterval(-7 * 86400) }
     #expect(BranchesPresentation.cautions(for: usedLongAgo, now: now).isEmpty)
 
-    let cachesOnly = presentationItem { $0.ignoredFiles = ["node_modules", "site/.next"] }
-    #expect(BranchesPresentation.cautions(for: cachesOnly, now: now).isEmpty)
+    let uncheckedCaches = presentationItem { $0.ignoredFiles = ["node_modules", "site/.next"] }
+    #expect(BranchesPresentation.cautions(for: uncheckedCaches, now: now).count == 1)
     let withSecrets = presentationItem { $0.ignoredFiles = ["node_modules", ".env"] }
     let caution = BranchesPresentation.cautions(for: withSecrets, now: now)
     #expect(caution.count == 1)
     #expect(caution[0].contains(".env"))
-    #expect(!caution[0].contains("node_modules"))
+    #expect(caution[0].contains("node_modules"))
 
     let notOnMain = presentationItem { $0.facts.merge = nil }
     #expect(notOnMain.status == .pushed)

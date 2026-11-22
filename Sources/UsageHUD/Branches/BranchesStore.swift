@@ -25,7 +25,7 @@ final class BranchesStore: ObservableObject {
     @Published private(set) var evidence: [String: WorkEvidence] = [:]
 
     struct CleanupProgress: Equatable, Sendable {
-        enum Operation: Equatable, Sendable { case clearing, restoring }
+        enum Operation: Equatable, Sendable { case clearing, clearingFiles, restoring }
         var operation: Operation
         var completed: Int
         var total: Int
@@ -255,6 +255,10 @@ final class BranchesStore: ObservableObject {
         startScan(force: false)
     }
 
+    func scanStorage() async -> StorageCleanupInventory {
+        await scanner.scanStorage(addedFolders: addedFolders)
+    }
+
     // MARK: Deleting
 
     /// Starts clearing, which `stopDeleting` can stop between rows.
@@ -265,8 +269,23 @@ final class BranchesStore: ObservableObject {
         }
     }
 
+    @discardableResult
+    func startStorageCleanup(_ items: [StorageCleanupCandidate]) -> Bool {
+        let paths = Set(items.map(\.id))
+        guard paths.count == items.count,
+              !paths.contains(where: { folder in
+                  paths.contains { $0 != folder && RepositoryLocator.contains(folder, $0) }
+              }),
+              beginCleanup(.clearingFiles, names: items.map { $0.location.title }) else { return false }
+        let folders = addedFolders
+        deleteTask = Task { [weak self] in
+            await self?.performStorageCleanup(items, addedFolders: folders)
+        }
+        return true
+    }
+
     func stopDeleting() {
-        guard cleanupProgress?.operation == .clearing, deleteTask != nil else { return }
+        guard let operation = cleanupProgress?.operation, operation != .restoring, deleteTask != nil else { return }
         cleanupProgress?.isStopping = true
         deleteTask?.cancel()
     }
@@ -334,6 +353,41 @@ final class BranchesStore: ObservableObject {
         }
         resultMessage = message
         readDiskSpace()
+    }
+
+    private func performStorageCleanup(_ items: [StorageCleanupCandidate], addedFolders: [String]) async {
+        defer { finishCleanup() }
+        await scanBeforeCleanup?.value
+        scanBeforeCleanup = nil
+        let diskURL = diskURL
+        let before = await Task.detached(priority: .utility) { DiskSpace.read(for: diskURL) }.value
+        let scanner = scanner
+        var removed = 0
+        var processed = 0
+        var problems: [String] = []
+        for item in items {
+            if Task.isCancelled { break }
+            cleanupProgress?.currentName = item.id
+            let failure = await Task.detached(priority: .utility) {
+                await scanner.removeStorageArtifact(item, addedFolders: addedFolders)
+            }.value
+            if let failure { problems.append("\(item.id)\n\(failure)") } else { removed += 1 }
+            processed += 1
+            cleanupProgress?.completed = processed
+        }
+        let after = await Task.detached(priority: .utility) { DiskSpace.read(for: diskURL) }.value
+        updateObservedDiskSpace(after)
+        measuredToolsThisOpen = false
+        var details = [removed == 1 ? "Deleted 1 folder." : "Deleted \(removed) folders."]
+        if let before, let after {
+            details.append("Available space was \(BoardText.bytes(before.availableBytes)) and is now \(BoardText.bytes(after.availableBytes)).")
+        }
+        if processed < items.count {
+            details.append("Stopped with \(items.count - processed) items left.")
+        }
+        details.append(contentsOf: problems)
+        resultMessage = ResultMessage(text: details.joined(separator: "\n\n"), isProblem: !problems.isEmpty,
+                                      undoable: [], deletedCount: removed)
     }
 
     /// Updates sent while a delete runs, even after its task was stopped:
@@ -439,7 +493,7 @@ enum BranchesPresentation {
         if !files.isEmpty {
             let shown = files.prefix(4).joined(separator: ", ")
             let more = files.count > 4 ? " and \(files.count - 4) more" : ""
-            cautions.append("Ignored files no build brings back would be lost: \(shown)\(more).")
+            cautions.append("Removal permanently deletes ignored contents at \(shown)\(more).")
         }
         if item.status == .pushed {
             cautions.append("This isn't on main yet. Its commits stay on the remote, but no local copy remains.")

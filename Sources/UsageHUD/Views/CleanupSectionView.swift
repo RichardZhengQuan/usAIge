@@ -9,9 +9,7 @@ struct StorageCleanupButton: View {
     var showProgress: () -> Void
 
     var body: some View {
-        let now = Date()
-        let board = BranchesBoard.make(snapshot: store.snapshot, now: now)
-        Button(action: store.cleanupProgress != nil || store.resultMessage != nil ? showProgress : review) {
+        Button(action: store.cleanupProgress != nil ? showProgress : review) {
             Label(title, systemImage: store.cleanupProgress != nil ? "hourglass" : "sparkles")
                 .font(.headline)
                 .frame(maxWidth: .infinity, minHeight: 32)
@@ -19,17 +17,15 @@ struct StorageCleanupButton: View {
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
-        .disabled(store.cleanupProgress == nil && store.resultMessage == nil && board.safeToClear.isEmpty)
-        .accessibilityHint(store.cleanupProgress == nil && store.resultMessage == nil
-                           ? "Review the selected items before anything is cleared"
-                           : "Open cleanup progress and recovery controls")
+        .accessibilityHint(store.cleanupProgress == nil
+                           ? "Find generated files you can review before deleting"
+                           : "Open cleanup progress")
         .frame(width: 240, alignment: .trailing)
     }
 
     private var title: String {
         if store.cleanupProgress != nil { return "Show Progress…" }
-        if store.resultMessage != nil { return "View Cleanup Result…" }
-        return "Review and Clear…"
+        return "Scan for Cleanup…"
     }
 }
 
@@ -39,29 +35,13 @@ struct StorageCleanupButton: View {
 struct StorageCleanupSummary: View {
     @ObservedObject var store: BranchesStore
 
+    @ViewBuilder
     var body: some View {
-        let now = Date()
-        let board = BranchesBoard.make(snapshot: store.snapshot, now: now)
-        let selection = ClearSelection(items: board.safeToClear, now: now)
-        Text(summary(board: board, selection: selection))
-            .font(.callout.monospacedDigit())
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-    }
-
-    private func summary(board: BranchesBoard, selection: ClearSelection) -> String {
         if let progress = store.cleanupProgress {
-            return "\(progress.completed) of \(progress.total) items processed"
+            Text("\(progress.completed) of \(progress.total) items processed")
+                .font(.callout.monospacedDigit())
+                .foregroundStyle(.secondary)
         }
-        if let result = store.resultMessage {
-            return result.isProblem ? "Cleanup needs attention" : "Operation complete"
-        }
-        if board.safeToClear.isEmpty {
-            return store.snapshot.activity == .idle ? "Nothing to clear right now" : "Checking repositories…"
-        }
-        return selection.chosen.isEmpty
-            ? "Review \(board.safeToClear.count) items to choose what to clear."
-            : "About \(BoardText.bytes(selection.bytes(from: board.safeToClear))) can be freed from \(selection.chosen.count) \(selection.chosen.count == 1 ? "item" : "items")."
     }
 }
 
@@ -142,7 +122,7 @@ struct CleanupProgressView: View {
             Divider()
             HStack(spacing: 12) {
                 if let progress = store.cleanupProgress {
-                    if progress.operation == .clearing {
+                    if progress.operation != .restoring {
                         Button(progress.isStopping ? "Stopping…" : "Stop After Current Item") { store.stopDeleting() }
                             .disabled(progress.isStopping)
                     }

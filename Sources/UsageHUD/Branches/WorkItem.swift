@@ -136,11 +136,11 @@ struct FolderSize: Codable, Equatable, Sendable {
     var ignored: [String]
     var otherIgnoredBytes: Int64
     var measuredAt: Date
+    var ignoredReview: WorktreeIgnoredReview? = nil
 
-    /// Ignored files outside the known cache names. Deleting a worktree loses
-    /// them and no build brings them back.
+    /// The reviewed paths, or the breakdown from a sizing-only scan.
     var otherIgnored: [String] {
-        ignored.filter { FolderSizer.cacheName(forIgnoredPath: $0) == nil }
+        ignoredReview?.unverifiedPaths ?? ignored.filter { FolderSizer.cacheName(forIgnoredPath: $0) == nil }
     }
 }
 
@@ -155,6 +155,7 @@ struct WorkItem: Identifiable, Equatable, Sendable {
     var committedAt: Date?
     var facts: WorkFacts
     var ignoredFiles: [String]?
+    var ignoredReview: WorktreeIgnoredReview? = nil
     var processes: [WorkProcess] = []
     var sessions = WorkSessionSummary()
     var size: FolderSize?
@@ -185,9 +186,11 @@ struct WorkItem: Identifiable, Equatable, Sendable {
 
     var eligibility: DeleteEligibility {
         let eligibility = WorkRules.eligibility(for: facts, status: status)
-        // The review has to be able to name every ignored file that would go.
-        if eligibility.isAllowed, facts.hasWorktree, facts.folderExists, ignoredFiles == nil {
-            return .blocked("Still checking which ignored files are in this folder.")
+        if eligibility.isAllowed, facts.hasWorktree, facts.folderExists {
+            guard let ignoredFiles else { return .blocked("Still checking which ignored files are in this folder.") }
+            if !ignoredFiles.isEmpty, ignoredReview == nil {
+                return .blocked("usAIge couldn't check all ignored contents. Rescan or review the build folders in Storage.")
+            }
         }
         return eligibility
     }

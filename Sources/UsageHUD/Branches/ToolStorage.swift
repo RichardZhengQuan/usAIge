@@ -22,8 +22,8 @@ struct ToolStorageEntry: Identifiable, Codable, Equatable, Sendable {
     var id: String { name }
 }
 
-/// What AI tools and developer tools keep on this Mac outside any repository.
-/// The window only shows these; usAIge never clears any of them.
+/// An inventory of what AI and developer tools keep outside a repository.
+/// Storage cleanup verifies generated folders through its own rules.
 enum ToolStorageScanner {
     struct CatalogItem: Sendable {
         let name: String
