@@ -8,7 +8,7 @@ enum BrandMark {
     /// ChatGPT has no vector mark: its template ships with the ChatGPT app,
     /// and the generic symbol is a better fallback than an approximate knot.
     static func hasMark(for id: AIToolID) -> Bool {
-        [.claude, .cursor, .grok, .gemini].contains(id)
+        [.claude, .cursor, .grok, .gemini, .jetBrainsAI, .windsurf].contains(id)
     }
 }
 
@@ -30,6 +30,8 @@ struct BrandMarkView: View {
                 case .cursor: CursorCubeMark(rect: rect)
                 case .grok: GrokDiscMark(rect: rect)
                 case .gemini: GeminiSparkMark(rect: rect)
+                case .jetBrainsAI: JetBrainsTileMark(rect: rect)
+                case .windsurf: WindsurfWaveMark(rect: rect)
                 default: EmptyView()
                 }
             }
@@ -160,5 +162,60 @@ private struct GeminiSparkMark: View {
             path.closeSubpath()
         }
         .fill()
+    }
+}
+
+/// JetBrains' tile: a solid square with "JB" and the short underline bar cut
+/// out of it.
+private struct JetBrainsTileMark: View {
+    let rect: CGRect
+
+    var body: some View {
+        let side = rect.width * 0.94
+        let tile = CGRect(x: rect.midX - side / 2, y: rect.midY - side / 2, width: side, height: side)
+        ZStack(alignment: .topLeading) {
+            Rectangle()
+                .frame(width: tile.width, height: tile.height)
+            Text("JB")
+                .font(.system(size: side * 0.42, weight: .heavy, design: .default))
+                .fixedSize()
+                .offset(x: side * 0.1, y: side * 0.06)
+                .blendMode(.destinationOut)
+            Rectangle()
+                .frame(width: side * 0.42, height: side * 0.075)
+                .offset(x: side * 0.12, y: side * 0.78)
+                .blendMode(.destinationOut)
+        }
+        .frame(width: tile.width, height: tile.height, alignment: .topLeading)
+        .compositingGroup()
+        .position(x: tile.midX, y: tile.midY)
+    }
+}
+
+/// A pair of waves standing in for Windsurf's mark.
+private struct WindsurfWaveMark: View {
+    let rect: CGRect
+
+    var body: some View {
+        Path { path in
+            let width = rect.width * 0.8
+            let left = rect.midX - width / 2
+            for row in [0.38, 0.64] {
+                let y = rect.minY + rect.height * row
+                let amplitude = rect.height * 0.09
+                path.move(to: CGPoint(x: left, y: y))
+                path.addCurve(
+                    to: CGPoint(x: left + width / 2, y: y),
+                    control1: CGPoint(x: left + width * 0.16, y: y - amplitude * 2),
+                    control2: CGPoint(x: left + width * 0.34, y: y - amplitude * 2)
+                )
+                path.addCurve(
+                    to: CGPoint(x: left + width, y: y),
+                    control1: CGPoint(x: left + width * 0.66, y: y + amplitude * 2),
+                    control2: CGPoint(x: left + width * 0.84, y: y + amplitude * 2)
+                )
+            }
+        }
+        .stroke(style: StrokeStyle(lineWidth: rect.width * 0.11, lineCap: .round, lineJoin: .round))
     }
 }

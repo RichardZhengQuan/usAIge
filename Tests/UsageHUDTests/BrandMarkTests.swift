@@ -5,7 +5,7 @@ import Testing
 @testable import UsageHUD
 
 @Test func everyBuiltInToolHasABrandMarkAndTemplateCandidatesWhereAppsShipThem() {
-    for id in [AIToolID.claude, .cursor, .grok, .gemini] {
+    for id in [AIToolID.claude, .cursor, .grok, .gemini, .jetBrainsAI, .windsurf] {
         #expect(BrandMark.hasMark(for: id))
     }
     #expect(!BrandMark.hasMark(for: .chatGPT))

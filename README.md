@@ -2,8 +2,8 @@
 
 usAIge has native clients for macOS, iPhone, iPad, and Apple Watch. The Mac is
 the trusted limit collector: it reads the local Codex app-server, Claude
-desktop usage data, Cursor and Grok Build sign-ins already on the Mac, and paired remote
-tools, then relays only normalized percentages and reset times to paired
+desktop usage data, Cursor and Grok Build sign-ins already on the Mac, the AI
+quota JetBrains IDEs and Windsurf save locally, and paired remote tools, then relays only normalized percentages and reset times to paired
 iPhones.
 
 ## Roadmap
@@ -126,6 +126,8 @@ While idle, the panel surface is fully transparent and every visible control is 
 - For Claude limits: the Claude desktop app with its existing sign-in, installed before or after usAIge. usAIge reads its recorded usage in the background without setup, an extension, or a Claude Code session. The optional usage extension can fetch fresh readings every five minutes while its Claude Code subscription session's engine remains active, and holds a background task so Claude Desktop keeps one such engine running. usAIge never opens Claude's Usage page, brings Claude forward, offers sign-in, or reads Claude's passwords, keys, tokens, or cookies to refresh usage. If Claude stops producing readings, expired observations become unavailable.
 - For Cursor limits: the Cursor app installed and signed in on this Mac.
 - For Grok Build limits: the Grok Build CLI signed in with `grok login`.
+- For JetBrains AI credits: a JetBrains IDE (or Android Studio) signed in to JetBrains AI that has used AI Assistant at least once.
+- For Windsurf limits: Devin Desktop (Windsurf's new name) or Windsurf, signed in and opened at least once.
 - For remote limits: a compatible adapter that can claim a one-time usAIge pairing code and upload normalized limits.
 
 Each tool's ring also breathes while that tool has an agent session running, turns green when a session finishes, amber when one is waiting on you (for Claude Code, a question or a plan awaiting approval; permission prompts leave no record on disk), and pink on an error; clicking the ring opens the tool and settles the light. The signals are read locally: Codex through its app-server, Claude Code from the record types at the end of its session transcripts in `~/.claude` (never the text), Cursor from the conversation status fields in its own state database, and Grok Build from its unified log. Paired iPhones and the Watch show the same per-tool session status.
@@ -310,6 +312,27 @@ expired, usAIge runs `grok models` without a terminal so the CLI refreshes its
 own auth file, at most once every ten minutes, and never touches the refresh
 token itself.
 
+### JetBrains AI and Windsurf
+
+JetBrains AI and Windsurf need no sign-in from usAIge and no network request:
+usAIge reads the quota each tool's own app already saved on this Mac, on every
+automatic tick, and writes nothing.
+
+| Tool | File read | Buckets |
+| --- | --- | --- |
+| JetBrains AI | `options/AIAssistantQuotaManager2.xml` under `~/Library/Application Support/JetBrains/<IDE>` or `Google/<Android Studio>`, from the IDE that saved it last | **AI credits** used of the period's allowance, with the refill time and period length the IDE saved |
+| Windsurf | The saved-plan rows of `~/Library/Application Support/Devin/User/globalStorage/state.vscdb` (Devin Desktop) or `Windsurf/…` (Windsurf), opened read-only, whichever changed last | **Plan quota** (daily inner ring, weekly outer ring), a free plan's **Messages** pool, or older plans' **Messages** and **Flow actions** allowances |
+
+The IDE saves its quota when it asks JetBrains for it, and Devin Desktop saves
+its plan when it launches, so these readings can be hours old. A reading whose
+refill or reset time has passed belongs to a window that no longer exists, so
+usAIge leaves it out and **AI Tools** asks you to open the tool to update it,
+instead of showing old numbers as current. Where these files live and what their
+fields mean was learned from the documentation of
+[ClaudeBar](https://github.com/tddworks/ClaudeBar) (Apache-2.0); usAIge's
+readers are its own code. [More AI tools](docs/more-ai-tools.md) lists the other
+tools ClaudeBar reads and which are worth adding next.
+
 Claude reports several weekly buckets. The rail shows **All models** by
 default and keeps the others available under **AI Tools**, mirroring
 how the Codex buckets are handled. A weekly limit scoped to one model (Claude
@@ -389,7 +412,7 @@ Open **Settings** at the bottom of the main window’s sidebar, use Command-comm
 
 Drag the panel by its background. Its safe position is stored separately for each display. If a display disappears, the panel is clamped onto an available screen the next time it is positioned.
 
-The built-in Codex, Cursor, and Grok Build sources reuse existing sign-ins, while Claude reads only local usage data; **AI Tools** shows each one's connection state. Other tools appear only after a paired adapter uploads valid normalized usage data; usAIge does not scrape provider websites or invent missing values.
+The built-in Codex, Cursor, and Grok Build sources reuse existing sign-ins, while Claude, JetBrains AI, and Windsurf read only local usage data; **AI Tools** shows each one's connection state. Other tools appear only after a paired adapter uploads valid normalized usage data; usAIge does not scrape provider websites or invent missing values.
 
 ## Branches and worktrees
 
@@ -473,6 +496,7 @@ When a quota resets, the new window starts its own notification cycle. Selecting
 
 - No browser cookies, cookie stores, or web pages are read. For Claude, usAIge reads filtered extension reports, `plan-usage-history.json`, and validated local usage-cache responses, never its sign-in, OAuth tokens, or Keychain item. Claude itself performs the extension's first-party usage requests with a host-owned opaque handle. Usage collection does not open Claude's Usage page, reopen Code sessions, or bring Claude to the front.
 - No provider credentials are copied or stored by usAIge. The Cursor and Grok Build sign-ins already on this Mac are read into memory only to request each provider's current limits, and are never written to disk, logged, refreshed, or relayed.
+- For JetBrains AI and Windsurf, usAIge reads only the quota each app saves (`AIAssistantQuotaManager2.xml`, and the saved-plan rows of `state.vscdb`, opened read-only). It reads no sign-in for them and sends no request.
 - The Mac relay credential is stored in an owner-only local application-support file. Each remote tool keeps its own write credential outside usAIge.
 - No screen pixels are captured or inspected.
 - The rail's work tile and the Branches window read Git repositories, AI session logs' working-folder, branch, and title fields, and process lists on this Mac only, and send none of it anywhere. It never reads transcript text or the contents of ignored files; opening a card reads commit subjects and the names of changed files, never what's in them. It changes a repository only when you press **Delete** or **Undo**.
@@ -496,13 +520,15 @@ Start the ChatGPT or Codex app, confirm that it is signed in, then press the ref
 - `/opt/homebrew/bin/codex`
 - `/usr/local/bin/codex`
 
-### Claude, Cursor, or Grok Build is missing from the rail
+### Claude, Cursor, Grok Build, JetBrains AI, or Windsurf is missing from the rail
 
 Open **Settings → AI Tools**. The **Local AI Tools** list shows
 each tool's state. Claude usage is checked automatically without a sign-in or
 **Detect** action. Cursor may need its own sign-in refreshed; Grok Build uses
-`grok login`. A provider failure keeps the last accepted values while usAIge
-retries.
+`grok login`. JetBrains AI appears once a JetBrains IDE has used AI Assistant,
+and Windsurf once Devin Desktop or Windsurf has been opened signed in; reopen
+either app when **AI Tools** says its saved numbers have reset. A provider
+failure keeps the last accepted values while usAIge retries.
 
 ### Stale values
 
@@ -522,7 +548,7 @@ scripts/package-dmg.sh
 codesign --verify --deep --strict 'dist/usAIge.app'
 ```
 
-The automated suite covers quota normalization, JSON-RPC framing, account/rate-limit parsing, Claude Code, Cursor, and Grok Build decoding and throttling, one-time remote pairing payloads, state recovery, countdowns, notification thresholds and routing, settings persistence, panel geometry, and severity thresholds.
+The automated suite covers quota normalization, JSON-RPC framing, account/rate-limit parsing, Claude Code, Cursor, Grok Build, JetBrains AI, and Windsurf decoding and throttling, one-time remote pairing payloads, state recovery, countdowns, notification thresholds and routing, settings persistence, panel geometry, and severity thresholds.
 
 Opt-in smoke tests exercise local usage sources on this Mac and print only normalized limits:
 
@@ -560,6 +586,6 @@ vulnerability privately.
 ## License
 
 usAIge is open source under the [MIT License](LICENSE). Codex, ChatGPT,
-Claude, Cursor, and Grok are trademarks of their respective owners; their names
+Claude, Cursor, Grok, JetBrains, Windsurf, and Devin are trademarks of their respective owners; their names
 and marks in this repository identify the tools usAIge reads and are not
 covered by that license.

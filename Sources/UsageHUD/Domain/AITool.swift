@@ -13,7 +13,9 @@ struct AIToolID: RawRepresentable, Hashable, Codable, Identifiable, Sendable {
     static let gemini = Self(rawValue: "gemini")
     static let cursor = Self(rawValue: "cursor")
     static let grok = Self(rawValue: "grok")
-    static let builtInIDs: [Self] = [.chatGPT, .claude, .gemini, .cursor, .grok]
+    static let jetBrainsAI = Self(rawValue: "jetbrainsAI")
+    static let windsurf = Self(rawValue: "windsurf")
+    static let builtInIDs: [Self] = [.chatGPT, .claude, .gemini, .cursor, .grok, .jetBrainsAI, .windsurf]
 
     init(from decoder: Decoder) throws {
         rawValue = try decoder.singleValueContainer().decode(String.self)
@@ -67,6 +69,36 @@ struct AIToolDescriptor: Identifiable, Equatable, Sendable {
             systemImage: "line.diagonal",
             bundleIdentifiers: ["ai.x.grok"],
             webURL: URL(string: "https://grok.com")
+        ),
+        Self(
+            id: .jetBrainsAI,
+            name: "JetBrains AI",
+            systemImage: "j.square",
+            // Opening the tool opens the first JetBrains IDE found, since the
+            // AI quota belongs to the JetBrains account, not to one IDE.
+            bundleIdentifiers: [
+                "com.jetbrains.intellij",
+                "com.jetbrains.intellij.ce",
+                "com.jetbrains.pycharm",
+                "com.jetbrains.pycharm.ce",
+                "com.jetbrains.WebStorm",
+                "com.jetbrains.goland",
+                "com.jetbrains.rider",
+                "com.jetbrains.CLion",
+                "com.jetbrains.PhpStorm",
+                "com.jetbrains.rubymine",
+                "com.jetbrains.rustrover",
+                "com.jetbrains.datagrip",
+                "com.google.android.studio",
+            ],
+            webURL: URL(string: "https://www.jetbrains.com/ai/")
+        ),
+        Self(
+            id: .windsurf,
+            name: "Windsurf",
+            systemImage: "wind",
+            bundleIdentifiers: ["com.exafunction.windsurf"],
+            webURL: URL(string: "https://windsurf.com")
         ),
     ]
 

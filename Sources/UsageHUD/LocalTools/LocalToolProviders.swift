@@ -3,8 +3,10 @@ import Foundation
 /// Builds the built-in local tool providers with the polling floors each
 /// provider tolerates. Anthropic throttles its usage endpoint aggressively,
 /// so Claude is polled least often; Cursor and Grok Build are polled on a
-/// two-minute floor. A manual refresh may go sooner, but never faster than
-/// the manual floor, so hovering the rail cannot hammer a provider.
+/// two-minute floor. JetBrains AI and Windsurf only read files their own apps
+/// saved, so they are also read on every automatic tick. A manual refresh may
+/// go sooner, but never faster than the manual floor, so hovering the rail
+/// cannot hammer a provider.
 enum LocalToolProviders {
     static func make(statusRegistry: LocalToolStatusRegistry) -> [any CodexUsageProviding] {
         [
@@ -26,6 +28,16 @@ enum LocalToolProviders {
                 base: GrokUsageProvider(statusRegistry: statusRegistry),
                 minimumInterval: 120,
                 manualMinimumInterval: 20
+            ),
+            ThrottledUsageProvider(
+                base: JetBrainsAIUsageProvider(statusRegistry: statusRegistry),
+                minimumInterval: 60,
+                manualMinimumInterval: 5
+            ),
+            ThrottledUsageProvider(
+                base: WindsurfUsageProvider(statusRegistry: statusRegistry),
+                minimumInterval: 60,
+                manualMinimumInterval: 5
             ),
         ]
     }
@@ -63,6 +75,18 @@ struct LocalToolGuidance: Identifiable, Sendable {
             source: "Grok Build sign-in on this Mac",
             signInHint: "Run `grok login` in Terminal.",
             expiredHint: "Sign-in expired. Run `grok login` in Terminal to sign in again."
+        ),
+        LocalToolGuidance(
+            id: .jetBrainsAI,
+            source: "AI quota saved by your JetBrains IDE",
+            signInHint: "Sign in to JetBrains AI in a JetBrains IDE and use AI Assistant once.",
+            expiredHint: "Sign in to JetBrains AI in your JetBrains IDE again."
+        ),
+        LocalToolGuidance(
+            id: .windsurf,
+            source: "Plan saved by Devin Desktop or Windsurf",
+            signInHint: "Open Devin Desktop or Windsurf and sign in.",
+            expiredHint: "Open Devin Desktop or Windsurf and sign in again."
         ),
     ]
 

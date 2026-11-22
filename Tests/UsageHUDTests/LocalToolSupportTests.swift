@@ -53,7 +53,7 @@ import Testing
     #expect(guidance.presentation(for: .keychainAccessDenied).isProblem)
     #expect(guidance.presentation(for: .apiKeyHelperSignInExpired).text.contains("checks the Claude app session automatically"))
     #expect(!guidance.presentation(for: .apiKeyHelperSignInExpired).text.contains("`claude`"))
-    #expect(LocalToolGuidance.supported.map(\.id) == [.chatGPT, .claude, .cursor, .grok])
+    #expect(LocalToolGuidance.supported.map(\.id) == [.chatGPT, .claude, .cursor, .grok, .jetBrainsAI, .windsurf])
 }
 
 @Test func claudeGuidanceExplainsAutomaticRecoveryWithoutSetupActions() {

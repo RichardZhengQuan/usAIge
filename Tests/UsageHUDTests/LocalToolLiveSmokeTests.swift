@@ -51,6 +51,18 @@ struct LiveLocalToolsSmokeTests {
         print("[live] Grok Build:\n\(describe(result))")
     }
 
+    @Test func jetBrainsAILive() async throws {
+        let registry = await LocalToolStatusRegistry()
+        let result = try await JetBrainsAIUsageProvider(statusRegistry: registry).refresh()
+        print("[live] JetBrains AI (\(await registry.status(for: .jetBrainsAI))):\n\(describe(result))")
+    }
+
+    @Test func windsurfLive() async throws {
+        let registry = await LocalToolStatusRegistry()
+        let result = try await WindsurfUsageProvider(statusRegistry: registry).refresh()
+        print("[live] Windsurf (\(await registry.status(for: .windsurf))):\n\(describe(result))")
+    }
+
     @Test(.enabled(if: liveClaudeEnabled)) func claudeLive() async throws {
         let result = try await ClaudeUsageProvider().refresh()
         print("[live] Claude:\n\(describe(result))")
