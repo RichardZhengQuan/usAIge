@@ -102,6 +102,8 @@ public struct QuotaSnapshot: Codable, Equatable, Hashable, Identifiable, Sendabl
     public let resetCreditExpiresAt: Date?
     public let secondaryWindow: QuotaWindowSnapshot?
     public let sessionStatus: CodexSessionStatus?
+    /// The SF Symbol the Mac chose for this limit's tool, when the relay sent one.
+    public let toolSymbolName: String?
 
     public init(
         id: String,
@@ -117,7 +119,8 @@ public struct QuotaSnapshot: Codable, Equatable, Hashable, Identifiable, Sendabl
         availableResetCount: Int? = nil,
         resetCreditExpiresAt: Date? = nil,
         secondaryWindow: QuotaWindowSnapshot? = nil,
-        sessionStatus: CodexSessionStatus? = nil
+        sessionStatus: CodexSessionStatus? = nil,
+        toolSymbolName: String? = nil
     ) {
         self.id = id
         self.limitID = limitID
@@ -133,6 +136,7 @@ public struct QuotaSnapshot: Codable, Equatable, Hashable, Identifiable, Sendabl
         self.resetCreditExpiresAt = resetCreditExpiresAt
         self.secondaryWindow = secondaryWindow
         self.sessionStatus = sessionStatus
+        self.toolSymbolName = toolSymbolName
     }
 
     public var usedPercent: Double {

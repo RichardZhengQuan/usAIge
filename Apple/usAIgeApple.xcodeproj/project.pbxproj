@@ -7,6 +7,24 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		23426469D95A9C61442155E5 /* WatchUsagePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EAEBC313C9299F54EB2B2D9 /* WatchUsagePresentation.swift */; };
+		41AD1D61ABA21ABE6B5407D8 /* WatchUsagePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EAEBC313C9299F54EB2B2D9 /* WatchUsagePresentation.swift */; };
+		F4A7EE714B344A55FF320086 /* WatchUsagePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EAEBC313C9299F54EB2B2D9 /* WatchUsagePresentation.swift */; };
+		4AC65868D3EBF1F6DA1835AD /* WatchUsagePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EAEBC313C9299F54EB2B2D9 /* WatchUsagePresentation.swift */; };
+		4BBE50A8CBD4BF65340128A7 /* ToolUsageSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD8BCF10CD17A0E5624D9294 /* ToolUsageSummary.swift */; };
+		CB6406D5D3B50827B3F67DBD /* ToolUsageSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD8BCF10CD17A0E5624D9294 /* ToolUsageSummary.swift */; };
+		AA556D319E94F6B358C3F983 /* ToolMark.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63F80B13EEFA0F262A495A64 /* ToolMark.swift */; };
+		4E040E5060E1CEBDA33FCC92 /* ToolMark.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63F80B13EEFA0F262A495A64 /* ToolMark.swift */; };
+		531B6D03E910343331CA1181 /* ToolMark.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63F80B13EEFA0F262A495A64 /* ToolMark.swift */; };
+		8DDC1A4FB408B3CDB82A46E9 /* ToolMark.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63F80B13EEFA0F262A495A64 /* ToolMark.swift */; };
+		4057650E00FC498B6DE53E1B /* ResetCountdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = F23292C977AC81350FF95E09 /* ResetCountdown.swift */; };
+		A69DC64ADAFACF9B81E99DF1 /* ResetCountdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = F23292C977AC81350FF95E09 /* ResetCountdown.swift */; };
+		CEDAFBE2FB3E0A41091BD006 /* ResetCountdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = F23292C977AC81350FF95E09 /* ResetCountdown.swift */; };
+		2E031CB897F4A3B203F40F85 /* ResetCountdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = F23292C977AC81350FF95E09 /* ResetCountdown.swift */; };
+		4DDA3B5B3032FF4403A7A07C /* ModernUsageStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BA0091D4F9B0B179A668075 /* ModernUsageStyle.swift */; };
+		40E4DDA436398A9EA807ED58 /* ModernUsageStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BA0091D4F9B0B179A668075 /* ModernUsageStyle.swift */; };
+		277610D5D5994556AD947EF4 /* ModernUsageStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BA0091D4F9B0B179A668075 /* ModernUsageStyle.swift */; };
+		35808D247EBA06DA38A4E36E /* ModernUsageStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BA0091D4F9B0B179A668075 /* ModernUsageStyle.swift */; };
 		079859DD04849B5070F5E83E /* RemoteToolConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A412FD303E4CBBAEA67C0926 /* RemoteToolConfiguration.swift */; };
 		08E56FCF2B50E1601781E89E /* usAIgeWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E09005B64C40ECA94AF8ED /* usAIgeWatchApp.swift */; };
 		0A14F1E5F3F8C738EE76F5E7 /* WatchUsageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59FE6262FE82BB83AABF25E0 /* WatchUsageView.swift */; };
@@ -123,6 +141,11 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		9EAEBC313C9299F54EB2B2D9 /* WatchUsagePresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchUsagePresentation.swift; sourceTree = "<group>"; };
+		CD8BCF10CD17A0E5624D9294 /* ToolUsageSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolUsageSummary.swift; sourceTree = "<group>"; };
+		63F80B13EEFA0F262A495A64 /* ToolMark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolMark.swift; sourceTree = "<group>"; };
+		F23292C977AC81350FF95E09 /* ResetCountdown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResetCountdown.swift; sourceTree = "<group>"; };
+		0BA0091D4F9B0B179A668075 /* ModernUsageStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModernUsageStyle.swift; sourceTree = "<group>"; };
 		0163A35B45BF0193FFE2C09B /* UsageVisualStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageVisualStyle.swift; sourceTree = "<group>"; };
 		0A9F5DE46224E3024A052296 /* SharedQuotaCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedQuotaCache.swift; sourceTree = "<group>"; };
 		152208FB008DFB7878AAE0B8 /* WatchUsageModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchUsageModel.swift; sourceTree = "<group>"; };
@@ -163,6 +186,16 @@
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
+		80A02B77907249DAE7D1CEAD /* Modern */ = {
+			isa = PBXGroup;
+			children = (
+				63F80B13EEFA0F262A495A64 /* ToolMark.swift */,
+				F23292C977AC81350FF95E09 /* ResetCountdown.swift */,
+				0BA0091D4F9B0B179A668075 /* ModernUsageStyle.swift */,
+			);
+			path = Modern;
+			sourceTree = "<group>";
+		};
 		00024D827157D2E435F712B0 /* WatchApp */ = {
 			isa = PBXGroup;
 			children = (
@@ -176,6 +209,7 @@
 		03B835B8771C9FA6D22D0CCC /* Shared */ = {
 			isa = PBXGroup;
 			children = (
+				80A02B77907249DAE7D1CEAD /* Modern */,
 				AA5E1068481C153774EA05BC /* Models */,
 				6A73B7102D45E3394898687C /* Networking */,
 				514F08E6349E7197CF61C1D2 /* Persistence */,
@@ -225,6 +259,7 @@
 		652A2AF7F732130E0785DE2D /* Watch */ = {
 			isa = PBXGroup;
 			children = (
+				9EAEBC313C9299F54EB2B2D9 /* WatchUsagePresentation.swift */,
 				272534A177E9E323D5B934EA /* WatchUsageSnapshot.swift */,
 			);
 			path = Watch;
@@ -281,6 +316,7 @@
 		AA5E1068481C153774EA05BC /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				CD8BCF10CD17A0E5624D9294 /* ToolUsageSummary.swift */,
 				158D248D5A3A52AFFBBD6153 /* QuotaSnapshot.swift */,
 				9A320A032CF1CA5A368FC44E /* RefreshScheduleMetadata.swift */,
 				A412FD303E4CBBAEA67C0926 /* RemoteToolConfiguration.swift */,
@@ -488,6 +524,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				23426469D95A9C61442155E5 /* WatchUsagePresentation.swift in Sources */,
+				AA556D319E94F6B358C3F983 /* ToolMark.swift in Sources */,
+				4057650E00FC498B6DE53E1B /* ResetCountdown.swift in Sources */,
+				4DDA3B5B3032FF4403A7A07C /* ModernUsageStyle.swift in Sources */,
 				B905A2CCE56AE6265B77F2EA /* AppGroup.swift in Sources */,
 				293B4690BDD678546C9F8924 /* UsageComplication.swift in Sources */,
 				6916DF307151C6D5C8010EF2 /* UsageVisualStyle.swift in Sources */,
@@ -501,6 +541,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4AC65868D3EBF1F6DA1835AD /* WatchUsagePresentation.swift in Sources */,
+				CB6406D5D3B50827B3F67DBD /* ToolUsageSummary.swift in Sources */,
+				8DDC1A4FB408B3CDB82A46E9 /* ToolMark.swift in Sources */,
+				2E031CB897F4A3B203F40F85 /* ResetCountdown.swift in Sources */,
+				35808D247EBA06DA38A4E36E /* ModernUsageStyle.swift in Sources */,
 				A77F37D4BB4C1F0A28750AF8 /* AppModel.swift in Sources */,
 				5CBD44CA8422550282D1CF1E /* BackgroundRefreshCoordinator.swift in Sources */,
 				7FA3AF889C8DBA75B726A25D /* DashboardView.swift in Sources */,
@@ -528,6 +573,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F4A7EE714B344A55FF320086 /* WatchUsagePresentation.swift in Sources */,
+				4BBE50A8CBD4BF65340128A7 /* ToolUsageSummary.swift in Sources */,
+				531B6D03E910343331CA1181 /* ToolMark.swift in Sources */,
+				CEDAFBE2FB3E0A41091BD006 /* ResetCountdown.swift in Sources */,
+				277610D5D5994556AD947EF4 /* ModernUsageStyle.swift in Sources */,
 				F6233B9011E34B36F2DA2F5E /* JSONFileStorage.swift in Sources */,
 				F09D926A788A42D5E77D8227 /* KeychainTokenVault.swift in Sources */,
 				27F90363A074DF759C831E55 /* QuotaSnapshot.swift in Sources */,
@@ -549,6 +599,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				41AD1D61ABA21ABE6B5407D8 /* WatchUsagePresentation.swift in Sources */,
+				4E040E5060E1CEBDA33FCC92 /* ToolMark.swift in Sources */,
+				A69DC64ADAFACF9B81E99DF1 /* ResetCountdown.swift in Sources */,
+				40E4DDA436398A9EA807ED58 /* ModernUsageStyle.swift in Sources */,
 				D7456839ADAEFA3EFA7387F8 /* AppGroup.swift in Sources */,
 				600DAC805221A81911D675CB /* UsageVisualStyle.swift in Sources */,
 				89BD4A2ABB3F96A451920D11 /* WatchSnapshotFileStore.swift in Sources */,

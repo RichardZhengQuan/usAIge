@@ -1363,7 +1363,7 @@ final class RelayAppModel {
                         )
                     },
                     sessionStatus: sessionStatus,
-                    symbolName: "sparkles"
+                    symbolName: first.toolSymbolName ?? "sparkles"
                 )
             }
         }

@@ -307,7 +307,8 @@ public struct RelayClient: Sendable {
                     secondaryWindow: limit.secondary.map { QuotaWindowSnapshot(remainingPercent: $0.remainingPercent, resetAt: $0.resetAt, windowDurationMinutes: $0.windowDurationMinutes) },
                     sessionStatus: tool.sessionStatus.map {
                         CodexSessionStatus(phase: $0.phase, updatedAt: $0.updatedAt)
-                    }
+                    },
+                    toolSymbolName: tool.symbolName
                 )
             }
         }

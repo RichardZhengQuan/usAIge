@@ -78,6 +78,7 @@ targets:
       - path: WatchApp
       - path: Shared
       - path: ../iOS/Shared/Watch
+      - path: ../iOS/Shared/Modern
       - path: ../iOS/App/Assets.xcassets
       - path: ../iOS/App/Assets.xcassets/AppIcon.appiconset/AppIcon.png
         buildPhase: resources
@@ -104,6 +105,7 @@ targets:
       - path: WatchWidget
       - path: Shared
       - path: ../iOS/Shared/Watch
+      - path: ../iOS/Shared/Modern
     settings:
       base:
         APPLICATION_EXTENSION_API_ONLY: true
