@@ -101,7 +101,7 @@ struct DashboardView: View {
 
     private var macSections: [MacUsageSection] {
         #if DEBUG
-        if isShowingDemo { return [Self.demoSection] }
+        if isShowingDemo { return Self.demoSections }
         #endif
         return model.connectionStates.map { state in
             MacUsageSection(
@@ -122,15 +122,11 @@ struct DashboardView: View {
     }
 
     #if DEBUG
-    private static let demoSection: MacUsageSection = {
-        let now = Date()
-        return MacUsageSection(
-            id: UUID(),
-            name: "MacBook Pro",
-            snapshots: UsageDemoData.snapshots(now: now),
-            updatedAt: now.addingTimeInterval(-60)
-        )
-    }()
+    private static var demoSections: [MacUsageSection] {
+        UsageDemoData.macSections().map {
+            MacUsageSection(id: $0.id, name: $0.name, snapshots: $0.snapshots, updatedAt: $0.updatedAt)
+        }
+    }
     #endif
 }
 

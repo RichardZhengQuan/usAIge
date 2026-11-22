@@ -45,31 +45,61 @@ public struct ToolUsageSummary: Identifiable, Equatable, Sendable {
 public extension UsageDemoData {
     /// The sample readings as the iPhone stores them.
     static func snapshots(now: Date = Date()) -> [QuotaSnapshot] {
-        envelope(now: now).tools.enumerated().flatMap { index, tool in
-            let toolID = UUID(uuidString: String(format: "00000000-0000-4000-8000-%012d", index + 1)) ?? UUID()
-            return tool.limits.map { limit in
-                QuotaSnapshot(
-                    id: QuotaSnapshot.stableID(toolID: toolID, limitID: limit.id),
-                    limitID: limit.id,
-                    toolID: toolID,
-                    toolName: tool.displayName,
-                    displayName: limit.displayName,
-                    remainingPercent: limit.primary.remainingPercent,
-                    resetAt: limit.primary.resetAt,
-                    updatedAt: tool.sourceUpdatedAt,
-                    planType: limit.planType,
-                    windowDurationMinutes: limit.primary.windowDurationSeconds.map { $0 / 60 },
-                    secondaryWindow: limit.secondary.map {
-                        QuotaWindowSnapshot(
-                            remainingPercent: $0.remainingPercent,
-                            resetAt: $0.resetAt,
-                            windowDurationMinutes: $0.windowDurationSeconds.map { $0 / 60 }
-                        )
-                    },
-                    toolSymbolName: tool.symbolName
-                )
+        macSections(now: now).flatMap(\.snapshots)
+    }
+
+    /// The sample readings grouped by Mac, as the iPhone's Usage tab shows them.
+    static func macSections(now: Date = Date()) -> [(id: UUID, name: String, snapshots: [QuotaSnapshot], updatedAt: Date)] {
+        let tools = envelope(now: now).tools
+        var macs: [String] = []
+        for tool in tools where !macs.contains(tool.sourceID ?? "") { macs.append(tool.sourceID ?? "") }
+        return macs.enumerated().map { macIndex, mac in
+            let macTools = tools.filter { ($0.sourceID ?? "") == mac }
+            let snapshots = macTools.flatMap { tool -> [QuotaSnapshot] in
+                let index = tools.firstIndex(of: tool) ?? 0
+                let toolID = demoUUID(index + 1)
+                let hasResetCredit = scenario != .standard && tool.id.hasSuffix(":chatgpt")
+                return tool.limits.map { limit in
+                    QuotaSnapshot(
+                        id: QuotaSnapshot.stableID(toolID: toolID, limitID: limit.id),
+                        limitID: limit.id,
+                        toolID: toolID,
+                        toolName: tool.displayName,
+                        displayName: limit.displayName,
+                        remainingPercent: limit.primary.remainingPercent,
+                        resetAt: limit.primary.resetAt,
+                        updatedAt: tool.sourceUpdatedAt,
+                        planType: limit.planType,
+                        windowDurationMinutes: limit.primary.windowDurationSeconds.map { $0 / 60 },
+                        availableResetCount: hasResetCredit ? 1 : nil,
+                        resetCreditExpiresAt: hasResetCredit ? now.addingTimeInterval(5 * 86_400) : nil,
+                        secondaryWindow: limit.secondary.map {
+                            QuotaWindowSnapshot(
+                                remainingPercent: $0.remainingPercent,
+                                resetAt: $0.resetAt,
+                                windowDurationMinutes: $0.windowDurationSeconds.map { $0 / 60 }
+                            )
+                        },
+                        sessionStatus: tool.sessionStatus.flatMap { status in
+                            CodexSessionPhase(rawValue: status.phase.rawValue).map {
+                                CodexSessionStatus(phase: $0, updatedAt: status.updatedAt)
+                            }
+                        },
+                        toolSymbolName: tool.symbolName
+                    )
+                }
             }
+            return (
+                id: demoUUID(1_000 + macIndex),
+                name: macTools.first?.sourceName ?? "Mac",
+                snapshots: snapshots,
+                updatedAt: macTools.map(\.sourceUpdatedAt).max() ?? now
+            )
         }
+    }
+
+    private static func demoUUID(_ value: Int) -> UUID {
+        UUID(uuidString: String(format: "00000000-0000-4000-8000-%012d", value)) ?? UUID()
     }
 }
 #endif
