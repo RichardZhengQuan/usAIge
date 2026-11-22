@@ -3,8 +3,8 @@ import { SectionLink } from "./section-link";
 const basePath = "/project/usaige";
 const assetUrl = (path: string) => `${basePath}/${path}`;
 const releaseBaseUrl = "https://pmrichq.com/project/usaige";
-const downloadUrl = `${releaseBaseUrl}/usAIge-0.2.28-alpha.dmg`;
-const checksumUrl = `${releaseBaseUrl}/usAIge-0.2.28-alpha.dmg.sha256`;
+const downloadUrl = `${releaseBaseUrl}/usAIge-0.2.29-alpha.dmg`;
+const checksumUrl = `${releaseBaseUrl}/usAIge-0.2.29-alpha.dmg.sha256`;
 
 const statusColors = [
   { key: "error", label: "Error", color: "#ff5284", detail: "Always wins" },
@@ -19,7 +19,7 @@ const usageEffects = [
   ["Critical quota signal", "Five usage bands culminate in a focused deep-red remaining arc while the unused track stays transparent."],
   ["Hover focus", "The rail returns to full opacity, reveals controls, refreshes stale data, and shows detailed reset context."],
   ["Your size and opacity", "Set resting opacity from 10–100% and scale the compact rail from 50–250%."],
-  ["New in v0.2.28", "The Dock opens or restores one main Overview on macOS 14+. Compact, equal-size AI tool cards sit above the full Memory and Storage sailing ocean and Branches and Worktrees. Branch tabs start on All, with a visible Rescan action. Settings stays at the bottom of the sidebar, with an update reminder above it. Cleanup progress opens in a popup with Stop After Current Item and restoration; closing the main window keeps the operation and its result. Native keyboard shortcuts open the main window, branches, Memory, Storage, and Settings, or refresh readings. The ocean retains 59 animated ships and resource-driven weather."],
+  ["New in v0.2.29", "Resources shows how much RAM your Mac is using. The ocean shows available RAM separately and estimates usage by AI tools and dev servers."],
 ];
 
 export default function Home() {
@@ -40,7 +40,7 @@ export default function Home() {
 
       <section className="hero shell" id="top">
         <div className="hero__copy">
-          <p className="eyebrow"><span /> v0.2.28 · Native macOS utility</p>
+          <p className="eyebrow"><span /> v0.2.29 · Independent macOS utility</p>
           <h1>Your AI work,<br /><em>still breathing.</em></h1>
           <p className="hero__lede">
             usAIge keeps usage limits and Codex task health in one quiet floating rail. One glance tells you whether agents are running, finished, waiting, or broken.
@@ -48,7 +48,7 @@ export default function Home() {
           <div className="hero__actions">
             <a className="button button--primary" href={downloadUrl} download>
               <span className="button__icon" aria-hidden="true">↓</span>
-              <span><strong>Download for macOS</strong><small>v0.2.28 alpha · macOS 11+ · Apple silicon</small></span>
+              <span><strong>Download for macOS</strong><small>v0.2.29 alpha · macOS 11+ · Apple silicon</small></span>
             </a>
             <SectionLink className="text-link" targetId="agent-status">See the status system <span aria-hidden="true">→</span></SectionLink>
           </div>
@@ -142,13 +142,13 @@ export default function Home() {
           <h2>You choose<br /><em>every source.</em></h2>
         </div>
         <div className="privacy__copy">
-          <p>Claude refreshes through its own existing session. usAIge reads local usage data without opening pages or bringing Claude forward. The optional background collector uses an existing Claude Code subscription session; its keep-alive task follows Claude’s normal permission checks. Optional iPhone Sync relays normalized usage and task status—never provider credentials, prompts, or task content.</p>
+          <p>Claude supplies usage through its own existing session. The optional collector follows Claude’s normal authorization and permission checks. usAIge reads task state locally. Optional iPhone Sync sends normalized usage and status; session notifications can include task titles and workspace names. Provider credentials and conversation bodies are not sent to the relay.</p>
           <ul>
             <li><span>✓</span> No browser cookies read</li>
             <li><span>✓</span> No separate account login</li>
-            <li><span>✓</span> No Claude passwords or keys read</li>
+            <li><span>✓</span> Claude manages its own authorization</li>
             <li><span>✓</span> Relay data is deleted when unlinked</li>
-            <li><span>✓</span> No app activity tracking</li>
+            <li><span>✓</span> Task state is read locally</li>
           </ul>
         </div>
       </section>
@@ -161,12 +161,12 @@ export default function Home() {
         <ol className="install__steps">
           <li><span>1</span><div><strong>Download the alpha</strong><p>Get the newest macOS disk image and verified checksum.</p></div></li>
           <li><span>2</span><div><strong>Drag into Applications</strong><p>Open the disk image and move usAIge to the Applications shortcut.</p></div></li>
-          <li><span>3</span><div><strong>Control-click to open once</strong><p>Choose Open on first launch, then optionally enable startup in Settings.</p></div></li>
+          <li><span>3</span><div><strong>Review the alpha before opening</strong><p>This alpha is ad-hoc signed, without an Apple Developer ID signature or Apple notarization. Review the source and checksum before deciding whether to install.</p></div></li>
         </ol>
         <div className="install__cta">
           <a className="button button--primary" href={downloadUrl} download>
             <span className="button__icon" aria-hidden="true">↓</span>
-            <span><strong>Download usAIge</strong><small>v0.2.28 alpha · macOS 11 or later · Apple silicon</small></span>
+            <span><strong>Download usAIge</strong><small>v0.2.29 alpha · macOS 11 or later · Apple silicon</small></span>
           </a>
           <a className="checksum" href={checksumUrl} download>SHA-256 checksum</a>
         </div>
@@ -174,8 +174,8 @@ export default function Home() {
 
       <footer className="footer shell">
         <SectionLink className="brand" targetId="top"><img src={assetUrl("app-icon.png")} alt="" /><span>us<span>AI</span>ge</span></SectionLink>
-        <p>Built for people who would rather make things than monitor dashboards.</p>
-        <span>v0.2.28 public alpha · 2026</span>
+        <p>Independent open-source software by Richard Q. Not affiliated with OpenAI, Anthropic, Cursor, or xAI. <a href="https://pmrichq.com/">Richard Q</a> · <a href="https://github.com/RichardZhengQuan/usAIge">Source code</a> · <a href="https://github.com/RichardZhengQuan/usAIge/releases">Releases</a> · <a href="https://github.com/RichardZhengQuan/usAIge/issues">Support</a></p>
+        <span>v0.2.29 public alpha · 2026</span>
       </footer>
     </main>
   );
