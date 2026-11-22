@@ -9,12 +9,15 @@ struct SettingsView: View {
         Form {
             Section {
                 LabeledContent("Widget Data") {
-                    Label(
-                        model.isWidgetDataSharingAvailable ? "Ready" : "Unavailable",
-                        systemImage: model.isWidgetDataSharingAvailable
+                    // A Label as the value makes the row much taller than one
+                    // line on iOS 27; a plain HStack keeps it one row.
+                    HStack(spacing: 6) {
+                        Image(systemName: model.isWidgetDataSharingAvailable
                             ? "checkmark.circle.fill"
-                            : "exclamationmark.triangle.fill"
-                    )
+                            : "exclamationmark.triangle.fill")
+                            .accessibilityHidden(true)
+                        Text(model.isWidgetDataSharingAvailable ? "Ready" : "Unavailable")
+                    }
                     .foregroundStyle(model.isWidgetDataSharingAvailable ? .green : .orange)
                 }
             } header: {
@@ -40,6 +43,7 @@ struct SettingsView: View {
             }
         }
         .navigationTitle("Settings")
+        .toolbarTitleDisplayMode(.inlineLarge)
     }
 
     @MainActor

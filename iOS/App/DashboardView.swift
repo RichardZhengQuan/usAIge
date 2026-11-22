@@ -33,7 +33,7 @@ struct DashboardView: View {
         }
         .background(ModernPalette.page)
         .navigationTitle("Usage")
-        .navigationBarTitleDisplayMode(.large)
+        .toolbarTitleDisplayMode(.inlineLarge)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button("Refresh", systemImage: "arrow.clockwise") { Task { await model.refreshAll() } }

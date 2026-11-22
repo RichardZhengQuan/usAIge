@@ -58,23 +58,6 @@ private struct SessionNotificationListView: View {
     var body: some View {
         ScrollViewReader { proxy in
             VStack(spacing: 0) {
-                HStack {
-                    Text("Activities")
-                        .font(.largeTitle.weight(.bold))
-                    Spacer()
-                    Button("Refresh", systemImage: "arrow.clockwise") {
-                        Task { await model.refreshSessionEvents() }
-                    }
-                    .labelStyle(.iconOnly)
-                    .usaigeGlassButtonStyle()
-                    .controlSize(.large)
-                    .disabled(model.isRefreshing)
-                    .accessibilityLabel("Refresh Activities")
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 8)
-
                 Group {
                     if model.sessionEvents.isEmpty, model.sessionEventErrorMessage == nil {
                         ContentUnavailableView(
@@ -113,6 +96,18 @@ private struct SessionNotificationListView: View {
                 }
             }
             .background(Color(uiColor: .systemGroupedBackground))
+            // The same title row as Usage, Connection and Settings.
+            .navigationTitle("Activities")
+            .toolbarTitleDisplayMode(.inlineLarge)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Refresh", systemImage: "arrow.clockwise") {
+                        Task { await model.refreshSessionEvents() }
+                    }
+                    .disabled(model.isRefreshing)
+                    .accessibilityLabel("Refresh Activities")
+                }
+            }
             .task {
                 await model.refreshSessionEvents()
                 scrollToFocusedEvent(using: proxy)
