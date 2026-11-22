@@ -80,6 +80,7 @@ targets:
       - path: Shared
       - path: ../iOS/Shared/Watch
       - path: ../iOS/Shared/Modern
+      - path: ../iOS/Shared/ToolMarks.xcassets
       - path: ../iOS/App/Assets.xcassets
       - path: ../iOS/App/Assets.xcassets/AppIcon.appiconset/AppIcon.png
         buildPhase: resources
@@ -107,7 +108,7 @@ targets:
       - path: Shared
       - path: ../iOS/Shared/Watch
       - path: ../iOS/Shared/Modern
-      - path: ../iOS/Widget/Assets.xcassets
+      - path: ../iOS/Shared/ToolMarks.xcassets
     settings:
       base:
         APPLICATION_EXTENSION_API_ONLY: true
