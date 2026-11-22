@@ -40,21 +40,7 @@ struct CursorStateDatabase: CursorSessionSource {
     }
 
     func readValue(forKey key: String) throws -> String? {
-        var database: OpaquePointer?
-        let flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_URI
-        let path = databaseURL.path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? databaseURL.path
-        // Prefer a normal read-only open, which respects Cursor's WAL; fall back
-        // to an immutable open if the journal is locked.
-        for uri in ["file:\(path)?mode=ro", "file:\(path)?immutable=1"] {
-            guard sqlite3_open_v2(uri, &database, flags, nil) == SQLITE_OK, let database else {
-                if database != nil { sqlite3_close(database) }
-                database = nil
-                continue
-            }
-            defer { sqlite3_close(database) }
-            // Cursor writes this database constantly; wait briefly for its
-            // lock instead of mistaking a busy database for a signed-out one.
-            sqlite3_busy_timeout(database, 200)
+        try ReadOnlyStateDatabase.withConnection(at: databaseURL) { database in
             var statement: OpaquePointer?
             guard sqlite3_prepare_v2(
                 database,
@@ -78,7 +64,6 @@ struct CursorStateDatabase: CursorSessionSource {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
         }
-        throw LocalToolUsageError.invalidResponse
     }
 }
 

@@ -185,12 +185,12 @@ struct HUDSettingsView: View {
     @State private var feedbackState: FeedbackSubmissionState = .idle
     @State private var expandedToolIDs: Set<AIToolID> = []
     @State private var draggedTool: DraggedTool?
+    @State private var optInRevision = 0
     @AccessibilityFocusState private var isPageTitleFocused: Bool
 
     /// The supported local tools in the user's rail order.
     private var localGuidances: [LocalToolGuidance] {
-        let ordered = settings.toolOrder.compactMap { id in LocalToolGuidance.supported.first { $0.id == id } }
-        return ordered + LocalToolGuidance.supported.filter { guidance in !ordered.contains { $0.id == guidance.id } }
+        LocalToolGuidance.listed(order: settings.toolOrder) { localToolStatus(for: $0) }
     }
 
     private var orderedRemoteTools: [RelayRemoteTool] {
@@ -1063,21 +1063,32 @@ struct HUDSettingsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 8)
+                if LocalToolOptIn.optInToolIDs.contains(guidance.id) {
+                    // An opt-in tool's switch decides whether usAIge reads its
+                    // sign-in at all, so it replaces the rail visibility switch.
+                    Toggle("Read \(tool.name) limits", isOn: optInBinding(for: guidance.id))
+                        .labelsHidden()
+                        .controlSize(.small)
+                        .accessibilityLabel("Read \(tool.name) limits")
+                        .help("Read \(tool.name) limits with its sign-in on this Mac")
+                }
                 if !buckets.isEmpty {
-                    Toggle(
-                        "Show \(tool.name)",
-                        isOn: Binding(
-                            get: { !settings.hiddenToolIDs.contains(guidance.id) },
-                            set: { visible in
-                                if visible { settings.hiddenToolIDs.remove(guidance.id) }
-                                else { settings.hiddenToolIDs.insert(guidance.id) }
-                            }
+                    if !LocalToolOptIn.optInToolIDs.contains(guidance.id) {
+                        Toggle(
+                            "Show \(tool.name)",
+                            isOn: Binding(
+                                get: { !settings.hiddenToolIDs.contains(guidance.id) },
+                                set: { visible in
+                                    if visible { settings.hiddenToolIDs.remove(guidance.id) }
+                                    else { settings.hiddenToolIDs.insert(guidance.id) }
+                                }
+                            )
                         )
-                    )
-                    .labelsHidden()
-                    .controlSize(.small)
-                    .accessibilityLabel("Show \(tool.name) in the rail")
-                    .help("Show \(tool.name) in the rail")
+                        .labelsHidden()
+                        .controlSize(.small)
+                        .accessibilityLabel("Show \(tool.name) in the rail")
+                        .help("Show \(tool.name) in the rail")
+                    }
                     Button {
                         if isExpanded { expandedToolIDs.remove(guidance.id) } else { expandedToolIDs.insert(guidance.id) }
                     } label: {
@@ -1102,6 +1113,20 @@ struct HUDSettingsView: View {
                 .padding(.leading, 34)
             }
         }
+    }
+
+    /// Turning an opt-in tool off also hides it, so its last reading leaves
+    /// the rail at once instead of after the provider's next refresh.
+    private func optInBinding(for id: AIToolID) -> Binding<Bool> {
+        Binding(
+            get: { _ = optInRevision; return LocalToolOptIn.isEnabled(id) },
+            set: { enabled in
+                LocalToolOptIn.setEnabled(enabled, for: id)
+                if enabled { settings.hiddenToolIDs.remove(id) } else { settings.hiddenToolIDs.insert(id) }
+                optInRevision += 1
+                Task { await refreshUsage() }
+            }
+        )
     }
 
     private func localToolStatus(for id: AIToolID) -> LocalToolStatus {
