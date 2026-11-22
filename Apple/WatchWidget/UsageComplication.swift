@@ -21,17 +21,14 @@ struct UsageTimelineEntry: TimelineEntry {
             }
     }
 
-    static let staleAge: TimeInterval = 30 * 60
-
     var selectedLimitIsStale: Bool {
-        guard let selectedLimit else { return false }
-        return date.timeIntervalSince(selectedLimit.tool.sourceUpdatedAt) > Self.staleAge
+        selectedLimit?.tool.isStale(at: date) ?? false
     }
 
     /// When the selected limit's data turns stale, if that is still ahead.
     var selectedLimitStaleDate: Date? {
         guard let selectedLimit else { return nil }
-        let staleDate = selectedLimit.tool.sourceUpdatedAt.addingTimeInterval(Self.staleAge + 1)
+        let staleDate = selectedLimit.tool.staleAfter.addingTimeInterval(1)
         return staleDate > date ? staleDate : nil
     }
 }
@@ -93,14 +90,21 @@ struct UsageTimelineProvider: TimelineProvider {
 }
 
 struct UsageComplicationView: View {
-    @Environment(\.widgetFamily) private var family
+    @Environment(\.widgetFamily) private var widgetFamily
     let entry: UsageTimelineEntry
+    private let familyOverride: WidgetFamily?
+
+    init(entry: UsageTimelineEntry, family: WidgetFamily? = nil) {
+        self.entry = entry
+        familyOverride = family
+    }
 
     var body: some View {
         let selected = entry.selectedLimit
+        let phase = selected?.tool.visibleSessionPhase(isStale: entry.selectedLimitIsStale)
 
         Group {
-            switch family {
+            switch familyOverride ?? widgetFamily {
             case .accessoryCircular:
                 circular(selected)
             case .accessoryCorner:
@@ -108,12 +112,11 @@ struct UsageComplicationView: View {
             case .accessoryInline:
                 inline(selected)
             default:
-                rectangular(selected)
+                rectangular(selected, phase: phase)
             }
         }
-        .containerBackground(for: .widget) { Color.clear }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityText(for: selected))
+        .accessibilityLabel(accessibilityText(for: selected, phase: phase))
     }
 
     @ViewBuilder
@@ -129,12 +132,12 @@ struct UsageComplicationView: View {
     }
 
     @ViewBuilder
-    private func rectangular(_ selected: SelectedLimit?) -> some View {
+    private func rectangular(_ selected: SelectedLimit?, phase: WatchSessionPhase?) -> some View {
         if let selected {
             HStack(spacing: 7) {
                 quotaRing(selected, size: 40)
 
-                let summary = rectangularSummary(selected)
+                let summary = rectangularSummary(selected, phase: phase)
                 ViewThatFits {
                     if selected.tool.otherLimitCount > 0 {
                         VStack(alignment: .leading, spacing: 1) {
@@ -159,11 +162,10 @@ struct UsageComplicationView: View {
         }
     }
 
-    private func rectangularSummary(_ selected: SelectedLimit) -> some View {
+    private func rectangularSummary(_ selected: SelectedLimit, phase: WatchSessionPhase?) -> some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(selected.tool.displayName)
+            WatchToolTitle(name: selected.tool.displayName, phase: phase)
                 .font(.caption.weight(.semibold))
-                .lineLimit(1)
 
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(selected.percent)
@@ -190,6 +192,7 @@ struct UsageComplicationView: View {
         if let selected {
             let countdown = ResetCountdown.compact(until: selected.resetAt, now: entry.date)
             Text("\(selected.tool.displayName) \(selected.percent) · \(countdown)")
+                .lineLimit(1)
         } else {
             Text("Open usAIge on iPhone")
         }
@@ -198,19 +201,27 @@ struct UsageComplicationView: View {
     @ViewBuilder
     private func corner(_ selected: SelectedLimit?) -> some View {
         if let selected {
-            ToolMark(toolName: selected.tool.displayName, symbolName: selected.tool.symbolName)
+            let mark = ToolMark(toolName: selected.tool.displayName, symbolName: selected.tool.symbolName)
                 .frame(width: 24, height: 24)
                 .foregroundStyle(.primary)
                 .widgetAccentable()
                 .opacity(entry.selectedLimitIsStale ? 0.55 : 1)
-                .widgetLabel {
-                    Gauge(value: selected.remainingPercent, in: 0...100) {
-                        Text("Percent left")
-                    } currentValueLabel: {
-                        Text(selected.percent)
-                    }
-                    .tint(selected.color)
+            let gauge = Gauge(value: selected.remainingPercent, in: 0...100) {
+                Text("Percent left")
+            } currentValueLabel: {
+                Text(selected.percent)
+            }
+            .tint(selected.color)
+
+            if familyOverride != nil {
+                // WidgetKit draws the widget label on the watch face.
+                VStack(spacing: 2) {
+                    mark
+                    gauge.gaugeStyle(.accessoryLinearCapacity)
                 }
+            } else {
+                mark.widgetLabel { gauge }
+            }
         } else {
             emptySymbol
         }
@@ -235,10 +246,12 @@ struct UsageComplicationView: View {
             .widgetAccentable()
     }
 
-    private func accessibilityText(for selected: SelectedLimit?) -> String {
+    private func accessibilityText(for selected: SelectedLimit?, phase: WatchSessionPhase?) -> String {
         guard let selected else { return "Open usAIge on iPhone" }
         let summary = selected.limit.tightestWindow.accessibilitySummary(now: entry.date)
-        var text = "\(selected.tool.displayName), \(selected.limit.displayName), \(summary)"
+        var text = selected.tool.displayName
+        if let phase { text += ", \(phase.label.lowercased())" }
+        text += ", \(selected.limit.displayName), \(summary)"
         if let sourceName = selected.tool.sourceName { text += ", \(sourceName)" }
         if entry.selectedLimitIsStale { text += ", data may be stale" }
         return text
@@ -251,6 +264,7 @@ struct UsageComplication: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: UsageTimelineProvider()) { entry in
             UsageComplicationView(entry: entry)
+                .containerBackground(for: .widget) { Color.clear }
         }
         .configurationDisplayName("AI limits")
         .description("See the AI quota with the least allowance remaining.")

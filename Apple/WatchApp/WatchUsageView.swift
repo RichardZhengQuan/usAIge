@@ -25,12 +25,14 @@ struct WatchUsageView: View {
     private func usageList(_ envelope: WatchUsageSnapshotEnvelope) -> some View {
         let tools = envelope.tools.filter { !$0.limits.isEmpty }
         let groups = sourceGroups(in: tools)
-        let updatedAt = tools.map { $0.serverUpdatedAt ?? $0.sourceUpdatedAt }.max()
 
         return TimelineView(.everyMinute) { context in
             List {
-                if model.errorMessage != nil || model.isStale {
-                    statusBanner
+                if let message = model.errorMessage {
+                    Label(message, systemImage: "wifi.slash")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel(message)
                 }
 
                 ForEach(groups) { group in
@@ -40,7 +42,7 @@ struct WatchUsageView: View {
                                 WatchQuotaRow(
                                     tool: tool,
                                     limit: limit,
-                                    isStale: model.isStale(tool),
+                                    isStale: tool.isStale(at: context.date),
                                     now: context.date
                                 )
                             }
@@ -50,9 +52,7 @@ struct WatchUsageView: View {
                             Text(group.title)
                         }
                     } footer: {
-                        if group.id == groups.last?.id, let updatedAt {
-                            Text("Updated \(updatedAt, style: .relative)")
-                        }
+                        sourceFooter(for: group, now: context.date)
                     }
                 }
             }
@@ -60,12 +60,20 @@ struct WatchUsageView: View {
         }
     }
 
-    private var statusBanner: some View {
-        let message = model.errorMessage == nil ? "Some limits may be out of date" : "Showing saved limits"
-        return Label(message, systemImage: "clock")
+    @ViewBuilder
+    private func sourceFooter(for group: WatchSourceGroup, now: Date) -> some View {
+        if let updatedAt = group.tools.map(\.sourceUpdatedAt).max() {
+            let age = updatedAt.formatted(.relative(presentation: .named))
+            HStack(spacing: 4) {
+                if group.tools.contains(where: { $0.isStale(at: now) }) {
+                    Image(systemName: "clock")
+                        .accessibilityHidden(true)
+                }
+                Text("Updated \(age)")
+            }
             .font(.caption2)
             .foregroundStyle(.secondary)
-            .accessibilityLabel(model.errorMessage ?? message)
+        }
     }
 
     private var loadingView: some View {
@@ -143,6 +151,8 @@ private struct WatchQuotaRow: View {
     let now: Date
 
     var body: some View {
+        let phase = tool.visibleSessionPhase(isStale: isStale)
+
         HStack(spacing: 8) {
             ModernQuotaRing(
                 primary: limit.primary.remainingPercent,
@@ -155,9 +165,8 @@ private struct WatchQuotaRow: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(tool.displayName)
+                WatchToolTitle(name: tool.displayName, phase: phase)
                     .font(.headline)
-                    .lineLimit(1)
 
                 remainingAndReset
 
@@ -176,7 +185,7 @@ private struct WatchQuotaRow: View {
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityTitle)
+        .accessibilityLabel(accessibilityTitle(phase: phase))
         .accessibilityValue(accessibilitySummary)
     }
 
@@ -212,8 +221,10 @@ private struct WatchQuotaRow: View {
         }
     }
 
-    private var accessibilityTitle: String {
-        var title = "\(tool.displayName), \(limit.displayName)"
+    private func accessibilityTitle(phase: WatchSessionPhase?) -> String {
+        var title = tool.displayName
+        if let phase { title += ", \(phase.label.lowercased())" }
+        title += ", \(limit.displayName)"
         if tool.otherLimitCount > 0 { title += ", \(tool.otherLimitCount) more" }
         return title
     }

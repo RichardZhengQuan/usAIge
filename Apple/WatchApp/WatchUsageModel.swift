@@ -49,11 +49,8 @@ final class WatchUsageModel: NSObject, ObservableObject {
 
     var isStale: Bool {
         guard let envelope, !envelope.tools.isEmpty else { return true }
-        return envelope.tools.contains(where: isStale)
-    }
-
-    func isStale(_ tool: WatchToolQuotaSnapshot) -> Bool {
-        Date().timeIntervalSince(tool.sourceUpdatedAt) > 30 * 60
+        let now = Date()
+        return envelope.tools.contains { $0.isStale(at: now) }
     }
 
     func refresh() {
