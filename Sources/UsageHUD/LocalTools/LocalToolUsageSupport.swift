@@ -357,6 +357,13 @@ actor ThrottledUsageProvider: ThrottledUsageProviding, LocalUsageProviding {
         let current = now()
         let gate = manual ? nextManualRefresh : nextAutomaticRefresh
         if inFlight == nil, let gate, current < gate {
+            // A manual refresh can still pick up fresh files during request backoff.
+            if manual {
+                let startedGeneration = generation
+                let localResult = await refreshLocalUsage()
+                guard startedGeneration == generation else { throw CancellationError() }
+                if let localResult { return localResult }
+            }
             if let lastResult { return lastResult }
             if let lastError { throw lastError }
         }

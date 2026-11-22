@@ -105,6 +105,26 @@ struct ClaudeSilentRefreshTests {
         #expect(await pipeline.http.requests.isEmpty)
         await pipeline.provider.stop()
     }
+
+    @Test func manualRefreshReadsNewClaudeUsageDuringTheThrottleWindow() async throws {
+        let files = try SilentClaudeFiles()
+        defer { files.remove() }
+        let clock = TestClockBox(Date(timeIntervalSince1970: 1_800_000_000))
+        let pipeline = await files.pipeline(clock: clock)
+
+        #expect(try await pipeline.provider.refresh() == .authenticated([]))
+        clock.now.addTimeInterval(1)
+        try files.writeBridge(at: clock.now, session: 19, weekly: 47)
+
+        let refreshed = try await pipeline.provider.refresh()
+        #expect(refreshed.snapshots.first?.usedPercent == 19)
+        #expect(refreshed.snapshots.first?.updatedAt == clock.now)
+        #expect(await pipeline.status.status(for: .claude) == .connectedThroughClaudeBridge)
+        #expect(await pipeline.claude.refreshCount == 1)
+        #expect(await pipeline.claude.localRefreshCount == 1)
+        #expect(await pipeline.http.requests.isEmpty)
+        await pipeline.provider.stop()
+    }
 }
 
 private struct SilentClaudeFiles {
@@ -152,7 +172,7 @@ private struct SilentClaudeFiles {
             http: http, statusRegistry: status, userAgentVersion: { "offline-fixture" },
             claudeApp: source, usesAPIKeyHelper: { false }, now: { clock.now }
         ))
-        let throttled = ThrottledUsageProvider(base: claude, minimumInterval: 300, now: { clock.now })
+        let throttled = ThrottledUsageProvider(base: claude, minimumInterval: 300, manualMinimumInterval: 60, now: { clock.now })
         let remote = ScriptedUsageProvider(result: .signedOut)
         let provider = CompositeUsageProvider(
             local: ScriptedUsageProvider(result: .signedOut), throttled: [throttled],

@@ -19,6 +19,7 @@ struct ClaudeDesktopCachedUsage: Equatable, Sendable {
 struct ClaudeDesktopUsageCache: Sendable {
     static let maximumEntryBytes = 2 * 1_024 * 1_024
     static let maximumAge: TimeInterval = 30 * 60
+    private static let rewriteGrace: TimeInterval = 15
     private let directory: URL
     private let memory = ScanMemory()
 
@@ -31,10 +32,19 @@ struct ClaudeDesktopUsageCache: Sendable {
 
     func latestUsage(organizationID: String, now: Date) -> ClaudeDesktopCachedUsage? {
         memory.lock.withLock {
+            if memory.organizationID != organizationID {
+                memory.organizationID = organizationID
+                memory.checkedHashes = []
+                memory.usageHashes = []
+                memory.latestUsage = nil
+            }
             let indexURL = directory.appendingPathComponent("index-dir/the-real-index")
-            guard let hashes = currentHashes(indexURL) else { return nil }
+            guard let hashes = currentHashes(indexURL) else {
+                memory.latestUsage = nil
+                return nil
+            }
             findUsageEntries(among: hashes, organizationID: organizationID)
-            var newest: ClaudeDesktopCachedUsage?
+            var newest: VerifiedUsage?
             for hash in memory.usageHashes where hashes.contains(hash) {
                 let name = Self.entryFilename(hash: hash)
                 let file = directory.appendingPathComponent(name)
@@ -45,9 +55,23 @@ struct ClaudeDesktopUsageCache: Sendable {
                       Self.readBounded(file, limit: Self.maximumEntryBytes) == data,
                       currentHashes(indexURL)?.contains(hash) == true
                 else { continue }
-                if newest.map({ usage.recordedAt > $0.recordedAt }) ?? true { newest = usage }
+                if newest.map({ usage.recordedAt > $0.usage.recordedAt }) ?? true {
+                    newest = VerifiedUsage(hash: hash, usage: usage, verifiedAt: now)
+                }
             }
-            return newest
+            // Keep the last complete response during an in-place rewrite.
+            // The entry must still be indexed and its quota windows current.
+            if let previous = memory.latestUsage,
+               newest.map({ $0.usage.recordedAt < previous.usage.recordedAt }) ?? true,
+               (0...Self.rewriteGrace).contains(now.timeIntervalSince(previous.verifiedAt)),
+               (0...Self.maximumAge).contains(now.timeIntervalSince(previous.usage.recordedAt)),
+               currentHashes(indexURL)?.contains(previous.hash) == true,
+               FileStamp(directory.appendingPathComponent(Self.entryFilename(hash: previous.hash))) != nil,
+               let payload = Self.validatedPayload(previous.usage.payload, now: now) {
+                return ClaudeDesktopCachedUsage(payload: payload, recordedAt: previous.usage.recordedAt)
+            }
+            memory.latestUsage = newest
+            return newest?.usage
         }
     }
 
@@ -70,11 +94,6 @@ struct ClaudeDesktopUsageCache: Sendable {
     /// Reads the key of each entry not checked yet. An entry whose key can't
     /// be confirmed, such as one still being written, is tried again next time.
     private func findUsageEntries(among hashes: Set<UInt64>, organizationID: String) {
-        if memory.organizationID != organizationID {
-            memory.organizationID = organizationID
-            memory.checkedHashes = []
-            memory.usageHashes = []
-        }
         for hash in hashes where !memory.checkedHashes.contains(hash) {
             let name = Self.entryFilename(hash: hash)
             memory.keysRead += 1
@@ -288,6 +307,12 @@ struct ClaudeDesktopUsageCache: Sendable {
     }
 }
 
+private struct VerifiedUsage {
+    let hash: UInt64
+    let usage: ClaudeDesktopCachedUsage
+    let verifiedAt: Date
+}
+
 /// What earlier reads learned about the cache, guarded by `lock`.
 private final class ScanMemory: @unchecked Sendable {
     let lock = NSLock()
@@ -296,6 +321,7 @@ private final class ScanMemory: @unchecked Sendable {
     var checkedHashes = Set<UInt64>()
     var usageHashes = Set<UInt64>()
     var keysRead = 0
+    var latestUsage: VerifiedUsage?
 }
 
 /// Identifies one version of a regular file without reading it. A symbolic
