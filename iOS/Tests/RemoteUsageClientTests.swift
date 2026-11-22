@@ -143,6 +143,7 @@ final class RemoteUsageClientTests: XCTestCase {
         let fetched = try await relay.fetch(connection: connection, token: "read-token")
         let result = try XCTUnwrap(fetched)
 
+        XCTAssertEqual(result.snapshots.first?.toolSymbolName, "sparkles")
         XCTAssertEqual(result.snapshots.first?.sessionStatus?.phase, .thinking)
         XCTAssertEqual(
             result.snapshots.first?.sessionStatus?.updatedAt,
@@ -273,6 +274,7 @@ final class RelayClientSessionStatusTests: XCTestCase {
         let result = try XCTUnwrap(fetched)
 
         XCTAssertEqual(result.snapshots.count, 1)
+        XCTAssertEqual(result.snapshots[0].toolSymbolName, "sparkles")
         XCTAssertEqual(result.snapshots[0].sessionStatus?.phase, .needsInput)
         XCTAssertEqual(
             result.snapshots[0].sessionStatus?.updatedAt,
