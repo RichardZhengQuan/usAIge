@@ -175,9 +175,9 @@ The packaged application includes the custom usAIge icon in Finder, the Dock, Sp
 
 ## Install the public alpha
 
-Download `usAIge-0.2.29-alpha.dmg` and its checksum from the website. Open the disk image, then drag `usAIge.app` onto the Applications shortcut.
+Download `usAIge-0.2.30-alpha.dmg` and its checksum from the website. Open the disk image, then drag `usAIge.app` onto the Applications shortcut.
 
-The 0.2.29 alpha corrects the system memory total and percentage in **Resources** on macOS 14 and later. The ocean gives available RAM its own layer and shows estimates for AI tools and dev servers.
+In the 0.2.30 alpha, **Scan for Cleanup…** in **Resources → Storage** finds generated files in main checkouts, linked worktrees, and known developer caches on macOS 14 and later. Review the paths before confirming permanent deletion. **Largest Folders** shows measured sizes for inspection.
 
 This alpha is ad-hoc signed and is not notarized because the project does not yet have a Developer ID Application certificate. On first launch:
 
@@ -191,7 +191,7 @@ To build and verify the installer locally:
 
 ```bash
 scripts/package-dmg.sh
-(cd dist && shasum -a 256 -c usAIge-0.2.29-alpha.dmg.sha256)
+(cd dist && shasum -a 256 -c usAIge-0.2.30-alpha.dmg.sha256)
 ```
 
 For headless packaging, reuse the layout from a trusted previous installer:

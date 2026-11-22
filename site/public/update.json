@@ -1,19 +1,29 @@
 {
-  "build" : 51,
-  "downloadURL" : "https://pmrichq.com/project/usaige/usAIge-0.2.29-alpha.dmg",
+  "build" : 52,
+  "downloadURL" : "https://pmrichq.com/project/usaige/usAIge-0.2.30-alpha.dmg",
   "minimumSystemVersion" : "11.0",
   "releaseNotes" : {
-    "headline" : "Accurate memory totals",
+    "headline" : "Clean up generated files",
     "highlights" : [
       {
-        "detail" : "The ocean shows available RAM separately. The layers for AI tools and dev servers are estimates.",
-        "systemImage" : "memorychip",
-        "title" : "Clearer memory breakdown"
+        "detail" : "Find generated dependencies, Xcode build files, and selected tool caches. Largest Folders shows measured sizes for inspection.",
+        "systemImage" : "internaldrive",
+        "title" : "Storage cleanup"
+      },
+      {
+        "detail" : "Ignored contents are checked before bulk review. If ignored files change after review, usAIge asks you to review the worktree again.",
+        "systemImage" : "checkmark.shield",
+        "title" : "Safer worktree review"
+      },
+      {
+        "detail" : "The macOS app keeps a valid usage reading during brief rewrites of the Claude Desktop cache and checks freshness before reusing it.",
+        "systemImage" : "arrow.clockwise",
+        "title" : "More reliable Claude usage refresh"
       }
     ],
-    "summary" : "The Memory view now reports the RAM in use across your Mac."
+    "summary" : "Scan main checkouts and linked worktrees for generated files. Review the paths and confirm permanent deletion. usAIge rechecks each folder before removing it."
   },
-  "sha256" : "163e5f404dfbbddf111fa0c98afc88bcc5f337ef0ef58fdbbd5ed9704267767a",
-  "signature" : "iQKq+dZEN93rlQpf6Dsi0gjBXf0klop58t4Pss13ewpDTQFkmDzgWAL+1lI2UaZnT0y9jiFRUwEuvGWRDAE8AA==",
-  "version" : "0.2.29"
+  "sha256" : "c5847714b09f2287b56cd7e1b053009eb7e97fd3ddf8f790a72628e26c2839c2",
+  "signature" : "7lARajVuniKVAnLFmYr3pk/jiElVfYRZnfS7orG0yIdVtTUQjpQvKB77kEVNs+f5dmJBWF9lzv0WxK5MX/fLCA==",
+  "version" : "0.2.30"
 }
