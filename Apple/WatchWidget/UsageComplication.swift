@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 import WidgetKit
 
@@ -43,39 +44,20 @@ struct SelectedLimit {
         "\(tool.id):\(limit.id)"
     }
 
-    var scopeName: String {
-        guard let sourceName = tool.sourceName else { return tool.displayName }
-        return "\(sourceName) · \(tool.displayName)"
-    }
-
     var remainingPercent: Double {
-        constrainingWindow.remainingPercent
-    }
-
-    var constrainingWindow: WatchQuotaWindowSnapshot {
-        limit.constrainingWindow
-    }
-
-    var constrainingRole: QuotaWindowTag.Role {
-        limit.constrainingWindowRole
+        limit.tightestWindow.remainingPercent
     }
 
     var resetAt: Date? {
-        constrainingWindow.resetAt
+        limit.tightestWindow.resetAt
     }
 
-    var durationTag: String {
-        constrainingWindow.compactDurationTag
-            ?? (constrainingRole == .primary ? "LIMIT" : "MORE")
+    var percent: String {
+        ModernUsageColor.percent(remainingPercent)
     }
 
     var color: Color {
-        switch constrainingRole {
-        case .primary:
-            UsagePalette.primary(remainingPercent: remainingPercent)
-        case .secondary:
-            UsagePalette.secondary(remainingPercent: remainingPercent)
-        }
+        ModernUsageColor.color(remainingPercent: remainingPercent)
     }
 }
 
@@ -115,253 +97,151 @@ struct UsageComplicationView: View {
     let entry: UsageTimelineEntry
 
     var body: some View {
+        let selected = entry.selectedLimit
+
         Group {
             switch family {
             case .accessoryCircular:
-                circular
+                circular(selected)
             case .accessoryCorner:
-                corner
+                corner(selected)
             case .accessoryInline:
-                inline
-            case .accessoryRectangular:
-                rectangular
+                inline(selected)
             default:
-                rectangular
+                rectangular(selected)
             }
         }
         .containerBackground(for: .widget) { Color.clear }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityText)
+        .accessibilityLabel(accessibilityText(for: selected))
     }
 
     @ViewBuilder
-    private var circular: some View {
-        if let selected = entry.selectedLimit {
+    private func circular(_ selected: SelectedLimit?) -> some View {
+        if let selected {
             GeometryReader { geometry in
-                let size = min(geometry.size.width, geometry.size.height)
-                ZStack(alignment: .bottomTrailing) {
-                    if showsSessionLight(selected),
-                       let status = selected.tool.sessionStatus {
-                        WatchSessionStatusLight(
-                            phase: status.phase,
-                            diameter: size * 0.84,
-                            allowsAnimation: false
-                        )
-                    }
-
-                    ConcentricQuotaRing(
-                        primaryRemaining: selected.limit.primary.remainingPercent,
-                        secondaryRemaining: selected.limit.secondary?.remainingPercent,
-                        size: size,
-                        isStale: entry.selectedLimitIsStale
-                    ) {
-                        Image(systemName: selected.tool.symbolName ?? "sparkles")
-                            .resizable()
-                            .scaledToFit()
-                            .padding(size * 0.06)
-                            .foregroundStyle(.primary)
-                    }
-                    .widgetAccentable()
-
-                    if entry.selectedLimitIsStale {
-                        Image(systemName: "clock.fill")
-                            .font(.system(size: max(8, size * 0.17), weight: .semibold))
-                            .foregroundStyle(.primary)
-                            .accessibilityHidden(true)
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                quotaRing(selected, size: min(geometry.size.width, geometry.size.height))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         } else {
-            Image(systemName: "hourglass.badge.plus")
-                .widgetAccentable()
+            emptySymbol
         }
     }
 
     @ViewBuilder
-    private var rectangular: some View {
-        if let selected = entry.selectedLimit {
+    private func rectangular(_ selected: SelectedLimit?) -> some View {
+        if let selected {
             HStack(spacing: 7) {
-                ConcentricQuotaRing(
-                    primaryRemaining: selected.limit.primary.remainingPercent,
-                    secondaryRemaining: selected.limit.secondary?.remainingPercent,
-                    size: 43,
-                    isStale: entry.selectedLimitIsStale
-                ) {
-                    Image(systemName: selected.tool.symbolName ?? "sparkles")
-                        .resizable()
-                        .scaledToFit()
-                        .padding(2)
-                        .foregroundStyle(.primary)
-                }
-                .widgetAccentable()
+                quotaRing(selected, size: 40)
 
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: 3) {
-                        Image(
-                            systemName: selected.tool.sourceName == nil
-                                ? (selected.tool.symbolName ?? "sparkles")
-                                : "laptopcomputer"
-                        )
-                        .font(.caption2)
-                        Text(selected.tool.sourceName ?? selected.tool.displayName)
-                            .font(.caption.weight(.semibold))
-                            .lineLimit(1)
-                        if showsLiveSessionStatus(selected),
-                           let status = selected.tool.sessionStatus {
-                            WatchSessionStatusDot(phase: status.phase)
-                        }
-                    }
-
-                    Text(
-                        selected.tool.sourceName == nil
-                            ? selected.limit.displayName
-                            : "\(selected.tool.displayName) · \(selected.limit.displayName)"
-                    )
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-
-                    HStack(spacing: 3) {
-                        QuotaWindowTag(
-                            window: selected.constrainingWindow,
-                            role: selected.constrainingRole,
-                            includesPercentage: true
-                        )
-                        if entry.selectedLimitIsStale {
-                            Image(systemName: "clock.badge.exclamationmark")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        } else if let resetAt = selected.resetAt {
-                            Text(resetAt, style: .relative)
+                let summary = rectangularSummary(selected)
+                ViewThatFits {
+                    if selected.tool.otherLimitCount > 0 {
+                        VStack(alignment: .leading, spacing: 1) {
+                            summary
+                            Text("\(selected.limit.displayName) · +\(selected.tool.otherLimitCount) more")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
                         }
                     }
+                    summary
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         } else {
             HStack(spacing: 7) {
-                Image(systemName: "iphone.and.arrow.forward")
-                    .font(.title3)
-                    .widgetAccentable()
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Set up usAIge")
-                        .font(.headline)
-                    Text("Open the iPhone app")
+                emptySymbol
+                Text("Open usAIge on iPhone")
+                    .font(.caption)
+            }
+        }
+    }
+
+    private func rectangularSummary(_ selected: SelectedLimit) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(selected.tool.displayName)
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(selected.percent)
+                    .font(.callout.weight(.bold))
+                    .monospacedDigit()
+                    .foregroundStyle(selected.color)
+                    .lineLimit(1)
+                    .layoutPriority(1)
+
+                if let reset = ResetCountdown.phrase(until: selected.resetAt, now: entry.date) {
+                    Text(reset)
                         .font(.caption2)
+                        .monospacedDigit()
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                 }
             }
         }
     }
 
     @ViewBuilder
-    private var inline: some View {
-        if let selected = entry.selectedLimit {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 3) {
-                    inlineSummary(selected)
-                    if !entry.selectedLimitIsStale, let resetAt = selected.resetAt {
-                        Text("·")
-                        Text(resetAt, style: .relative)
-                    }
-                }
-                inlineSummary(selected)
-            }
+    private func inline(_ selected: SelectedLimit?) -> some View {
+        if let selected {
+            let countdown = ResetCountdown.compact(until: selected.resetAt, now: entry.date)
+            Text("\(selected.tool.displayName) \(selected.percent) · \(countdown)")
         } else {
-            Label("usAIge — set up on iPhone", systemImage: "hourglass.badge.plus")
+            Text("Open usAIge on iPhone")
         }
-    }
-
-    private func inlineSummary(_ selected: SelectedLimit) -> some View {
-        let sessionLabel: String
-        if showsLiveSessionStatus(selected), let status = selected.tool.sessionStatus {
-            sessionLabel = " · \(status.phase.label)"
-        } else {
-            sessionLabel = ""
-        }
-        return Label(
-            "\(selected.scopeName)\(sessionLabel) · \(selected.durationTag) \(Int(selected.remainingPercent.rounded()))%",
-            systemImage: entry.selectedLimitIsStale
-                ? "clock.badge.exclamationmark"
-                : (selected.tool.symbolName ?? "hourglass")
-        )
-        .monospacedDigit()
-        .lineLimit(1)
     }
 
     @ViewBuilder
-    private var corner: some View {
-        if let selected = entry.selectedLimit {
-            usAIgeCurvedLabel
-                .textCase(nil)
-                .widgetCurvesContent()
+    private func corner(_ selected: SelectedLimit?) -> some View {
+        if let selected {
+            ToolMark(toolName: selected.tool.displayName, symbolName: selected.tool.symbolName)
+                .frame(width: 24, height: 24)
+                .foregroundStyle(.primary)
+                .widgetAccentable()
+                .opacity(entry.selectedLimitIsStale ? 0.55 : 1)
                 .widgetLabel {
-                    if showsLiveSessionStatus(selected),
-                       let status = selected.tool.sessionStatus {
-                        Text(status.phase.label)
-                    } else {
-                        ProgressView(
-                            value: UsagePalette.arcFraction(
-                                remainingPercent: selected.remainingPercent
-                            )
-                        )
+                    Gauge(value: selected.remainingPercent, in: 0...100) {
+                        Text("Percent left")
+                    } currentValueLabel: {
+                        Text(selected.percent)
                     }
+                    .tint(selected.color)
                 }
-                .tint(cornerTint(selected))
-                .opacity(entry.selectedLimitIsStale ? 0.62 : 1)
         } else {
-            usAIgeCurvedLabel
-                .textCase(nil)
-                .widgetCurvesContent()
-                .widgetLabel {
-                    Text("Set up")
-                }
-                .tint(.secondary)
+            emptySymbol
         }
     }
 
-    private var usAIgeCurvedLabel: Text {
-        // WidgetKit forces ordinary Latin text to uppercase in corner curves.
-        // These sans-serif lowercase glyphs preserve the usAIge wordmark casing.
-        Text("𝗎𝗌").foregroundColor(.white)
-            + Text("AI").foregroundColor(Color(red: 0.70, green: 1, blue: 0.20))
-            + Text("𝗀𝖾").foregroundColor(.white)
+    private func quotaRing(_ selected: SelectedLimit, size: CGFloat) -> some View {
+        ModernQuotaRing(
+            primary: selected.limit.primary.remainingPercent,
+            secondary: selected.limit.secondary?.remainingPercent,
+            size: size,
+            isDimmed: entry.selectedLimitIsStale
+        ) {
+            ToolMark(toolName: selected.tool.displayName, symbolName: selected.tool.symbolName)
+                .foregroundStyle(.primary)
+        }
+        .widgetAccentable()
     }
 
-    private var accessibilityText: String {
-        guard let selected = entry.selectedLimit else {
-            return "No AI usage limits. Set up usAIge on iPhone."
-        }
-        var text = "\(selected.scopeName), \(selected.limit.displayName), \(selected.durationTag), \(Int(selected.remainingPercent.rounded())) percent remaining"
-        if showsLiveSessionStatus(selected),
-           let status = selected.tool.sessionStatus {
-            text += ", session \(status.phase.label)"
-        }
+    private var emptySymbol: some View {
+        Image(systemName: "iphone.and.arrow.forward")
+            .font(.title3)
+            .widgetAccentable()
+    }
+
+    private func accessibilityText(for selected: SelectedLimit?) -> String {
+        guard let selected else { return "Open usAIge on iPhone" }
+        let summary = selected.limit.tightestWindow.accessibilitySummary(now: entry.date)
+        var text = "\(selected.tool.displayName), \(selected.limit.displayName), \(summary)"
+        if let sourceName = selected.tool.sourceName { text += ", \(sourceName)" }
         if entry.selectedLimitIsStale { text += ", data may be stale" }
         return text
-    }
-
-    private func showsLiveSessionStatus(_ selected: SelectedLimit) -> Bool {
-        !entry.selectedLimitIsStale && selected.tool.sessionStatus?.phase.showsLight == true
-    }
-
-    private func showsSessionLight(_ selected: SelectedLimit) -> Bool {
-        guard showsLiveSessionStatus(selected) else { return false }
-        return WatchQuotaSeverity(remainingPercent: selected.limit.primary.remainingPercent) != .critical
-            && selected.limit.secondary.map {
-                WatchQuotaSeverity(remainingPercent: $0.remainingPercent) != .critical
-            } != false
-    }
-
-    private func cornerTint(_ selected: SelectedLimit) -> Color {
-        if entry.selectedLimitIsStale { return .orange }
-        if showsLiveSessionStatus(selected), let status = selected.tool.sessionStatus {
-            return status.phase.statusColor
-        }
-        return selected.color
     }
 }
 

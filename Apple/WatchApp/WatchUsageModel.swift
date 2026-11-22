@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Security
 import WatchConnectivity
@@ -23,6 +24,14 @@ final class WatchUsageModel: NSObject, ObservableObject {
         credentialStore = WatchRelayCredentialStore()
         directClient = WatchRelayClient()
         installationID = WatchInstallationIdentity.current()
+        #if DEBUG
+        if UsageDemoData.isEnabled {
+            session = nil
+            envelope = UsageDemoData.envelope()
+            super.init()
+            return
+        }
+        #endif
         session = WCSession.isSupported() ? .default : nil
         envelope = try? cache.load()
         hasCellularCredentials = !((try? credentialStore.load()) ?? []).isEmpty
@@ -48,6 +57,9 @@ final class WatchUsageModel: NSObject, ObservableObject {
     }
 
     func refresh() {
+        #if DEBUG
+        guard !UsageDemoData.isEnabled else { return }
+        #endif
         guard !isRefreshing else { return }
         if let session, session.activationState == .activated, session.isReachable {
             refreshFromPhone(session)
@@ -59,6 +71,9 @@ final class WatchUsageModel: NSObject, ObservableObject {
     var canRefresh: Bool { phoneIsReachable || hasCellularCredentials }
 
     func refreshIfNeeded() {
+        #if DEBUG
+        guard !UsageDemoData.isEnabled else { return }
+        #endif
         guard isStale, canRefresh else { return }
         refresh()
     }

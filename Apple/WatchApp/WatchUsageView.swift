@@ -1,9 +1,8 @@
+import Foundation
 import SwiftUI
 
 struct WatchUsageView: View {
     @ObservedObject var model: WatchUsageModel
-
-    private let brandGreen = Color(red: 0.70, green: 1, blue: 0.20)
 
     var body: some View {
         NavigationStack {
@@ -23,292 +22,205 @@ struct WatchUsageView: View {
         .onAppear(perform: model.refreshIfNeeded)
     }
 
-    @ViewBuilder
     private func usageList(_ envelope: WatchUsageSnapshotEnvelope) -> some View {
-        let groups = sourceGroups(in: envelope)
+        let tools = envelope.tools.filter { !$0.limits.isEmpty }
+        let groups = sourceGroups(in: tools)
+        let updatedAt = tools.map { $0.serverUpdatedAt ?? $0.sourceUpdatedAt }.max()
 
-        let list = List {
-            if model.errorMessage != nil || model.isStale {
-                statusBanner
-            }
+        return TimelineView(.everyMinute) { context in
+            List {
+                if model.errorMessage != nil || model.isStale {
+                    statusBanner
+                }
 
-            ForEach(groups) { group in
-                Section {
-                    ForEach(group.tools) { tool in
-                        if group.tools.count > 1 {
-                            Label(tool.displayName, systemImage: tool.symbolName ?? "sparkles")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
+                ForEach(groups) { group in
+                    Section {
+                        ForEach(group.tools) { tool in
+                            if let limit = tool.tightestLimit {
+                                WatchQuotaRow(
+                                    tool: tool,
+                                    limit: limit,
+                                    isStale: model.isStale(tool),
+                                    now: context.date
+                                )
+                            }
                         }
-
-                        ForEach(tool.limits) { limit in
-                            WatchQuotaRow(
-                                tool: tool,
-                                limit: limit,
-                                isStale: model.isStale(tool)
-                            )
+                    } header: {
+                        if groups.count > 1 {
+                            Text(group.title)
                         }
-                    }
-                } header: {
-                    Label(group.title, systemImage: group.symbolName)
-                } footer: {
-                    if let updatedAt = group.updatedAt {
-                        Text("Updated \(updatedAt, style: .relative)")
+                    } footer: {
+                        if group.id == groups.last?.id, let updatedAt {
+                            Text("Updated \(updatedAt, style: .relative)")
+                        }
                     }
                 }
             }
+            .refreshable { model.refresh() }
         }
-        .refreshable { model.refresh() }
-        list
     }
 
     private var statusBanner: some View {
-        Label {
-            Text(model.errorMessage == nil ? "Some limits may be out of date" : "Showing saved limits")
-                .lineLimit(2)
-        } icon: {
-            Image(
-                systemName: model.errorMessage == nil
-                    ? "clock.badge.exclamationmark"
-                    : "wifi.slash"
-            )
-        }
-        .font(.caption2)
-        .foregroundStyle(.orange)
-        .accessibilityLabel(
-            model.errorMessage
-                ?? "Some limits may be out of date. Showing the latest saved limits."
-        )
+        let message = model.errorMessage == nil ? "Some limits may be out of date" : "Showing saved limits"
+        return Label(message, systemImage: "clock")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .accessibilityLabel(model.errorMessage ?? message)
     }
 
     private var loadingView: some View {
-        VStack(spacing: 7) {
-            ZStack(alignment: .bottomTrailing) {
-                ConcentricQuotaRing(
-                    primaryRemaining: 72,
-                    secondaryRemaining: 88,
-                    size: 60
-                ) {
-                    Image(systemName: "iphone.and.arrow.forward")
-                        .font(.system(size: 20, weight: .medium))
-                        .symbolRenderingMode(.hierarchical)
-                }
-
-                ProgressView()
-                    .tint(.primary)
-                    .scaleEffect(0.62)
-                    .frame(width: 19, height: 19)
-                    .background(.regularMaterial, in: Circle())
-                    .offset(x: 2, y: 2)
-            }
-
-            Text("SYNC")
-                .font(.system(.caption2, design: .rounded, weight: .bold))
-                .foregroundStyle(brandGreen)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 2)
-                .background(.quaternary, in: Capsule())
-
-            Text(model.phoneIsReachable ? "Syncing from iPhone" : "Syncing from usAIge")
-                .font(.headline)
-                .multilineTextAlignment(.center)
-
-            Text("Getting the latest AI limits.")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .padding(.horizontal, 14)
+        syncMessage(
+            symbol: "iphone.and.arrow.forward",
+            title: model.phoneIsReachable ? "Syncing from iPhone" : "Syncing from usAIge",
+            detail: "Getting the latest AI limits."
+        )
+        .padding(.horizontal, 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .accessibilityElement(children: .combine)
     }
 
     private var emptyView: some View {
         ScrollView {
-            VStack(spacing: 7) {
-                ConcentricQuotaRing(
-                    primaryRemaining: 0,
-                    size: 64
-                ) {
-                    Image(
-                        systemName: model.canRefresh
-                            ? "iphone.and.arrow.forward"
-                            : "iphone.slash"
-                    )
-                    .font(.system(size: 22, weight: .medium))
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(model.canRefresh ? brandGreen : Color.secondary)
-                    .offset(x: 1)
-                }
-
-                Text("SET UP")
-                    .font(.system(.caption2, design: .rounded, weight: .bold))
-                    .foregroundStyle(model.canRefresh ? brandGreen : Color.secondary)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
-                    .background(.quaternary, in: Capsule())
-
-                Text(model.canRefresh ? "Limits Unavailable" : "iPhone Unavailable")
-                    .font(.headline)
-                    .multilineTextAlignment(.center)
-
-                Text(
-                    model.errorMessage
-                        ?? (model.canRefresh
-                            ? "Connect a Mac, then sync with usAIge."
-                            : "Open usAIge on your paired iPhone.")
+            VStack(spacing: 8) {
+                syncMessage(
+                    symbol: model.canRefresh ? "iphone.and.arrow.forward" : "iphone.slash",
+                    title: model.canRefresh ? "Limits Unavailable" : "iPhone Unavailable",
+                    detail: model.errorMessage ?? (model.canRefresh
+                        ? "Connect a Mac, then sync."
+                        : "Open usAIge on your paired iPhone.")
                 )
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
 
-                Button(model.canRefresh ? "Sync Now" : "Try Again") {
-                    model.refresh()
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(brandGreen)
-                .foregroundStyle(.black)
-                .controlSize(.small)
-                .disabled(!model.canRefresh)
+                Button(model.canRefresh ? "Sync Now" : "Try Again", action: model.refresh)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .disabled(!model.canRefresh)
             }
-            .padding(.horizontal, 13)
+            .padding(.horizontal, 12)
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity)
-            .accessibilityElement(children: .contain)
         }
     }
 
-    private func sourceGroups(in envelope: WatchUsageSnapshotEnvelope) -> [WatchSourceGroup] {
-        let tools = envelope.tools.filter { !$0.limits.isEmpty }
-        var order: [String] = []
-        for tool in tools {
-            let key = tool.sourceID ?? "legacy"
-            if !order.contains(key) { order.append(key) }
+    private func syncMessage(symbol: String, title: String, detail: String) -> some View {
+        VStack(spacing: 5) {
+            Image(systemName: symbol)
+                .font(.title2)
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            Text(title)
+                .font(.headline)
+            Text(detail)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
         }
+        .multilineTextAlignment(.center)
+        .accessibilityElement(children: .combine)
+    }
 
-        return order.compactMap { key in
-            let groupedTools = tools.filter { ($0.sourceID ?? "legacy") == key }
-            guard let first = groupedTools.first else { return nil }
-            return WatchSourceGroup(
-                id: key,
-                title: first.sourceName
-                    ?? (groupedTools.count == 1 ? first.displayName : "AI Tools"),
-                symbolName: first.sourceName == nil ? "sparkles" : "laptopcomputer",
-                updatedAt: groupedTools.compactMap(\.serverUpdatedAt).max(),
-                tools: groupedTools
-            )
+    private func sourceGroups(in tools: [WatchToolQuotaSnapshot]) -> [WatchSourceGroup] {
+        let grouped = Dictionary(grouping: tools, by: \.sourceID)
+        var seen = Set<String?>()
+        return tools.compactMap { tool in
+            guard seen.insert(tool.sourceID).inserted, let sourceTools = grouped[tool.sourceID] else { return nil }
+            return WatchSourceGroup(id: tool.sourceID, tools: sourceTools)
         }
     }
 }
 
 private struct WatchSourceGroup: Identifiable {
-    let id: String
-    let title: String
-    let symbolName: String
-    let updatedAt: Date?
+    let id: String?
     let tools: [WatchToolQuotaSnapshot]
+
+    var title: String {
+        tools.compactMap(\.sourceName).first ?? "Mac"
+    }
 }
 
 private struct WatchQuotaRow: View {
     let tool: WatchToolQuotaSnapshot
     let limit: WatchQuotaSnapshot
     let isStale: Bool
+    let now: Date
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 5) {
-                Text(limit.displayName)
+        HStack(spacing: 8) {
+            ModernQuotaRing(
+                primary: limit.primary.remainingPercent,
+                secondary: limit.secondary?.remainingPercent,
+                size: 46,
+                isDimmed: isStale
+            ) {
+                ToolMark(toolName: tool.displayName, symbolName: tool.symbolName)
+                    .foregroundStyle(.primary)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(tool.displayName)
                     .font(.headline)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.82)
-                Spacer(minLength: 4)
 
-                Text("\(Int(limit.effectiveRemainingPercent.rounded()))%")
-                    .font(.headline.monospacedDigit())
-                    .foregroundStyle(constrainingColor)
+                remainingAndReset
+
+                if tool.otherLimitCount > 0 {
+                    ViewThatFits(in: .horizontal) {
+                        Text("\(limit.displayName) · +\(tool.otherLimitCount) more")
+                            .fixedSize(horizontal: true, vertical: false)
+                        Text("+\(tool.otherLimitCount) more")
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
-            }
-
-            if !isStale,
-               let status = tool.sessionStatus,
-               status.phase.showsLight {
-                WatchSessionStatusBadge(status: status)
-            }
-
-            Gauge(value: limit.constrainingWindow.remainingPercent, in: 0...100) {
-                Text("Remaining")
-            }
-            .tint(constrainingColor)
-
-            HStack(spacing: 5) {
-                QuotaDurationTags(limit: limit)
-                Spacer(minLength: 4)
-                if isStale {
-                    Label("Saved", systemImage: "clock")
-                } else if let resetAt = limit.constrainingWindow.resetAt {
-                    Text("Resets \(resetAt, style: .relative)")
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.78)
-                } else {
-                    Text("Reset unavailable")
-                        .lineLimit(1)
                 }
             }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.vertical, 3)
+        .padding(.vertical, 2)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilitySummary)
+        .accessibilityLabel(accessibilityTitle)
+        .accessibilityValue(accessibilitySummary)
     }
 
-    private var constrainingColor: Color {
-        switch limit.constrainingWindowRole {
-        case .primary:
-            UsagePalette.primary(remainingPercent: limit.constrainingWindow.remainingPercent)
-        case .secondary:
-            UsagePalette.secondary(remainingPercent: limit.constrainingWindow.remainingPercent)
+    private var remainingAndReset: some View {
+        let window = limit.tightestWindow
+        let percent = Text(ModernUsageColor.percent(window.remainingPercent))
+            .font(.title3.weight(.bold))
+            .monospacedDigit()
+            .foregroundStyle(ModernUsageColor.color(remainingPercent: window.remainingPercent))
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+
+        return ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                percent
+                resetCaption
+            }
+            VStack(alignment: .leading, spacing: 1) {
+                percent
+                resetCaption
+            }
         }
+    }
+
+    @ViewBuilder
+    private var resetCaption: some View {
+        if let reset = ResetCountdown.phrase(until: limit.tightestWindow.resetAt, now: now) {
+            Text(reset)
+                .font(.caption2)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+    }
+
+    private var accessibilityTitle: String {
+        var title = "\(tool.displayName), \(limit.displayName)"
+        if tool.otherLimitCount > 0 { title += ", \(tool.otherLimitCount) more" }
+        return title
     }
 
     private var accessibilitySummary: String {
-        var value = "\(tool.displayName), \(limit.displayName), \(windowSummary(limit.primary, fallback: "primary limit"))"
-        if let secondary = limit.secondary {
-            value += ", \(windowSummary(secondary, fallback: "secondary limit"))"
-        }
-        if !isStale,
-           let status = tool.sessionStatus,
-           status.phase.showsLight {
-            value += ", session \(status.phase.label)"
-        }
-        if isStale { value += ", showing saved data" }
-        return value
-    }
-
-    private func windowSummary(_ window: WatchQuotaWindowSnapshot, fallback: String) -> String {
-        let duration = window.durationDescription ?? fallback
-        return "\(duration), \(Int(window.remainingPercent.rounded())) percent remaining"
-    }
-}
-
-private struct QuotaDurationTags: View {
-    let limit: WatchQuotaSnapshot
-
-    var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 2) {
-                QuotaWindowTag(window: limit.primary, role: .primary)
-                if let secondary = limit.secondary {
-                    QuotaWindowTag(window: secondary, role: .secondary)
-                }
-            }
-
-            QuotaWindowTag(
-                window: limit.constrainingWindow,
-                role: limit.constrainingWindowRole
-            )
-        }
-        .fixedSize(horizontal: false, vertical: true)
+        var summary = limit.tightestWindow.accessibilitySummary(now: now)
+        if isStale { summary += ", showing saved limits" }
+        return summary
     }
 }
