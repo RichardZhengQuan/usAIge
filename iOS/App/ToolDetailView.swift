@@ -5,28 +5,46 @@ struct ToolDetailView: View {
     let tool: ToolUsageSummary
 
     var body: some View {
+        let credit = tool.limits.first { ($0.availableResetCount ?? 0) > 0 }
+        let session = tool.activeSession
+        let hasToolInfo = credit != nil || session != nil
+        let lastLimitID = tool.limits.last?.id
+        let updatedAt = tool.limits.lazy.map(\.updatedAt).max()
+
         List {
             ForEach(tool.limits) { limit in
-                let isLastLimit = limit.id == tool.limits.last?.id
                 Section {
                     ModernQuotaBar(window: limit.primaryWindow)
                     if let secondary = limit.secondaryWindow {
                         ModernQuotaBar(window: secondary)
                     }
-                    if isLastLimit {
-                        toolInfoRows
-                    }
                 } header: {
                     limitTitle(limit)
                         .textCase(nil)
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
                 } footer: {
-                    if isLastLimit, let updated = tool.limits.lazy.map(\.updatedAt).max() {
-                        Text("Updated \(.currentDate, format: .reference(to: updated, maxFieldCount: 1))")
+                    if !hasToolInfo, limit.id == lastLimitID {
+                        updatedFooter(updatedAt)
                     }
+                }
+            }
+
+            if hasToolInfo {
+                Section {
+                    if let credit, let count = credit.availableResetCount {
+                        fullResetsRow(count: count, expiresAt: credit.resetCreditExpiresAt)
+                    }
+                    if let session {
+                        sessionRow(session)
+                    }
+                } footer: {
+                    updatedFooter(updatedAt)
                 }
             }
         }
         .listStyle(.insetGrouped)
+        .readableListWidth()
         .navigationTitle(tool.name)
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -42,32 +60,58 @@ struct ToolDetailView: View {
     }
 
     @ViewBuilder
-    private var toolInfoRows: some View {
-        if let credit = tool.limits.first(where: { ($0.availableResetCount ?? 0) > 0 }),
-           let count = credit.availableResetCount {
-            LabeledContent {
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text("\(count) available")
-                    if let expiry = credit.resetCreditExpiresAt {
-                        Text("expires \(expiry, format: .dateTime.month(.abbreviated).day())")
-                    }
-                }
-                .multilineTextAlignment(.trailing)
-            } label: {
-                Text("Full resets")
-            }
-            .foregroundStyle(.secondary)
-            .accessibilityElement(children: .combine)
+    private func updatedFooter(_ updatedAt: Date?) -> some View {
+        if let updatedAt {
+            Text("Updated \(.currentDate, format: .reference(to: updatedAt, maxFieldCount: 1))")
+        }
+    }
+
+    private func fullResetsRow(count: Int, expiresAt: Date?) -> some View {
+        let label = Text("Full resets")
+        let value = if let expiresAt {
+            Text("\(count) available · expires \(expiresAt, format: .dateTime.month(.abbreviated).day())")
+        } else {
+            Text("\(count) available")
         }
 
-        if let session = tool.activeSession {
-            HStack(spacing: 8) {
-                UsageSessionDot(phase: session.phase)
-                Text(session.phase.label)
-                Text(.currentDate, format: .reference(to: session.updatedAt, maxFieldCount: 1))
-                    .foregroundStyle(.secondary)
+        return ViewThatFits(in: .horizontal) {
+            LabeledContent {
+                value.fixedSize(horizontal: true, vertical: false)
+            } label: {
+                label.fixedSize(horizontal: true, vertical: false)
             }
-            .accessibilityElement(children: .combine)
+
+            VStack(alignment: .leading, spacing: 2) {
+                label
+                value
+            }
+            .fixedSize(horizontal: false, vertical: true)
         }
+        .foregroundStyle(.secondary)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func sessionRow(_ session: CodexSessionStatus) -> some View {
+        let phase = HStack(spacing: 8) {
+            UsageSessionDot(phase: session.phase)
+            Text(session.phase.label)
+        }
+        let relativeTime = Text(.currentDate, format: .reference(to: session.updatedAt, maxFieldCount: 1))
+            .foregroundStyle(.secondary)
+
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                phase
+                relativeTime
+            }
+            .fixedSize(horizontal: true, vertical: false)
+
+            VStack(alignment: .leading, spacing: 2) {
+                phase
+                relativeTime
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
     }
 }

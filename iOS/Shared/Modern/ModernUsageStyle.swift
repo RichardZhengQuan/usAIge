@@ -116,44 +116,82 @@ extension ModernQuotaRing where Center == EmptyView {
 /// length, a bar of what's left, the percentage in its colour, and when it
 /// resets.
 struct ModernQuotaBar: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .caption) private var tagWidth: CGFloat = 30
+    @ScaledMetric(relativeTo: .callout) private var percentWidth: CGFloat = 54
+    @ScaledMetric(relativeTo: .caption) private var resetWidth: CGFloat = 70
+
     /// The window's length, such as "5H" or "7D".
-    let tag: String
+    let tag: String?
     let remainingPercent: Double
     let resetAt: Date?
 
     var body: some View {
         let color = ModernUsageColor.color(remainingPercent: remainingPercent)
+        let percent = ModernUsageColor.percent(remainingPercent)
         TimelineView(.periodic(from: .now, by: 60)) { context in
-            HStack(spacing: 8) {
-                Text(tag)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .frame(width: 30, alignment: .leading)
-                ModernCapsuleBar(remainingPercent: remainingPercent, color: color)
-                    .frame(height: 8)
-                    .frame(minWidth: 40)
-                Text(ModernUsageColor.percent(remainingPercent))
-                    .font(.callout.weight(.semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(color)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-                    .frame(width: 54, alignment: .trailing)
-                Text(ResetCountdown.phrase(until: resetAt, now: context.date) ?? "")
-                    .font(.caption)
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                    .frame(width: 70, alignment: .leading)
+            let reset = ResetCountdown.phrase(until: resetAt, now: context.date)
+            let tagLabel = Text(tag ?? "")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+            let percentLabel = Text(percent)
+                .font(.callout.weight(.semibold))
+                .monospacedDigit()
+                .foregroundStyle(color)
+                .fixedSize(horizontal: true, vertical: false)
+            let resetLabel = Text(reset ?? "")
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+            let bar = ModernCapsuleBar(remainingPercent: remainingPercent, color: color)
+                .frame(height: 8)
+
+            let tagAndPercent = HStack(alignment: .firstTextBaseline, spacing: 8) {
+                if tag != nil {
+                    tagLabel.fixedSize(horizontal: false, vertical: true)
+                }
+                percentLabel
+            }
+            let stacked = VStack(alignment: .leading, spacing: 4) {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        tagAndPercent
+                        if reset != nil { resetLabel }
+                    }
+                    .fixedSize(horizontal: true, vertical: false)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        tagAndPercent
+                        if reset != nil {
+                            resetLabel.fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                bar
+            }
+
+            Group {
+                if dynamicTypeSize.isAccessibilitySize {
+                    stacked
+                } else {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 8) {
+                            tagLabel
+                                .fixedSize(horizontal: true, vertical: false)
+                                .frame(minWidth: tagWidth, alignment: .leading)
+                            bar.frame(minWidth: 40)
+                            percentLabel.frame(minWidth: percentWidth, alignment: .trailing)
+                            resetLabel
+                                .fixedSize(horizontal: true, vertical: false)
+                                .frame(minWidth: resetWidth, alignment: .leading)
+                        }
+                        stacked
+                    }
+                }
             }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(tag) window")
-            .accessibilityValue(
-                "\(Int(remainingPercent.rounded())) percent left, "
-                    + ResetCountdown.accessibilityLabel(until: resetAt, now: context.date)
-            )
+            .accessibilityLabel(tag.map { Text("\($0) window") } ?? Text("Limit"))
+            .accessibilityValue(Text("\(percent) left, \(ResetCountdown.accessibilityLabel(until: resetAt, now: context.date))"))
         }
     }
 }

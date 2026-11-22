@@ -2,6 +2,8 @@ import Foundation
 import SwiftUI
 
 struct QuotaRow: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     let tool: ToolUsageSummary
 
     var body: some View {
@@ -25,24 +27,33 @@ struct QuotaRow: View {
 
     private func header(phase: CodexSessionPhase?) -> some View {
         let title = HStack(spacing: 6) {
-            Text(tool.name).font(.headline)
+            Text(tool.name)
+                .font(.headline)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
             if let phase {
                 UsageSessionDot(phase: phase)
             }
         }
 
-        return HStack(spacing: 8) {
+        return HStack(alignment: dynamicTypeSize.isAccessibilitySize ? .top : .center, spacing: 8) {
             ToolMarkTile(
                 kind: ToolMarkKind(toolName: tool.name, symbolName: tool.symbolName),
                 fallbackSymbol: tool.symbolName
             )
             if tool.otherLimitCount > 0 {
-                let caption = limitCaption.font(.caption).foregroundStyle(.secondary)
+                let caption = limitCaption
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(nil)
+                    .fixedSize(horizontal: false, vertical: true)
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         title
                         caption
                     }
+                    .fixedSize(horizontal: true, vertical: false)
+
                     VStack(alignment: .leading, spacing: 2) {
                         title
                         caption
@@ -72,9 +83,10 @@ struct QuotaRow: View {
         let limit = tool.tightest
         let windows = [limit.primaryWindow, limit.secondaryWindow].compactMap { $0 }
         return windows.map { window in
-            let percent = Int(window.remainingPercent.rounded())
+            let label = window.displayedTag.map { String(localized: "\($0) window") } ?? String(localized: "Limit")
+            let percent = ModernUsageColor.percent(window.remainingPercent)
             let reset = ResetCountdown.accessibilityLabel(until: window.resetAt, now: now)
-            return String(localized: "\(window.typeTag) window, \(percent) percent left, \(reset)")
+            return String(localized: "\(label), \(percent) left, \(reset)")
         }.joined(separator: ". ")
     }
 }
@@ -110,6 +122,12 @@ extension ToolUsageSummary {
 
 extension ModernQuotaBar {
     init(window: QuotaWindowSnapshot) {
-        self.init(tag: window.typeTag, remainingPercent: window.remainingPercent, resetAt: window.resetAt)
+        self.init(tag: window.displayedTag, remainingPercent: window.remainingPercent, resetAt: window.resetAt)
+    }
+}
+
+private extension QuotaWindowSnapshot {
+    var displayedTag: String? {
+        windowDurationMinutes == nil ? nil : typeTag
     }
 }

@@ -86,6 +86,7 @@ struct DashboardView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .readableListWidth()
         .refreshable {
             if !isShowingDemo { await model.refreshAll() }
         }
