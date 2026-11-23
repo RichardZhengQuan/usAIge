@@ -23,10 +23,11 @@ import Testing
             TrendPoint(date: start.addingTimeInterval(Double(index)), value: index == 4 ? nil : 0.5, status: status)
         }
         let runs = TrendSegment.make(from: points, in: start...points[6].date)
+        let expectedTimes = [[0, 1], [1, 2], [2, 3], [5], [5, 6]].map { offsets in
+            offsets.map { start.addingTimeInterval(Double($0)) }
+        }
         #expect(runs.map(\.status) == [.normal, .warning, .critical, .unknown, .normal])
-        #expect(runs.map { $0.points.map(\.date) } == [[0, 1], [1, 2], [2, 3], [5], [5, 6]].map { group in
-            group.map { start.addingTimeInterval(Double($0)) }
-        })
+        #expect(runs.map { $0.points.map(\.date) } == expectedTimes)
         #expect(runs.map(\.marksEndpoint) == [false, false, true, false, true])
     }
 

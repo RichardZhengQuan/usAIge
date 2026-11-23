@@ -40,6 +40,21 @@ struct ResourceTrendTests {
         #expect(SystemMemoryPressure.unknown.trendStatus == .unknown)
     }
 
+    @Test func gridUsesTheLatestVisibleStatusAndLargeSquareCells() {
+        let points = [
+            TrendPoint(date: start, value: 40, status: .normal),
+            TrendPoint(date: start.addingTimeInterval(10), value: 92, status: .critical),
+            TrendPoint(date: start.addingTimeInterval(20), value: nil, status: nil),
+        ]
+        #expect(TrendPoint.currentStatus(in: points, domain: start...start) == .normal)
+        #expect(TrendPoint.currentStatus(in: points, domain: start...start.addingTimeInterval(15)) == .critical)
+        #expect(TrendPoint.currentStatus(in: points, domain: start...start.addingTimeInterval(30)) == .unknown)
+        #expect(TrendPoint.currentStatus(in: [], domain: start...start) == .unknown)
+        #expect(TrendPlotGrid.cellSide(for: CGSize(width: 540, height: 120), compact: false) == 60)
+        #expect(TrendPlotGrid.cellSide(for: CGSize(width: 100, height: 32), compact: true) == 20)
+        #expect(TrendPlotGrid.cellSide(for: CGSize(width: 30, height: 15), compact: true) == 10)
+    }
+
     @Test func usesRAMAndSwapForMemoryAndAvailableBytesForDisk() async {
         let memory = SystemMemoryUsage(capacityBytes: 1000, usedBytes: 400, swapUsedBytes: 30, swapTotalBytes: 50)
         let disk = DiskSpace(totalBytes: 8000, availableBytes: 2000)

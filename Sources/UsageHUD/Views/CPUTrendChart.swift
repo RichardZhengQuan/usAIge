@@ -120,6 +120,12 @@ struct TrendPoint: Equatable, Sendable {
 }
 
 extension TrendPoint {
+    static func currentStatus(in points: [Self], domain: ClosedRange<Date>) -> TrendStatus {
+        guard let latest = points.last(where: { domain.contains($0.date) }),
+              latest.value?.isFinite == true else { return .unknown }
+        return latest.status ?? .unknown
+    }
+
     init(cpu sample: SystemCPUMonitor.Sample) {
         self.init(date: sample.date, value: sample.usage?.busy, status: sample.usage?.trendStatus)
     }
@@ -202,7 +208,7 @@ struct TrendLinePlot: View {
         GeometryReader { geometry in
             let paths = self.paths(in: geometry.size)
             ZStack(alignment: .topLeading) {
-                TrendPlotGrid(compact: compact)
+                TrendPlotGrid(compact: compact, status: TrendPoint.currentStatus(in: points, domain: domain))
                 ForEach(TrendStatus.allCases, id: \.self) { status in
                     if let path = paths[status] {
                         let color = status.color

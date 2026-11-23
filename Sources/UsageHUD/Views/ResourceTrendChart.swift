@@ -12,7 +12,7 @@ struct ResourceTrendChart: View {
         let domain = end.addingTimeInterval(-range.duration)...end
         let points = history.samples.filter { domain.contains($0.date) }
         let values = points.compactMap(\.value)
-        let status = points.last?.status ?? .unknown
+        let status = TrendPoint.currentStatus(in: points, domain: domain)
         let minimum = values.min() ?? 0, maximum = values.max() ?? 0
         let magnitude = max(maximum - minimum, maximum * 0.008, 1_000_000)
         let midpoint = (maximum + minimum) / 2
