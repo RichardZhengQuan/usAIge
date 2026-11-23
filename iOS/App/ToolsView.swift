@@ -244,7 +244,7 @@ private struct MacConnectionRow: View {
             .disabled(isRefreshing || isDisconnecting)
 
             Button(role: .destructive, action: requestDisconnect) {
-                Text("Disconnect This Mac")
+                Label("Disconnect This Mac", systemImage: "xmark.circle")
                     .foregroundStyle(.red)
                     .padding(.leading, 20)
             }
