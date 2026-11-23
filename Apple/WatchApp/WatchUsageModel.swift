@@ -27,8 +27,13 @@ final class WatchUsageModel: NSObject, ObservableObject {
         #if DEBUG
         if UsageDemoData.isEnabled {
             session = nil
-            envelope = UsageDemoData.envelope()
+            let demo = UsageDemoData.envelope()
+            envelope = demo
             super.init()
+            // Hand the sample readings to the complication too, so it can be
+            // checked on a Simulator watch face without a paired Mac.
+            try? cache.save(demo)
+            WidgetCenter.shared.reloadTimelines(ofKind: AppGroup.widgetKind)
             return
         }
         #endif

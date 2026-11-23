@@ -4,21 +4,35 @@ import SwiftUI
 import WidgetKit
 
 struct ComplicationGalleryView: View {
+    /// `-usaigeComplicationGallery YES` shows everything; `top`, `bottom` or
+    /// `tools` shows one part, so each fits a screenshot without scrolling.
+    static var page: String? {
+        guard let value = UserDefaults.standard.string(forKey: "usaigeComplicationGallery")?.lowercased(),
+              !["no", "false", "0"].contains(value) else { return nil }
+        return value
+    }
+
     private let entry = UsageTimelineEntry(date: .now, envelope: UsageDemoData.envelope())
     private let circularSize = CGSize(width: 52, height: 52)
+    private var page: String { Self.page ?? "yes" }
+    private func shows(_ part: String) -> Bool { !["top", "bottom", "tools"].contains(page) || page == part }
 
     var body: some View {
         NavigationStack {
             // A List, so rows fade under the title and clock as in any watch app.
             List {
                 // Approximate 46 mm watch-face slots based on Apple's Complications HIG.
-                sample("Accessory Circular", family: .accessoryCircular, size: circularSize, entry: entry)
-                sample("Accessory Rectangular", family: .accessoryRectangular, size: CGSize(width: 188, height: 59), entry: entry)
-                sample("Accessory Inline", family: .accessoryInline, size: CGSize(width: 188, height: 20), entry: entry)
-                // On a face the corner's gauge curves along the bezel; here it is laid out flat below the mark.
-                sample("Accessory Corner (flat preview)", family: .accessoryCorner, size: CGSize(width: 120, height: 52), entry: entry)
+                if shows("top") {
+                    sample("Accessory Circular", family: .accessoryCircular, size: circularSize, entry: entry)
+                    sample("Accessory Rectangular", family: .accessoryRectangular, size: CGSize(width: 188, height: 59), entry: entry)
+                }
+                if shows("bottom") {
+                    sample("Accessory Inline", family: .accessoryInline, size: CGSize(width: 188, height: 20), entry: entry)
+                    // On a face the corner's gauge curves along the bezel; here it is laid out flat below the mark.
+                    sample("Accessory Corner (flat preview)", family: .accessoryCorner, size: CGSize(width: 120, height: 52), entry: entry)
+                }
 
-                if let envelope = entry.envelope {
+                if shows("tools"), let envelope = entry.envelope {
                     ForEach(envelope.tools) { tool in
                         let toolEntry = UsageTimelineEntry(
                             date: entry.date,

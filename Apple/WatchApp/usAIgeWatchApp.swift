@@ -8,7 +8,7 @@ struct usAIgeWatchApp: App {
     var body: some Scene {
         WindowGroup {
             #if DEBUG
-            if UserDefaults.standard.bool(forKey: "usaigeComplicationGallery") {
+            if ComplicationGalleryView.page != nil {
                 ComplicationGalleryView()
             } else {
                 WatchUsageView(model: model)
