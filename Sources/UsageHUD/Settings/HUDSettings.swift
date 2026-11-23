@@ -2,6 +2,26 @@ import CoreGraphics
 import Combine
 import Foundation
 
+enum HUDTextSize: String, CaseIterable, Codable, Sendable {
+    case small, standard, large
+
+    var title: String {
+        switch self {
+        case .small: "Small"
+        case .standard: "Standard"
+        case .large: "Large"
+        }
+    }
+
+    var factor: CGFloat {
+        switch self {
+        case .small: 0.9
+        case .standard: 1
+        case .large: 1.35
+        }
+    }
+}
+
 struct HUDPosition: Codable, Equatable, Sendable {
     var x: Double
     var y: Double
@@ -19,8 +39,8 @@ struct HUDPosition: Codable, Equatable, Sendable {
 
 @MainActor
 final class HUDSettings: ObservableObject {
-    static let scaleRange: ClosedRange<Double> = 0.5...2.5
-    static let opacityRange: ClosedRange<Double> = 0.1...1.0
+    static let scaleRange: ClosedRange<Double> = 0.5...1.5
+    static let opacityRange: ClosedRange<Double> = 0...1
     nonisolated static let usageAlertIntervalOptions = [5, 10, 20, 50]
     nonisolated static let defaultUsageAlertIntervalPercent = 10
 
@@ -29,16 +49,18 @@ final class HUDSettings: ObservableObject {
     }
 
     private struct Payload: Codable, Equatable {
-        var version = 9
+        var version = 10
         var bucketOrder: [String] = []
         var hiddenBucketIDs: Set<String> = []
         var toolOrder: [AIToolID] = AIToolID.builtInIDs
         var hiddenToolIDs: Set<AIToolID> = []
         var scale = 1.0
         var opacity = 0.92
+        var textSize: HUDTextSize = .standard
+        var showsMenuBarIcon = true
+        var showsDockIcon = true
         var showsResetCredits = true
         var usageAlertIntervalPercent = HUDSettings.defaultUsageAlertIntervalPercent
-        var magnetEnabled = true
         var didApplyLatestBucketDefault = false
         var didApplyPrimaryBucketDefault = false
         var primaryBucketDefaultToolIDs: Set<AIToolID> = []
@@ -48,10 +70,9 @@ final class HUDSettings: ObservableObject {
 
         enum CodingKeys: String, CodingKey {
             case version, bucketOrder, hiddenBucketIDs, toolOrder, hiddenToolIDs
-            case scale, opacity, positions, lastDisplayKey
+            case scale, opacity, textSize, showsMenuBarIcon, showsDockIcon, positions, lastDisplayKey
             case showsResetCredits
             case usageAlertIntervalPercent
-            case magnetEnabled
             case didApplyLatestBucketDefault
             case didApplyPrimaryBucketDefault
             case primaryBucketDefaultToolIDs
@@ -69,6 +90,10 @@ final class HUDSettings: ObservableObject {
             hiddenToolIDs = try values.decodeIfPresent(Set<AIToolID>.self, forKey: .hiddenToolIDs) ?? []
             scale = try values.decodeIfPresent(Double.self, forKey: .scale) ?? 1
             opacity = try values.decodeIfPresent(Double.self, forKey: .opacity) ?? 0.92
+            textSize = try values.decodeIfPresent(String.self, forKey: .textSize)
+                .flatMap(HUDTextSize.init(rawValue:)) ?? .standard
+            showsMenuBarIcon = try values.decodeIfPresent(Bool.self, forKey: .showsMenuBarIcon) ?? true
+            showsDockIcon = try values.decodeIfPresent(Bool.self, forKey: .showsDockIcon) ?? true
             showsResetCredits = try values.decodeIfPresent(
                 Bool.self,
                 forKey: .showsResetCredits
@@ -91,7 +116,6 @@ final class HUDSettings: ObservableObject {
             ) ?? []
             positions = try values.decodeIfPresent([String: HUDPosition].self, forKey: .positions) ?? [:]
             lastDisplayKey = try values.decodeIfPresent(String.self, forKey: .lastDisplayKey)
-            magnetEnabled = try values.decodeIfPresent(Bool.self, forKey: .magnetEnabled) ?? true
             remoteTools = try values.decodeIfPresent([LegacyRemoteTool].self, forKey: .remoteTools) ?? []
         }
     }
@@ -104,7 +128,7 @@ final class HUDSettings: ObservableObject {
         self.defaults = defaults
         if let data = defaults.data(forKey: Self.storageKey),
            let decoded = try? JSONDecoder().decode(Payload.self, from: data),
-           (1...9).contains(decoded.version) {
+           (1...10).contains(decoded.version) {
             payload = decoded
             if decoded.version < 5 {
                 // Updating users keep their existing bucket visibility exactly as configured.
@@ -137,7 +161,7 @@ final class HUDSettings: ObservableObject {
                 }
             }
             payload.didApplyPrimaryBucketDefault = payload.primaryBucketDefaultToolIDs.contains(.chatGPT)
-            payload.version = 9
+            payload.version = 10
         } else {
             payload = Payload()
         }
@@ -179,6 +203,21 @@ final class HUDSettings: ObservableObject {
     var opacity: Double {
         get { payload.opacity }
         set { update { payload.opacity = Self.clamp(newValue, to: Self.opacityRange) } }
+    }
+
+    var textSize: HUDTextSize {
+        get { payload.textSize }
+        set { update { payload.textSize = newValue } }
+    }
+
+    var showsMenuBarIcon: Bool {
+        get { payload.showsMenuBarIcon }
+        set { update { payload.showsMenuBarIcon = newValue } }
+    }
+
+    var showsDockIcon: Bool {
+        get { payload.showsDockIcon }
+        set { update { payload.showsDockIcon = newValue } }
     }
 
     var showsResetCredits: Bool {
@@ -233,13 +272,6 @@ final class HUDSettings: ObservableObject {
     /// The edge Magnet holds the rail on for this display, if any.
     func magnetEdge(for displayKey: String) -> MagnetEdge? {
         payload.positions[displayKey]?.edge
-    }
-
-    /// Magnet: dropping the rail near a display's left or right edge docks it
-    /// there, and a docked rail hides off screen until the pointer returns.
-    var magnetEnabled: Bool {
-        get { payload.magnetEnabled }
-        set { update { payload.magnetEnabled = newValue } }
     }
 
     /// The display the rail was last parked on, so launch can put it back

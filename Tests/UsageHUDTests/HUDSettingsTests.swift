@@ -20,16 +20,46 @@ import Testing
 @Test func persistsClampedAppearanceAndPerDisplayPosition() {
     let defaults = isolatedDefaults()
     var settings: HUDSettings? = HUDSettings(defaults: defaults)
+    #expect(settings?.showsMenuBarIcon == true)
+    #expect(settings?.showsDockIcon == true)
+    #expect(settings?.textSize == .standard)
     settings?.scale = 4
-    settings?.opacity = 0.1
+    settings?.opacity = 0
+    settings?.textSize = .large
+    settings?.showsMenuBarIcon = false
+    settings?.showsDockIcon = false
     settings?.setPosition(CGPoint(x: 42, y: 84), for: "display-1")
     settings = nil
 
     let restored = HUDSettings(defaults: defaults)
 
-    #expect(restored.scale == 2.5)
-    #expect(restored.opacity == 0.1)
+    #expect(restored.scale == 1.5)
+    #expect(restored.opacity == 0)
+    #expect(restored.textSize == .large)
+    #expect(!restored.showsMenuBarIcon)
+    #expect(!restored.showsDockIcon)
     #expect(restored.position(for: "display-1") == CGPoint(x: 42, y: 84))
+
+    restored.scale = 0.1
+    #expect(restored.scale == 0.5)
+}
+
+@MainActor
+@Test func migratesOversizedRailsAndKeepsExistingDisplaySettings() throws {
+    let defaults = isolatedDefaults()
+    let stored = #"{"version":9,"scale":2.5,"opacity":0.38,"magnetEnabled":false,"hiddenBucketIDs":["weekly"]}"#
+    defaults.set(Data(stored.utf8), forKey: "usageHUD.settings.v1")
+    let settings = HUDSettings(defaults: defaults)
+    #expect(settings.scale == 1.5)
+    #expect(settings.opacity == 0.38)
+    #expect(settings.textSize == .standard)
+    #expect(settings.showsMenuBarIcon && settings.showsDockIcon)
+    #expect(settings.hiddenBucketIDs == ["weekly"])
+    settings.textSize = .small
+    let data = try #require(defaults.data(forKey: "usageHUD.settings.v1"))
+    let rewritten = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    #expect(rewritten["magnetEnabled"] == nil)
+    #expect(rewritten["scale"] as? Double == 1.5)
 }
 
 @MainActor

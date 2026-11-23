@@ -6,6 +6,18 @@ import Testing
 @Suite
 @MainActor
 struct BranchesPaperweightPresentationTests {
+    @Test func thisMacIsASeparateDestinationInBothNavigationStyles() {
+        guard #available(macOS 14.0, *) else { return }
+        let presentation = BranchesPaperweightPresentation()
+        presentation.navigate(to: .thisMac)
+        #expect(presentation.modernPage == .thisMac)
+        #expect(presentation.selectedSection == .thisMac)
+        presentation.open(.memory)
+        #expect(presentation.selectedSection == .resources)
+        presentation.open(.thisMac)
+        #expect(presentation.selectedSection == .thisMac)
+    }
+
     @Test func aRailClickBringsStorageForwardWithWorktreesSelected() {
         guard #available(macOS 14.0, *) else { return }
         let request = BranchesPaperweightPresentation.Request(front: .storage)

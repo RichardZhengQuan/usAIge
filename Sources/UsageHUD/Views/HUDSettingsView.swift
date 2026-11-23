@@ -268,6 +268,9 @@ struct HUDSettingsView: View {
                     }
                 }
 
+                Toggle("Show icon in menu bar", isOn: $settings.showsMenuBarIcon)
+                Toggle("Show icon in Dock", isOn: $settings.showsDockIcon)
+
                 HStack(alignment: .center, spacing: 12) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Usage alerts")
@@ -288,8 +291,9 @@ struct HUDSettingsView: View {
                             Text("\(interval)%").tag(interval)
                         }
                     }
-                    .pickerStyle(.menu)
+                    .pickerStyle(.segmented)
                     .labelsHidden()
+                    .fixedSize()
                     .accessibilityLabel("Usage alerts")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -357,6 +361,16 @@ struct HUDSettingsView: View {
                             .accessibilityHidden(true)
                     }
                 }
+                LabeledContent("Panel text size") {
+                    Picker("Panel text size", selection: $settings.textSize) {
+                        ForEach(HUDTextSize.allCases, id: \.self) { size in
+                            Text(size.title).tag(size)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize()
+                }
                 HStack(alignment: .center, spacing: 12) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Show reset credits")
@@ -375,27 +389,6 @@ struct HUDSettingsView: View {
                     )
                     .labelsHidden()
                     .accessibilityLabel("Show reset credits")
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                HStack(alignment: .center, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Magnet")
-
-                        Text("Drop the rail near the left or right edge of a display to dock it there. A docked rail slides off screen while you work and returns when your pointer touches that edge.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Toggle(
-                        "Magnet",
-                        isOn: Binding(
-                            get: { settings.magnetEnabled },
-                            set: { settings.magnetEnabled = $0 }
-                        )
-                    )
-                    .labelsHidden()
-                    .accessibilityLabel("Magnet")
-                    .help("Dock the rail to a screen edge and hide it until the pointer returns")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -801,63 +794,7 @@ struct HUDSettingsView: View {
 
     private var iPhoneSyncPage: some View {
         pageContainer(title: "iPhone & Apple Watch Sync") {
-            settingsForm {
-                Section("Connection") {
-                    if relaySync.isLinked {
-                        LabeledContent("Mac", value: relaySync.macName)
-                        LabeledContent("Status", value: relayStatusText)
-                        if let date = relaySync.lastUploadAt {
-                            LabeledContent("Last upload", value: date.formatted(date: .omitted, time: .shortened))
-                        }
-                    } else {
-                        ContentUnavailableView(
-                            "Not Connected",
-                            systemImage: "iphone.and.arrow.forward",
-                            description: Text("Create a code, then enter it in usAIge on iPhone.")
-                        )
-                    }
-                    if let code = relaySync.pairingCode, let expiry = relaySync.pairingExpiresAt, expiry > Date() {
-                        LabeledContent("Pairing code") {
-                            Text(code)
-                                .font(.system(.title2, design: .monospaced, weight: .semibold))
-                                .textSelection(.enabled)
-                        }
-                        Text("Expires \(expiry.formatted(date: .omitted, time: .shortened)). Each code connects one iPhone.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    HStack {
-                        Spacer()
-                        Button(relaySync.isLinked ? "Add iPhone" : "Create Connection") {
-                            Task {
-                                if relaySync.isLinked { await relaySync.createPairingCode() }
-                                else { await relaySync.createChannel() }
-                            }
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
-                }
-                if relaySync.isLinked {
-                    Section("Paired iPhones") {
-                        if relaySync.devices.isEmpty {
-                            Text("No iPhones paired yet.").foregroundStyle(.secondary)
-                        }
-                        ForEach(relaySync.devices) { device in
-                            HStack {
-                                Label(device.name, systemImage: "iphone")
-                                Spacer()
-                                Text(device.lastSeenAt, style: .relative).font(.caption).foregroundStyle(.secondary)
-                                Button("Revoke", role: .destructive) { Task { await relaySync.revoke(device) } }
-                            }
-                        }
-                    }
-                    Section {
-                        Button("Disconnect All", role: .destructive) { Task { await relaySync.disconnectAll() } }
-                    } footer: {
-                        Text("Only normalized limit percentages and reset times are relayed. A paired iPhone forwards them to Apple Watch. Disconnecting deletes the shared server channel and revokes every iPhone and paired AI tool.")
-                    }
-                }
-            }
+            ModernDevicesPage(relaySync: relaySync, showsHeading: false)
         }
     }
 
@@ -979,16 +916,6 @@ struct HUDSettingsView: View {
             .padding(.top, topPadding)
             .padding(.bottom, 28)
             .background(measuredHeight)
-        }
-    }
-
-    private var relayStatusText: String {
-        switch relaySync.status {
-        case .disconnected: "Disconnected"
-        case .connecting: "Connecting…"
-        case .connected: "Connected"
-        case .uploading: "Uploading…"
-        case let .failed(message): message
         }
     }
 
@@ -1329,7 +1256,10 @@ struct HUDSettingsView: View {
     }
 
     private var isUpdateError: Bool {
-        if case .failed = updateController.status { true } else { false }
+        switch updateController.status {
+        case .failed, .installationFailed: true
+        default: false
+        }
     }
 }
 

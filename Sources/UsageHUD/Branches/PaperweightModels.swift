@@ -93,6 +93,7 @@ struct PaperweightConfiguration: Equatable, Sendable {
 
 enum PaperweightData {
     static let otherMemoryLayerID = "memory-other"
+    static let swapLayerID = "memory-swap"
 
     static func storage(
         disk: DiskSpace?, board: BranchesBoard, toolStorage: [ToolStorageEntry],
@@ -187,8 +188,12 @@ enum PaperweightData {
         }
         layers.append(PaperweightLayer(id: otherMemoryLayerID, title: "Other apps and macOS",
                                        bytes: max(0, used - measured), colorHex: 0x447F9C, inkHex: 0x042C53))
+        if systemUsage.swapTotalBytes > 0 {
+            layers.append(PaperweightLayer(id: swapLayerID, title: "Swap", bytes: systemUsage.swapUsedBytes,
+                                           colorHex: 0xAC77CB, inkHex: 0x301B40))
+        }
         return PaperweightConfiguration(
-            id: .memory, capacityBytes: systemUsage.capacityBytes, layers: layers, freeBytes: systemUsage.availableBytes,
+            id: .memory, capacityBytes: systemUsage.combinedCapacityBytes, layers: layers, freeBytes: systemUsage.availableBytes,
             allocationIsEstimated: overlaps, measuredBytes: measured
         )
     }

@@ -282,3 +282,42 @@ import Testing
     controller.window?.close()
     #expect(closeCount == 1)
 }
+
+@MainActor
+@Test func menuBarHoverRevealsAndClickOpensTheWindowIndependently() throws {
+    _ = NSApplication.shared
+    var hover: [Bool] = []
+    var opens = 0
+    var installs = 0
+    var removals = 0
+    let button = NSButton()
+    let icon = MenuBarIconController(hoverChanged: { hover.append($0) }, openWindow: { opens += 1 }) {
+        installs += 1
+        return MenuBarIconController.Item(button: button, remove: { removals += 1 })
+    }
+    icon.setVisible(true)
+    defer { icon.setVisible(false) }
+    icon.setVisible(true)
+    #expect(installs == 1)
+    let tracking = try #require(button.trackingAreas.first { $0.owner === icon })
+    #expect(tracking.options.contains([.mouseEnteredAndExited, .activeAlways, .inVisibleRect]))
+    let event = try #require(NSEvent.enterExitEvent(with: .mouseEntered, location: .zero,
+        modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0,
+        trackingNumber: 0, userData: nil))
+    icon.mouseEntered(with: event)
+    icon.mouseEntered(with: event)
+    #expect(hover == [true])
+    #expect(opens == 0)
+    button.performClick(nil)
+    #expect(opens == 1)
+    icon.mouseExited(with: event)
+    #expect(hover == [true, false])
+    icon.mouseEntered(with: event)
+    icon.setVisible(false)
+    icon.mouseEntered(with: event)
+    icon.setVisible(false)
+    #expect(removals == 1)
+    #expect(!button.trackingAreas.contains(tracking))
+    #expect(!icon.containsPointer)
+    #expect(hover == [true, false, true, false])
+}

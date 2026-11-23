@@ -627,9 +627,9 @@ private final class DiskPublications: @unchecked Sendable {
     let room = HUDMetrics.workTileHeight + HUDMetrics.columnSpacing
     #expect(HUDMetrics.resourcePaperweightHeight == 35)
     #expect(HUDMetrics.resourceTileHeight == 53)
-    #expect(2 * HUDMetrics.resourceTileHeight + HUDMetrics.resourcePaperweightGap == HUDMetrics.workTileHeight)
-    #expect(HUDMetrics.workTileHeight == 113)
-    #expect(HUDMetrics.railHeight(rowCount: 1, showsWorkTile: true) == 269)
+    #expect(3 * HUDMetrics.resourceTileHeight + 2 * HUDMetrics.resourcePaperweightGap == HUDMetrics.workTileHeight)
+    #expect(HUDMetrics.workTileHeight == 173)
+    #expect(HUDMetrics.railHeight(rowCount: 1, showsWorkTile: true) == 329)
     #expect(HUDMetrics.railHeight(rowCount: 1, showsWorkTile: true) == HUDMetrics.railHeight(rowCount: 1) + room)
     #expect(HUDMetrics.railHeight(rowCount: 8, showsWorkTile: true) == 450)
     #expect(HUDMetrics.railHeight(rowCount: 8, maximumHeight: 2_000, showsWorkTile: true)
@@ -895,7 +895,7 @@ private final class DiskPublications: @unchecked Sendable {
     final class Flag { var value = true }
     let pointer = Pointer()
     let onCard = Flag()
-    let magnet = MagnetController(isEnabled: true, pointerLocation: { pointer.location })
+    let magnet = MagnetController(pointerLocation: { pointer.location })
     magnet.keepsRevealed = { onCard.value }
     let panel = NSPanel(
         contentRect: CGRect(x: 0, y: 0, width: 84, height: 300),
@@ -915,5 +915,5 @@ private final class DiskPublications: @unchecked Sendable {
         try await Task.sleep(nanoseconds: 50_000_000)
     }
     #expect(!magnet.isRevealed)
-    magnet.isEnabled = false
+    magnet.undock()
 }

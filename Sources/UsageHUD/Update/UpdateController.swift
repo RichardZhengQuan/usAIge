@@ -152,13 +152,25 @@ enum UpdateStatus: Equatable {
     case available(UpdateManifest)
     case downloading(UpdateManifest)
     case preparing(UpdateManifest)
+    case installationFailed(UpdateManifest, String)
     case failed(String)
     case unavailableInDevelopment
+
+    /// Only a verified, newer build and its installation belong in navigation.
+    var sidebarManifest: UpdateManifest? {
+        switch self {
+        case let .available(manifest), let .downloading(manifest), let .preparing(manifest),
+             let .installationFailed(manifest, _): manifest
+        case .idle, .checking, .upToDate, .failed, .unavailableInDevelopment: nil
+        }
+    }
 
     var primaryButtonTitle: String {
         switch self {
         case let .available(manifest):
             "Update to \(manifest.version)"
+        case .installationFailed:
+            "Retry update"
         case .checking:
             "Checking…"
         case .downloading:
@@ -195,6 +207,7 @@ final class UpdateController: ObservableObject {
         30 * 60 * 1_000_000_000
 
     @Published private(set) var status: UpdateStatus = .idle
+    @Published private(set) var downloadProgress: Progress?
     @Published private(set) var isReplacementPrepared = false
 
     private let manifestURLs: [URL]
@@ -207,12 +220,15 @@ final class UpdateController: ObservableObject {
     private let installer: UpdateInstaller
     private let bundledReleaseNotes: ReleaseNotesDocument?
     private var pollingTask: Task<Void, Never>?
+    private var isChecking = false
 
     private static let pendingManifestKey = "update.pendingWhatsNewManifest.v1"
 
     var availableUpdate: UpdateManifest? {
-        guard case let .available(manifest) = status else { return nil }
-        return manifest
+        switch status {
+        case let .available(manifest), let .installationFailed(manifest, _): manifest
+        default: nil
+        }
     }
 
     var canInstallUpdate: Bool { availableUpdate != nil }
@@ -278,7 +294,7 @@ final class UpdateController: ObservableObject {
             "Downloading update…"
         case .preparing:
             "Verifying and preparing update…"
-        case let .failed(message):
+        case let .failed(message), let .installationFailed(_, message):
             message
         case .unavailableInDevelopment:
             "Software updates require the packaged app"
@@ -341,14 +357,20 @@ final class UpdateController: ObservableObject {
     }
 
     func checkForUpdates() async {
+        guard !isChecking else { return }
         switch status {
-        case .checking, .downloading, .preparing:
+        case .checking, .downloading, .preparing, .unavailableInDevelopment:
             return
         default:
             break
         }
 
-        status = .checking
+        isChecking = true
+        defer { isChecking = false }
+        // Keep a confirmed offer usable during a background refresh. A failed
+        // refresh must also leave a pending install or retry available.
+        if status.sidebarManifest == nil { status = .checking }
+        let checkingState = status
         do {
             var manifests: [UpdateManifest] = []
             for manifestURL in manifestURLs {
@@ -359,6 +381,7 @@ final class UpdateController: ObservableObject {
                 }
             }
             let runningVersion = ProcessInfo.processInfo.operatingSystemVersion
+            guard status == checkingState else { return }
             guard let manifest = UpdateManifest.newest(in: manifests.filter { $0.supports(systemVersion: runningVersion) }) else {
                 throw UpdateError.feedUnavailable
             }
@@ -369,7 +392,9 @@ final class UpdateController: ObservableObject {
                 status = .upToDate
             }
         } catch {
-            status = .failed(UpdateError.userFacingMessage(for: error))
+            if status == .checking {
+                status = .failed(UpdateError.userFacingMessage(for: error))
+            }
         }
     }
 
@@ -401,17 +426,30 @@ final class UpdateController: ObservableObject {
     func installAvailableUpdate() async {
         guard let manifest = availableUpdate else { return }
         status = .downloading(manifest)
+        defer { downloadProgress = nil }
         do {
             let downloadedDMG = try await installer.download(
                 manifest: manifest,
-                using: session
+                using: session,
+                onStart: { [weak self] progress in
+                    Task { @MainActor in
+                        guard let self, self.status == .downloading(manifest) else { return }
+                        self.downloadProgress = progress
+                    }
+                }
             )
             status = .preparing(manifest)
-            try await installer.prepareAndLaunchReplacement(
-                dmgURL: downloadedDMG,
-                manifest: manifest,
-                currentApplicationURL: applicationURL
-            )
+            do {
+                try await installer.prepareAndLaunchReplacement(
+                    dmgURL: downloadedDMG,
+                    manifest: manifest,
+                    currentApplicationURL: applicationURL
+                )
+            } catch {
+                // The replacement helper owns this directory only after launch.
+                try? FileManager.default.removeItem(at: downloadedDMG.deletingLastPathComponent())
+                throw error
+            }
             if manifest.releaseNotes != nil,
                let data = try? JSONEncoder().encode(manifest) {
                 userDefaults.set(data, forKey: Self.pendingManifestKey)
@@ -419,7 +457,7 @@ final class UpdateController: ObservableObject {
             isReplacementPrepared = true
             NSApplication.shared.terminate(nil)
         } catch {
-            status = .failed(UpdateError.userFacingMessage(for: error))
+            status = .installationFailed(manifest, UpdateError.userFacingMessage(for: error))
         }
     }
 
@@ -465,7 +503,7 @@ final class UpdateController: ObservableObject {
 
             let content = UNMutableNotificationContent()
             content.title = "A new usAIge version is available"
-            content.body = "Version \(manifest.version) is ready. Open Settings to update."
+            content.body = "Version \(manifest.version) is ready to install."
             content.sound = .default
             content.categoryIdentifier = Self.notificationCategory
             content.userInfo = ["build": manifest.build]
@@ -483,16 +521,8 @@ final class UpdateController: ObservableObject {
 }
 
 actor UpdateInstaller {
-    func download(manifest: UpdateManifest, using session: URLSession) async throws -> URL {
-        let (temporaryURL, response) = try await Self.download(
-            from: manifest.downloadURL,
-            using: session
-        )
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200 else {
-            throw UpdateError.downloadFailed
-        }
-
+    func download(manifest: UpdateManifest, using session: URLSession,
+                  onStart: @Sendable (Progress) -> Void = { _ in }) async throws -> URL {
         let workDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("usaige-update-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(
@@ -500,14 +530,17 @@ actor UpdateInstaller {
             withIntermediateDirectories: true
         )
         let dmgURL = workDirectory.appendingPathComponent("usAIge-\(manifest.version).dmg")
-        try FileManager.default.moveItem(at: temporaryURL, to: dmgURL)
-
-        let actualHash = try Self.sha256(of: dmgURL)
-        guard actualHash.caseInsensitiveCompare(manifest.sha256) == .orderedSame else {
+        do {
+            try await Self.download(from: manifest.downloadURL, to: dmgURL, using: session, onStart: onStart)
+            let actualHash = try Self.sha256(of: dmgURL)
+            guard actualHash.caseInsensitiveCompare(manifest.sha256) == .orderedSame else {
+                throw UpdateError.checksumMismatch
+            }
+            return dmgURL
+        } catch {
             try? FileManager.default.removeItem(at: workDirectory)
-            throw UpdateError.checksumMismatch
+            throw error
         }
-        return dmgURL
     }
 
     func prepareAndLaunchReplacement(
@@ -638,17 +671,28 @@ actor UpdateInstaller {
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
-    private static func download(from url: URL, using session: URLSession) async throws -> (URL, URLResponse) {
-        try await withCheckedThrowingContinuation { continuation in
-            session.downloadTask(with: url) { location, response, error in
+    private static func download(from url: URL, to destination: URL, using session: URLSession,
+                                 onStart: @Sendable (Progress) -> Void) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let task = session.downloadTask(with: url) { location, response, error in
                 if let error {
                     continuation.resume(throwing: error)
-                } else if let location, let response {
-                    continuation.resume(returning: (location, response))
-                } else {
-                    continuation.resume(throwing: UpdateError.downloadFailed)
+                    return
                 }
-            }.resume()
+                guard let location, (response as? HTTPURLResponse)?.statusCode == 200 else {
+                    continuation.resume(throwing: UpdateError.downloadFailed)
+                    return
+                }
+                // URLSession owns location only until this callback returns.
+                do {
+                    try FileManager.default.moveItem(at: location, to: destination)
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+            onStart(task.progress)
+            task.resume()
         }
     }
 

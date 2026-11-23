@@ -12,89 +12,84 @@ struct ModernToolEntry: Identifiable {
     var status: LocalToolGuidance.Presentation? = nil
 }
 
-/// The AI tools Modern shows, in the user's order: every tool with a
-/// reading and every supported tool found on this Mac, so a tool appears
-/// as soon as it's there rather than in a separate list.
 @MainActor
 enum ModernToolList {
-    static func entries(store: UsageStore, settings: HUDSettings,
-                        localToolStatus: LocalToolStatusRegistry?,
-                        includingHidden: Bool) -> [ModernToolEntry] {
-        let snapshots = includingHidden
-            ? settings.inDisplayOrder(store.visibleSnapshots)
-            : settings.ordered(store.visibleSnapshots)
+    /// Quota sources can include paired remote tools. Overview retains those
+    /// readings, while the Usage page selects its cards from the local inventory.
+    static func readingEntries(_ snapshots: [QuotaSnapshot]) -> [ModernToolEntry] {
+        var buckets: [AIToolID: [QuotaSnapshot]] = [:]
         var order: [AIToolID] = []
-        var byTool: [AIToolID: [QuotaSnapshot]] = [:]
         for snapshot in snapshots {
-            if byTool[snapshot.toolID] == nil { order.append(snapshot.toolID) }
-            byTool[snapshot.toolID, default: []].append(snapshot)
+            if buckets[snapshot.toolID] == nil { order.append(snapshot.toolID) }
+            buckets[snapshot.toolID, default: []].append(snapshot)
         }
-        var entries = order.map { ModernToolEntry(id: $0, limits: byTool[$0] ?? []) }
-        let reading = Set(store.visibleSnapshots.map(\.toolID))
-        let status = { (id: AIToolID) in Self.status(for: id, store: store, localToolStatus: localToolStatus) }
-        for guidance in LocalToolGuidance.listed(order: settings.toolOrder, status: status)
-        where !reading.contains(guidance.id) {
-            if !includingHidden {
-                // Switched off: hidden, or an opt-in tool not turned on.
-                if settings.hiddenToolIDs.contains(guidance.id) { continue }
-                if LocalToolOptIn.optInToolIDs.contains(guidance.id), !LocalToolOptIn.isEnabled(guidance.id) { continue }
-            }
-            entries.append(ModernToolEntry(id: guidance.id, limits: [],
-                                           status: guidance.presentation(for: status(guidance.id))))
-        }
-        let rank = Dictionary(settings.toolOrder.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
-        return entries.enumerated().sorted { left, right in
-            let l = rank[left.element.id] ?? Int.max, r = rank[right.element.id] ?? Int.max
-            return l == r ? left.offset < right.offset : l < r
-        }.map(\.element)
+        return order.map { ModernToolEntry(id: $0, limits: buckets[$0] ?? []) }
     }
 
-    static func status(for id: AIToolID, store: UsageStore, localToolStatus: LocalToolStatusRegistry?) -> LocalToolStatus {
-        if store.visibleSnapshots.contains(where: { $0.toolID == id }) { return .connected }
-        if id == .chatGPT { return .signedOut }
-        return localToolStatus?.status(for: id) ?? .unknown
+    static func installedEntries(
+        installed: Set<AIToolID>, snapshots: [QuotaSnapshot], order: [AIToolID],
+        status: (AIToolID) -> LocalToolStatus
+    ) -> [ModernToolEntry] {
+        let buckets = Dictionary(grouping: snapshots, by: \.toolID)
+        let tools = order + AIToolID.builtInIDs.filter { !order.contains($0) }
+        return tools.filter(installed.contains).map { id in
+            let limits = buckets[id] ?? []
+            guard limits.isEmpty else { return ModernToolEntry(id: id, limits: limits) }
+            let guidance = LocalToolGuidance.supported.first { $0.id == id }
+            let reported = status(id)
+            // Some providers only detect their sign-in files. An installed app
+            // or CLI that hasn't created those files yet still has a card.
+            let state: LocalToolStatus = reported == .notInstalled || (id == .chatGPT && reported == .unknown)
+                ? .signedOut : reported
+            let detail = guidance?.presentation(for: state)
+                ?? .init(text: "No local usage reading is available for this tool.", isProblem: false)
+            return ModernToolEntry(id: id, limits: [], status: detail)
+        }
     }
 }
 
-/// Modern's Usage page body: a card for every AI tool with a reading, a bar
-/// for each limit, then the same cards for tools on this Mac that can't
-/// show usage, each with what it needs. Editing keeps the same
-/// layout: a switch shows or hides each tool and each limit, and cards drag
-/// into a new order.
 @available(macOS 14.0, *)
 struct ModernUsageBoard: View {
     @ObservedObject var store: UsageStore
     @ObservedObject var settings: HUDSettings
-    var localToolStatus: LocalToolStatusRegistry?
+    @ObservedObject private var localToolStatus: LocalToolStatusRegistry
     let editing: Bool
-    /// What each tool is working on now, shown on its card.
-    var liveWork: LiveWorkMonitor? = nil
-    var openBranches: (() -> Void)? = nil
+    var liveWork: LiveWorkMonitor?
+    var openBranches: (() -> Void)?
+    var detectionRevision: Int
+    static let expandedDefaultsKey = "usageHUD.expandedResetTools"
+    @AppStorage(expandedDefaultsKey) private var expandedTools = ""
     @State private var dropTarget: AIToolID?
     @State private var optInRevision = 0
 
-    private static let spacing: CGFloat = 14
+    init(store: UsageStore, settings: HUDSettings, localToolStatus: LocalToolStatusRegistry?,
+         editing: Bool, liveWork: LiveWorkMonitor? = nil, openBranches: (() -> Void)? = nil,
+         detectionRevision: Int = 0) {
+        self.store = store
+        self.settings = settings
+        self.localToolStatus = localToolStatus ?? LocalToolStatusRegistry()
+        self.editing = editing
+        self.liveWork = liveWork
+        self.openBranches = openBranches
+        self.detectionRevision = detectionRevision
+    }
 
     var body: some View {
-        let tools = ModernToolList.entries(store: store, settings: settings,
-                                           localToolStatus: localToolStatus, includingHidden: editing)
-        let reading = tools.filter { !$0.limits.isEmpty }
-        let waiting = tools.filter(\.limits.isEmpty)
-        // One card a row: each tool reads top to bottom, its limits, free
-        // resets and current work together.
-        let perRow = 1
-        VStack(alignment: .leading, spacing: 26) {
-            cards(reading, perRow: perRow)
-            // Tools on this Mac that can't show usage, in the same cards,
-            // after the ones that can.
-            if !waiting.isEmpty {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Not connected")
-                        .font(.title3.weight(.semibold))
-                        .accessibilityAddTraits(.isHeader)
-                        .padding(.horizontal, 4)
-                    cards(waiting, perRow: perRow)
+        VStack(alignment: .leading, spacing: 14) {
+            if let installed = localToolStatus.installedTools {
+                let entries = ModernToolList.installedEntries(
+                    installed: installed, snapshots: settings.inDisplayOrder(store.visibleSnapshots),
+                    order: settings.toolOrder, status: localToolStatus.status(for:)
+                )
+                if entries.isEmpty {
+                    ModernCard {
+                        Text("No supported AI tools found on this Mac.")
+                            .font(.callout).foregroundStyle(.secondary)
+                    }
                 }
+                ForEach(entries) { entry in card(entry) }
+            } else {
+                ProgressView("Checking installed tools…").controlSize(.small)
             }
             if editing {
                 Text("usAIge reads each tool's limits with its sign-in on this Mac. Sign-ins stay on this Mac.")
@@ -104,42 +99,8 @@ struct ModernUsageBoard: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
-    }
-
-    @ViewBuilder
-    private func cards(_ tools: [ModernToolEntry], perRow: Int) -> some View {
-        if tools.isEmpty {
-            ModernCard {
-                Text(emptyText).font(.callout).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        } else {
-            // Each row is as tall as its tallest card.
-            Grid(horizontalSpacing: Self.spacing, verticalSpacing: Self.spacing) {
-                ForEach(Array(stride(from: 0, to: tools.count, by: perRow)), id: \.self) { start in
-                    GridRow {
-                        ForEach(start..<(start + perRow), id: \.self) { index in
-                            if index < tools.count {
-                                card(tools[index])
-                            } else {
-                                Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
-                            }
-                        }
-                    }
-                }
-            }
-            .animation(.snappy(duration: 0.22), value: tools.map(\.id))
-        }
-    }
-
-    private var emptyText: String {
-        switch store.state {
-        case .connecting: "Connecting to your AI tools…"
-        case .signedOut: UsageState.connectGuidance
-        case let .unavailable(message): message
-        default: store.visibleSnapshots.isEmpty
-            ? "No usage readings yet. Choose Edit to find or connect your AI tools."
-            : "All usage readings are hidden. Choose Edit to show them."
+        .task(id: detectionRevision) {
+            await localToolStatus.refreshInstallations()
         }
     }
 
@@ -178,18 +139,18 @@ struct ModernUsageBoard: View {
                     ForEach(limits) { limit in
                         limitRows(limit, showsName: limits.count > 1, toolShown: isShown)
                     }
-                    let credits = settings.showsResetCredits ? entry.limits.availableResets() : []
-                    if !credits.isEmpty {
-                        Divider().padding(.vertical, 2)
-                        ModernResetCredits(credits: credits)
+                    if limits.isEmpty && !entry.limits.isEmpty {
+                        Text("All limits are hidden. Choose Edit to show them.")
+                            .font(.callout).foregroundStyle(.secondary)
                     }
+                    resetDetails(for: entry, limits: limits, name: tool.name)
                     if let liveWork, !editing {
                         ModernToolWork(monitor: liveWork, tool: entry.id, openBranches: openBranches)
                     }
                 }
-                .opacity(isShown ? 1 : 0.4)
+                .opacity(editing && !isShown ? 0.55 : 1)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .overlay {
             RoundedRectangle(cornerRadius: ModernMetrics.cardRadius, style: .continuous)
@@ -203,11 +164,56 @@ struct ModernUsageBoard: View {
         .accessibilityLabel(tool.name)
     }
 
+    private func resetDetails(for entry: ModernToolEntry, limits: [QuotaSnapshot], name: String) -> some View {
+        DisclosureGroup(isExpanded: Binding(
+            get: { expandedTools.split(separator: ",").contains(Substring(entry.id.rawValue)) },
+            set: { show in
+                var ids = Set(expandedTools.split(separator: ",").map(String.init))
+                if show { ids.insert(entry.id.rawValue) } else { ids.remove(entry.id.rawValue) }
+                expandedTools = ids.sorted().joined(separator: ",")
+            }
+        )) {
+            VStack(alignment: .leading, spacing: 8) {
+                if limits.isEmpty {
+                    Text("No reset details available.").foregroundStyle(.secondary)
+                }
+                ForEach(limits) { limit in
+                    if limits.count > 1 {
+                        Text(limit.displayName).fontWeight(.medium)
+                    }
+                    resetRow(limit.primaryWindow)
+                    if let secondary = limit.secondaryWindow { resetRow(secondary) }
+                }
+                let credits = settings.showsResetCredits ? limits.availableResets() : []
+                if !credits.isEmpty { ModernResetCredits(credits: credits) }
+            }
+            .font(.callout)
+            .padding(.top, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } label: {
+            Text("Reset details").font(.callout.weight(.medium))
+                .accessibilityLabel("\(name) reset details")
+        }
+        .accessibilityIdentifier("usage.resets.\(entry.id.rawValue)")
+    }
+
+    private func resetRow(_ window: QuotaWindowSnapshot) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(window.typeTag).font(.caption.weight(.medium)).foregroundStyle(.secondary)
+            if let reset = window.resetAt {
+                Text(reset.formatted(date: .abbreviated, time: .shortened))
+            } else {
+                Text("Reset time unavailable").foregroundStyle(.secondary)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
     @ViewBuilder
     private func limitRows(_ limit: QuotaSnapshot, showsName: Bool, toolShown: Bool) -> some View {
         let isShown = !settings.hiddenBucketIDs.contains(limit.id)
         VStack(alignment: .leading, spacing: 7) {
-            if showsName {
+            if showsName || editing {
                 HStack(spacing: 8) {
                     Text(limit.displayName)
                         .font(.caption.weight(.medium))
@@ -226,14 +232,14 @@ struct ModernUsageBoard: View {
                         .controlSize(.mini)
                         .labelsHidden()
                         .disabled(!toolShown)
-                        .help("Show this limit on the rail and in usAIge")
+                        .help("Show this limit on the floating panel and dashboard")
                     }
                 }
             }
             Group {
-                ModernQuotaBar(window: limit.primaryWindow)
+                ModernQuotaBar(window: limit.primaryWindow, showsReset: false)
                 if let secondary = limit.secondaryWindow {
-                    ModernQuotaBar(window: secondary)
+                    ModernQuotaBar(window: secondary, showsReset: false)
                 }
             }
             .opacity(isShown ? 1 : 0.4)
@@ -262,7 +268,7 @@ struct ModernUsageBoard: View {
             .toggleStyle(.switch)
             .controlSize(.small)
             .labelsHidden()
-            .help("Show \(name) on the rail and in usAIge")
+            .help("Show \(name) on the floating panel and overview")
         }
     }
 

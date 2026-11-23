@@ -25,7 +25,8 @@ struct UsAIgeApp: App {
                         store: appDelegate.store,
                         launchAtLogin: appDelegate.launchAtLogin,
                         updateController: appDelegate.updateController,
-                        relaySync: appDelegate.relaySync
+                        relaySync: appDelegate.relaySync,
+                        liveWork: appDelegate.liveWork
                     )
                     .frame(width: 520, height: 580)
                 }

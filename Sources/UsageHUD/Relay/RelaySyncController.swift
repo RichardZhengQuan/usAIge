@@ -189,9 +189,17 @@ struct RelayPhoneDevice: Codable, Identifiable, Equatable, Sendable {
     let name: String
     let createdAt: Date
     let lastSeenAt: Date
+    var parentPhoneID: String? = nil
+
+    // Older relay responses omit parent IDs. The shipping Watch client uses
+    // scoped version-5 identifiers, whereas a pairing claim creates a v4 UUID.
+    var isWatch: Bool {
+        parentPhoneID != nil || UUID(uuidString: id).map { ($0.uuid.6 >> 4) == 5 } == true
+    }
 
     enum CodingKeys: String, CodingKey {
         case id, name
+        case parentPhoneID = "parent_phone_id"
         case createdAt = "created_at"
         case lastSeenAt = "last_seen_at"
     }
@@ -258,6 +266,7 @@ final class RelaySyncController: ObservableObject {
     @Published private(set) var pairingCode: String?
     @Published private(set) var pairingExpiresAt: Date?
     @Published private(set) var devices: [RelayPhoneDevice] = []
+    @Published private(set) var localDockPhones: [String: String] = [:]
     @Published private(set) var remoteTools: [RelayRemoteTool] = []
     @Published private(set) var remoteToolsState: RemoteToolsState = .unconfigured
     @Published private(set) var remoteToolActionState: RemoteToolActionState = .idle
@@ -281,6 +290,7 @@ final class RelaySyncController: ObservableObject {
     private var remotePairingPollTask: Task<Void, Never>?
     private var remotePairingPollID: UUID?
     private var channelGeneration = UUID()
+    private var deviceRequestID: UUID?
     private var remoteToolsRequestID: UUID?
     private var remoteToolsRefreshTask: Task<[QuotaSnapshot], Error>?
     private var remoteToolsStateBeforeRefresh: RemoteToolsState?
@@ -304,9 +314,13 @@ final class RelaySyncController: ObservableObject {
         // item from a newer build can display a system password prompt because
         // every ad-hoc build has a different code identity. Do not touch the old
         // item; reset the local link and let the user create a prompt-free one.
-        if channelID != nil, (try? credentials.token()) == nil {
+        if let channelID, (try? credentials.token()) == nil {
+            defaults.removeObject(forKey: Self.dockChoicesKey(channelID))
             defaults.removeObject(forKey: Self.channelKey)
             defaults.removeObject(forKey: Self.macNameKey)
+        }
+        if let channelID {
+            localDockPhones = defaults.dictionary(forKey: Self.dockChoicesKey(channelID)) as? [String: String] ?? [:]
         }
         status = channelID == nil ? .disconnected : .connected
         remoteToolsState = channelID == nil ? .unconfigured : .idle
@@ -395,6 +409,8 @@ final class RelaySyncController: ObservableObject {
             try credentials.save(response.uploadToken)
             defaults.set(response.channelID, forKey: Self.channelKey)
             defaults.set(response.macName, forKey: Self.macNameKey)
+            localDockPhones = [:]
+            devices = []
             channelGeneration = UUID()
             remoteToolsState = .idle
             pairingCode = response.pairingCode
@@ -424,17 +440,53 @@ final class RelaySyncController: ObservableObject {
     }
 
     func refreshDevices() async {
-        guard let channelID else { return }
+        guard let channelID, !Task.isCancelled else { return }
         let generation = channelGeneration
+        let requestID = UUID()
+        deviceRequestID = requestID
         do {
             let response: DeviceListResponse = try await authorizedRequest(method: "GET", path: "channels/\(channelID)/devices")
-            guard isCurrentChannel(channelID, generation: generation) else { return }
+            guard isCurrentChannel(channelID, generation: generation),
+                  deviceRequestID == requestID, !Task.isCancelled else { return }
             devices = response.devices
+            pruneDockChoices(for: channelID)
             status = .connected
         } catch {
-            guard isCurrentChannel(channelID, generation: generation) else { return }
+            guard isCurrentChannel(channelID, generation: generation),
+                  deviceRequestID == requestID, !Task.isCancelled else { return }
             status = .failed(error.localizedDescription)
         }
+    }
+
+    /// A local display preference for Watches whose older relay record does
+    /// not identify their phone. Only the iPhone can establish a relay parent.
+    func chooseDockPhone(_ phoneID: String?, for watchID: String, in channelID: String) {
+        guard self.channelID == channelID,
+              let watch = devices.first(where: { $0.id == watchID && $0.isWatch }),
+              watch.parentPhoneID == nil else { return }
+        if let phoneID, !devices.contains(where: { $0.id == phoneID && !$0.isWatch }) { return }
+        var choices = localDockPhones
+        choices[watchID.lowercased()] = phoneID?.lowercased()
+        saveDockChoices(choices, for: channelID)
+    }
+
+    private static func dockChoicesKey(_ channelID: String) -> String {
+        "usageHUD.relay.dockPhones.\(channelID.lowercased())"
+    }
+
+    private func pruneDockChoices(for channelID: String) {
+        guard !localDockPhones.isEmpty else { return }
+        let phones = Set(devices.filter { !$0.isWatch }.map { $0.id.lowercased() })
+        let watches = Set(devices.filter { $0.isWatch && $0.parentPhoneID == nil }.map { $0.id.lowercased() })
+        saveDockChoices(localDockPhones.filter { watches.contains($0.key) && phones.contains($0.value) }, for: channelID)
+    }
+
+    private func saveDockChoices(_ choices: [String: String], for channelID: String) {
+        guard choices != localDockPhones else { return }
+        localDockPhones = choices
+        let key = Self.dockChoicesKey(channelID)
+        if choices.isEmpty { defaults.removeObject(forKey: key) }
+        else { defaults.set(choices, forKey: key) }
     }
 
     func createRemoteToolPairingCode() async {
@@ -567,7 +619,9 @@ final class RelaySyncController: ObservableObject {
         do {
             try await authorizedVoid(method: "DELETE", path: "channels/\(channelID)/devices/\(device.id)")
             guard isCurrentChannel(channelID, generation: generation) else { return }
+            deviceRequestID = nil
             devices.removeAll { $0.id == device.id }
+            pruneDockChoices(for: channelID)
         } catch {
             guard isCurrentChannel(channelID, generation: generation) else { return }
             status = .failed(error.localizedDescription)
@@ -592,6 +646,8 @@ final class RelaySyncController: ObservableObject {
     private func clearLocalLink() {
         channelGeneration = UUID()
         try? credentials.delete()
+        if let channelID { defaults.removeObject(forKey: Self.dockChoicesKey(channelID)) }
+        localDockPhones = [:]
         defaults.removeObject(forKey: Self.channelKey)
         defaults.removeObject(forKey: Self.macNameKey)
         pairingCode = nil

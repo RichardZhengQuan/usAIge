@@ -52,6 +52,7 @@ final class QuotaDetailPanelController {
     private var rowFrame = CGRect.zero
     private var shownSnapshot: QuotaSnapshot?
     private var liveWork = LiveWorkSummary()
+    private var memory: SystemMemoryUsage?
     /// The visible card, without the transparent margin around it.
     private var cardFrame = CGRect.zero
     /// The card plus the gap between it and the rail.
@@ -98,7 +99,7 @@ final class QuotaDetailPanelController {
         shownSnapshot = nil
         self.rowFrame = rowFrame
         cancelPendingHide()
-        present(.liveWork(liveWork))
+        present(.liveWork(liveWork, memory: memory))
         startWatchingPointer()
         onVisibilityChanged?(true)
     }
@@ -130,11 +131,13 @@ final class QuotaDetailPanelController {
     }
 
     /// Keeps the open card current as the work changes.
-    func update(liveWork: LiveWorkSummary) {
+    func update(liveWork: LiveWorkSummary, memory: SystemMemoryUsage? = nil) {
+        let workChanged = self.liveWork != liveWork
         self.liveWork = liveWork
+        self.memory = memory
         if shownSnapshotID == Self.liveWorkID {
-            present(.liveWork(liveWork))
-        } else if let shownSnapshot {
+            present(.liveWork(liveWork, memory: memory))
+        } else if workChanged, let shownSnapshot {
             present(content(for: shownSnapshot))
         }
     }

@@ -29,6 +29,7 @@ export const relayDevices = sqliteTable("relay_devices", {
   apnsToken: text("apns_token"),
   apnsEnvironment: text("apns_environment"),
   lastPushAt: text("last_push_at"),
+  parentPhoneID: text("parent_phone_id"),
   sessionNotificationsEnabled: integer("session_notifications_enabled", { mode: "boolean" })
     .notNull()
     .default(false),

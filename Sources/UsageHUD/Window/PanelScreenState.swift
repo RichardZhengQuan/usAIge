@@ -7,6 +7,7 @@ import Combine
 @MainActor
 final class PanelScreenState: ObservableObject {
     @Published private(set) var visibleHeight: CGFloat
+    @Published private(set) var visibleWidth: CGFloat
     /// The whole display's height, which a full-height rail fills.
     @Published private(set) var screenHeight: CGFloat
     /// How far the menu bar and a bottom Dock reach into the display, so a
@@ -21,6 +22,7 @@ final class PanelScreenState: ObservableObject {
          screenHeight: CGFloat? = nil, safeTop: CGFloat? = nil, safeBottom: CGFloat? = nil) {
         let screen = NSScreen.main
         self.visibleHeight = visibleHeight
+        self.visibleWidth = screen?.visibleFrame.width ?? 1440
         self.screenHeight = screenHeight ?? screen?.frame.height ?? visibleHeight
         self.safeTop = safeTop ?? screen.map { $0.frame.maxY - $0.visibleFrame.maxY } ?? 0
         self.safeBottom = safeBottom ?? screen.map { $0.visibleFrame.minY - $0.frame.minY } ?? 0
@@ -34,11 +36,13 @@ final class PanelScreenState: ObservableObject {
         guard let screen = screen ?? NSScreen.main else { return }
         let values = (
             visible: screen.visibleFrame.height,
+            width: screen.visibleFrame.width,
             full: screen.frame.height,
             top: max(0, screen.frame.maxY - screen.visibleFrame.maxY),
             bottom: max(0, screen.visibleFrame.minY - screen.frame.minY)
         )
         if abs(values.visible - visibleHeight) > 0.5 { visibleHeight = values.visible }
+        if abs(values.width - visibleWidth) > 0.5 { visibleWidth = values.width }
         if abs(values.full - screenHeight) > 0.5 { screenHeight = values.full }
         if abs(values.top - safeTop) > 0.5 { safeTop = values.top }
         if abs(values.bottom - safeBottom) > 0.5 { safeBottom = values.bottom }

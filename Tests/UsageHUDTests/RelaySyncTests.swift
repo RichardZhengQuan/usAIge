@@ -1220,3 +1220,68 @@ func relayFixtureCleanupDrainsOperationsBeforeInvalidatingTheirSession() async t
     await fixture.controller.revoke(tool)
     #expect(fixture.controller.remoteToolActionState == .failed(expected))
 }
+
+@MainActor
+@Test func manualWatchDockChoicesAreLocalToTheChannelAndYieldToRelayPairing() async throws {
+    let time = Date(timeIntervalSinceReferenceDate: 100000)
+    let phone = RelayPhoneDevice(id: "9397638e-bbbd-4fce-b65b-48f21adc68a6", name: "iPhone", createdAt: time, lastSeenAt: time)
+    let second = RelayPhoneDevice(id: "9c77a7c0-68d3-4cd3-9805-897fec2acbd2", name: "iPhone", createdAt: time, lastSeenAt: time)
+    let watch = RelayPhoneDevice(id: "3220af21-eff2-5855-a5ee-a09dbbf43150", name: "Watch", createdAt: time, lastSeenAt: time)
+    var confirmed = watch
+    confirmed.parentPhoneID = second.id
+    func response(_ devices: [RelayPhoneDevice]) throws -> RelayTestResponse {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return RelayTestResponse(statusCode: 200, body: String(decoding: try encoder.encode(["devices": devices]), as: UTF8.self))
+    }
+    let initial = try response([phone, second, watch])
+    let fixture = try RelayControllerFixture(responses: [initial, try response([second, watch]), initial,
+                                                         try response([phone, second, confirmed])])
+    defer { fixture.cleanup() }
+    let controller = fixture.controller
+    let channel = try #require(controller.channelID)
+    await controller.refreshDevices()
+    controller.chooseDockPhone(phone.id, for: watch.id, in: channel)
+    controller.chooseDockPhone(second.id, for: watch.id, in: channel)
+    #expect(controller.localDockPhones == [watch.id: second.id])
+    controller.chooseDockPhone(nil, for: watch.id, in: channel)
+    #expect(controller.localDockPhones.isEmpty)
+    controller.chooseDockPhone(phone.id, for: watch.id, in: channel)
+    controller.chooseDockPhone("missing-phone", for: watch.id, in: channel)
+    controller.chooseDockPhone(second.id, for: "missing-watch", in: channel)
+    controller.chooseDockPhone(nil, for: watch.id, in: "stale-channel")
+    #expect(controller.localDockPhones == [watch.id: phone.id])
+    #expect(fixture.stub.requests.map(\.httpMethod) == ["GET"])
+
+    func relaunch() -> RelaySyncController {
+        RelaySyncController(defaults: fixture.defaults, session: fixture.session, credentials: fixture.credentials)
+    }
+    #expect(relaunch().localDockPhones == [watch.id: phone.id])
+    fixture.defaults.set("another-channel", forKey: "usageHUD.relay.channelID")
+    #expect(relaunch().localDockPhones.isEmpty)
+    fixture.defaults.set(channel, forKey: "usageHUD.relay.channelID")
+    await controller.refreshDevices()
+    #expect(controller.localDockPhones.isEmpty)
+    await controller.refreshDevices()
+    controller.chooseDockPhone(phone.id, for: watch.id, in: channel)
+    await controller.refreshDevices()
+    controller.chooseDockPhone(phone.id, for: watch.id, in: channel)
+    #expect(controller.localDockPhones.isEmpty)
+    #expect(relaunch().localDockPhones.isEmpty)
+    #expect(fixture.stub.requests.allSatisfy { $0.httpMethod == "GET" })
+}
+
+@MainActor
+func makeDeviceDockGalleryFixture() async throws -> (controller: RelaySyncController, cleanup: @MainActor () -> Void) {
+    let response = RelayTestResponse(statusCode: 200, body: """
+        {"devices":[
+          {"id":"9397638e-bbbd-4fce-b65b-48f21adc68a6","name":"Work iPhone","created_at":"2026-11-21T09:00:00Z","last_seen_at":"2026-11-23T08:10:00Z"},
+          {"id":"3220af21-eff2-5855-a5ee-a09dbbf43150","name":"Apple Watch Ultra","parent_phone_id":"9397638e-bbbd-4fce-b65b-48f21adc68a6","created_at":"2026-11-21T09:01:00Z","last_seen_at":"2026-11-23T08:12:00Z"},
+          {"id":"9c77a7c0-68d3-4cd3-9805-897fec2acbd2","name":"Personal iPhone","created_at":"2026-11-22T16:00:00Z","last_seen_at":"2026-11-23T04:20:00Z"},
+          {"id":"7c2df876-8402-5c7d-a909-d6ac13135945","name":"Apple Watch SE","created_at":"2026-11-21T09:10:00Z","last_seen_at":"2026-11-23T04:19:00Z"}
+        ]}
+        """)
+    let fixture = try RelayControllerFixture(responses: Array(repeating: response, count: 10))
+    await fixture.controller.refreshDevices()
+    return (fixture.controller, { fixture.cleanup() })
+}

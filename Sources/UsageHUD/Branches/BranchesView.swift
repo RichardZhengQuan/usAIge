@@ -671,7 +671,10 @@ struct BranchesRootView: View {
         } else {
             let rows = PaperweightData.memoryRows(for: layer, in: configuration, running: board.running)
             if layer.id == configuration.freeLayer.id {
-                layerNote(layer.isMeasuring ? "No system memory reading is available." : "Physical memory outside the in-use total, including reclaimable cache.")
+                layerNote(layer.isMeasuring ? "No system memory reading is available." : "Available physical RAM, including reclaimable cache, plus unused allocated swap.")
+            } else if layer.id == PaperweightData.swapLayerID {
+                layerNote(memoryUsage.map { "Swap in use: \($0.swapDescription)." }
+                          ?? "No swap reading is available.")
             } else if layer.id == PaperweightData.otherMemoryLayerID {
                 layerNote("Estimated memory in use by macOS and other apps.")
             } else if rows.measured.isEmpty, rows.sessionOnly.isEmpty {

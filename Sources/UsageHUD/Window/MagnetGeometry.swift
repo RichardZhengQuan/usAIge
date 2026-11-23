@@ -17,7 +17,7 @@ enum MagnetGeometry {
     /// How close to the physical screen edge the pointer must be to reveal.
     static let revealDistance: CGFloat = 1
     /// The pointer must be this far outside a revealed rail before it hides.
-    static let hideMargin: CGFloat = 24
+    static let hideMargin: CGFloat = 2
 
     /// The side of the display the rail's middle is on: where a full-height
     /// rail goes when it is dropped anywhere.
@@ -93,8 +93,8 @@ enum MagnetGeometry {
     ) -> Bool {
         guard pointer.y >= screenFrame.minY, pointer.y <= screenFrame.maxY else { return false }
         switch edge {
-        case .left: return pointer.x <= screenFrame.minX + revealDistance
-        case .right: return pointer.x >= screenFrame.maxX - revealDistance
+        case .left: return (screenFrame.minX...screenFrame.minX + revealDistance).contains(pointer.x)
+        case .right: return (screenFrame.maxX - revealDistance...screenFrame.maxX).contains(pointer.x)
         }
     }
 

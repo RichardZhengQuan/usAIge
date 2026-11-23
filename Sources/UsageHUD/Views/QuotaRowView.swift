@@ -150,6 +150,7 @@ struct QuotaRowView: View {
     let onDetailHoverChanged: (Bool, CGRect) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.hudTextSize) private var textSize
     @AppStorage(InterfaceStyle.defaultsKey) private var style = InterfaceStyle.standard
     @State private var isHovered = false
     @State private var rowFrame = CGRect.zero
@@ -211,8 +212,10 @@ struct QuotaRowView: View {
                     )
                 }
             }
+            .hudRailLabel()
         }
-        .frame(width: 76, height: HUDMetrics.quotaRowHeight)
+        .frame(maxWidth: .infinity)
+        .frame(height: HUDMetrics.rowHeight(for: textSize))
         .contentShape(Rectangle())
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
             rowFrame = frame
@@ -346,7 +349,7 @@ struct QuotaRowView: View {
             HStack(alignment: .center, spacing: isCondensed ? 1 : 2) {
                 Text(resetText)
                     .font(.system(
-                        size: isModern ? (isCondensed ? 11.5 : 13) : (isCondensed ? 9 : 11),
+                        size: (isModern ? (isCondensed ? 11.5 : 13) : (isCondensed ? 9 : 11)) * textSize.factor,
                         weight: .bold,
                         design: .rounded
                     ))
@@ -357,7 +360,7 @@ struct QuotaRowView: View {
                 if let availableResetCount {
                     Text("\(availableResetCount)r")
                         .font(.system(
-                            size: isModern ? (isCondensed ? 9 : 10) : (isCondensed ? 7 : 8),
+                            size: (isModern ? (isCondensed ? 9 : 10) : (isCondensed ? 7 : 8)) * textSize.factor,
                             weight: .semibold,
                             design: .rounded
                         ))
@@ -366,7 +369,7 @@ struct QuotaRowView: View {
                 }
             }
             .padding(.horizontal, isCondensed ? 3 : 6)
-            .frame(height: isModern ? 20 : (isCondensed ? 16 : 20), alignment: .center)
+            .frame(height: (isModern ? 20 : (isCondensed ? 16 : 20)) * textSize.factor)
             // A material keeps the tag legible over any wallpaper. With Reduce
             // Transparency the rail's surface is the same solid material, so a
             // tint keeps the capsule distinct from it.

@@ -1,16 +1,6 @@
 import Foundation
 
 enum RailPaperweightData {
-    static func memory(_ summary: LiveWorkSummary, physicalMemory: UInt64) -> PaperweightConfiguration {
-        let layers = PaperweightData.memoryLayers(summary: summary, running: [])
-        let capacity = Int64(clamping: physicalMemory)
-        let measured = PaperweightData.total(layers.map(\.bytes))
-        return PaperweightConfiguration(
-            id: .memory, capacityBytes: capacity, layers: layers, freeBytes: max(0, capacity - measured),
-            allocationIsEstimated: measured > capacity, measuredBytes: measured
-        )
-    }
-
     static func storage(_ disk: DiskSpace?) -> PaperweightConfiguration {
         let capacity = max(0, disk?.totalBytes ?? 0)
         let used = min(capacity, max(0, disk?.usedBytes ?? 0))

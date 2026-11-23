@@ -18,6 +18,7 @@ enum ModernPalette {
     static let buildCache = Color(nsColor: .systemGreen)
     static let toolStorage = Color(nsColor: .systemOrange)
     static let system = Color(nsColor: .systemGray)
+    static let cpu = Color(nsColor: .systemGreen)
     static let memory = Color(nsColor: .systemPurple)
     static let storage = Color(nsColor: .systemBlue)
     static let free = Color.primary.opacity(0.08)
@@ -42,6 +43,7 @@ enum ModernPalette {
         case "cache": buildCache
         case "tool": toolStorage
         case "other", PaperweightData.otherMemoryLayerID: system
+        case PaperweightData.swapLayerID: memory
         case "free", "mfree": free
         case "dev": Color(nsColor: .systemTeal)
         case "tool-" + AIToolID.claude.rawValue: Color(nsColor: .systemOrange)
@@ -68,6 +70,7 @@ enum ModernPalette {
         case "cache": "hammer.fill"
         case "tool": "shippingbox.fill"
         case "other", PaperweightData.otherMemoryLayerID: "macwindow"
+        case PaperweightData.swapLayerID: "internaldrive"
         case "free": "circle.dashed"
         case "mfree": "square.stack.3d.up.fill"
         case "dev": "server.rack"

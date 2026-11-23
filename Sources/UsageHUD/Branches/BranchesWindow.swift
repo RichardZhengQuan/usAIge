@@ -8,13 +8,14 @@ enum AppWindowIdentifiers {
 }
 
 enum MainPageDestination: String, CaseIterable, Identifiable {
-    case overview, worktrees, cleanup, resources, settings
+    case overview, thisMac, worktrees, cleanup, resources, settings
 
     var id: Self { self }
 
     var title: String {
         switch self {
         case .overview: "Overview"
+        case .thisMac: "This Mac"
         case .worktrees: "Branches"
         case .cleanup: "Cleanup"
         case .resources: "Overview"
@@ -25,6 +26,7 @@ enum MainPageDestination: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .overview: "square.grid.2x2"
+        case .thisMac: "desktopcomputer"
         case .worktrees: "point.3.connected.trianglepath.dotted"
         case .cleanup: "sparkles"
         case .resources: "chart.pie"
@@ -34,13 +36,13 @@ enum MainPageDestination: String, CaseIterable, Identifiable {
 }
 
 enum OverviewSection: String, Hashable {
-    case overview, resources, branches, settings
+    case overview, thisMac, resources, branches, settings
 }
 
 /// Modern gives each part of the window a page of its own; Classic scrolls
 /// one page through the `OverviewSection`s.
 enum ModernPage: String, CaseIterable, Identifiable, Hashable, Sendable {
-    case overview, usage, memory, storage, branches, worktrees, devices
+    case overview, usage, thisMac, memory, storage, branches, worktrees, devices
 
     var id: String { rawValue }
 
@@ -48,6 +50,7 @@ enum ModernPage: String, CaseIterable, Identifiable, Hashable, Sendable {
         switch self {
         case .overview: "Overview"
         case .usage: "Usage"
+        case .thisMac: "This Mac"
         case .memory: "Memory"
         case .storage: "Storage"
         case .branches: "Branches"
@@ -60,6 +63,7 @@ enum ModernPage: String, CaseIterable, Identifiable, Hashable, Sendable {
         switch self {
         case .overview: "square.grid.2x2.fill"
         case .usage: "gauge.with.dots.needle.67percent"
+        case .thisMac: "desktopcomputer"
         case .memory: "memorychip.fill"
         case .storage: "internaldrive.fill"
         case .branches: "arrow.triangle.branch"
@@ -72,6 +76,7 @@ enum ModernPage: String, CaseIterable, Identifiable, Hashable, Sendable {
     var section: OverviewSection {
         switch self {
         case .overview, .usage: .overview
+        case .thisMac: .thisMac
         case .memory, .storage: .resources
         case .branches, .worktrees: .branches
         case .devices: .overview
@@ -114,6 +119,7 @@ final class BranchesPaperweightPresentation: ObservableObject {
         self.destination = .overview
         switch destination {
         case .overview: focus(.overview)
+        case .thisMac: focus(.thisMac)
         case .worktrees: focus(.branches)
         case .cleanup:
             show(.storage)
@@ -127,6 +133,7 @@ final class BranchesPaperweightPresentation: ObservableObject {
         focusRequest = FocusRequest(section: section)
         switch section {
         case .overview: modernPage = .overview
+        case .thisMac: modernPage = .thisMac
         case .resources: if modernPage != .memory { modernPage = .storage }
         case .branches: modernPage = .worktrees
         case .settings: break

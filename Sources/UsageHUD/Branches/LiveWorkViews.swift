@@ -33,50 +33,44 @@ struct WaterShape: Shape {
     }
 }
 
-/// The rail's always-visible summary of what the AI tools are doing: where
-/// they're working, and how much of this Mac's memory they use. Hovering
-/// shows the detail beside the rail, and clicking opens the list.
+/// The memory gauge uses the same RAM and swap budget as the Memory page.
 @available(macOS 14.0, *)
 struct LiveWorkTile: View {
     @ObservedObject var monitor: LiveWorkMonitor
     let open: () -> Void
     /// Reports hover changes with the tile's frame in the rail's coordinates.
     let onHoverChanged: (Bool, CGRect) -> Void
-    var physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory
     @AppStorage(PaperweightShipPreferences.memoryKey) private var shipName = PaperweightShipKind.sailboat.rawValue
     @AppStorage(InterfaceStyle.defaultsKey) private var style = InterfaceStyle.standard
     @Environment(\.hudPreviewsHover) private var previewsHover
     @State private var isHovered = false
     @State private var frame = CGRect.zero
 
-    private var summary: LiveWorkSummary { monitor.summary }
-
-    private var share: Double {
-        LiveWorkText.memoryShare(summary.memoryBytes, of: physicalMemory)
-    }
-
     var body: some View {
+        let memory = monitor.memoryUsage
+        let share = memory?.usedShare
+        let value = share.map(LiveWorkText.percent) ?? "–"
+        let detail = memory?.compactTotal ?? "Memory"
         Button(action: open) {
             if style == .modern {
                 ModernRailGauge(
-                    share: share, color: ModernPalette.memory, symbol: "memorychip",
-                    value: LiveWorkText.percent(share),
-                    detail: summary.sessions.isEmpty ? "Idle" : "\(summary.placeCount) at work",
+                    share: share ?? 0, color: ModernPalette.memory, symbol: "memorychip",
+                    value: value, detail: detail,
                     isHovered: isHovered || previewsHover
                 )
             } else {
                 RailResourcePaperweight(
-                    configuration: RailPaperweightData.memory(summary, physicalMemory: physicalMemory),
+                    configuration: PaperweightData.memory(summary: monitor.summary, running: [], systemUsage: memory),
                     ship: PaperweightShipKind(rawValue: shipName) ?? .sailboat,
-                    value: LiveWorkText.percent(share),
+                    value: value,
                     symbol: "memorychip",
-                    detail: summary.sessions.isEmpty ? "Idle" : "\(summary.placeCount)",
+                    detail: detail,
                     isMoving: isHovered || previewsHover
                 )
             }
         }
         .buttonStyle(.plain)
-        .help(LiveWorkText.tileHelp(summary, of: physicalMemory))
+        .help(memory.map { "RAM \($0.ramDescription) · Swap \($0.swapDescription)" } ?? "Memory unavailable")
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { value in
             frame = value
             if isHovered { onHoverChanged(true, value) }
@@ -86,9 +80,45 @@ struct LiveWorkTile: View {
             onHoverChanged(hovering, frame)
         }
         .onDisappear { onHoverChanged(false, frame) }
-        .accessibilityLabel(LiveWorkText.headline(summary))
-        .accessibilityValue(LiveWorkText.memorySentence(summary.memoryBytes, of: physicalMemory))
-        .accessibilityHint("Opens Memory in branches and worktrees")
+        .accessibilityLabel("Memory")
+        .accessibilityValue(memory.map { "RAM \($0.ramDescription), swap \($0.swapDescription)" } ?? "Unavailable")
+        .accessibilityHint("Opens Memory")
+    }
+}
+
+@available(macOS 14.0, *)
+struct CPUTile: View {
+    @ObservedObject var monitor: SystemCPUMonitor
+    let open: () -> Void
+    @AppStorage(InterfaceStyle.defaultsKey) private var style = InterfaceStyle.standard
+    @Environment(\.hudTextSize) private var textSize
+    @State private var hovered = false
+
+    var body: some View {
+        let value = monitor.usage.map { LiveWorkText.percent($0.busy) } ?? "–"
+        Button(action: open) {
+            if style == .modern {
+                ModernRailGauge(share: monitor.usage?.busy ?? 0, color: ModernPalette.cpu, symbol: "cpu",
+                                value: value, detail: "CPU", isHovered: hovered)
+            } else {
+                VStack(spacing: HUDMetrics.resourceReadoutGap) {
+                    ModernRingGauge(share: monitor.usage?.busy ?? 0, color: ModernPalette.cpu,
+                                    lineWidth: 3, symbol: "cpu", symbolSize: 14)
+                        .frame(width: HUDMetrics.resourcePaperweightHeight, height: HUDMetrics.resourcePaperweightHeight)
+                    Text("CPU \(value)")
+                        .font(.system(size: 11 * textSize.factor, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .hudRailLabel()
+                        .frame(minHeight: HUDMetrics.resourceReadoutHeight * textSize.factor)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .help("Open CPU usage on This Mac")
+        .accessibilityLabel("CPU usage")
+        .accessibilityValue(monitor.usage == nil ? "Unavailable" : value)
+        .accessibilityHint("Opens This Mac")
     }
 }
 
@@ -153,6 +183,7 @@ struct StorageTile: View {
 /// figure under it. Nothing moves, so the rail costs nothing while idle.
 @available(macOS 14.0, *)
 private struct ModernRailGauge: View {
+    @Environment(\.hudTextSize) private var textSize
     let share: Double
     let color: Color
     let symbol: String
@@ -172,22 +203,24 @@ private struct ModernRailGauge: View {
                 .animation(.snappy(duration: 0.18), value: isHovered)
             VStack(spacing: 0) {
                 Text(value)
-                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .font(.system(size: 14 * textSize.factor, weight: .bold, design: .rounded))
                     .monospacedDigit()
                 Text(detail)
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .font(.system(size: 11 * textSize.factor, weight: .medium, design: .rounded))
                     .foregroundStyle(.secondary)
             }
             .lineLimit(1)
-            .minimumScaleFactor(0.8)
+            .hudRailLabel()
         }
-        .frame(width: 76, height: HUDMetrics.quotaRowHeight)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
     }
 }
 
 @available(macOS 14.0, *)
 private struct RailResourcePaperweight: View {
+    @Environment(\.hudTextSize) private var textSize
     let configuration: PaperweightConfiguration
     let ship: PaperweightShipKind
     let value: String
@@ -196,39 +229,22 @@ private struct RailResourcePaperweight: View {
     let isMoving: Bool
 
     var body: some View {
-        let percentWidth: CGFloat = value.count >= 4 ? 34 : 28
         VStack(spacing: HUDMetrics.resourceReadoutGap) {
             RailPaperweightView(configuration: configuration, ship: ship, hovered: isMoving)
-            HStack(spacing: 2) {
+            HStack(spacing: 6) {
                 Text(value)
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .font(.system(size: 12 * textSize.factor, weight: .bold, design: .rounded))
                     .monospacedDigit()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-                    .allowsTightening(true)
-                    .frame(width: percentWidth, alignment: .leading)
-                HStack(spacing: 2) {
-                    // Keep numbers readable before spending space on an icon.
-                    if (symbol == "memorychip" && (detail.count <= 2 || (detail == "Idle" && value.count < 4)))
-                        || (symbol == "internaldrive" && detail == "–") {
-                        Image(systemName: symbol).font(.system(size: 8, weight: .medium))
-                    }
-                    Text(detail)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.85)
-                        .allowsTightening(true)
-                        .layoutPriority(1)
-                }
-                .font(value.count >= 4
-                      ? .system(size: 10.5, weight: .medium, design: .rounded).width(.condensed)
-                      : .system(size: 10.5, weight: .medium, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(.primary.opacity(0.8))
-                .frame(width: 62 - percentWidth, alignment: .trailing)
+                Label(detail, systemImage: symbol)
+                    .font(.system(size: 10.5 * textSize.factor, weight: .medium, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
             }
-            .frame(width: 64, height: HUDMetrics.resourceReadoutHeight)
+            .lineLimit(1)
+            .hudRailLabel()
+            .frame(height: HUDMetrics.resourceReadoutHeight * textSize.factor)
         }
-        .frame(width: 64, height: HUDMetrics.resourceTileHeight)
+        .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
     }
 }
@@ -348,12 +364,25 @@ struct LiveSessionList: View {
 @available(macOS 14.0, *)
 struct LiveWorkCard: View {
     let summary: LiveWorkSummary
+    var memory: SystemMemoryUsage? = nil
     var arrowEdge: HorizontalEdge = .leading
     var arrowOffset: CGFloat = 0
     var openBranches: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Memory").font(.headline)
+                Spacer()
+                Text(memory?.compactTotal ?? "Unavailable").monospacedDigit()
+            }
+            if let memory {
+                Text("RAM \(memory.ramDescription)  ·  Swap \(memory.swapDescription)")
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Divider()
             HStack(alignment: .firstTextBaseline) {
                 Text(LiveWorkText.headline(summary)).font(.headline)
                 Spacer(minLength: 8)
@@ -368,7 +397,7 @@ struct LiveWorkCard: View {
                 LiveSessionList(sessions: summary.sessions, visibleRows: 6, showsTool: true)
             }
             Divider()
-            Text("\(LiveWorkText.memorySentence(summary.memoryBytes)). This counts AI apps and everything running in these folders.")
+            Text("These figures count AI apps and processes running in their folders.")
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             if let openBranches {
@@ -480,7 +509,7 @@ struct StorageCard: View {
 struct RailDetailCard: View {
     enum Content {
         case quota(QuotaSnapshot, others: [QuotaSnapshot], work: [LiveSessionWork], memoryBytes: UInt64)
-        case liveWork(LiveWorkSummary)
+        case liveWork(LiveWorkSummary, memory: SystemMemoryUsage? = nil)
         case storage(DiskSpace?, StorageBreakdown?)
     }
 
@@ -501,8 +530,8 @@ struct RailDetailCard: View {
                 arrowOffset: arrowOffset,
                 openBranches: openBranches
             )
-        case let .liveWork(summary):
-            LiveWorkCard(summary: summary, arrowEdge: arrowEdge, arrowOffset: arrowOffset, openBranches: openBranches)
+        case let .liveWork(summary, memory):
+            LiveWorkCard(summary: summary, memory: memory, arrowEdge: arrowEdge, arrowOffset: arrowOffset, openBranches: openBranches)
         case let .storage(disk, breakdown):
             StorageCard(disk: disk, breakdown: breakdown, arrowEdge: arrowEdge, arrowOffset: arrowOffset, openBranches: openBranches)
         }

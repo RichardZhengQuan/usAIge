@@ -32,7 +32,7 @@ struct MainRootView: View {
     static let modernGroups: [(title: String?, pages: [ModernPage])] = [
         ("usAIge", [.overview]),
         ("AI tools", [.usage]),
-        ("This Mac", [.memory, .storage, .branches, .worktrees]),
+        ("System", [.thisMac, .memory, .storage, .branches, .worktrees]),
         ("Devices", [.devices]),
     ]
 
@@ -40,6 +40,7 @@ struct MainRootView: View {
         switch page {
         case .overview: Color(nsColor: .systemBlue)
         case .usage: Color(nsColor: .systemOrange)
+        case .thisMac: ModernPalette.cpu
         case .memory: ModernPalette.memory
         case .storage: Color(nsColor: .systemGray)
         case .branches: Color(nsColor: .systemGreen)
@@ -93,6 +94,8 @@ struct MainRootView: View {
                         Section("usAIge") {
                             navigationItem("Overview", symbol: "square.grid.2x2", section: .overview)
                                 .tag(OverviewSection.overview)
+                            navigationItem("This Mac", symbol: "desktopcomputer", section: .thisMac)
+                                .tag(OverviewSection.thisMac)
                             navigationItem("Resources", symbol: "chart.pie", section: .resources)
                                 .tag(OverviewSection.resources)
                             navigationItem("Branches & Worktrees", symbol: "arrow.triangle.branch", section: .branches)
@@ -106,15 +109,7 @@ struct MainRootView: View {
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 VStack(spacing: 0) {
                     if let updateController {
-                        List {
-                            SidebarUpdateReminderView(updateController: updateController) {
-                                openSettings()
-                            }
-                        }
-                        .listStyle(.sidebar)
-                        .scrollContentBackground(.hidden)
-                        .scrollDisabled(true)
-                        .frame(height: 64)
+                        SidebarUpdateReminderView(updateController: updateController)
                     }
 
                     List(selection: selectedSection) {
@@ -132,6 +127,8 @@ struct MainRootView: View {
                 settingsContent.navigationTitle("Settings")
             } else if interfaceStyle == .modern {
                 modernPage
+            } else if presentation.selectedSection == .thisMac {
+                ThisMacPage(liveWork: liveWork).navigationTitle("This Mac")
             } else {
                 overviewContent
             }
@@ -174,6 +171,7 @@ struct MainRootView: View {
     private static func modernSymbol(for section: OverviewSection) -> String {
         switch section {
         case .overview: "square.grid.2x2.fill"
+        case .thisMac: "desktopcomputer"
         case .resources: "chart.pie.fill"
         case .branches: "arrow.triangle.branch"
         case .settings: "gearshape.fill"
@@ -183,6 +181,7 @@ struct MainRootView: View {
     private static func modernColor(for section: OverviewSection) -> Color {
         switch section {
         case .overview: Color(nsColor: .systemBlue)
+        case .thisMac: ModernPalette.cpu
         case .resources: Color(nsColor: .systemPurple)
         case .branches: Color(nsColor: .systemGreen)
         case .settings: Color(nsColor: .systemGray)
@@ -201,13 +200,17 @@ struct MainRootView: View {
         switch presentation.modernPage {
         case .overview:
             ModernOverviewPage(store: store, liveWork: liveWork, usageStore: usageStore, settings: settings,
-                               localToolStatus: localToolStatus, presentation: presentation)
+                               presentation: presentation)
                 .navigationTitle("Overview")
         case .usage:
             ModernUsagePage(usageStore: usageStore, settings: settings, localToolStatus: localToolStatus,
                             connectContent: connectContent, liveWork: liveWork,
                             openBranches: { presentation.open(.branches) }, openSettings: openSettings)
                 .navigationTitle("Usage")
+        case .thisMac:
+            ThisMacPage(liveWork: liveWork)
+                .background(ModernPalette.page)
+                .navigationTitle("This Mac")
         case .memory, .storage:
             ModernResourcePage(resource: presentation.modernPage == .memory ? .memory : .storage,
                                store: store, liveWork: liveWork, presentation: presentation)
@@ -236,6 +239,9 @@ struct MainRootView: View {
         VStack(alignment: .leading, spacing: 14) {
             if let usageStore, let settings {
                 MainUsageOverview(store: usageStore, settings: settings, openSettings: openSettings)
+            }
+            if let liveWork {
+                CPUOverviewSummary(monitor: liveWork.cpu) { presentation.focus(.thisMac) }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -388,6 +394,7 @@ private struct ModernUsagePage: View {
     var openBranches: (() -> Void)?
     let openSettings: () -> Void
     @State private var editing = false
+    @State private var detectionRevision = 0
     @State private var detecting = false
     @State private var connecting = false
 
@@ -397,7 +404,8 @@ private struct ModernUsagePage: View {
                 header
                 if let usageStore, let settings {
                     ModernUsageBoard(store: usageStore, settings: settings, localToolStatus: localToolStatus,
-                                     editing: editing, liveWork: liveWork, openBranches: openBranches)
+                                     editing: editing, liveWork: liveWork, openBranches: openBranches,
+                                     detectionRevision: detectionRevision)
                 }
             }
             .padding(.horizontal, 24)
@@ -407,6 +415,9 @@ private struct ModernUsagePage: View {
         }
         .background(ModernPalette.page)
         .environment(\.interfaceStyle, .modern)
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            detectionRevision += 1
+        }
         .sheet(isPresented: $connecting) {
             VStack(spacing: 0) {
                 HStack {
@@ -430,7 +441,7 @@ private struct ModernUsagePage: View {
                     .font(.largeTitle.weight(.bold))
                     .accessibilityAddTraits(.isHeader)
                 if editing {
-                    Text("Switch tools and limits on or off, and drag cards to reorder.")
+                    Text("Choose tools for the floating panel and overview, or drag cards to reorder.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -440,6 +451,7 @@ private struct ModernUsagePage: View {
                 Button {
                     guard let usageStore, !detecting else { return }
                     Task {
+                        detectionRevision += 1
                         detecting = true
                         await usageStore.refresh()
                         detecting = false
@@ -478,7 +490,6 @@ private struct ModernOverviewPage: View {
     var liveWork: LiveWorkMonitor?
     var usageStore: UsageStore?
     var settings: HUDSettings?
-    var localToolStatus: LocalToolStatusRegistry?
     let presentation: BranchesPaperweightPresentation
 
     var body: some View {
@@ -490,11 +501,14 @@ private struct ModernOverviewPage: View {
                     .accessibilityAddTraits(.isHeader)
                     .padding(.horizontal, 4)
                 if let usageStore, let settings {
-                    ModernToolCards(store: usageStore, settings: settings, localToolStatus: localToolStatus) {
+                    ModernToolCards(store: usageStore, settings: settings) {
                         presentation.open(.usage)
                     }
                 }
                 sectionTitle("This Mac")
+                if let liveWork {
+                    CPUOverviewSummary(monitor: liveWork.cpu) { presentation.open(.thisMac) }
+                }
                 Grid(horizontalSpacing: 14, verticalSpacing: 14) {
                     GridRow {
                         if let liveWork {
@@ -549,7 +563,6 @@ private struct ModernOverviewPage: View {
 private struct ModernToolCards: View {
     @ObservedObject var store: UsageStore
     @ObservedObject var settings: HUDSettings
-    var localToolStatus: LocalToolStatusRegistry?
     let open: () -> Void
 
     private struct ToolEntry: Identifiable {
@@ -562,8 +575,7 @@ private struct ModernToolCards: View {
     }
 
     var body: some View {
-        let entries: [ToolEntry] = ModernToolList.entries(store: store, settings: settings,
-                                                          localToolStatus: localToolStatus, includingHidden: false)
+        let entries: [ToolEntry] = ModernToolList.readingEntries(settings.ordered(store.visibleSnapshots))
             .compactMap { entry in
                 guard let tightest = entry.limits.min(by: { tightness($0) < tightness($1) }) else { return nil }
                 return ToolEntry(tool: entry.id, snapshot: tightest, others: entry.limits.count - 1,
@@ -686,6 +698,7 @@ private struct ModernToolCards: View {
 @available(macOS 14.0, *)
 private struct ModernSummaryCard<Detail: View>: View {
     let page: ModernPage
+    var title: String? = nil
     let value: String
     var unit: String? = nil
     let caption: String
@@ -698,7 +711,7 @@ private struct ModernSummaryCard<Detail: View>: View {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(spacing: 8) {
                         ModernIcon(symbol: page.symbol, color: MainRootView.color(for: page), size: 22)
-                        Text(page.title).font(.headline)
+                        Text(title ?? page.title).font(.headline)
                         Spacer(minLength: 4)
                         Image(systemName: "chevron.right")
                             .font(.system(size: 11, weight: .semibold))
@@ -730,6 +743,24 @@ private struct ModernSummaryCard<Detail: View>: View {
 }
 
 @available(macOS 14.0, *)
+private struct CPUOverviewSummary: View {
+    @ObservedObject var monitor: SystemCPUMonitor
+    let open: () -> Void
+
+    var body: some View {
+        ModernSummaryCard(page: .thisMac, title: "CPU",
+                          value: monitor.usage.map { LiveWorkText.percent($0.busy) } ?? "–",
+                          unit: "in use",
+                          caption: "\(ProcessInfo.processInfo.activeProcessorCount) logical cores",
+                          open: open) {
+            if let usage = monitor.usage {
+                ProgressView(value: usage.busy).tint(ModernPalette.cpu).accessibilityHidden(true)
+            }
+        }
+    }
+}
+
+@available(macOS 14.0, *)
 private struct ModernMemorySummary: View {
     @ObservedObject var monitor: LiveWorkMonitor
     @ObservedObject var store: BranchesStore
@@ -743,9 +774,7 @@ private struct ModernMemorySummary: View {
             page: .memory,
             value: memory.freeBytes == nil ? "–" : memory.id.formatBytes(memory.usedBytes),
             unit: memory.freeBytes == nil ? nil : "in use",
-            caption: "AI tools \(LiveWorkText.memory(monitor.summary.memoryBytes))"
-                + (memory.usedShare.map { " · \(LiveWorkText.percent($0)) of \(memory.id.formatBytes(memory.capacityBytes))" } ?? "")
-                + (monitor.memoryUsage.map { $0.swapUsedBytes > 0 ? " · swap \(memory.id.formatBytes($0.swapUsedBytes))" : "" } ?? ""),
+            caption: monitor.memoryUsage.map { "RAM \($0.ramDescription) · Swap \($0.swapDescription)" } ?? "Memory unavailable",
             open: open
         ) {
             CapacityBar(segments: ModernResourceCard.segments(memory), capacity: memory.capacityBytes, height: 8, gap: 0)
@@ -825,7 +854,9 @@ struct ModernQuotaBar: View {
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(window.typeTag) window")
-            .accessibilityValue("\(Int(window.remainingPercent.rounded())) percent left, \(ResetMomentText.sentence(window.resetAt, now: context.date))")
+            .accessibilityValue(showsReset
+                ? "\(Int(window.remainingPercent.rounded())) percent left, \(ResetMomentText.sentence(window.resetAt, now: context.date))"
+                : "\(Int(window.remainingPercent.rounded())) percent left")
         }
     }
 }

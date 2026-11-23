@@ -80,7 +80,7 @@ struct WhatsNewView: View {
     /// way; otherwise the notes stand on their own.
     private var showsUpdateStatus: Bool {
         switch updateController.status {
-        case .available, .downloading, .preparing, .failed: true
+        case .available, .downloading, .preparing, .failed, .installationFailed: true
         case .idle, .checking, .upToDate, .unavailableInDevelopment: presentation.isAvailableUpdate
         }
     }

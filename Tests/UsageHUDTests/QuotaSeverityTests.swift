@@ -103,8 +103,20 @@ func mapsRemainingPercentageToVisibleRingFraction(input: (Double, Double)) {
     #expect(HUDMetrics.maximumRailHeight(visibleHeight: 932, scale: 1) == 900)
     #expect(HUDMetrics.maximumRailHeight(visibleHeight: 932, scale: 2) == 450)
     #expect(HUDMetrics.maximumRailHeight(visibleHeight: 100, scale: 1) == 120)
-    #expect(HUDMetrics.messageSize == CGSize(width: 84, height: 120))
-    #expect(HUDMetrics.railWidth == 84)
+    #expect(HUDMetrics.messageSize == CGSize(width: 128, height: 120))
+    #expect(HUDMetrics.railWidth(for: .standard) == 128)
+}
+
+@Test func theRailFitsTheSelectedTextSizeAndTheWidestActualReadout() {
+    let small = HUDMetrics.railWidth(for: .small)
+    let standard = HUDMetrics.railWidth(for: .standard)
+    let large = HUDMetrics.railWidth(for: .large)
+    #expect(small > 84 && small < standard && standard < large)
+    for size in HUDTextSize.allCases {
+        let width = HUDMetrics.railWidth(for: size, labelWidth: 198.5)
+        #expect(width >= 198.5 + 2 * HUDMetrics.horizontalInset)
+    }
+    #expect(HUDMetrics.railHeight(rowCount: 2, textSize: .large) > HUDMetrics.railHeight(rowCount: 2))
 }
 
 @Test func scalesThePanelBoundsWithTheHUDContent() {

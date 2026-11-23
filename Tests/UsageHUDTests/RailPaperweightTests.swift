@@ -20,18 +20,21 @@ import Testing
         #expect(abs(rail.currentLevels[1] - PaperweightConstants.liquidHeight * 0.008) < 0.000_001)
     }
 
-    @Test func memorySharesKeepTheDetailPaperweightsToolOrderAndColours() {
+    @Test func theSystemGaugeMatchesTheMemoryPageAndKeepsToolColours() {
         let first = WorkProcess(id: 1, name: "Claude", folder: "/repo", memoryBytes: 50, startedAt: nil, ports: [])
         let second = WorkProcess(id: 2, name: "Codex", folder: "/repo", memoryBytes: 100, startedAt: nil, ports: [])
         let summary = LiveWorkSummary(appProcesses: [.claude: [first], .chatGPT: [second]])
-        let rail = RailPaperweightData.memory(summary, physicalMemory: 1_000)
-        let usage = SystemMemoryUsage(capacityBytes: 1_000, usedBytes: 750)
+        let usage = SystemMemoryUsage(capacityBytes: 1_000, usedBytes: 750, swapUsedBytes: 250, swapTotalBytes: 500)
         let detail = PaperweightData.memory(summary: summary, running: [], systemUsage: usage)
-        #expect(rail.layers == detail.layers.filter { !$0.processIDs.isEmpty })
-        #expect(rail.layers.map(\.id) == ["tool-claude", "tool-chatGPT"])
-        #expect(rail.layers.map(\.colorHex) == [0xE8794F, 0x9690E3])
-        #expect(rail.usedBytes == 150)
-        #expect(detail.usedBytes == 750)
+        let tools = detail.layers.filter { !$0.processIDs.isEmpty }
+        #expect(tools.map(\.id) == ["tool-claude", "tool-chatGPT"])
+        #expect(tools.map(\.colorHex) == [0xE8794F, 0x9690E3])
+        #expect(usage.usedShare == detail.usedShare)
+        #expect(detail.usedBytes == 1_000)
+        #expect(detail.capacityBytes == 1_500)
+        #expect(detail.freeBytes == 500)
+        #expect(detail.layers.first { $0.id == PaperweightData.swapLayerID }?.bytes == 250)
+        #expect(detail.layers.first { $0.id == PaperweightData.otherMemoryLayerID }?.bytes == 600)
     }
 
     @Test func theDiskHasOneLayerAndAnUnreadDiskStaysEmpty() {

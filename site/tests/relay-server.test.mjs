@@ -169,6 +169,47 @@ test("real HTTP relay persists pairing, snapshots, authorization, and revocation
   assert.deepEqual(service.logs, []);
 });
 
+test("device docks retain the phone that provisioned each watch on new and upgraded relays", async t => {
+  const service = await fixture(t);
+  const channel = await responseJSON(await service.send("/api/v1/channels", { method: "POST", body: {} }), 201);
+  const path = `/api/v1/channels/${channel.channelID}`;
+  const claim = async code => responseJSON(await service.send("/api/v1/pairings/claim", {
+    method: "POST", body: { code, deviceName: "Same name" },
+  }), 201);
+  const first = await claim(channel.pairingCode);
+  const pairing = await responseJSON(await service.send(`${path}/pairings`, { method: "POST", token: channel.uploadToken }), 201);
+  const second = await claim(pairing.pairingCode);
+  const watchID = "7c2df876-8402-5c7d-a909-d6ac13135945";
+  const provision = async phone => responseJSON(await service.send(`${path}/watch-devices/${watchID}`, {
+    method: "POST", token: phone.readToken, body: { deviceName: "Same name" },
+  }), 201);
+  const devices = async () => (await responseJSON(await service.send(`${path}/devices`, { token: channel.uploadToken }), 200)).devices;
+
+  await provision(second);
+  let list = await devices();
+  assert.equal(list.length, 3);
+  assert.equal(list.find(device => device.id === watchID).parent_phone_id, second.deviceID);
+  assert.equal(list.find(device => device.id === first.deviceID).parent_phone_id, null);
+
+  // Reopen the actual pre-dock schema. Existing installs keep their independent
+  // device credentials, and an unknown pairing remains unknown until provision.
+  service.runtime.database.connection.exec("ALTER TABLE relay_devices DROP COLUMN parent_phone_id");
+  await service.restart();
+  list = await devices();
+  assert.equal(list.length, 3);
+  assert.ok(list.every(device => device.parent_phone_id === null));
+  await provision(first);
+  await provision(first);
+  list = await devices();
+  assert.equal(list.length, 3);
+  assert.equal(list.find(device => device.id === watchID).parent_phone_id, first.deviceID);
+  await provision(second);
+  await service.send(`${path}/devices/${second.deviceID}`, { method: "DELETE", token: channel.uploadToken });
+  list = await devices();
+  assert.equal(list.length, 2);
+  assert.equal(list.find(device => device.id === watchID).parent_phone_id, second.deviceID);
+});
+
 test("HTTP body limits reject declared and chunked oversize bodies without logging content", async t => {
   const service = await fixture(t);
   const largeBody = "x".repeat(maximumBodyBytes + 1);

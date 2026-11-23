@@ -106,17 +106,17 @@ struct ModernResourcePage: View {
         // AI tools and dev servers, largest first. macOS and other apps
         // are already in the bar's key and have nothing to list.
         let layers = memory.layers
-            .filter { $0.bytes > 0 && $0.id != PaperweightData.otherMemoryLayerID }
+            .filter { $0.bytes > 0 && $0.id != PaperweightData.otherMemoryLayerID && $0.id != PaperweightData.swapLayerID }
             .sorted { $0.bytes == $1.bytes ? $0.id < $1.id : $0.bytes > $1.bytes }
         VStack(alignment: .leading, spacing: 24) {
             heading("Memory")
             figureCard(
                 value: memory.freeBytes == nil ? "–" : memory.id.formatBytes(memory.usedBytes),
-                unit: "of \(memory.id.formatBytes(memory.capacityBytes)) in use",
-                caption: memoryUsage.map { Self.swapText($0, in: memory) },
+                unit: memoryUsage == nil ? "" : "of \(memory.id.formatBytes(memory.capacityBytes)) in use",
+                caption: memoryUsage.map { "RAM \($0.ramDescription)  ·  Swap \($0.swapDescription)" },
                 configuration: memory
             )
-            if liveWork == nil {
+            if memoryUsage == nil {
                 ModernSection(title: "Not available") {
                     ModernNoteRow(text: "No memory reading is available.")
                 }
@@ -156,14 +156,6 @@ struct ModernResourcePage: View {
                 .background { PinnedHeaderBackground(space: Self.scrollSpace).padding(.horizontal, -24) }
             }
         }
-    }
-
-    /// Swap is memory macOS moved to disk when RAM ran short; a lot of it
-    /// means the Mac is slowing down to make room.
-    static func swapText(_ usage: SystemMemoryUsage, in memory: PaperweightConfiguration) -> String {
-        guard usage.swapUsedBytes > 0 else { return "No swap used" }
-        return "Swap \(memory.id.formatBytes(usage.swapUsedBytes)) used"
-            + (usage.swapTotalBytes > 0 ? " of \(memory.id.formatBytes(usage.swapTotalBytes))" : "")
     }
 
     /// A tool's own logo; dev servers get a server symbol.
