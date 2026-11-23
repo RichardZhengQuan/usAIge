@@ -545,12 +545,12 @@ actor ClaudeUsageProvider: LocalUsageProviding {
             }
             return ResetCredit(
                 id: "claude-\(id)",
-                name: name,
-                detail: detail,
-                remaining: Int(left),
+                title: name,
                 expiresAt: LocalToolDates.parse(grant["ends_at"]?.stringValue),
-                usableNow: grant["usable_now"]?.boolValue ?? true && grant["paused"]?.boolValue != true,
-                grantedAt: LocalToolDates.parse(grant["starts_at"]?.stringValue)
+                detail: detail,
+                grantedAt: LocalToolDates.parse(grant["starts_at"]?.stringValue),
+                count: Int(left),
+                isUsable: grant["usable_now"]?.boolValue ?? true && grant["paused"]?.boolValue != true
             )
         }
     }

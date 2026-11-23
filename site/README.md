@@ -103,6 +103,42 @@ Session alerts use the same APNs configuration. The relay deduplicates events,
 retains the latest 100 events per Mac for the iOS Activities inbox, and
 deletes that history when its parent channel is disconnected.
 
+### Named reset credits
+
+Each tool in a Mac upload to `PUT /api/v1/channels/{channelID}/snapshot` may
+include a `resetCredits` summary.
+
+```json
+{
+  "resetCredits": {
+    "availableCount": 1,
+    "expiresAt": "2026-12-10T22:00:00Z",
+    "credits": [
+      {
+        "id": "reset-1",
+        "title": "Full reset",
+        "expiresAt": "2026-12-10T22:00:00Z",
+        "detail": "Refills every limit."
+      }
+    ]
+  }
+}
+```
+
+`availableCount` is the total number of available resets (`0...1000`), and the
+optional summary `expiresAt` is the earliest expiry. The optional `credits`
+array contains up to 20 resets that are available and unexpired at upload time.
+Each entry requires an `id` unique within the tool (`1...128` characters) and a
+`title` (`1...80` characters). Both `expiresAt` fields are optional ISO 8601
+dates. An entry's optional `detail` describes what the reset refills
+(`1...300` characters). The relay rejects unknown keys in the summary and its
+entries.
+
+Paired clients receive the snapshot as uploaded. Older Macs omit `credits`, and
+older iPhones and Watches ignore it. Deploy relay support before Macs send
+`credits`. If an older relay rejects the upload, the Mac retries once with
+`credits` omitted.
+
 ## Learn More
 
 - [vinext Documentation](https://github.com/cloudflare/vinext)

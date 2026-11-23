@@ -1,35 +1,65 @@
+import Foundation
 import SwiftUI
 
 struct ToolsView: View {
     @Environment(RelayAppModel.self) private var model
+    @SceneStorage("connection.expandedMacIDs") private var storedExpandedMacIDs = ""
+    @State private var macToDisconnect: MacConnectionSummary?
+    @State private var disconnectingMacIDs: Set<UUID> = []
+
+    #if DEBUG
+    @State private var demoMacs: [MacConnectionSummary] = UsageDemoData.isEnabled
+        ? UsageDemoData.macSections().map { mac in
+            MacConnectionSummary(
+                id: mac.id,
+                name: mac.name,
+                limitCount: mac.snapshots.count,
+                updatedAt: mac.updatedAt,
+                errorMessage: nil
+            )
+        }
+        : []
+    #endif
 
     var body: some View {
-        Form {
-            if !model.connections.isEmpty {
-                Section("Connected Macs") {
-                    ForEach(model.connections, id: \.channelID) { connection in
-                        NavigationLink {
-                            MacConnectionDetailView(connectionID: connection.channelID)
-                        } label: {
-                            MacConnectionRow(connectionID: connection.channelID)
-                        }
-                    }
+        let macs = displayedMacs
+        let macIDs = macs.map(\.id)
 
+        Group {
+            if macs.isEmpty {
+                Form {
+                    MacPairingSection(isAddingAnotherMac: false)
+                    privacySection
                 }
             } else {
-                MacPairingSection(isAddingAnotherMac: false)
+                connectedMacs(macs)
             }
-
-            Section {
-                Label("Only normalized limit percentages and reset times are synced.", systemImage: "lock.shield")
-            } footer: {
-                Text("Provider credentials never reach the relay or this iPhone. Each Mac can be disconnected independently.")
+        }
+        .animation(.snappy, value: macIDs)
+        .onChange(of: macIDs) { previous, current in
+            let removed = Set(previous).subtracting(current)
+            if !removed.isEmpty {
+                expandedMacIDs.subtract(removed.map(\.uuidString))
             }
+        }
+        .confirmationDialog(
+            "Disconnect \(macToDisconnect?.name ?? "")?",
+            isPresented: Binding(
+                get: { macToDisconnect != nil },
+                set: { if !$0 { macToDisconnect = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: macToDisconnect
+        ) { mac in
+            Button("Disconnect", role: .destructive) { disconnect(mac.id) }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("Its limits leave this iPhone and its Apple Watch. Other Macs stay connected.")
         }
         .navigationTitle("Connection")
         .toolbarTitleDisplayMode(.inlineLarge)
         .toolbar {
-            if !model.connections.isEmpty {
+            if !macs.isEmpty {
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink {
                         AddMacView()
@@ -38,6 +68,88 @@ struct ToolsView: View {
                     }
                 }
             }
+        }
+    }
+
+    private func connectedMacs(_ macs: [MacConnectionSummary]) -> some View {
+        let expanded = expandedMacIDs
+        let isRefreshing = !isShowingDemo && model.isRefreshing
+
+        return List {
+            Section("Connected Macs") {
+                ForEach(macs) { mac in
+                    MacConnectionRow(
+                        mac: mac,
+                        isExpanded: expanded.contains(mac.id.uuidString),
+                        isRefreshing: isRefreshing,
+                        isDisconnecting: disconnectingMacIDs.contains(mac.id),
+                        toggleExpansion: {
+                            withAnimation(.snappy) {
+                                expandedMacIDs.formSymmetricDifference([mac.id.uuidString])
+                            }
+                        },
+                        refresh: { refresh(mac.id) },
+                        requestDisconnect: { macToDisconnect = mac }
+                    )
+                }
+            }
+            privacySection
+        }
+        .listStyle(.insetGrouped)
+    }
+
+    private var privacySection: some View {
+        Section {
+            Label("Only normalized limit percentages and reset times are synced.", systemImage: "lock.shield")
+        } footer: {
+            Text("Provider credentials never reach the relay or this iPhone. Each Mac can be disconnected independently.")
+        }
+    }
+
+    private var expandedMacIDs: Set<String> {
+        get { Set(storedExpandedMacIDs.split(separator: ",").map(String.init)) }
+        nonmutating set { storedExpandedMacIDs = newValue.sorted().joined(separator: ",") }
+    }
+
+    private var displayedMacs: [MacConnectionSummary] {
+        #if DEBUG
+        if isShowingDemo { return demoMacs }
+        #endif
+        return model.connectionStates.map { state in
+            MacConnectionSummary(
+                id: state.connection.channelID,
+                name: state.connection.macName,
+                limitCount: state.snapshots.count,
+                updatedAt: state.serverReceivedAt,
+                errorMessage: model.errorMessage(for: state.connection.channelID)
+            )
+        }
+    }
+
+    private var isShowingDemo: Bool {
+        #if DEBUG
+        UsageDemoData.isEnabled
+        #else
+        false
+        #endif
+    }
+
+    private func refresh(_ id: UUID) {
+        guard !isShowingDemo else { return }
+        Task { await model.refresh(connectionID: id) }
+    }
+
+    private func disconnect(_ id: UUID) {
+        #if DEBUG
+        if isShowingDemo {
+            demoMacs.removeAll { $0.id == id }
+            return
+        }
+        #endif
+        guard disconnectingMacIDs.insert(id).inserted else { return }
+        Task {
+            await model.disconnect(connectionID: id)
+            disconnectingMacIDs.remove(id)
         }
     }
 }
@@ -99,83 +211,95 @@ private struct MacPairingSection: View {
     }
 }
 
-private struct MacConnectionRow: View {
-    @Environment(RelayAppModel.self) private var model
-    let connectionID: UUID
-
-    var body: some View {
-        if let state = model.state(for: connectionID) {
-            Label {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(state.connection.macName)
-                    HStack(spacing: 6) {
-                        Text("\(state.snapshots.count) limits")
-                        if let date = state.serverReceivedAt {
-                            Text("· Updated \(date, style: .relative)")
-                        } else {
-                            Text("· Waiting for data")
-                        }
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                }
-            } icon: {
-                Image(systemName: model.errorMessage(for: connectionID) == nil
-                    ? "laptopcomputer"
-                    : "laptopcomputer.trianglebadge.exclamationmark")
-                    .foregroundStyle(
-                        model.errorMessage(for: connectionID) == nil
-                            ? Color.primary
-                            : Color.orange
-                    )
-            }
-        }
-    }
+private struct MacConnectionSummary: Identifiable {
+    let id: UUID
+    let name: String
+    let limitCount: Int
+    let updatedAt: Date?
+    let errorMessage: String?
 }
 
-private struct MacConnectionDetailView: View {
-    @Environment(RelayAppModel.self) private var model
-    @Environment(\.dismiss) private var dismiss
-    let connectionID: UUID
+private struct MacConnectionRow: View {
+    let mac: MacConnectionSummary
+    let isExpanded: Bool
+    let isRefreshing: Bool
+    let isDisconnecting: Bool
+    let toggleExpansion: () -> Void
+    let refresh: () -> Void
+    let requestDisconnect: () -> Void
 
     var body: some View {
-        Form {
-            if let state = model.state(for: connectionID) {
-                Section("Connection") {
-                    LabeledContent("Mac", value: state.connection.macName)
-                    LabeledContent("Limits", value: "\(state.snapshots.count)")
-                    LabeledContent("Last server update") {
-                        if let date = state.serverReceivedAt {
-                            Text(date, style: .relative)
-                        } else {
-                            Text("Not yet").foregroundStyle(.secondary)
-                        }
+        header
+
+        if isExpanded {
+            if let error = mac.errorMessage {
+                Label(error, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
+                    .padding(.leading, 20)
+            }
+            Button(action: refresh) {
+                Label("Refresh Now", systemImage: "arrow.clockwise")
+                    .padding(.leading, 20)
+            }
+            .disabled(isRefreshing || isDisconnecting)
+
+            Button(role: .destructive, action: requestDisconnect) {
+                Label("Disconnect This Mac", systemImage: "xmark.circle")
+                    .foregroundStyle(.red)
+                    .padding(.leading, 20)
+            }
+            .disabled(isDisconnecting)
+        }
+    }
+
+    private var header: some View {
+        Button(action: toggleExpansion) {
+            HStack(spacing: 8) {
+                Label {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(mac.name)
+                        status
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                    if let error = model.errorMessage(for: connectionID) {
-                        Label(error, systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(.orange)
-                    }
-                    Button("Refresh Now", systemImage: "arrow.clockwise") {
-                        Task { await model.refresh(connectionID: connectionID) }
-                    }
-                    .disabled(model.isRefreshing)
+                } icon: {
+                    Image(systemName: mac.errorMessage == nil
+                        ? "laptopcomputer"
+                        : "laptopcomputer.trianglebadge.exclamationmark")
+                        .foregroundStyle(mac.errorMessage == nil ? Color.primary : Color.orange)
+                        .accessibilityHidden(true)
                 }
 
-                Section {
-                    Button("Disconnect This Mac", role: .destructive) {
-                        Task {
-                            await model.disconnect(connectionID: connectionID)
-                            dismiss()
-                        }
-                    }
-                } footer: {
-                    Text("Other connected Macs and their saved limits stay on this iPhone.")
-                }
-            } else {
-                ContentUnavailableView("Mac Disconnected", systemImage: "laptopcomputer.slash")
+                Spacer(minLength: 0)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .accessibilityHidden(true)
             }
+            .contentShape(Rectangle())
         }
-        .navigationTitle(model.state(for: connectionID)?.connection.macName ?? "Mac")
-        .navigationBarTitleDisplayMode(.inline)
+        .buttonStyle(.plain)
+        .accessibilityValue(isExpanded ? Text("expanded") : Text("collapsed"))
+        .accessibilityHint("Shows this Mac's actions")
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            // Keep the row in place until the user confirms the disconnect.
+            Button("Disconnect", systemImage: "xmark.circle", action: requestDisconnect)
+                .tint(.red)
+                .disabled(isDisconnecting)
+        }
+        .contextMenu {
+            Button("Disconnect", systemImage: "xmark.circle", role: .destructive, action: requestDisconnect)
+                .disabled(isDisconnecting)
+        }
+    }
+
+    private var status: Text {
+        if let updatedAt = mac.updatedAt {
+            Text("\(mac.limitCount) limits · Updated \(.currentDate, format: .reference(to: updatedAt, maxFieldCount: 1))")
+        } else {
+            Text("\(mac.limitCount) limits · Waiting for data")
+        }
     }
 }

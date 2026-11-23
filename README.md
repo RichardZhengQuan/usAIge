@@ -55,7 +55,7 @@ Open `usAIge-iOS.xcodeproj` in Xcode 26. The project contains:
 - Account-free pairing with an 8-digit, one-use code shown by the Mac.
 - A device-scoped relay token stored in the iOS Keychain.
 - An App Group JSON cache containing quota values only, never tokens.
-- Small, medium, and large widgets backed by the shared cache.
+- Small and medium home-screen widgets backed by the shared cache.
 - Immediate foreground and pull-to-refresh updates plus APNs-assisted,
   best-effort background refresh scheduling.
 - Finished-session, error, and permission-request alerts are enabled by default

@@ -108,5 +108,6 @@ struct UsageWidget: Widget {
         .configurationDisplayName("AI Limits")
         .description("See cached usage limits for your connected AI tools.")
         .supportedFamilies([.systemSmall, .systemMedium])
+        .contentMarginsDisabled()
     }
 }

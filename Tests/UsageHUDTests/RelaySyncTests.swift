@@ -89,6 +89,153 @@ import Testing
     #expect(payload.tools.flatMap(\.limits).map(\.id) == ["codex", "codex"])
 }
 
+@Suite struct RelayNamedResetTests {
+    @Test func encodesOnlyValidCreditsWithinTheContractLimits() throws {
+        let date = Fixtures.codexSnapshot.updatedAt
+        let expiry = date.addingTimeInterval(600)
+        let longestID = String(repeating: "a", count: 128)
+        let fullReset = ResetCredit(
+            id: longestID,
+            title: String(repeating: "🎟️", count: 40),
+            expiresAt: expiry,
+            detail: String(repeating: "d", count: 301)
+        )
+        var snapshot = Fixtures.codexSnapshot
+        snapshot.availableResetCount = 1_001
+        snapshot.resetCreditExpiresAt = expiry
+        snapshot.resetCredits = [
+            ResetCredit(id: "", title: "Empty ID", expiresAt: nil, detail: nil),
+            ResetCredit(id: longestID + "a", title: "Oversized ID", expiresAt: nil, detail: nil),
+            ResetCredit(id: "blank", title: " ", expiresAt: nil, detail: nil),
+            ResetCredit(id: "expired", title: "Expired", expiresAt: date, detail: nil),
+            fullReset,
+            fullReset,
+        ] + (0..<22).map { ResetCredit(id: "extra-\($0)", title: "Extra reset", expiresAt: nil, detail: nil) }
+
+        let payload = RelaySnapshotPayload.make(from: [snapshot], at: date)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let tools = try relayTools(in: encoder.encode(payload))
+        let reset = try #require(tools.first?["resetCredits"] as? [String: Any])
+        let credits = try #require(reset["credits"] as? [[String: Any]])
+        try #require(credits.count == 20)
+
+        #expect(Set(reset.keys) == ["availableCount", "expiresAt", "credits"])
+        #expect(reset["availableCount"] as? Int == 1_000)
+        let expiryString = ISO8601DateFormatter().string(from: expiry)
+        #expect(reset["expiresAt"] as? String == expiryString)
+        #expect(credits.compactMap { $0["id"] as? String } == [longestID] + (0..<19).map { "extra-\($0)" })
+        #expect(Set(credits[0].keys) == ["id", "title", "expiresAt", "detail"])
+        #expect(credits[0]["title"] as? String == String(repeating: "🎟️", count: 26))
+        #expect(credits[0]["detail"] as? String == String(repeating: "d", count: 300))
+        #expect(credits[0]["expiresAt"] as? String == expiryString)
+        #expect(Set(credits[1].keys) == ["id", "title"])
+    }
+
+    @Test func omitsEmptyListsAndKeepsCreditsScopedToTheirTool() throws {
+        var countOnly = Fixtures.codexSnapshot
+        countOnly.availableResetCount = 2
+        let emptyPayload = RelaySnapshotPayload.make(from: [countOnly])
+        let encoder = JSONEncoder()
+        let emptyTools = try relayTools(in: encoder.encode(emptyPayload))
+        let reset = try #require(emptyTools.first?["resetCredits"] as? [String: Any])
+        #expect(Set(reset.keys) == ["availableCount"])
+
+        let snapshots = namedResetSnapshots()
+        let payload = RelaySnapshotPayload.make(from: snapshots + [snapshots[0]])
+        #expect(payload.tools.map { $0.resetCredits?.availableCount } == [2, 1])
+        #expect(payload.tools.map { $0.resetCredits?.credits?.map(\.id) } == [["reset-1"], ["reset-1"]])
+        #expect(payload.tools.map { $0.resetCredits?.credits?.first?.title } == ["Full reset", "Fable reset"])
+    }
+
+    @MainActor
+    @Test(.timeLimit(.minutes(1)))
+    func retriesARejectedUploadWithTheSameSummariesAndRemembersTheRelay() async throws {
+        let fixture = try RelayControllerFixture(linked: false, responses: [
+            .createdChannel, .failure("Unexpected credits field", statusCode: 400), .uploaded, .uploaded,
+        ])
+        defer { fixture.cleanup() }
+        let snapshots = namedResetSnapshots()
+        fixture.controller.observe(snapshots)
+
+        await fixture.controller.createChannel()
+
+        #expect(fixture.controller.status == .connected)
+        #expect(fixture.controller.lastUploadAt != nil)
+        let uploads = fixture.stub.requests.filter { $0.httpMethod == "PUT" }
+        try #require(uploads.count == 2)
+        let firstBody = try #require(uploads[0].httpBody)
+        var expectedRetry = try #require(JSONSerialization.jsonObject(with: firstBody) as? [String: Any])
+        let firstTools = try #require(expectedRetry["tools"] as? [[String: Any]])
+        try #require(firstTools.count == 2)
+        let toolsWithSummaries = try firstTools.map { originalTool in
+            var tool = originalTool
+            var reset = try #require(originalTool["resetCredits"] as? [String: Any])
+            #expect(reset.removeValue(forKey: "credits") != nil)
+            tool["resetCredits"] = reset
+            return tool
+        }
+        expectedRetry["tools"] = toolsWithSummaries
+        let retryBody = try #require(uploads[1].httpBody)
+        let retry = try #require(JSONSerialization.jsonObject(with: retryBody) as? NSDictionary)
+        #expect(retry == expectedRetry as NSDictionary)
+
+        fixture.controller.observe(snapshots)
+        try await waitForRelayRequests(fixture.stub, count: 4)
+
+        let laterUpload = try #require(fixture.stub.requests.last)
+        #expect(laterUpload.httpMethod == "PUT")
+        let later = try relayTools(in: #require(laterUpload.httpBody))
+        #expect((later as NSArray) == (toolsWithSummaries as NSArray))
+    }
+
+    @MainActor
+    @Test(.timeLimit(.minutes(1)), arguments: [400, 422])
+    func compatibilityRetryRequiresBothHTTP400AndNamedCredits(statusCode: Int) async throws {
+        let fixture = try RelayControllerFixture(
+            linked: false,
+            responses: [.createdChannel, .failure("Upload rejected", statusCode: statusCode), .uploaded]
+        )
+        defer { fixture.cleanup() }
+        let snapshots = namedResetSnapshots()
+        // The 400 case starts with a count-only upload. The 422 case includes names.
+        var countOnly = snapshots[0]
+        countOnly.resetCredits = []
+        fixture.controller.observe(statusCode == 400 ? [countOnly] : snapshots)
+        await fixture.controller.createChannel()
+
+        #expect(fixture.controller.status == .failed("Upload rejected"))
+        #expect(fixture.stub.requests.count == 2)
+
+        fixture.controller.observe(snapshots)
+        try await waitForRelayRequests(fixture.stub, count: 3)
+        let upload = try #require(fixture.stub.requests.last)
+        let tools = try relayTools(in: #require(upload.httpBody))
+        #expect(tools.count == 2)
+        #expect(tools.allSatisfy { ($0["resetCredits"] as? [String: Any])?["credits"] != nil })
+    }
+
+    private func namedResetSnapshots() -> [QuotaSnapshot] {
+        var codex = Fixtures.codexSnapshot
+        codex.availableResetCount = 2
+        codex.resetCredits = [ResetCredit(id: "reset-1", title: "Full reset", expiresAt: nil, detail: nil)]
+        var claude = Fixtures.codexSnapshot
+        claude.toolID = .claude
+        claude.resetCredits = [ResetCredit(
+            id: "reset-1",
+            title: "Fable reset",
+            expiresAt: nil,
+            detail: "Refills the 5-hour limit and the Fable allowance."
+        )]
+        return [codex, claude]
+    }
+
+    private func relayTools(in data: Data) throws -> [[String: Any]] {
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        return try #require(object["tools"] as? [[String: Any]])
+    }
+}
+
 @Test func relaySessionEventMapsAttentionStatesWithoutSessionContent() throws {
     let date = Date(timeIntervalSince1970: 1_800_000_100)
     let task = CodexAgentTask(
@@ -906,8 +1053,31 @@ private final class RelayTestURLProtocol: URLProtocol, @unchecked Sendable {
             client?.urlProtocol(self, didFailWithError: URLError(.badURL))
             return
         }
-        let reply = stub.receive(request)
+        var recordedRequest = request
+        if request.httpMethod == "PUT", let stream = request.httpBodyStream {
+            do {
+                recordedRequest.httpBody = try Self.readBody(stream)
+            } catch {
+                client?.urlProtocol(self, didFailWithError: error)
+                return
+            }
+        }
+        let reply = stub.receive(recordedRequest)
         stub.deliver(for: request) { [self] in complete(reply) }
+    }
+
+    private static func readBody(_ stream: InputStream) throws -> Data {
+        stream.open()
+        defer { stream.close() }
+        let chunkSize = 4_096
+        var buffer = [UInt8](repeating: 0, count: chunkSize)
+        var data = Data()
+        while true {
+            let count = stream.read(&buffer, maxLength: chunkSize)
+            guard count >= 0 else { throw stream.streamError ?? URLError(.cannotDecodeRawData) }
+            guard count > 0 else { return data }
+            data.append(contentsOf: buffer.prefix(count))
+        }
     }
 
     private func complete(_ reply: RelayTestResponse) {

@@ -18,7 +18,7 @@ import Testing
       {"id":"used-2609","label":"Used up","resets_left":0,"ends_at":"2026-12-01T00:00:00+00:00","type":"full"}]}}
     """.utf8)))
     let credits = ClaudeUsageProvider.resetCredits(from: payload)
-    #expect(credits.map(\.name) == ["Full reset", "Fable reset"])
+    #expect(credits.map(\.title) == ["Full reset", "Fable reset"])
     #expect(credits[0].detail == "Refills your 5-hour and weekly limits.")
     #expect(credits[1].detail == "Refills your 5-hour limit and gives back what Fable used this week.")
     #expect(credits.allSatisfy { $0.usableNow })
@@ -29,10 +29,10 @@ import Testing
     #expect(main.availableResetCount == 2)
     #expect(main.resetCreditExpiresAt == credits[0].expiresAt)
     let now = try #require(ISO8601DateFormatter().date(from: "2026-11-23T06:00:00Z"))
-    #expect(snapshots.availableResets(now: now).map(\.name) == ["Full reset", "Fable reset"])
+    #expect(snapshots.availableResets(now: now).map(\.title) == ["Full reset", "Fable reset"])
     // An expired reset isn't offered.
     let later = try #require(ISO8601DateFormatter().date(from: "2027-01-01T00:00:00Z"))
-    #expect(snapshots.availableResets(now: later).map(\.name) == ["Fable reset"])
+    #expect(snapshots.availableResets(now: later).map(\.title) == ["Fable reset"])
 }
 
 /// A tool that reports only a count and its earliest expiry, as Codex does,
@@ -46,7 +46,7 @@ import Testing
     #expect(snapshot.availableResets.isEmpty)
     snapshot.availableResetCount = 2
     snapshot.resetCreditExpiresAt = Date().addingTimeInterval(86_400)
-    #expect(snapshot.availableResets.map(\.name) == ["Reset credits"])
+    #expect(snapshot.availableResets.map(\.title) == ["Reset credits"])
     #expect(snapshot.availableResets.first?.remaining == 2)
     #expect(ResetCreditText.count(snapshot.availableResets) == "2 free resets")
     #expect(snapshot.withoutResetCredits.availableResets.isEmpty)

@@ -1,30 +1,14 @@
 import Foundation
 import SwiftUI
 
-/// A free reset a tool offers: a way to refill a limit before it would
-/// reset by itself, such as Codex's reset credits or Claude's full and
-/// model resets.
-struct ResetCredit: Codable, Equatable, Sendable, Identifiable {
-    let id: String
-    /// "Full reset", "Fable reset", "Reset credit".
-    let name: String
-    /// What using it refills, when the tool says.
-    var detail: String? = nil
-    let remaining: Int
-    let expiresAt: Date?
-    var usableNow: Bool = true
-    /// When the tool gave it, when it says.
-    var grantedAt: Date? = nil
-}
-
 extension QuotaSnapshot {
     /// Every free reset this limit's tool reports. A tool that gives only a
     /// count and its earliest expiry reads as one entry.
     var availableResets: [ResetCredit] {
-        if let resetCredits, !resetCredits.isEmpty { return resetCredits.filter { $0.remaining > 0 } }
+        if !resetCredits.isEmpty { return resetCredits.filter { $0.remaining > 0 } }
         guard let count = availableResetCount, count > 0 else { return [] }
-        return [ResetCredit(id: "\(id)-credits", name: count == 1 ? "Reset credit" : "Reset credits",
-                            remaining: count, expiresAt: resetCreditExpiresAt)]
+        return [ResetCredit(id: "\(id)-credits", title: count == 1 ? "Reset credit" : "Reset credits",
+                            expiresAt: resetCreditExpiresAt, detail: nil, count: count)]
     }
 
     /// Attaches a tool's free resets, keeping the count and earliest expiry
@@ -42,7 +26,7 @@ extension QuotaSnapshot {
     /// The same limit with its free resets left out.
     var withoutResetCredits: QuotaSnapshot {
         var copy = self
-        copy.resetCredits = nil
+        copy.resetCredits = []
         copy.availableResetCount = nil
         copy.resetCreditExpiresAt = nil
         return copy
@@ -113,7 +97,7 @@ struct ModernResetCredits: View {
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            Text(credit.name).font(.callout.weight(.semibold)).lineLimit(1)
+                            Text(credit.title).font(.callout.weight(.semibold)).lineLimit(1)
                             if credit.remaining > 1 {
                                 Text("×\(credit.remaining)").font(.caption).foregroundStyle(.secondary).monospacedDigit()
                             }

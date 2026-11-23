@@ -41,6 +41,7 @@ import Testing
     #expect(result.snapshots[0].remainingPercent == 90)
     #expect(result.snapshots[0].secondaryWindow?.remainingPercent == 60)
     #expect(result.snapshots[0].availableResetCount == nil)
+    #expect(result.snapshots[0].resetCredits.isEmpty)
 }
 
 @Test func returnsSignedOutWithoutRequestingLimits() async throws {
@@ -69,9 +70,121 @@ import Testing
     ])
 }
 
+@Suite struct CodexUsageProviderNamedResetTests {
+    @Test func readsAvailableCreditsInExpiryOrderWithTitlesAndDetails() async throws {
+        let now: TimeInterval = 1_800_000_000
+        let rpc = ResetCreditUpdateRPC(rateLimitResponses: [
+            resetCreditLimits(usedPercent: 95, availableResetCount: 6, credits: [
+                resetCredit("undated", ["expiresAt": .null]),
+                resetCredit("later", [
+                    "title": .string(" \n"),
+                    "expiresAt": .number(now + 200),
+                    "description": .string(" "),
+                    "subtitle": .string("Refills the weekly limit."),
+                ]),
+                resetCredit("used", ["status": .string("used"), "expiresAt": .number(now + 10)]),
+                resetCredit("expired", ["expiresAt": .number(now - 1)]),
+                resetCredit("expiring-now", ["expiresAt": .number(now)]),
+                resetCredit("soon", [
+                    "title": .string("Priority reset"),
+                    "resetType": .string("priority"),
+                    "expiresAt": .number(now + 100),
+                    "description": .string("Refills the priority allowance."),
+                    "subtitle": .string("Priority usage"),
+                ]),
+            ]),
+        ])
+        let provider = CodexUsageProvider(rpc: rpc, now: { Date(timeIntervalSince1970: now) })
+
+        let result = try await provider.refresh()
+        let snapshot = try #require(result.snapshots.first)
+        #expect(snapshot.availableResetCount == 6)
+        #expect(snapshot.resetCreditExpiresAt == Date(timeIntervalSince1970: now + 100))
+        #expect(snapshot.resetCredits == [
+            ResetCredit(
+                id: "soon",
+                title: "Priority reset",
+                expiresAt: Date(timeIntervalSince1970: now + 100),
+                detail: "Refills the priority allowance."
+            ),
+            ResetCredit(
+                id: "later",
+                title: "Full reset",
+                expiresAt: Date(timeIntervalSince1970: now + 200),
+                detail: "Refills the weekly limit."
+            ),
+            ResetCredit(id: "undated", title: "Full reset", expiresAt: nil, detail: nil),
+        ])
+        await provider.stop()
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func bucketPushesKeepOrReplaceCreditsForEveryBucket() async throws {
+        let rpc = ResetCreditUpdateRPC(rateLimitResponses: [Fixtures.multiBucketRateLimits])
+        let provider = CodexUsageProvider(
+            rpc: rpc,
+            now: { Date(timeIntervalSince1970: 1_800_000_000) }
+        )
+        let initial = try await provider.refresh()
+        let initialCredits = try #require(initial.snapshots.first).resetCredits
+        #expect(initialCredits.map(\.id) == ["reset-1"])
+
+        let updates = await provider.updates()
+        var iterator = updates.makeAsyncIterator()
+        await rpc.sendUpdate(try #require(Fixtures.singleBucketRateLimits["rateLimits"]))
+
+        let bucketsOnly = try #require(await iterator.next())
+        #expect(bucketsOnly.map(\.id) == ["codex", "codex_other"])
+        #expect(bucketsOnly.first?.remainingPercent == 90)
+        #expect(bucketsOnly.allSatisfy { $0.resetCredits == initialCredits })
+
+        await rpc.sendUpdate(resetCreditLimits(
+            usedPercent: 20,
+            availableResetCount: 6,
+            credits: [resetCredit("replacement")]
+        ))
+        let replacement = try #require(await iterator.next())
+        #expect(replacement.map(\.id) == ["codex", "codex_other"])
+        #expect(replacement.allSatisfy { $0.resetCredits.map(\.id) == ["replacement"] })
+        #expect(await rpc.rateLimitReadCount == 1)
+        await provider.stop()
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func aNewerCreditPushSurvivesAnOlderFullReadAcrossAllBuckets() async throws {
+        let rpc = PushDuringReadRPC(
+            fullResponse: Fixtures.multiBucketRateLimits,
+            push: resetCreditLimits(
+                usedPercent: 50,
+                availableResetCount: 7,
+                credits: [resetCredit("pushed")]
+            )
+        )
+        let provider = CodexUsageProvider(
+            rpc: rpc,
+            now: { Date(timeIntervalSince1970: 1_800_000_000) }
+        )
+        _ = try await provider.refresh()
+
+        let updates = await provider.updates()
+        var iterator = updates.makeAsyncIterator()
+        let refresh = Task { try await provider.refresh() }
+        let pushed = await iterator.next()
+        await rpc.answerRead()
+        let refreshed = try await refresh.value
+
+        #expect(pushed?.first?.remainingPercent == 50)
+        #expect(refreshed.snapshots.map(\.id) == ["codex", "codex_other"])
+        #expect(refreshed.snapshots.first?.remainingPercent == 50)
+        #expect(refreshed.snapshots.allSatisfy { $0.availableResetCount == 7 })
+        #expect(refreshed.snapshots.allSatisfy { $0.resetCredits.map(\.id) == ["pushed"] })
+        await provider.stop()
+    }
+}
+
 @Test func refreshesAuthoritativeLimitsAfterAPartialResetCreditUpdate() async throws {
     let rpc = ResetCreditUpdateRPC(rateLimitResponses: [
-        resetCreditLimits(usedPercent: 95, availableResetCount: 1),
+        resetCreditLimits(usedPercent: 95, availableResetCount: 1, credits: [resetCredit("initial")]),
         resetCreditLimits(usedPercent: 1, availableResetCount: 0),
     ])
     let provider = CodexUsageProvider(
@@ -82,6 +195,7 @@ import Testing
     let initial = try await provider.refresh()
     #expect(initial.snapshots.first?.remainingPercent == 5)
     #expect(initial.snapshots.first?.availableResetCount == 1)
+    #expect(initial.snapshots.first?.resetCredits.map(\.id) == ["initial"])
 
     let updates = await provider.updates()
     var iterator = updates.makeAsyncIterator()
@@ -90,6 +204,7 @@ import Testing
 
     #expect(synchronized?.first?.remainingPercent == 99)
     #expect(synchronized?.first?.availableResetCount == 0)
+    #expect(synchronized?.first?.resetCredits.isEmpty == true)
     #expect(await rpc.rateLimitReadCount == 2)
     await provider.stop()
 }
@@ -202,14 +317,18 @@ private actor ResetCreditUpdateRPC: RPCRequesting {
     }
 
     func sendResetCreditUsed() {
+        sendUpdate(.object([
+            "rateLimitResetCredits": .object([
+                "availableCount": .number(0),
+                "credits": .array([]),
+            ]),
+        ]))
+    }
+
+    func sendUpdate(_ params: JSONValue) {
         notificationContinuation.yield(JSONRPCNotification(
             method: "account/rateLimits/updated",
-            params: .object([
-                "rateLimitResetCredits": .object([
-                    "availableCount": .number(0),
-                    "credits": .array([]),
-                ]),
-            ])
+            params: params
         ))
     }
 
@@ -220,7 +339,8 @@ private actor ResetCreditUpdateRPC: RPCRequesting {
 
 private func resetCreditLimits(
     usedPercent: Double,
-    availableResetCount: Int
+    availableResetCount: Int,
+    credits: [JSONValue] = []
 ) -> JSONValue {
     .object([
         "rateLimits": .object([
@@ -234,9 +354,13 @@ private func resetCreditLimits(
         ]),
         "rateLimitResetCredits": .object([
             "availableCount": .number(Double(availableResetCount)),
-            "credits": .array([]),
+            "credits": .array(credits),
         ]),
     ])
+}
+
+private func resetCredit(_ id: String, _ fields: [String: JSONValue] = [:]) -> JSONValue {
+    .object(["id": .string(id), "status": .string("available")].merging(fields) { _, value in value })
 }
 
 @Test func aPushDuringAFullReadIsNotOverwrittenByOlderNumbers() async throws {
@@ -261,12 +385,16 @@ private func resetCreditLimits(
 }
 
 private actor PushDuringReadRPC: RPCRequesting {
+    private let fullResponse: JSONValue
+    private let push: JSONValue
     private let notificationStream: AsyncStream<JSONRPCNotification>
     private let notificationContinuation: AsyncStream<JSONRPCNotification>.Continuation
     private var reads = 0
     private var pendingRead: CheckedContinuation<Void, Never>?
 
-    init() {
+    init(fullResponse: JSONValue? = nil, push: JSONValue? = nil) {
+        self.fullResponse = fullResponse ?? Self.limits(usedPercent: 10)
+        self.push = push ?? Self.limits(usedPercent: 50)
         (notificationStream, notificationContinuation) = AsyncStream.makeStream(of: JSONRPCNotification.self)
     }
 
@@ -283,11 +411,11 @@ private actor PushDuringReadRPC: RPCRequesting {
             if reads > 1 {
                 notificationContinuation.yield(JSONRPCNotification(
                     method: "account/rateLimits/updated",
-                    params: Self.limits(usedPercent: 50)
+                    params: push
                 ))
                 await withCheckedContinuation { pendingRead = $0 }
             }
-            return Self.limits(usedPercent: 10)
+            return fullResponse
         default:
             throw TestRPCError.noResponse
         }

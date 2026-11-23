@@ -5,13 +5,13 @@ This project adds a native watchOS app and WidgetKit complications to usAIge's i
 ## What is included
 
 - `usAIge-iOS`: the iPhone and iPad app for pairing with a Mac using a one-use code. Its device-scoped relay token stays in the iPhone Keychain.
-- `usAIgeWatch`: inspect limits grouped by connected Mac and AI tool, see primary and secondary windows, and refresh through the iPhone or directly through the usAIge relay.
+- `usAIgeWatch`: one ring per AI tool showing its tightest limit, what's left and when it resets, and refresh through the iPhone or directly through the usAIge relay.
 - `usAIgeWatchWidget`: watch-face complications for circular, rectangular, inline, and corner families.
 - `WatchUsageSnapshot`: a small, versioned, credential-free transfer contract shared by the iOS app, Watch app, and Watch widget.
 
-The macOS app, iPhone, Watch app, and complication use the same quota severity language: blue above 60% remaining, green from 41–60%, orange from 21–40%, red from 11–20%, and deep red at 10% or below. Critical Watch rings use the same warning glow and pulse as macOS; with Reduce Motion enabled, the warning remains visible without animation. At 0%, the ring becomes a complete warning ring rather than disappearing. Compact duration tags such as `5H` and `7D` keep them readable on small screens.
+The iPhone and Watch follow the Mac's Modern look: system colours, grouped cards, and rings drawn like the Mac rail's. Every tool's ring is the same size; a limit with two windows nests its first window inside the second. The macOS app, iPhone, Watch app, and complication use the same colour for what's left: blue above 60%, green from 41–60%, orange from 21–40%, red from 11–20%, and deep red at 10% or below. At 0%, the ring becomes a complete warning ring rather than disappearing. Reset times read as a compact countdown such as `resets 2H`.
 
-The complication displays the most constrained quota window, so the limit most likely to need attention is visible at a glance.
+The complication displays the limit closest to running out across all tools, so the limit most likely to need attention is visible at a glance.
 
 ## Requirements
 

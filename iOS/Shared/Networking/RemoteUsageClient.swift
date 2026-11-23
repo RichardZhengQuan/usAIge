@@ -304,10 +304,12 @@ public struct RelayClient: Sendable {
                     windowDurationMinutes: limit.primary.windowDurationMinutes,
                     availableResetCount: tool.resetCredits?.availableCount,
                     resetCreditExpiresAt: tool.resetCredits?.expiresAt,
+                    resetCredits: tool.resetCredits?.credits ?? [],
                     secondaryWindow: limit.secondary.map { QuotaWindowSnapshot(remainingPercent: $0.remainingPercent, resetAt: $0.resetAt, windowDurationMinutes: $0.windowDurationMinutes) },
                     sessionStatus: tool.sessionStatus.map {
                         CodexSessionStatus(phase: $0.phase, updatedAt: $0.updatedAt)
-                    }
+                    },
+                    toolSymbolName: tool.symbolName
                 )
             }
         }
@@ -473,7 +475,11 @@ private struct SessionEventDocument: Decodable {
 }
 private struct RelaySnapshotDocument: Decodable { let generatedAt: Date; let tools: [RelayToolDocument] }
 private struct RelayToolDocument: Decodable { let id, name, symbolName: String; let resetCredits: RelayResetCreditsDocument?; let limits: [RelayLimitDocument]; let sessionStatus: RelaySessionStatusDocument? }
-private struct RelayResetCreditsDocument: Decodable { let availableCount: Int; let expiresAt: Date? }
+private struct RelayResetCreditsDocument: Decodable {
+    let availableCount: Int
+    let expiresAt: Date?
+    let credits: [ResetCreditSnapshot]?
+}
 private struct RelayLimitDocument: Decodable { let id, name: String; let planType: String?; let primary: RelayWindowDocument; let secondary: RelayWindowDocument? }
 private struct RelayWindowDocument: Decodable { let remainingPercent: Double; let resetAt: Date?; let windowDurationMinutes: Int? }
 private struct RelaySessionStatusDocument: Decodable { let phase: CodexSessionPhase; let updatedAt: Date }

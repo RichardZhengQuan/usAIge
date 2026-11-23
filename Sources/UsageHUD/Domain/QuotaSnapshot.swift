@@ -52,6 +52,30 @@ struct QuotaWindowSnapshot: Codable, Equatable, Sendable {
     }
 }
 
+/// A free reset a tool offers: a way to refill a limit before it would
+/// reset by itself, such as a Codex reset credit or Claude's full and model
+/// resets.
+struct ResetCredit: Codable, Equatable, Sendable, Identifiable {
+    let id: String
+    let title: String
+    let expiresAt: Date?
+    let detail: String?
+    /// When the tool gave it, when it says.
+    var grantedAt: Date? = nil
+    /// How many of it are left, for a tool that groups them; one otherwise.
+    var count: Int? = nil
+    /// False when the tool says it can't be used yet.
+    var isUsable: Bool? = nil
+
+    var remaining: Int { count ?? 1 }
+    var usableNow: Bool { isUsable ?? true }
+
+    func isUnexpired(at date: Date) -> Bool {
+        guard let expiresAt else { return true }
+        return expiresAt.timeIntervalSince1970.isFinite && expiresAt > date
+    }
+}
+
 struct QuotaSnapshot: Identifiable, Codable, Equatable, Sendable {
     let id: String
     var toolID: AIToolID = .chatGPT
@@ -67,9 +91,9 @@ struct QuotaSnapshot: Identifiable, Codable, Equatable, Sendable {
     let updatedAt: Date
     var availableResetCount: Int? = nil
     var resetCreditExpiresAt: Date? = nil
+    var resetCredits: [ResetCredit] = []
     var secondaryWindow: QuotaWindowSnapshot? = nil
     /// Each free reset by name, for tools that list them.
-    var resetCredits: [ResetCredit]? = nil
 
     var typeTag: String {
         primaryWindow.typeTag
@@ -121,5 +145,27 @@ struct QuotaSnapshot: Identifiable, Codable, Equatable, Sendable {
             updatedAt: updatedAt,
             secondaryWindow: secondary
         )
+    }
+}
+
+extension QuotaSnapshot {
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(String.self, forKey: .id)
+        toolID = try values.decode(AIToolID.self, forKey: .toolID)
+        toolName = try values.decodeIfPresent(String.self, forKey: .toolName)
+        toolWebURL = try values.decodeIfPresent(URL.self, forKey: .toolWebURL)
+        toolSystemImage = try values.decodeIfPresent(String.self, forKey: .toolSystemImage)
+        displayName = try values.decode(String.self, forKey: .displayName)
+        usedPercent = try values.decode(Double.self, forKey: .usedPercent)
+        remainingPercent = try values.decode(Double.self, forKey: .remainingPercent)
+        resetAt = try values.decodeIfPresent(Date.self, forKey: .resetAt)
+        windowDurationMinutes = try values.decodeIfPresent(Int.self, forKey: .windowDurationMinutes)
+        planType = try values.decodeIfPresent(String.self, forKey: .planType)
+        updatedAt = try values.decode(Date.self, forKey: .updatedAt)
+        availableResetCount = try values.decodeIfPresent(Int.self, forKey: .availableResetCount)
+        resetCreditExpiresAt = try values.decodeIfPresent(Date.self, forKey: .resetCreditExpiresAt)
+        resetCredits = try values.decodeIfPresent([ResetCredit].self, forKey: .resetCredits) ?? []
+        secondaryWindow = try values.decodeIfPresent(QuotaWindowSnapshot.self, forKey: .secondaryWindow)
     }
 }

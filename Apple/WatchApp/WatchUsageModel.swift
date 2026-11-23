@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Security
 import WatchConnectivity
@@ -23,6 +24,19 @@ final class WatchUsageModel: NSObject, ObservableObject {
         credentialStore = WatchRelayCredentialStore()
         directClient = WatchRelayClient()
         installationID = WatchInstallationIdentity.current()
+        #if DEBUG
+        if UsageDemoData.isEnabled {
+            session = nil
+            let demo = UsageDemoData.envelope()
+            envelope = demo
+            super.init()
+            // Hand the sample readings to the complication too, so it can be
+            // checked on a Simulator watch face without a paired Mac.
+            try? cache.save(demo)
+            WidgetCenter.shared.reloadTimelines(ofKind: AppGroup.widgetKind)
+            return
+        }
+        #endif
         session = WCSession.isSupported() ? .default : nil
         envelope = try? cache.load()
         hasCellularCredentials = !((try? credentialStore.load()) ?? []).isEmpty
@@ -40,14 +54,14 @@ final class WatchUsageModel: NSObject, ObservableObject {
 
     var isStale: Bool {
         guard let envelope, !envelope.tools.isEmpty else { return true }
-        return envelope.tools.contains(where: isStale)
-    }
-
-    func isStale(_ tool: WatchToolQuotaSnapshot) -> Bool {
-        Date().timeIntervalSince(tool.sourceUpdatedAt) > 30 * 60
+        let now = Date()
+        return envelope.tools.contains { $0.isStale(at: now) }
     }
 
     func refresh() {
+        #if DEBUG
+        guard !UsageDemoData.isEnabled else { return }
+        #endif
         guard !isRefreshing else { return }
         if let session, session.activationState == .activated, session.isReachable {
             refreshFromPhone(session)
@@ -59,6 +73,9 @@ final class WatchUsageModel: NSObject, ObservableObject {
     var canRefresh: Bool { phoneIsReachable || hasCellularCredentials }
 
     func refreshIfNeeded() {
+        #if DEBUG
+        guard !UsageDemoData.isEnabled else { return }
+        #endif
         guard isStale, canRefresh else { return }
         refresh()
     }
@@ -451,7 +468,9 @@ private struct WatchRelayClient: Sendable {
                 sessionStatus: tool.sessionStatus.map {
                     WatchSessionStatus(phase: $0.phase, updatedAt: $0.updatedAt)
                 },
-                symbolName: tool.symbolName
+                symbolName: tool.symbolName,
+                availableResetCount: tool.resetCredits?.availableCount,
+                resetCreditExpiresAt: tool.resetCredits?.expiresAt
             )
         }
     }
@@ -499,6 +518,12 @@ private struct WatchRelayToolDocument: Decodable {
     let symbolName: String
     let limits: [WatchRelayLimitDocument]
     let sessionStatus: WatchRelaySessionStatusDocument?
+    let resetCredits: WatchRelayResetCreditsDocument?
+}
+
+private struct WatchRelayResetCreditsDocument: Decodable {
+    let availableCount: Int
+    let expiresAt: Date?
 }
 
 private struct WatchRelaySessionStatusDocument: Decodable {

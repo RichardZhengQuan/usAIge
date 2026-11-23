@@ -760,6 +760,7 @@ final class AppModel {
                 )
             }
             guard !limits.isEmpty else { return nil }
+            let credit = toolSnapshots.firstWithResetCredit
             return WatchToolQuotaSnapshot(
                 id: tool.id.uuidString.lowercased(),
                 displayName: tool.name,
@@ -767,7 +768,9 @@ final class AppModel {
                 receivedAt: generatedAt,
                 limits: limits,
                 sessionStatus: sessionStatus,
-                symbolName: tool.symbolName
+                symbolName: tool.symbolName,
+                availableResetCount: credit?.availableResetCount,
+                resetCreditExpiresAt: credit?.resetCreditExpiresAt
             )
         }
         return WatchUsageSnapshotEnvelope(generatedAt: generatedAt, tools: tools)
@@ -1327,6 +1330,7 @@ final class RelayAppModel {
             return orderedToolIDs.compactMap { toolID in
                 let values = state.snapshots.filter { $0.toolID == toolID }
                 guard let first = values.first else { return nil }
+                let credit = values.firstWithResetCredit
                 let sessionStatus = values.compactMap(\.sessionStatus).max {
                     $0.updatedAt < $1.updatedAt
                 }.map {
@@ -1363,7 +1367,9 @@ final class RelayAppModel {
                         )
                     },
                     sessionStatus: sessionStatus,
-                    symbolName: "sparkles"
+                    symbolName: first.toolSymbolName ?? "sparkles",
+                    availableResetCount: credit?.availableResetCount,
+                    resetCreditExpiresAt: credit?.resetCreditExpiresAt
                 )
             }
         }
