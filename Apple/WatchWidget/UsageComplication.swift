@@ -235,10 +235,19 @@ struct UsageComplicationView: View {
             .tint(selected.color)
 
             if familyOverride != nil {
-                // WidgetKit draws the widget label on the watch face.
-                VStack(spacing: 2) {
+                // Outside a watch face (the Debug preview) WidgetKit can't curve
+                // the label, so show the same pieces flat: mark, bar, percent.
+                HStack(spacing: 6) {
                     mark
-                    gauge.gaugeStyle(.accessoryLinearCapacity)
+                    Gauge(value: selected.remainingPercent, in: 0...100) {
+                        EmptyView()
+                    }
+                    .gaugeStyle(.accessoryLinearCapacity)
+                    .tint(selected.color)
+                    Text(selected.percent)
+                        .font(.caption2.weight(.semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(selected.color)
                 }
             } else {
                 mark.widgetLabel { gauge }
