@@ -19,6 +19,34 @@ enum MagnetGeometry {
     /// The pointer must be this far outside a revealed rail before it hides.
     static let hideMargin: CGFloat = 24
 
+    /// The side of the display the rail's middle is on: where a full-height
+    /// rail goes when it is dropped anywhere.
+    static func nearestEdge(to frame: CGRect, in visibleFrame: CGRect) -> MagnetEdge {
+        frame.midX < visibleFrame.midX ? .left : .right
+    }
+
+    /// A full-height rail flush against `edge`: it runs the display's whole
+    /// height, behind the menu bar and a bottom Dock, and keeps its content
+    /// clear of them inside. A Dock on that side still pushes it inward.
+    static func edgeRailFrame(width: CGFloat, edge: MagnetEdge, screenFrame: CGRect, visibleFrame: CGRect) -> CGRect {
+        CGRect(
+            x: edge == .left ? visibleFrame.minX : visibleFrame.maxX - width,
+            y: screenFrame.minY,
+            width: width,
+            height: screenFrame.height
+        )
+    }
+
+    /// Which side a full-height rail goes to after a drag: a short flick
+    /// toward the other side is enough, and a small wobble keeps it put.
+    static let flickDistance: CGFloat = 24
+
+    static func edgeAfterDrag(from edge: MagnetEdge, horizontalTranslation dx: CGFloat) -> MagnetEdge {
+        if dx >= flickDistance { return .right }
+        if dx <= -flickDistance { return .left }
+        return edge
+    }
+
     static func edge(toSnap frame: CGRect, in visibleFrame: CGRect) -> MagnetEdge? {
         let leftGap = frame.minX - visibleFrame.minX
         let rightGap = visibleFrame.maxX - frame.maxX

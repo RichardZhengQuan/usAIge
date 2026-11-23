@@ -13,8 +13,40 @@ struct MainRootView: View {
     var settings: HUDSettings? = nil
     @ObservedObject var presentation: BranchesPaperweightPresentation
     var settingsContent: AnyView? = nil
+    /// The pairing steps Modern's Usage page shows to connect a remote tool.
+    var connectContent: AnyView? = nil
+    /// Syncing with iPhone and Apple Watch, shown as Modern's own page.
+    var syncContent: AnyView? = nil
+    var localToolStatus: LocalToolStatusRegistry? = nil
     var updateController: UpdateController? = nil
     var openSettings: () -> Void
+    @AppStorage(InterfaceStyle.defaultsKey) private var interfaceStyle = InterfaceStyle.standard
+
+    private var modernSelection: Binding<ModernPage?> {
+        Binding(get: { presentation.selectedSection == .settings ? nil : presentation.modernPage },
+                set: { page in if let page { presentation.open(page) } })
+    }
+
+    /// Overview sums up every page under the app's name; the rest carry the
+    /// same titles as Overview's sections.
+    static let modernGroups: [(title: String?, pages: [ModernPage])] = [
+        ("usAIge", [.overview]),
+        ("AI tools", [.usage]),
+        ("This Mac", [.memory, .storage, .branches, .worktrees]),
+        ("Devices", [.devices]),
+    ]
+
+    static func color(for page: ModernPage) -> Color {
+        switch page {
+        case .overview: Color(nsColor: .systemBlue)
+        case .usage: Color(nsColor: .systemOrange)
+        case .memory: ModernPalette.memory
+        case .storage: Color(nsColor: .systemGray)
+        case .branches: Color(nsColor: .systemGreen)
+        case .worktrees: Color(nsColor: .systemTeal)
+        case .devices: Color(nsColor: .systemIndigo)
+        }
+    }
 
     private var selectedSection: Binding<OverviewSection?> {
         Binding(get: { presentation.selectedSection }, set: { section in
@@ -25,14 +57,48 @@ struct MainRootView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(selection: selectedSection) {
-                Section("usAIge") {
-                    navigationItem("Overview", symbol: "square.grid.2x2", section: .overview)
-                        .tag(OverviewSection.overview)
-                    navigationItem("Resources", symbol: "chart.pie", section: .resources)
-                        .tag(OverviewSection.resources)
-                    navigationItem("Branches & Worktrees", symbol: "arrow.triangle.branch", section: .branches)
-                        .tag(OverviewSection.branches)
+            Group {
+                if interfaceStyle == .modern {
+                    List(selection: modernSelection) {
+                        // Grouped like System Settings: the overview, AI
+                        // tools, this Mac, then devices. No sections: a
+                        // sidebar section collapses when its header is
+                        // clicked, so titles are plain rows that can't.
+                        ForEach(Self.modernGroups, id: \.pages) { group in
+                            if let title = group.title {
+                                Text(title)
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                    .padding(.top, 14)
+                                    .selectionDisabled()
+                                    .allowsHitTesting(false)
+                                    .accessibilityAddTraits(.isHeader)
+                            }
+                            ForEach(group.pages) { page in
+                                Label {
+                                    Text(page.title)
+                                } icon: {
+                                    ModernIcon(symbol: page.symbol, color: Self.color(for: page), size: 20)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                                .onTapGesture { presentation.open(page) }
+                                .accessibilityAction { presentation.open(page) }
+                                .tag(page)
+                            }
+                        }
+                    }
+                } else {
+                    List(selection: selectedSection) {
+                        Section("usAIge") {
+                            navigationItem("Overview", symbol: "square.grid.2x2", section: .overview)
+                                .tag(OverviewSection.overview)
+                            navigationItem("Resources", symbol: "chart.pie", section: .resources)
+                                .tag(OverviewSection.resources)
+                            navigationItem("Branches & Worktrees", symbol: "arrow.triangle.branch", section: .branches)
+                                .tag(OverviewSection.branches)
+                        }
+                    }
                 }
             }
             .listStyle(.sidebar)
@@ -64,6 +130,8 @@ struct MainRootView: View {
         } detail: {
             if presentation.selectedSection == .settings, let settingsContent {
                 settingsContent.navigationTitle("Settings")
+            } else if interfaceStyle == .modern {
+                modernPage
             } else {
                 overviewContent
             }
@@ -85,16 +153,77 @@ struct MainRootView: View {
     }
 
     private func navigationItem(_ title: String, symbol: String, section: OverviewSection) -> some View {
-        Label(title, systemImage: symbol)
+        Group {
+            if interfaceStyle == .modern {
+                // Coloured squares, as in System Settings.
+                Label {
+                    Text(title)
+                } icon: {
+                    ModernIcon(symbol: Self.modernSymbol(for: section), color: Self.modernColor(for: section), size: 20)
+                }
+            } else {
+                Label(title, systemImage: symbol)
+            }
+        }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .onTapGesture { focus(section) }
             .accessibilityAction { focus(section) }
     }
 
+    private static func modernSymbol(for section: OverviewSection) -> String {
+        switch section {
+        case .overview: "square.grid.2x2.fill"
+        case .resources: "chart.pie.fill"
+        case .branches: "arrow.triangle.branch"
+        case .settings: "gearshape.fill"
+        }
+    }
+
+    private static func modernColor(for section: OverviewSection) -> Color {
+        switch section {
+        case .overview: Color(nsColor: .systemBlue)
+        case .resources: Color(nsColor: .systemPurple)
+        case .branches: Color(nsColor: .systemGreen)
+        case .settings: Color(nsColor: .systemGray)
+        }
+    }
+
     private func focus(_ section: OverviewSection) {
         if section == .settings, settingsContent != nil { openSettings() }
         else { presentation.focus(section) }
+    }
+
+    /// Modern gives each sidebar item a page of its own, so the sidebar
+    /// always names what is on screen.
+    @ViewBuilder
+    private var modernPage: some View {
+        switch presentation.modernPage {
+        case .overview:
+            ModernOverviewPage(store: store, liveWork: liveWork, usageStore: usageStore, settings: settings,
+                               localToolStatus: localToolStatus, presentation: presentation)
+                .navigationTitle("Overview")
+        case .usage:
+            ModernUsagePage(usageStore: usageStore, settings: settings, localToolStatus: localToolStatus,
+                            connectContent: connectContent, liveWork: liveWork,
+                            openBranches: { presentation.open(.branches) }, openSettings: openSettings)
+                .navigationTitle("Usage")
+        case .memory, .storage:
+            ModernResourcePage(resource: presentation.modernPage == .memory ? .memory : .storage,
+                               store: store, liveWork: liveWork, presentation: presentation)
+                .id(presentation.modernPage)
+                .navigationTitle(presentation.modernPage.title)
+        case .devices:
+            (syncContent ?? AnyView(EmptyView()))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(ModernPalette.page)
+            .navigationTitle("iPhone & Watch")
+        case .branches, .worktrees:
+            BranchesRootView(store: store, liveWork: liveWork, agentStore: agentStore, presentation: presentation,
+                             mode: .worktrees, workKind: presentation.modernPage == .branches ? .branches : .worktrees)
+                .id(presentation.modernPage)
+                .navigationTitle(presentation.modernPage.title)
+        }
     }
 
     private var overviewContent: some View {
@@ -242,6 +371,477 @@ private struct MainQuotaTool: View {
                 .accessibilityLabel("\(toolName) \(snapshot.displayName) \(window.typeTag) remaining")
             Text("\(Int(window.remainingPercent))% left")
                 .font(.caption.monospacedDigit()).frame(width: 55, alignment: .trailing)
+        }
+    }
+}
+
+/// Modern's Usage page: every AI tool's limits. Edit works on the same
+/// cards: switches show or hide, cards drag into order, and tools not set
+/// up yet are listed with what they need. Detect and Connect sit beside Done.
+@available(macOS 14.0, *)
+private struct ModernUsagePage: View {
+    var usageStore: UsageStore?
+    var settings: HUDSettings?
+    var localToolStatus: LocalToolStatusRegistry?
+    var connectContent: AnyView?
+    var liveWork: LiveWorkMonitor?
+    var openBranches: (() -> Void)?
+    let openSettings: () -> Void
+    @State private var editing = false
+    @State private var detecting = false
+    @State private var connecting = false
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                header
+                if let usageStore, let settings {
+                    ModernUsageBoard(store: usageStore, settings: settings, localToolStatus: localToolStatus,
+                                     editing: editing, liveWork: liveWork, openBranches: openBranches)
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 8)
+            .padding(.bottom, 24)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(ModernPalette.page)
+        .environment(\.interfaceStyle, .modern)
+        .sheet(isPresented: $connecting) {
+            VStack(spacing: 0) {
+                HStack {
+                    Text("Connect AI Tool").font(.title3.weight(.semibold))
+                    Spacer()
+                    Button("Done") { connecting = false }.keyboardShortcut(.defaultAction)
+                }
+                .padding(.horizontal, 24)
+                .padding(.vertical, 16)
+                Divider()
+                connectContent
+            }
+            .frame(minWidth: 520, idealWidth: 560, minHeight: 420, idealHeight: 520)
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .center, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Usage")
+                    .font(.largeTitle.weight(.bold))
+                    .accessibilityAddTraits(.isHeader)
+                if editing {
+                    Text("Switch tools and limits on or off, and drag cards to reorder.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 12)
+            if editing {
+                Button {
+                    guard let usageStore, !detecting else { return }
+                    Task {
+                        detecting = true
+                        await usageStore.refresh()
+                        detecting = false
+                    }
+                } label: {
+                    if detecting {
+                        HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Detecting…") }
+                    } else {
+                        Label("Detect", systemImage: "magnifyingglass")
+                    }
+                }
+                .disabled(detecting)
+                .help("Look again for AI tools on this Mac")
+                if connectContent != nil {
+                    Button("Connect AI Tool…", systemImage: "plus") { connecting = true }
+                        .help("Pair a remote AI tool with a one-time code")
+                }
+                Button("Done") { withAnimation(.snappy(duration: 0.2)) { editing = false } }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+            } else {
+                Button("Edit") { withAnimation(.snappy(duration: 0.2)) { editing = true } }
+                    .help("Show or hide tools and limits, reorder them, and add tools")
+            }
+        }
+        .controlSize(.large)
+        .padding(.horizontal, 4)
+    }
+}
+
+/// Modern's Overview: one card for each AI tool and for each page, all the
+/// same size, each with one figure. The detail is a click away.
+@available(macOS 14.0, *)
+private struct ModernOverviewPage: View {
+    @ObservedObject var store: BranchesStore
+    var liveWork: LiveWorkMonitor?
+    var usageStore: UsageStore?
+    var settings: HUDSettings?
+    var localToolStatus: LocalToolStatusRegistry?
+    let presentation: BranchesPaperweightPresentation
+
+    var body: some View {
+        let board = BranchesBoard.make(snapshot: store.snapshot, now: Date())
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Overview")
+                    .font(.largeTitle.weight(.bold))
+                    .accessibilityAddTraits(.isHeader)
+                    .padding(.horizontal, 4)
+                if let usageStore, let settings {
+                    ModernToolCards(store: usageStore, settings: settings, localToolStatus: localToolStatus) {
+                        presentation.open(.usage)
+                    }
+                }
+                sectionTitle("This Mac")
+                Grid(horizontalSpacing: 14, verticalSpacing: 14) {
+                    GridRow {
+                        if let liveWork {
+                            ModernMemorySummary(monitor: liveWork, store: store) { presentation.open(.memory) }
+                        }
+                        ModernStorageSummary(store: store) { presentation.open(.storage) }
+                    }
+                    GridRow {
+                        workCard(.branches, board: board.only(.branches))
+                        workCard(.worktrees, board: board.only(.worktrees))
+                    }
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 8)
+            .padding(.bottom, 24)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(ModernPalette.page)
+        .environment(\.interfaceStyle, .modern)
+    }
+
+    private func sectionTitle(_ title: String) -> some View {
+        Text(title)
+            .font(.title3.weight(.semibold))
+            .accessibilityAddTraits(.isHeader)
+            .padding(.horizontal, 4)
+            .padding(.top, 10)
+    }
+
+    /// What needs you first: work that needs a look, then what can go.
+    private func workCard(_ page: ModernPage, board: BranchesBoard) -> some View {
+        let needsLook = board.needsLookCount
+        var caption: [String] = []
+        if !board.running.isEmpty { caption.append("\(board.running.count) running") }
+        if !board.safeToClear.isEmpty { caption.append("\(board.safeToClear.count) safe to clear") }
+        return ModernSummaryCard(
+            page: page,
+            value: "\(needsLook)",
+            unit: needsLook == 1 ? "needs a look" : "need a look",
+            caption: caption.isEmpty ? "Nothing else to do" : caption.joined(separator: " · "),
+            open: { presentation.open(page) }
+        ) { EmptyView() }
+    }
+}
+
+/// Every AI tool with a reading in one card that opens Usage: what's left
+/// of the limit closest to running out as its figure, then a row for each
+/// tool with a bar for each window of its tightest limit. Tools that can't
+/// show usage are left to the Usage page.
+@available(macOS 14.0, *)
+private struct ModernToolCards: View {
+    @ObservedObject var store: UsageStore
+    @ObservedObject var settings: HUDSettings
+    var localToolStatus: LocalToolStatusRegistry?
+    let open: () -> Void
+
+    private struct ToolEntry: Identifiable {
+        let tool: AIToolID
+        /// Its tightest limit.
+        let snapshot: QuotaSnapshot
+        let others: Int
+        var credits: [ResetCredit] = []
+        var id: AIToolID { tool }
+    }
+
+    var body: some View {
+        let entries: [ToolEntry] = ModernToolList.entries(store: store, settings: settings,
+                                                          localToolStatus: localToolStatus, includingHidden: false)
+            .compactMap { entry in
+                guard let tightest = entry.limits.min(by: { tightness($0) < tightness($1) }) else { return nil }
+                return ToolEntry(tool: entry.id, snapshot: tightest, others: entry.limits.count - 1,
+                                 credits: settings.showsResetCredits ? entry.limits.availableResets() : [])
+            }
+        VStack(alignment: .leading, spacing: 14) {
+            Text("AI tools")
+                .font(.title3.weight(.semibold))
+                .accessibilityAddTraits(.isHeader)
+                .padding(.horizontal, 4)
+                .padding(.top, 10)
+            Button(action: open) {
+                ModernCard {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 8) {
+                            ModernIcon(symbol: ModernPage.usage.symbol, color: MainRootView.color(for: .usage), size: 22)
+                            Text(ModernPage.usage.title).font(.headline)
+                            Spacer(minLength: 4)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                        if let lowest = entries.min(by: { tightness($0.snapshot) < tightness($1.snapshot) }) {
+                            figure(tool: lowest.tool, snapshot: lowest.snapshot, toolCount: entries.count)
+                            VStack(spacing: 0) {
+                                ForEach(entries) { row($0) }
+                            }
+                        } else {
+                            Text("No usage readings yet. Choose Edit on the Usage page to find or connect tools.")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+                .contentShape(RoundedRectangle(cornerRadius: ModernMetrics.cardRadius, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(ModernPage.usage.title)
+            .accessibilityHint("Opens Usage")
+        }
+    }
+
+    private func tightness(_ snapshot: QuotaSnapshot) -> Double {
+        min(snapshot.remainingPercent, snapshot.secondaryWindow?.remainingPercent ?? 100)
+    }
+
+    /// The window of a limit with the least left.
+    private func tightestWindow(_ snapshot: QuotaSnapshot) -> QuotaWindowSnapshot {
+        guard let secondary = snapshot.secondaryWindow,
+              secondary.remainingPercent < snapshot.primaryWindow.remainingPercent else { return snapshot.primaryWindow }
+        return secondary
+    }
+
+    /// The limit closest to running out, across every tool: what's left,
+    /// which limit and window it is, when it resets, and why it's the one
+    /// shown.
+    private func figure(tool: AIToolID, snapshot: QuotaSnapshot, toolCount: Int) -> some View {
+        let window = tightestWindow(snapshot)
+        let severity = QuotaSeverity(remainingPercent: window.remainingPercent)
+        return VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Text("\(Int(window.remainingPercent.rounded()))%")
+                    .font(.system(size: 28, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(severity == .low || severity == .critical ? Color(nsColor: .systemRed) : Color.primary)
+                    .contentTransition(.numericText())
+                Text("left").font(.title3.weight(.medium)).foregroundStyle(.secondary)
+            }
+            Text("\(AIToolDescriptor.descriptor(for: tool).name) · \(snapshot.displayName) · \(window.limitName)")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            TimelineView(.periodic(from: .now, by: 60)) { context in
+                Text([
+                    ResetMomentText.sentence(window.resetAt, now: context.date)
+                        + (ResetMomentText.countdown(window.resetAt, now: context.date).map { ", in \($0)" } ?? ""),
+                    toolCount > 1 ? "the lowest of your \(toolCount) AI tools" : nil,
+                ].compactMap { $0 }.joined(separator: " · "))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.bottom, 4)
+    }
+
+    private func row(_ entry: ToolEntry) -> some View {
+        let tool = AIToolDescriptor.descriptor(for: entry.tool)
+        let caption = ([entry.snapshot.displayName + (entry.others > 0 ? " · +\(entry.others) more" : "")]
+            + [ResetCreditText.count(entry.credits)].compactMap { $0 }).joined(separator: " · ")
+        return HStack(alignment: .center, spacing: 12) {
+            AIToolIcon(tool: tool, size: 15)
+                .frame(width: 26, height: 26)
+                .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(tool.name).font(.body.weight(.semibold)).lineLimit(1)
+                Text(caption).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            .frame(width: 150, alignment: .leading)
+            VStack(spacing: 6) {
+                ModernQuotaBar(window: entry.snapshot.primaryWindow)
+                if let secondary = entry.snapshot.secondaryWindow {
+                    ModernQuotaBar(window: secondary)
+                }
+            }
+        }
+        .padding(.vertical, 11)
+        .overlay(alignment: .top) {
+            Rectangle().fill(Color.primary.opacity(0.1)).frame(height: 0.5)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// A card that opens a page: its icon and title, one large figure, one
+/// line under it, and at most one bar.
+@available(macOS 14.0, *)
+private struct ModernSummaryCard<Detail: View>: View {
+    let page: ModernPage
+    let value: String
+    var unit: String? = nil
+    let caption: String
+    let open: () -> Void
+    @ViewBuilder let detail: () -> Detail
+
+    var body: some View {
+        Button(action: open) {
+            ModernCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 8) {
+                        ModernIcon(symbol: page.symbol, color: MainRootView.color(for: page), size: 22)
+                        Text(page.title).font(.headline)
+                        Spacer(minLength: 4)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(alignment: .firstTextBaseline, spacing: 5) {
+                            Text(value)
+                                .font(.system(size: 28, weight: .semibold, design: .rounded))
+                                .monospacedDigit()
+                                .contentTransition(.numericText())
+                            if let unit {
+                                Text(unit).font(.title3.weight(.medium)).foregroundStyle(.secondary)
+                            }
+                        }
+                        Text(caption).font(.callout).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    detail()
+                    Spacer(minLength: 0)
+                }
+                .frame(maxHeight: .infinity, alignment: .topLeading)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: ModernMetrics.cardRadius, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityHint("Opens \(page.title)")
+    }
+}
+
+@available(macOS 14.0, *)
+private struct ModernMemorySummary: View {
+    @ObservedObject var monitor: LiveWorkMonitor
+    @ObservedObject var store: BranchesStore
+    let open: () -> Void
+
+    var body: some View {
+        let board = BranchesBoard.make(snapshot: store.snapshot, now: Date())
+        let memory = PaperweightData.memory(summary: monitor.summary, running: board.running,
+                                            systemUsage: monitor.memoryUsage)
+        ModernSummaryCard(
+            page: .memory,
+            value: memory.freeBytes == nil ? "–" : memory.id.formatBytes(memory.usedBytes),
+            unit: memory.freeBytes == nil ? nil : "in use",
+            caption: "AI tools \(LiveWorkText.memory(monitor.summary.memoryBytes))"
+                + (memory.usedShare.map { " · \(LiveWorkText.percent($0)) of \(memory.id.formatBytes(memory.capacityBytes))" } ?? "")
+                + (monitor.memoryUsage.map { $0.swapUsedBytes > 0 ? " · swap \(memory.id.formatBytes($0.swapUsedBytes))" : "" } ?? ""),
+            open: open
+        ) {
+            CapacityBar(segments: ModernResourceCard.segments(memory), capacity: memory.capacityBytes, height: 8, gap: 0)
+        }
+    }
+}
+
+@available(macOS 14.0, *)
+private struct ModernStorageSummary: View {
+    @ObservedObject var store: BranchesStore
+    let open: () -> Void
+
+    var body: some View {
+        let now = Date()
+        let board = BranchesBoard.make(snapshot: store.snapshot, now: now)
+        let storage = PaperweightData.storage(disk: store.diskSpace, board: board, toolStorage: store.toolStorage,
+                                              isMeasuring: store.isMeasuringToolStorage || !store.hasMeasuredToolStorage)
+        let freeable = ClearSelection(items: board.safeToClear, now: now).bytes(from: board.safeToClear)
+        let disk = store.diskSpace
+        ModernSummaryCard(
+            page: .storage,
+            value: disk.map { RailResourceText.freeSpace($0.availableBytes) } ?? "–",
+            unit: disk == nil ? nil : "free",
+            caption: freeable > 0 ? "About \(BoardText.bytes(freeable)) can be cleared"
+                : disk.map { "\(LiveWorkText.percent($0.usedShare())) of \(BoardText.bytes($0.totalBytes)) used" } ?? "Disk space unavailable",
+            open: open
+        ) {
+            CapacityBar(segments: ModernResourceCard.segments(storage), capacity: storage.capacityBytes, height: 8, gap: 0)
+        }
+    }
+}
+
+/// One usage limit as a bar: the window, a bar of what's left, the
+/// percentage and when it resets.
+@available(macOS 14.0, *)
+struct ModernQuotaBar: View {
+    let window: QuotaWindowSnapshot
+    /// Off where the reset is spelled out on a line of its own.
+    var showsReset = true
+
+    var body: some View {
+        let severity = QuotaSeverity(remainingPercent: window.remainingPercent)
+        // Classic's critical red is too dark to read as text on a dark card.
+        let tint = severity == .critical ? Color(nsColor: .systemRed) : severity.color
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            HStack(spacing: 8) {
+                Text(window.typeTag)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 28, alignment: .leading)
+                GeometryReader { geometry in
+                    Capsule().fill(tint.opacity(0.16))
+                        .overlay(alignment: .leading) {
+                            Capsule().fill(tint.gradient)
+                                .frame(width: max(geometry.size.height,
+                                                  geometry.size.width * min(1, max(0, window.remainingPercent / 100))))
+                        }
+                }
+                .frame(height: 8)
+                .frame(minWidth: 60)
+                Text("\(Int(window.remainingPercent.rounded()))%")
+                    .font(.callout.weight(.semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(tint)
+                    .frame(width: 44, alignment: .trailing)
+                if showsReset {
+                    // When it resets, not just how long: "Resets 3:40 PM".
+                    Text(ResetMomentText.sentence(window.resetAt, now: context.date))
+                        .font(.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                        .frame(width: 150, alignment: .leading)
+                        .help(ResetMomentText.countdown(window.resetAt, now: context.date).map { "In \($0)" } ?? "")
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(window.typeTag) window")
+            .accessibilityValue("\(Int(window.remainingPercent.rounded())) percent left, \(ResetMomentText.sentence(window.resetAt, now: context.date))")
+        }
+    }
+}
+
+extension QuotaWindowSnapshot {
+    /// The window in words: "5-hour limit", "weekly limit".
+    var limitName: String {
+        guard let minutes = windowDurationMinutes, minutes > 0 else { return "limit" }
+        switch minutes {
+        case 1_440: return "daily limit"
+        case 10_080: return "weekly limit"
+        case 40_320...44_640: return "monthly limit"
+        default:
+            if minutes.isMultiple(of: 1_440) { return "\(minutes / 1_440)-day limit" }
+            if minutes.isMultiple(of: 60) { return "\(minutes / 60)-hour limit" }
+            return "\(minutes)-minute limit"
         }
     }
 }

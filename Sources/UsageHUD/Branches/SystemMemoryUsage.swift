@@ -4,12 +4,17 @@ import Foundation
 struct SystemMemoryUsage: Equatable, Sendable {
     let capacityBytes: Int64
     let usedBytes: Int64
+    /// Memory macOS has moved out to disk, and the swap it has set aside.
+    var swapUsedBytes: Int64 = 0
+    var swapTotalBytes: Int64 = 0
 
     var availableBytes: Int64 { capacityBytes - usedBytes }
 
-    init(capacityBytes: Int64, usedBytes: Int64) {
+    init(capacityBytes: Int64, usedBytes: Int64, swapUsedBytes: Int64 = 0, swapTotalBytes: Int64 = 0) {
         self.capacityBytes = max(0, capacityBytes)
         self.usedBytes = min(self.capacityBytes, max(0, usedBytes))
+        self.swapUsedBytes = max(0, swapUsedBytes)
+        self.swapTotalBytes = max(self.swapUsedBytes, swapTotalBytes)
     }
 
     init(capacityBytes: Int64, pageSize: Int64, statistics: vm_statistics64_data_t) {
@@ -38,6 +43,19 @@ struct SystemMemoryUsage: Equatable, Sendable {
             }
         }
         guard result == KERN_SUCCESS else { return nil }
-        return Self(capacityBytes: capacity, pageSize: Int64(pageSize), statistics: statistics)
+        var usage = Self(capacityBytes: capacity, pageSize: Int64(pageSize), statistics: statistics)
+        if let swap = readSwap() {
+            usage.swapUsedBytes = swap.used
+            usage.swapTotalBytes = max(swap.used, swap.total)
+        }
+        return usage
+    }
+
+    /// Swap as Activity Monitor reports it, from `vm.swapusage`.
+    private static func readSwap() -> (used: Int64, total: Int64)? {
+        var swap = xsw_usage()
+        var size = MemoryLayout<xsw_usage>.size
+        guard sysctlbyname("vm.swapusage", &swap, &size, nil, 0) == 0 else { return nil }
+        return (Int64(clamping: swap.xsu_used), Int64(clamping: swap.xsu_total))
     }
 }

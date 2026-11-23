@@ -229,7 +229,10 @@ actor CodexUsageProvider: CodexUsageProviding {
                 id: id,
                 title: nonBlankString(credit["title"]) ?? "Full reset",
                 expiresAt: expiresAt,
-                detail: nonBlankString(credit["description"]) ?? nonBlankString(credit["subtitle"])
+                detail: nonBlankString(credit["description"]) ?? nonBlankString(credit["subtitle"]),
+                grantedAt: credit["grantedAt"]?.numberValue.flatMap {
+                    $0.isFinite ? Date(timeIntervalSince1970: $0) : nil
+                }
             )
         }.sorted { lhs, rhs in
             guard let expiration = lhs.expiresAt else { return false }

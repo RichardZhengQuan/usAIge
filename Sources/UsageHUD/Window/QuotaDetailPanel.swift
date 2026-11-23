@@ -60,6 +60,8 @@ final class QuotaDetailPanelController {
     private var pointerTimer: Timer?
     private(set) var panel: NSPanel?
     private(set) var shownSnapshotID: String?
+    private var shownOthers: [QuotaSnapshot] = []
+    private var showsOtherLimits = false
     /// True while the pointer is on the card or crossing over to it. A docked
     /// rail has to stay out too: the card is its child window and moves with it.
     private(set) var isPointerOnCard = false
@@ -77,9 +79,12 @@ final class QuotaDetailPanelController {
     }
 
     /// Shows `snapshot` beside its row. `rowFrame` is in the rail's coordinates.
-    func show(_ snapshot: QuotaSnapshot, rowFrame: CGRect) {
+    /// `others` are the tool's other limits when its row stands for them all.
+    func show(_ snapshot: QuotaSnapshot, others: [QuotaSnapshot] = [], rowFrame: CGRect) {
         shownSnapshotID = snapshot.id
         shownSnapshot = snapshot
+        shownOthers = others
+        showsOtherLimits = !others.isEmpty
         self.rowFrame = rowFrame
         cancelPendingHide()
         present(content(for: snapshot))
@@ -115,6 +120,9 @@ final class QuotaDetailPanelController {
         guard let shownSnapshotID, shownSnapshotID != Self.liveWorkID, shownSnapshotID != Self.storageID else { return }
         if let snapshot = snapshots.first(where: { $0.id == shownSnapshotID }) {
             shownSnapshot = snapshot
+            if showsOtherLimits {
+                shownOthers = snapshots.filter { $0.toolID == snapshot.toolID && $0.id != snapshot.id }
+            }
             present(content(for: snapshot))
         } else {
             hide(snapshotID: shownSnapshotID)
@@ -134,6 +142,7 @@ final class QuotaDetailPanelController {
     private func content(for snapshot: QuotaSnapshot) -> RailDetailCard.Content {
         .quota(
             snapshot,
+            others: shownOthers,
             work: liveWork.sessions(for: snapshot.toolID),
             memoryBytes: liveWork.memoryBytes(for: snapshot.toolID)
         )

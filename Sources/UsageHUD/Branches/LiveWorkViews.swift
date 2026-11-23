@@ -44,6 +44,7 @@ struct LiveWorkTile: View {
     let onHoverChanged: (Bool, CGRect) -> Void
     var physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory
     @AppStorage(PaperweightShipPreferences.memoryKey) private var shipName = PaperweightShipKind.sailboat.rawValue
+    @AppStorage(InterfaceStyle.defaultsKey) private var style = InterfaceStyle.standard
     @Environment(\.hudPreviewsHover) private var previewsHover
     @State private var isHovered = false
     @State private var frame = CGRect.zero
@@ -56,14 +57,23 @@ struct LiveWorkTile: View {
 
     var body: some View {
         Button(action: open) {
-            RailResourcePaperweight(
-                configuration: RailPaperweightData.memory(summary, physicalMemory: physicalMemory),
-                ship: PaperweightShipKind(rawValue: shipName) ?? .sailboat,
-                value: LiveWorkText.percent(share),
-                symbol: "memorychip",
-                detail: summary.sessions.isEmpty ? "Idle" : "\(summary.placeCount)",
-                isMoving: isHovered || previewsHover
-            )
+            if style == .modern {
+                ModernRailGauge(
+                    share: share, color: ModernPalette.memory, symbol: "memorychip",
+                    value: LiveWorkText.percent(share),
+                    detail: summary.sessions.isEmpty ? "Idle" : "\(summary.placeCount) at work",
+                    isHovered: isHovered || previewsHover
+                )
+            } else {
+                RailResourcePaperweight(
+                    configuration: RailPaperweightData.memory(summary, physicalMemory: physicalMemory),
+                    ship: PaperweightShipKind(rawValue: shipName) ?? .sailboat,
+                    value: LiveWorkText.percent(share),
+                    symbol: "memorychip",
+                    detail: summary.sessions.isEmpty ? "Idle" : "\(summary.placeCount)",
+                    isMoving: isHovered || previewsHover
+                )
+            }
         }
         .buttonStyle(.plain)
         .help(LiveWorkText.tileHelp(summary, of: physicalMemory))
@@ -90,6 +100,7 @@ struct StorageTile: View {
     /// Reports hover changes with the tile's frame in the rail's coordinates.
     var onHoverChanged: (Bool, CGRect) -> Void = { _, _ in }
     @AppStorage(PaperweightShipPreferences.storageKey) private var shipName = PaperweightShipKind.galleon.rawValue
+    @AppStorage(InterfaceStyle.defaultsKey) private var style = InterfaceStyle.standard
     @Environment(\.hudPreviewsHover) private var previewsHover
     @State private var isHovered = false
     @State private var frame = CGRect.zero
@@ -103,14 +114,24 @@ struct StorageTile: View {
 
     var body: some View {
         Button(action: open) {
-            RailResourcePaperweight(
-                configuration: RailPaperweightData.storage(disk),
-                ship: PaperweightShipKind(rawValue: shipName) ?? .galleon,
-                value: disk.map { LiveWorkText.percent($0.usedShare()) } ?? "–",
-                symbol: "internaldrive",
-                detail: disk.map { RailResourceText.freeSpace($0.availableBytes) } ?? "–",
-                isMoving: isHovered || previewsHover
-            )
+            if style == .modern {
+                let used = disk?.usedShare() ?? 0
+                ModernRailGauge(
+                    share: used, color: ModernPalette.storageColor(usedShare: used), symbol: "internaldrive",
+                    value: disk.map { LiveWorkText.percent($0.usedShare()) } ?? "–",
+                    detail: disk.map { RailResourceText.freeSpace($0.availableBytes) + " free" } ?? "–",
+                    isHovered: isHovered || previewsHover
+                )
+            } else {
+                RailResourcePaperweight(
+                    configuration: RailPaperweightData.storage(disk),
+                    ship: PaperweightShipKind(rawValue: shipName) ?? .galleon,
+                    value: disk.map { LiveWorkText.percent($0.usedShare()) } ?? "–",
+                    symbol: "internaldrive",
+                    detail: disk.map { RailResourceText.freeSpace($0.availableBytes) } ?? "–",
+                    isMoving: isHovered || previewsHover
+                )
+            }
         }
         .buttonStyle(.plain)
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { value in
@@ -125,6 +146,43 @@ struct StorageTile: View {
         .accessibilityLabel("Storage")
         .accessibilityValue(detail)
         .accessibilityHint("Opens Storage in branches and worktrees")
+    }
+}
+
+/// The Modern rail's resource tile: a ring gauge with its symbol, and the
+/// figure under it. Nothing moves, so the rail costs nothing while idle.
+@available(macOS 14.0, *)
+private struct ModernRailGauge: View {
+    let share: Double
+    let color: Color
+    let symbol: String
+    let value: String
+    let detail: String
+    let isHovered: Bool
+
+    var body: some View {
+        // The same ring as a tool's, with its figure under it in place of
+        // the reset tags, so the rail reads as one set of rings.
+        VStack(spacing: 1) {
+            // 63 points less the stroke's half on each side puts the ring's
+            // centre line at 58, exactly where a tool's outer ring sits.
+            ModernRingGauge(share: share, color: color, lineWidth: 5, symbol: symbol, symbolSize: 17)
+                .frame(width: 63, height: 63)
+                .scaleEffect(isHovered ? 1.04 : 1)
+                .animation(.snappy(duration: 0.18), value: isHovered)
+            VStack(spacing: 0) {
+                Text(value)
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                Text(detail)
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+            }
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+        }
+        .frame(width: 76, height: HUDMetrics.quotaRowHeight)
+        .contentShape(Rectangle())
     }
 }
 
@@ -421,7 +479,7 @@ struct StorageCard: View {
 @available(macOS 14.0, *)
 struct RailDetailCard: View {
     enum Content {
-        case quota(QuotaSnapshot, work: [LiveSessionWork], memoryBytes: UInt64)
+        case quota(QuotaSnapshot, others: [QuotaSnapshot], work: [LiveSessionWork], memoryBytes: UInt64)
         case liveWork(LiveWorkSummary)
         case storage(DiskSpace?, StorageBreakdown?)
     }
@@ -433,9 +491,10 @@ struct RailDetailCard: View {
 
     var body: some View {
         switch content {
-        case let .quota(snapshot, work, memoryBytes):
+        case let .quota(snapshot, others, work, memoryBytes):
             QuotaDetailCard(
                 snapshot: snapshot,
+                otherLimits: others,
                 work: work,
                 memoryBytes: memoryBytes,
                 arrowEdge: arrowEdge,

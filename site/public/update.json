@@ -1,29 +1,29 @@
 {
-  "build" : 52,
-  "downloadURL" : "https://pmrichq.com/project/usaige/usAIge-0.2.30-alpha.dmg",
+  "build" : 53,
+  "downloadURL" : "https://pmrichq.com/project/usaige/usAIge-0.2.31-alpha.dmg",
   "minimumSystemVersion" : "11.0",
   "releaseNotes" : {
-    "headline" : "Clean up generated files",
+    "headline" : "A new Modern look",
     "highlights" : [
       {
-        "detail" : "Find generated dependencies, Xcode build files, and selected tool caches. Largest Folders shows measured sizes for inspection.",
-        "systemImage" : "internaldrive",
-        "title" : "Storage cleanup"
+        "detail" : "One ring per AI tool, always on glass at the side of your display. Point at a ring to see every limit, free reset and what the tool is working on.",
+        "systemImage" : "sidebar.right",
+        "title" : "Full-height rail"
       },
       {
-        "detail" : "Ignored contents are checked before bulk review. If ignored files change after review, usAIge asks you to review the worktree again.",
-        "systemImage" : "checkmark.shield",
-        "title" : "Safer worktree review"
+        "detail" : "Overview, Usage, Memory, Storage, Branches, Worktrees, and iPhone & Apple Watch each have their own page. Usage shows when each limit resets.",
+        "systemImage" : "square.grid.2x2",
+        "title" : "A page for each part"
       },
       {
-        "detail" : "The macOS app keeps a valid usage reading during brief rewrites of the Claude Desktop cache and checks freshness before reusing it.",
-        "systemImage" : "arrow.clockwise",
-        "title" : "More reliable Claude usage refresh"
+        "detail" : "See the free resets ChatGPT and Claude offer, what each refills, and when it expires.",
+        "systemImage" : "arrow.counterclockwise.circle",
+        "title" : "Free resets"
       }
     ],
-    "summary" : "Scan main checkouts and linked worktrees for generated files. Review the paths and confirm permanent deletion. usAIge rechecks each folder before removing it."
+    "summary" : "usAIge now looks and works like a Mac app by default. The rail runs the full height of your display, and the window has a page for each part of the app. Choose Classic in Settings to keep the ocean."
   },
-  "sha256" : "c5847714b09f2287b56cd7e1b053009eb7e97fd3ddf8f790a72628e26c2839c2",
-  "signature" : "7lARajVuniKVAnLFmYr3pk/jiElVfYRZnfS7orG0yIdVtTUQjpQvKB77kEVNs+f5dmJBWF9lzv0WxK5MX/fLCA==",
-  "version" : "0.2.30"
+  "sha256" : "c65592225455f87da71ceae545d9c16f2c884c11fa8ac7169d1a5ad212a02aba",
+  "signature" : "TZjAk/kogcD2cajq/qB2diUuzua2HuyT5faKQpjvS9xx46yi2pB6zTSen00nNvvZcGJyXrs4P4WYBPLOEzqjAQ==",
+  "version" : "0.2.31"
 }

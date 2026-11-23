@@ -385,7 +385,10 @@ actor ClaudeUsageProvider: LocalUsageProviding {
         if let cache = sample.cachedUsage,
            (0...Self.claudeAppMaximumAge).contains(date.timeIntervalSince(cache.recordedAt)),
            let payload = ClaudeDesktopUsageCache.validatedPayload(cache.payload, now: date) {
-            let snapshots = Self.snapshots(from: payload, planType: nil, updatedAt: cache.recordedAt)
+            var snapshots = Self.snapshots(from: payload, planType: nil, updatedAt: cache.recordedAt)
+            if let first = snapshots.first, first.availableResets.isEmpty, let credits = sample.resetCredits {
+                snapshots[0].attach(credits)
+            }
             if !snapshots.isEmpty {
                 let status: LocalToolStatus = sample.origin == .bridge
                     ? .connectedThroughClaudeBridge : .connectedThroughClaudeAppCache
@@ -395,8 +398,14 @@ actor ClaudeUsageProvider: LocalUsageProviding {
         guard !requireCachedUsage else { return nil }
         var historyOnly = sample
         historyOnly.cachedUsage = nil
+        // Reset times still running from an earlier response come from
+        // Claude's cache; without them, resets are unknown.
+        historyOnly.sessionResetAt = historyOnly.sessionResetAt.flatMap { $0 > date ? $0 : nil }
+        historyOnly.weeklyResetAt = historyOnly.weeklyResetAt.flatMap { $0 > date ? $0 : nil }
         let snapshots = Self.snapshots(fromClaudeApp: historyOnly, planType: nil)
-        return snapshots.isEmpty ? nil : (.authenticated(snapshots), .connectedThroughClaudeApp)
+        let status: LocalToolStatus = historyOnly.sessionResetAt != nil || historyOnly.weeklyResetAt != nil
+            ? .connectedThroughClaudeAppCache : .connectedThroughClaudeApp
+        return snapshots.isEmpty ? nil : (.authenticated(snapshots), status)
     }
 
     func updates() async -> AsyncStream<[QuotaSnapshot]> {
@@ -428,12 +437,38 @@ actor ClaudeUsageProvider: LocalUsageProviding {
         guard let response = JSONValue.parse(body), response.objectValue != nil else {
             throw LocalToolUsageError.invalidResponse
         }
-        let snapshots = Self.snapshots(
+        var snapshots = Self.snapshots(
             from: response,
             planType: credentials.subscriptionType ?? credentials.rateLimitTier,
             updatedAt: now()
         )
+        // The sign-in's response doesn't list free resets; the Claude app's
+        // own reading does.
+        if let first = snapshots.first, first.availableResets.isEmpty {
+            let local = localResetCredits(sameWeekAs: first.secondaryWindow?.resetAt)
+            if !local.isEmpty { snapshots[0].attach(local) }
+        }
         return .authenticated(snapshots)
+    }
+
+    /// The free resets the Claude app last read, only when they're for the
+    /// same account: the same account shares one weekly reset, so another
+    /// account's resets are never shown.
+    private func localResetCredits(sameWeekAs weeklyReset: Date?) -> [ResetCredit] {
+        guard let weeklyReset, let sample = claudeApp.latestSample() else { return [] }
+        let localWeekly: Date?
+        let credits: [ResetCredit]
+        if let listed = sample.resetCredits, !listed.isEmpty {
+            localWeekly = sample.resetCreditsWeeklyResetAt
+            credits = listed
+        } else if let cached = sample.cachedUsage {
+            localWeekly = ClaudeAppUsageHistory.resetTimes(from: cached.payload).weekly
+            credits = Self.resetCredits(from: cached.payload)
+        } else {
+            return []
+        }
+        guard let localWeekly, abs(localWeekly.timeIntervalSince(weeklyReset)) < 60 else { return [] }
+        return credits
     }
 
     private func userAgent() -> String {
@@ -474,28 +509,71 @@ actor ClaudeUsageProvider: LocalUsageProviding {
         if let extra = extraUsageBucket(from: object, planType: planType) {
             buckets.append(extra)
         }
-        return buckets.map { bucket in
+        let credits = resetCredits(from: response)
+        return buckets.enumerated().map { index, bucket in
             var snapshot = QuotaSnapshot.make(from: bucket, updatedAt: updatedAt)
             snapshot.toolID = .claude
+            if index == 0 { snapshot.attach(credits) }
             return snapshot
         }
     }
 
-    /// History alone supplies percentages without estimated reset times.
-    /// A separately validated cache response carries the provider's timestamps
-    /// and any model-scoped windows.
+    /// The free resets Claude offers, from its usage response's grants:
+    /// each one's name, how many are left, what it refills and when it
+    /// expires. usAIge only shows them; using one happens in Claude.
+    static func resetCredits(from response: JSONValue) -> [ResetCredit] {
+        guard let grants = response["cedar_ember"]?["grants"]?.arrayValue else { return [] }
+        return grants.compactMap { grant in
+            guard let id = grant["id"]?.stringValue, !id.isEmpty,
+                  let left = grant["resets_left"]?.lenientNumber, left.isFinite, left >= 1 else { return nil }
+            let clears = Set(grant["clears"]?.arrayValue?.compactMap(\.stringValue) ?? [])
+            // A grant for one model names it last in its id: "launch-2610-fable".
+            let model = id.split(separator: "-").last.map(String.init)
+                .flatMap { $0.allSatisfy(\.isLetter) && $0 != "reset" ? $0.capitalized : nil }
+            let givesBackWeekly = grant["gives_back_weekly"]?.boolValue == true
+            let name = model.map { "\($0) reset" }
+                ?? (grant["type"]?.stringValue == "full" ? "Full reset" : grant["label"]?.stringValue ?? "Reset")
+            var refills: [String] = []
+            if clears.contains("five_hour") { refills.append("5-hour") }
+            if clears.contains("seven_day") { refills.append("weekly") }
+            let detail: String? = if let model, givesBackWeekly {
+                "Refills your 5-hour limit and gives back what \(model) used this week."
+            } else if !refills.isEmpty {
+                "Refills your \(refills.joined(separator: " and ")) \(refills.count == 1 ? "limit" : "limits")."
+            } else {
+                grant["label"]?.stringValue
+            }
+            return ResetCredit(
+                id: "claude-\(id)",
+                title: name,
+                expiresAt: LocalToolDates.parse(grant["ends_at"]?.stringValue),
+                detail: detail,
+                grantedAt: LocalToolDates.parse(grant["starts_at"]?.stringValue),
+                count: Int(left),
+                isUsable: grant["usable_now"]?.boolValue ?? true && grant["paused"]?.boolValue != true
+            )
+        }
+    }
+
+    /// History alone supplies percentages, with reset times only where an
+    /// earlier response gave them for a window still running; nothing is
+    /// estimated. A separately validated cache response carries the
+    /// provider's timestamps and any model-scoped windows.
     static func snapshots(fromClaudeApp sample: ClaudeAppUsageSample, planType: String?) -> [QuotaSnapshot] {
         if let cached = sample.cachedUsage {
             return snapshots(from: cached.payload, planType: planType, updatedAt: cached.recordedAt)
         }
-        let clamp = { (value: Double) in Window(usedPercent: min(100, max(0, value)), resetsAt: nil) }
+        let clamp = { (value: Double, reset: Date?) in
+            Window(usedPercent: min(100, max(0, value)), resetsAt: reset?.timeIntervalSince1970)
+        }
         guard let bucket = mainBucket(
-            session: sample.sessionPercent.map(clamp),
-            weekly: sample.weeklyPercent.map(clamp),
+            session: sample.sessionPercent.map { clamp($0, sample.sessionResetAt) },
+            weekly: sample.weeklyPercent.map { clamp($0, sample.weeklyResetAt) },
             planType: planType
         ) else { return [] }
         var snapshot = QuotaSnapshot.make(from: bucket, updatedAt: sample.recordedAt)
         snapshot.toolID = .claude
+        snapshot.attach(sample.resetCredits ?? [])
         return [snapshot]
     }
 

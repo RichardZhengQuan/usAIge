@@ -5,15 +5,29 @@ import SwiftUI
 @available(macOS 14.0, *)
 private struct CardSurface: ViewModifier {
     var isExpanded = false
+    @Environment(\.interfaceStyle) private var style
 
     func body(content: Content) -> some View {
-        content
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isExpanded ? Color.primary.opacity(0.025) : .clear)
-            .overlay(alignment: .top) {
-                Rectangle().fill(Color.primary.opacity(0.12)).frame(height: 0.5)
-            }
+        if style == .modern {
+            // Grouped-list rows: the separator starts where the text does.
+            content
+                .padding(.vertical, 10)
+                .padding(.horizontal, 14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(isExpanded ? Color.primary.opacity(0.03) : .clear)
+                .overlay(alignment: .top) {
+                    Rectangle().fill(Color.primary.opacity(0.1)).frame(height: 0.5)
+                        .padding(.leading, ModernMetrics.separatorInset)
+                }
+        } else {
+            content
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(isExpanded ? Color.primary.opacity(0.025) : .clear)
+                .overlay(alignment: .top) {
+                    Rectangle().fill(Color.primary.opacity(0.12)).frame(height: 0.5)
+                }
+        }
     }
 }
 
@@ -43,6 +57,8 @@ struct WorkCard: View {
     var tubeColor: Color = .orange
     var cacheBytes: Int64? = nil
     @State private var copied = false
+    @Environment(\.interfaceStyle) private var style
+    @Environment(\.rowShowsProject) private var showsProject
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -53,18 +69,94 @@ struct WorkCard: View {
             if isExpanded {
                 Divider().padding(.vertical, 9)
                 details
+                    .padding(.leading, style == .modern ? ModernMetrics.separatorInset - 14 : 0)
                     .transition(.opacity)
             }
         }
         .modifier(CardSurface(isExpanded: isExpanded))
     }
 
+    @ViewBuilder
     private var summary: some View {
-        HStack(alignment: .top, spacing: 6) {
-            summaryText
-            FoldChevron(isExpanded: isExpanded)
+        if style == .modern {
+            HStack(alignment: .top, spacing: 10) {
+                let mark = BoardRowMark.mark(for: item, kind: kind)
+                ModernIcon(symbol: mark.symbol, color: mark.color)
+                    .padding(.top, 1)
+                modernSummaryText
+                if let trailing = modernTrailing {
+                    Text(trailing)
+                        .font(.callout)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .fixedSize()
+                        .padding(.top, 1)
+                }
+                FoldChevron(isExpanded: isExpanded)
+            }
+            .contentShape(Rectangle())
+        } else {
+            HStack(alignment: .top, spacing: 6) {
+                summaryText
+                FoldChevron(isExpanded: isExpanded)
+            }
+            .contentShape(Rectangle())
         }
+    }
+
+    /// Two quiet lines: what the work is, then where it is and when it was
+    /// used. A third, coloured line appears only when something needs you.
+    private var modernSummaryText: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(item.workTitle)
+                .font(.system(size: 13, weight: .semibold))
+                .lineLimit(isExpanded ? 4 : 1)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: isExpanded)
+            Text(modernSubtitle)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            if let cacheSummary {
+                Text(cacheSummary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .help(cacheSummary)
+            }
+            if let reason = BoardText.reason(item) {
+                Text(reason.text)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(reason.isLoss ? Color.red : Color.orange)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
+    }
+
+    private var modernSubtitle: String {
+        var parts = showsProject ? [item.repositoryName] : []
+        parts.append(item.branch ?? "no branch")
+        if kind == .running {
+            parts.append(item.status == .mainCopy ? "main copy" : BoardText.running(item, now: now))
+        } else if let used = item.lastUsedAt {
+            parts.append("used " + BoardText.age(used, now: now))
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    /// Size or memory sits on the right, as in a Settings list.
+    private var modernTrailing: String? {
+        if kind == .running {
+            var seen: Set<Int32> = []
+            let memory = item.processes.reduce(UInt64(0)) { $0 + (seen.insert($1.id).inserted ? $1.memoryBytes : 0) }
+            return memory > 0 ? LiveWorkText.memory(memory) : nil
+        }
+        if let cacheBytes { return BoardText.bytes(cacheBytes) }
+        return item.worktreePath == nil ? nil : BoardText.size(item)
     }
 
     private var summaryText: some View {
@@ -365,16 +457,23 @@ struct LeftoverCopyCard<Content: View>: View {
     let toggle: () -> Void
     var tubeShare: Double = 0
     @ViewBuilder let content: () -> Content
+    @Environment(\.interfaceStyle) private var style
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button(action: toggle) {
+                HStack(alignment: .top, spacing: 10) {
+                if style == .modern {
+                    ModernIcon(symbol: "square.stack.3d.up", color: copy.unsavedCount > 0 ? .red : .orange).padding(.top, 1)
+                }
                 VStack(alignment: .leading, spacing: 3) {
                     Text("\(copy.items.count) \(copy.items.count == 1 ? "branch" : "branches and worktrees") in an older copy of \(copy.projectName)")
                         .font(.system(size: 13, weight: .semibold))
                         .fixedSize(horizontal: false, vertical: true)
-                    PaperweightRowBar(share: tubeShare, color: StorageCategory.worktrees.tint)
-                        .padding(.vertical, 2)
+                    if style == .classic {
+                        PaperweightRowBar(share: tubeShare, color: StorageCategory.worktrees.tint)
+                            .padding(.vertical, 2)
+                    }
                     Text(BranchesPresentation.abbreviated(copy.repository.folder))
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.secondary)
@@ -395,6 +494,7 @@ struct LeftoverCopyCard<Content: View>: View {
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 .padding(.trailing, 28)
                 .overlay(alignment: .topTrailing) { FoldChevron(isExpanded: isExpanded) }
                 .contentShape(Rectangle())
@@ -433,15 +533,22 @@ struct NotCheckedCard: View {
     let isExpanded: Bool
     let toggle: () -> Void
     let check: () -> Void
+    @Environment(\.interfaceStyle) private var style
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button(action: toggle) {
+                HStack(alignment: .top, spacing: 10) {
+                if style == .modern {
+                    ModernIcon(symbol: "lock.fill", color: .orange).padding(.top, 1)
+                }
                 VStack(alignment: .leading, spacing: 3) {
                     Text(URL(fileURLWithPath: folder).lastPathComponent)
                         .font(.system(size: 13, weight: .semibold))
-                    PaperweightRowBar(share: 0, color: StorageCategory.worktrees.tint)
-                        .padding(.vertical, 2)
+                    if style == .classic {
+                        PaperweightRowBar(share: 0, color: StorageCategory.worktrees.tint)
+                            .padding(.vertical, 2)
+                    }
                     Text(BranchesPresentation.abbreviated(folder))
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.secondary)
@@ -452,6 +559,7 @@ struct NotCheckedCard: View {
                         .foregroundStyle(.orange)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 .padding(.trailing, 28)
                 .overlay(alignment: .topTrailing) { FoldChevron(isExpanded: isExpanded) }
                 .contentShape(Rectangle())
@@ -482,15 +590,22 @@ struct UnreadableCard: View {
     let repository: RepositoryInfo
     var isExpanded = false
     var toggle: () -> Void = {}
+    @Environment(\.interfaceStyle) private var style
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button(action: toggle) {
+                HStack(alignment: .top, spacing: 10) {
+                if style == .modern {
+                    ModernIcon(symbol: "questionmark.folder.fill", color: .orange).padding(.top, 1)
+                }
                 VStack(alignment: .leading, spacing: 3) {
                     Text(repository.name)
                         .font(.system(size: 13, weight: .semibold))
-                    PaperweightRowBar(share: 0, color: StorageCategory.worktrees.tint)
-                        .padding(.vertical, 2)
+                    if style == .classic {
+                        PaperweightRowBar(share: 0, color: StorageCategory.worktrees.tint)
+                            .padding(.vertical, 2)
+                    }
                     Text(BranchesPresentation.abbreviated(repository.folder))
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.secondary)
@@ -498,6 +613,7 @@ struct UnreadableCard: View {
                         .truncationMode(.middle)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 .padding(.trailing, 28)
                 .overlay(alignment: .topTrailing) { FoldChevron(isExpanded: isExpanded) }
                 .contentShape(Rectangle())
@@ -527,21 +643,29 @@ struct SafeGroupCard<Content: View>: View {
     let toggle: () -> Void
     let review: () -> Void
     @ViewBuilder let content: () -> Content
+    @Environment(\.interfaceStyle) private var style
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button(action: toggle) {
+                HStack(alignment: .top, spacing: 10) {
+                if style == .modern {
+                    ModernIcon(symbol: group == .records ? "doc.text" : "arrow.triangle.branch", color: .gray).padding(.top, 1)
+                }
                 VStack(alignment: .leading, spacing: 3) {
                     Text("\(items.count) \(group.title.prefix(1).lowercased() + group.title.dropFirst())")
                         .font(.system(size: 13, weight: .semibold))
-                    PaperweightRowBar(share: 0, color: StorageCategory.worktrees.tint)
-                        .padding(.vertical, 2)
+                    if style == .classic {
+                        PaperweightRowBar(share: 0, color: StorageCategory.worktrees.tint)
+                            .padding(.vertical, 2)
+                    }
                     Text(group.detail)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 .padding(.trailing, 28)
                 .overlay(alignment: .topTrailing) { FoldChevron(isExpanded: isExpanded) }
                 .contentShape(Rectangle())

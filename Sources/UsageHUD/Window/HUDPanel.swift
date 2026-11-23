@@ -7,6 +7,10 @@ final class HUDPanel: NSPanel {
     private var isDraggingContent = false
     /// Reports the start (true) and end (false) of a drag by the user.
     var onDragStateChanged: ((Bool) -> Void)?
+    /// A full-height rail only moves between the display's sides.
+    var dragsHorizontallyOnly = false
+    /// How far the last drag moved the panel, read when it ends.
+    private(set) var lastDragTranslation: CGSize = .zero
 
     init(contentView: NSView) {
         super.init(
@@ -39,6 +43,7 @@ final class HUDPanel: NSPanel {
     override func sendEvent(_ event: NSEvent) {
         switch event.type {
         case .leftMouseDown:
+            lastDragTranslation = .zero
             dragStartPointerLocation = screenLocation(for: event)
             dragStartWindowOrigin = frame.origin
             isDraggingContent = false
@@ -52,13 +57,14 @@ final class HUDPanel: NSPanel {
             let pointerLocation = screenLocation(for: event)
             let translation = CGSize(
                 width: pointerLocation.x - pointerStart.x,
-                height: pointerLocation.y - pointerStart.y
+                height: dragsHorizontallyOnly ? 0 : pointerLocation.y - pointerStart.y
             )
             if !isDraggingContent {
                 isDraggingContent = hypot(translation.width, translation.height) >= Self.dragThreshold
                 if isDraggingContent { onDragStateChanged?(true) }
             }
             if isDraggingContent {
+                lastDragTranslation = translation
                 setFrameOrigin(
                     PanelPositioner.draggedOrigin(
                         startingAt: windowStart,

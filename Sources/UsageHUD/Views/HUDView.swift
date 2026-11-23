@@ -19,6 +19,7 @@ struct HUDView: View {
     var liveWork: LiveWorkMonitor? = nil
     var openBranches: () -> Void = {}
     var openResourcePaperweight: ((PaperweightID) -> Void)? = nil
+    @AppStorage(InterfaceStyle.defaultsKey) private var interfaceStyle = InterfaceStyle.standard
     @State private var isPanelHovered = false
     @State private var detailHoveredSnapshotIDs: Set<String> = []
     @State private var isRefreshing = false
@@ -44,8 +45,18 @@ struct HUDView: View {
 
     /// The rail grows to show every visible tool; only when the display is
     /// too short for them all does it fall back to scrolling.
+    /// Modern runs the rail the full height of the display, flush against
+    /// its side, like a sidebar.
+    private var isEdgeRail: Bool { interfaceStyle == .modern }
+
     private var desiredSize: CGSize {
-        switch store.state {
+        if isEdgeRail {
+            return CGSize(
+                width: HUDMetrics.railWidth,
+                height: HUDMetrics.edgeRailHeight(visibleHeight: screenState.screenHeight, scale: settings.scale)
+            )
+        }
+        return switch store.state {
         case .current, .stale:
             CGSize(
                 width: HUDMetrics.railWidth,
@@ -93,7 +104,10 @@ struct HUDView: View {
 
     var body: some View {
         content
-            .padding(.vertical, 10)
+            // A full-height rail's glass runs behind the menu bar and the
+            // Dock; its content keeps clear of them inside the glass.
+            .padding(.top, isEdgeRail ? edgeInset(screenState.safeTop) : 10)
+            .padding(.bottom, isEdgeRail ? edgeInset(screenState.safeBottom) : 10)
             .padding(.horizontal, 4)
             .frame(width: desiredSize.width, height: desiredSize.height)
             .background {
@@ -101,13 +115,8 @@ struct HUDView: View {
             }
             .overlay {
                 ZStack {
-                    panelShape
-                        .stroke(
-                            .separator.opacity(
-                                isPanelHovered || !detailHoveredSnapshotIDs.isEmpty ? 1 : 0
-                            ),
-                            lineWidth: 0.5
-                        )
+                    edgeLine
+                        .opacity(isEdgeRail || isPanelHovered || !detailHoveredSnapshotIDs.isEmpty ? 1 : 0)
                     if hasCriticalQuota && isPanelHovered {
                         // The window ends at the rail's edge, so anything drawn
                         // past its rounded corners shows as a square pocket.
@@ -122,14 +131,20 @@ struct HUDView: View {
             }
             .contentShape(panelShape)
             .contextMenu {
-                Picker("Sailing weather", selection: $sailingWeatherRaw) {
-                    ForEach(CruiseWeather.allCases) { weather in
-                        Label(weather.title, systemImage: weather.symbol).tag(weather.rawValue)
+                if isEdgeRail {
+                    Button("Use Classic Style") { interfaceStyle = .classic }
+                } else {
+                    Picker("Sailing weather", selection: $sailingWeatherRaw) {
+                        ForEach(CruiseWeather.allCases) { weather in
+                            Label(weather.title, systemImage: weather.symbol).tag(weather.rawValue)
+                        }
                     }
+                    Divider()
+                    Button("Shake the sea", systemImage: "water.waves") { sailingShakeID += 1 }
+                        .disabled(reduceMotion)
+                    Divider()
+                    Button("Use Modern Style") { interfaceStyle = .modern }
                 }
-                Divider()
-                Button("Shake the sea", systemImage: "water.waves") { sailingShakeID += 1 }
-                    .disabled(reduceMotion)
             }
             .onHover { isHovered in
                 isPanelHovered = isHovered
@@ -137,14 +152,14 @@ struct HUDView: View {
                 Task { await store.refreshIfNeeded(maximumAge: 5) }
             }
             .animation(.easeOut(duration: 0.18), value: isPanelHovered)
-            .opacity(
-                HUDMetrics.contentOpacity(
-                    configured: settings.opacity,
-                    isHovered: isPanelHovered,
-                    isCritical: hasCriticalQuota,
-                    forceVisible: showsStatusSurface
-                )
-            )
+            // A full-height rail's opacity is its background's; its rings
+            // and text always stay fully visible.
+            .opacity(isEdgeRail ? 1 : HUDMetrics.contentOpacity(
+                configured: settings.opacity,
+                isHovered: isPanelHovered,
+                isCritical: hasCriticalQuota,
+                forceVisible: showsStatusSurface
+            ))
             .scaleEffect(settings.scale)
             .frame(width: scaledSize.width, height: scaledSize.height)
             .task(id: availableSnapshots.map(\.id)) {
@@ -166,24 +181,54 @@ struct HUDView: View {
             .onChange(of: snapshots) { _, values in quotaDetail?.update(values) }
     }
 
+    /// Unscaled room for a bar the system draws over the rail, plus a margin.
+    private func edgeInset(_ systemInset: CGFloat) -> CGFloat {
+        systemInset / CGFloat(max(settings.scale, 0.1)) + HUDMetrics.edgeRailSafeArea
+    }
+
     private var panelShape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: 18, style: .continuous)
+        RoundedRectangle(cornerRadius: isEdgeRail ? 0 : 18, style: .continuous)
+    }
+
+    /// A floating rail is outlined all round; a full-height rail only on the
+    /// side facing the windows, as a sidebar is.
+    @ViewBuilder
+    private var edgeLine: some View {
+        if isEdgeRail {
+            HStack(spacing: 0) {
+                if screenState.railEdge == .right { Rectangle().fill(.separator).frame(width: 0.5) }
+                Spacer(minLength: 0)
+                if screenState.railEdge != .right { Rectangle().fill(.separator).frame(width: 0.5) }
+            }
+        } else {
+            panelShape.stroke(.separator, lineWidth: 0.5)
+        }
     }
 
     @ViewBuilder
     private var panelSurface: some View {
         ZStack {
-            UsageAtmosphereBackground(compact: true,
-                                      weather: sailingWeather, ship: sailingShip,
-                                      command: sailingShakeID > 0 ? PaperweightSceneCommand(id: sailingShakeID, kind: .shake) : nil)
-            if !reduceTransparency {
-                HUDGlassSurface(
-                    severity: currentLimitSeverity,
-                    isActive: HUDMetrics.glassSurfaceOpacity(
-                        isHovered: isPanelHovered,
-                        forceVisible: showsStatusSurface
-                    ) > 0
-                )
+            if isEdgeRail {
+                // Modern is frosted glass that is always there, so the rail
+                // reads over any window: no sea, ships or weather behind it.
+                HUDGlassSurface(severity: currentLimitSeverity, isActive: true, cornerRadius: 0, isProminent: true)
+                // Opacity sets how solid the backing is; the glass keeps
+                // what's behind blurred, so the rail reads at any setting.
+                Color(nsColor: .windowBackgroundColor)
+                    .opacity(reduceTransparency ? 1 : HUDMetrics.edgeRailBacking(opacity: settings.opacity))
+            } else {
+                UsageAtmosphereBackground(compact: true,
+                                          weather: sailingWeather, ship: sailingShip,
+                                          command: sailingShakeID > 0 ? PaperweightSceneCommand(id: sailingShakeID, kind: .shake) : nil)
+                if !reduceTransparency {
+                    HUDGlassSurface(
+                        severity: currentLimitSeverity,
+                        isActive: HUDMetrics.glassSurfaceOpacity(
+                            isHovered: isPanelHovered,
+                            forceVisible: showsStatusSurface
+                        ) > 0
+                    )
+                }
             }
         }
         .clipShape(panelShape)
@@ -232,7 +277,53 @@ struct HUDView: View {
         quotaColumn(isStale: isStale)
     }
 
+    @ViewBuilder
     private func quotaColumn(isStale: Bool) -> some View {
+        if isEdgeRail {
+            // One group in the middle of the rail; the rings scroll only
+            // when the display is too short for them all.
+            ViewThatFits(in: .vertical) {
+                edgeColumn(isStale: isStale, scrolls: false)
+                edgeColumn(isStale: isStale, scrolls: true)
+            }
+        } else {
+            floatingColumn(isStale: isStale)
+        }
+    }
+
+    private func edgeColumn(isStale: Bool, scrolls: Bool) -> some View {
+        VStack(spacing: HUDMetrics.columnSpacing) {
+            if snapshots.isEmpty {
+                Text("All usage hidden")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 12)
+            } else if scrolls {
+                ScrollView {
+                    VStack(spacing: HUDMetrics.itemSpacing) { quotaRows }
+                        .padding(.vertical, 10)
+                }
+                .scrollIndicators(.never)
+                // Rings fade at the edges, so it's clear there are more.
+                .mask {
+                    LinearGradient(stops: [
+                        .init(color: .clear, location: 0), .init(color: .black, location: 0.05),
+                        .init(color: .black, location: 0.95), .init(color: .clear, location: 1),
+                    ], startPoint: .top, endPoint: .bottom)
+                }
+                .opacity(isStale ? 0.62 : 1)
+            } else {
+                VStack(spacing: HUDMetrics.itemSpacing) { quotaRows }
+                    .padding(.vertical, 4)
+                    .opacity(isStale ? 0.62 : 1)
+            }
+            resourceTiles
+            Divider().opacity(0.45)
+            footer(status: isStale ? .stale : .current)
+        }
+    }
+
+    private func floatingColumn(isStale: Bool) -> some View {
         VStack(spacing: HUDMetrics.columnSpacing) {
             if snapshots.isEmpty {
                 Text("All usage hidden")
@@ -241,71 +332,99 @@ struct HUDView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
-                    LazyVStack(spacing: HUDMetrics.itemSpacing) {
-                        ForEach(snapshots) { snapshot in
-                            QuotaRowView(
-                                snapshot: snapshot,
-                                showsResetCredits: settings.showsResetCredits,
-                                agentPhase: agentStore.phase(for: snapshot.toolID),
-                                agentTaskID: agentStore.targetTask(for: snapshot.toolID)?.id,
-                                openTool: openTool,
-                                openAgentTask: { taskID in
-                                    agentStore.acknowledge(taskID: taskID)
-                                    // Codex can open the exact task; the other
-                                    // tools open to their own app.
-                                    if snapshot.toolID == .chatGPT {
-                                        AIToolLauncher.openCodexTask(id: taskID)
-                                    } else {
-                                        openTool(.descriptor(for: snapshot))
-                                    }
-                                },
-                                onDetailHoverChanged: { isHovered, rowFrame in
-                                    if isHovered {
-                                        detailHoveredSnapshotIDs.insert(snapshot.id)
-                                        quotaDetail?.show(snapshot, rowFrame: rowFrame)
-                                    } else {
-                                        detailHoveredSnapshotIDs.remove(snapshot.id)
-                                        quotaDetail?.pointerLeft(snapshotID: snapshot.id)
-                                    }
-                                }
-                            )
-                        }
-                    }
-                    .padding(.vertical, 4)
+                    LazyVStack(spacing: HUDMetrics.itemSpacing) { quotaRows }
+                        .padding(.vertical, 4)
                 }
                 .scrollIndicators(.never)
                 .opacity(isStale ? 0.62 : 1)
             }
-
-            if let liveWork {
-                VStack(spacing: HUDMetrics.resourcePaperweightGap) {
-                    LiveWorkTile(monitor: liveWork, open: { openPaperweight(.memory) }) { isHovered, frame in
-                        let id = QuotaDetailPanelController.liveWorkID
-                        if isHovered {
-                            detailHoveredSnapshotIDs.insert(id)
-                            quotaDetail?.showLiveWork(rowFrame: frame)
-                        } else {
-                            detailHoveredSnapshotIDs.remove(id)
-                            quotaDetail?.pointerLeft(snapshotID: id)
-                        }
-                    }
-                    StorageTile(monitor: liveWork, open: { openPaperweight(.storage) }) { isHovered, frame in
-                        let id = QuotaDetailPanelController.storageID
-                        if isHovered {
-                            detailHoveredSnapshotIDs.insert(id)
-                            quotaDetail?.showStorage(rowFrame: frame, disk: liveWork.diskSpace,
-                                                     breakdown: StorageBreakdown.load(from: .standard))
-                        } else {
-                            detailHoveredSnapshotIDs.remove(id)
-                            quotaDetail?.pointerLeft(snapshotID: id)
-                        }
-                    }
-                }
-                .frame(width: 64)
-            }
-
+            resourceTiles
             Divider().opacity(isPanelHovered ? 0.45 : 0)
             footer(status: isStale ? .stale : .current)
+        }
+    }
+
+    /// The rail's rows. Modern gives each tool one ring, for its tightest
+    /// limit, and its hover card lists the rest; Classic has a ring per limit.
+    private var railRows: [(id: String, snapshot: QuotaSnapshot, others: [QuotaSnapshot])] {
+        guard isEdgeRail else { return snapshots.map { ($0.id, $0, []) } }
+        var order: [AIToolID] = []
+        var byTool: [AIToolID: [QuotaSnapshot]] = [:]
+        for snapshot in snapshots {
+            if byTool[snapshot.toolID] == nil { order.append(snapshot.toolID) }
+            byTool[snapshot.toolID, default: []].append(snapshot)
+        }
+        func tightness(_ snapshot: QuotaSnapshot) -> Double {
+            min(snapshot.remainingPercent, snapshot.secondaryWindow?.remainingPercent ?? 100)
+        }
+        return order.compactMap { tool in
+            guard let all = byTool[tool], let tightest = all.min(by: { tightness($0) < tightness($1) }) else { return nil }
+            return (tool.rawValue, tightest, all.filter { $0.id != tightest.id })
+        }
+    }
+
+    private var quotaRows: some View {
+        ForEach(railRows, id: \.id) { row in
+            let snapshot = row.snapshot
+            QuotaRowView(
+                snapshot: snapshot,
+                showsResetCredits: settings.showsResetCredits,
+                agentPhase: agentStore.phase(for: snapshot.toolID),
+                agentTaskID: agentStore.targetTask(for: snapshot.toolID)?.id,
+                openTool: openTool,
+                openAgentTask: { taskID in
+                    agentStore.acknowledge(taskID: taskID)
+                    // Codex can open the exact task; the other
+                    // tools open to their own app.
+                    if snapshot.toolID == .chatGPT {
+                        AIToolLauncher.openCodexTask(id: taskID)
+                    } else {
+                        openTool(.descriptor(for: snapshot))
+                    }
+                },
+                onDetailHoverChanged: { isHovered, rowFrame in
+                    if isHovered {
+                        detailHoveredSnapshotIDs.insert(snapshot.id)
+                        let shows = settings.showsResetCredits
+                        quotaDetail?.show(shows ? snapshot : snapshot.withoutResetCredits,
+                                          others: shows ? row.others : row.others.map(\.withoutResetCredits),
+                                          rowFrame: rowFrame)
+                    } else {
+                        detailHoveredSnapshotIDs.remove(snapshot.id)
+                        quotaDetail?.pointerLeft(snapshotID: snapshot.id)
+                    }
+                }
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var resourceTiles: some View {
+        if let liveWork {
+            VStack(spacing: isEdgeRail ? HUDMetrics.itemSpacing : HUDMetrics.resourcePaperweightGap) {
+                LiveWorkTile(monitor: liveWork, open: { openPaperweight(.memory) }) { isHovered, frame in
+                    let id = QuotaDetailPanelController.liveWorkID
+                    if isHovered {
+                        detailHoveredSnapshotIDs.insert(id)
+                        quotaDetail?.showLiveWork(rowFrame: frame)
+                    } else {
+                        detailHoveredSnapshotIDs.remove(id)
+                        quotaDetail?.pointerLeft(snapshotID: id)
+                    }
+                }
+                StorageTile(monitor: liveWork, open: { openPaperweight(.storage) }) { isHovered, frame in
+                    let id = QuotaDetailPanelController.storageID
+                    if isHovered {
+                        detailHoveredSnapshotIDs.insert(id)
+                        quotaDetail?.showStorage(rowFrame: frame, disk: liveWork.diskSpace,
+                                                 breakdown: StorageBreakdown.load(from: .standard))
+                    } else {
+                        detailHoveredSnapshotIDs.remove(id)
+                        quotaDetail?.pointerLeft(snapshotID: id)
+                    }
+                }
+            }
+            .frame(width: isEdgeRail ? 76 : 64)
         }
     }
 
@@ -351,8 +470,9 @@ struct HUDView: View {
         }
         .padding(.horizontal, 3)
         .frame(height: 24)
-        .opacity(showsStatusSurface ? 1 : HUDMetrics.controlOpacity(isHovered: isPanelHovered))
-        .allowsHitTesting(showsStatusSurface || isPanelHovered)
+        // The full-height rail always shows refresh, status and Settings.
+        .opacity(showsStatusSurface || isEdgeRail ? 1 : HUDMetrics.controlOpacity(isHovered: isPanelHovered))
+        .allowsHitTesting(showsStatusSurface || isEdgeRail || isPanelHovered)
     }
 
     private var refreshButton: some View {
@@ -524,6 +644,9 @@ struct HUDView: View {
 struct HUDGlassSurface: View {
     let severity: QuotaSeverity
     let isActive: Bool
+    var cornerRadius: CGFloat = 18
+    /// Frosted rather than clear, for a surface that is always shown.
+    var isProminent = false
 
     var body: some View {
         ZStack {
@@ -532,17 +655,17 @@ struct HUDGlassSurface: View {
                     .mix(with: .white, by: 0.45)
                     .opacity(0.02)
                 let glass = isActive
-                    ? Glass.clear.tint(tint).interactive()
+                    ? (isProminent ? Glass.regular : Glass.clear).tint(tint).interactive()
                     : Glass.identity
 
                 Color.clear
                     .glassEffect(
                         glass,
-                        in: .rect(cornerRadius: 18)
+                        in: .rect(cornerRadius: cornerRadius)
                     )
             } else {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(.ultraThinMaterial)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(isProminent ? AnyShapeStyle(.regularMaterial) : AnyShapeStyle(.ultraThinMaterial))
                     .opacity(isActive ? 1 : 0)
             }
         }
@@ -578,6 +701,14 @@ enum HUDMetrics {
 
     static let defaultMaximumRailHeight: CGFloat = 450
     static let screenInset: CGFloat = 32
+    /// Room above the first ring and below the footer of a full-height rail.
+    static let edgeRailSafeArea: CGFloat = 18
+
+    /// A full-height rail's unscaled height: once the user's scale is
+    /// applied it fills the display's visible height exactly.
+    static func edgeRailHeight(visibleHeight: CGFloat, scale: Double) -> CGFloat {
+        max(120, visibleHeight / CGFloat(max(scale, 0.1)))
+    }
 
     static func railHeight(
         rowCount: Int,
@@ -612,6 +743,12 @@ enum HUDMetrics {
         if isHovered { return 1 }
         if isCritical { return max(configured, 0.92) }
         return configured
+    }
+
+    /// How solid a full-height rail's backing is at an Opacity setting:
+    /// 10% is nearly clear glass, 100% a solid sidebar.
+    static func edgeRailBacking(opacity: Double) -> Double {
+        min(1, max(0, (opacity - 0.1) / 0.9))
     }
 
     static func controlOpacity(isHovered: Bool) -> Double {

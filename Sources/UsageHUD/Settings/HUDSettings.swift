@@ -197,6 +197,13 @@ final class HUDSettings: ObservableObject {
     /// Rail order: tools in the user's tool order, and within a tool the
     /// bucket order. Tools and buckets the user has not ordered yet go last.
     func ordered(_ snapshots: [QuotaSnapshot]) -> [QuotaSnapshot] {
+        inDisplayOrder(snapshots)
+            .filter { !hiddenBucketIDs.contains($0.id) && !hiddenToolIDs.contains($0.toolID) }
+    }
+
+    /// The same order, keeping hidden tools and limits, for a list that edits
+    /// what is shown.
+    func inDisplayOrder(_ snapshots: [QuotaSnapshot]) -> [QuotaSnapshot] {
         let toolRank = Dictionary(uniqueKeysWithValues: Self.stableUnique(toolOrder).enumerated().map { ($1, $0) })
         let bucketRank = Dictionary(uniqueKeysWithValues: Self.stableUnique(bucketOrder).enumerated().map { ($1, $0) })
         func key(_ snapshot: QuotaSnapshot) -> (Int, String, Int, String) {
@@ -207,9 +214,7 @@ final class HUDSettings: ObservableObject {
                 bucketRank[snapshot.id] == nil ? snapshot.id : ""
             )
         }
-        return snapshots
-            .filter { !hiddenBucketIDs.contains($0.id) && !hiddenToolIDs.contains($0.toolID) }
-            .sorted { key($0) < key($1) }
+        return snapshots.sorted { key($0) < key($1) }
     }
 
     var visibleTools: [AIToolDescriptor] {

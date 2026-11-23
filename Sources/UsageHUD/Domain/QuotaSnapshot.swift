@@ -52,11 +52,23 @@ struct QuotaWindowSnapshot: Codable, Equatable, Sendable {
     }
 }
 
-struct ResetCredit: Codable, Equatable, Sendable {
+/// A free reset a tool offers: a way to refill a limit before it would
+/// reset by itself, such as a Codex reset credit or Claude's full and model
+/// resets.
+struct ResetCredit: Codable, Equatable, Sendable, Identifiable {
     let id: String
     let title: String
     let expiresAt: Date?
     let detail: String?
+    /// When the tool gave it, when it says.
+    var grantedAt: Date? = nil
+    /// How many of it are left, for a tool that groups them; one otherwise.
+    var count: Int? = nil
+    /// False when the tool says it can't be used yet.
+    var isUsable: Bool? = nil
+
+    var remaining: Int { count ?? 1 }
+    var usableNow: Bool { isUsable ?? true }
 
     func isUnexpired(at date: Date) -> Bool {
         guard let expiresAt else { return true }
@@ -81,6 +93,7 @@ struct QuotaSnapshot: Identifiable, Codable, Equatable, Sendable {
     var resetCreditExpiresAt: Date? = nil
     var resetCredits: [ResetCredit] = []
     var secondaryWindow: QuotaWindowSnapshot? = nil
+    /// Each free reset by name, for tools that list them.
 
     var typeTag: String {
         primaryWindow.typeTag

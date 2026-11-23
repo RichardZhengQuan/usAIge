@@ -19,6 +19,9 @@ final class MagnetController {
 
     private(set) var edge: MagnetEdge?
     private(set) var isRevealed = true
+    /// A full-height rail runs the display's whole height, and the app picks
+    /// its side after a drag, so it never docks by drop distance.
+    var isEdgeRail = false
     /// True while this controller moves the panel, so a window delegate can
     /// tell its own animations apart from the user dragging.
     private(set) var isMovingPanel = false
@@ -84,12 +87,7 @@ final class MagnetController {
         self.edge = edge
         dockedDisplayID = Self.displayID(of: screen)
         dockedY = y
-        dockedFrame = MagnetGeometry.dockedFrame(
-            size: panel.frame.size,
-            edge: edge,
-            y: y,
-            visibleFrame: screen.visibleFrame
-        )
+        dockedFrame = frame(size: panel.frame.size, edge: edge, on: screen)
         isRevealed = true
         move(panel, to: dockedFrame, animated: animated)
         onDockingChanged?(edge, dockedFrame, screen)
@@ -140,6 +138,18 @@ final class MagnetController {
         dock(to: snapEdge, y: panel.frame.minY, on: screen, animated: true)
     }
 
+    /// Ends a drag whose drop the app places itself, as a full-height rail's.
+    func dragDidEndWithoutDocking() {
+        isDragging = false
+    }
+
+    private func frame(size: CGSize, edge: MagnetEdge, on screen: NSScreen) -> CGRect {
+        isEdgeRail
+            ? MagnetGeometry.edgeRailFrame(width: size.width, edge: edge,
+                                           screenFrame: screen.frame, visibleFrame: screen.visibleFrame)
+            : MagnetGeometry.dockedFrame(size: size, edge: edge, y: dockedY, visibleFrame: screen.visibleFrame)
+    }
+
     /// Re-lays out a docked rail after its size or display changed, keeping
     /// it flush and keeping it hidden if it was hidden.
     func panelDidResize(to size: CGSize) {
@@ -150,12 +160,7 @@ final class MagnetController {
         // stand-in.
         let isDockedDisplayPresent = dockedDisplayID == nil || Self.displayID(of: screen) == dockedDisplayID
         if dockedDisplayID == nil { dockedDisplayID = Self.displayID(of: screen) }
-        dockedFrame = MagnetGeometry.dockedFrame(
-            size: size,
-            edge: edge,
-            y: dockedY,
-            visibleFrame: screen.visibleFrame
-        )
+        dockedFrame = frame(size: size, edge: edge, on: screen)
         let target = isRevealed
             ? dockedFrame
             : MagnetGeometry.hiddenFrame(from: dockedFrame, edge: edge, screenFrame: screen.frame)
@@ -172,6 +177,9 @@ final class MagnetController {
 
     // MARK: Reveal and hide
 
+    /// Until when a rail shown for a Settings change stays out.
+    private var previewUntil: Date?
+
     func reveal() {
         guard let panel, edge != nil, !isRevealed else { return }
         isRevealed = true
@@ -179,10 +187,23 @@ final class MagnetController {
         scheduleHide()
     }
 
+    /// Slides a hidden rail out for a moment so a change to its look can be
+    /// seen, such as Opacity or Scale in Settings, then lets it hide again.
+    func showBriefly(for duration: TimeInterval = 2) {
+        guard let panel, edge != nil else { return }
+        previewUntil = Date().addingTimeInterval(duration)
+        if !isRevealed {
+            isRevealed = true
+            move(panel, to: dockedFrame, animated: true)
+        }
+        scheduleHide()
+    }
+
     func hide() {
         guard let panel, let edge, isRevealed, !isDragging,
               let screen = dockedScreen else { return }
-        guard MagnetGeometry.pointerIsClear(of: dockedFrame, pointer: pointerLocation()), !keepsRevealed() else {
+        guard MagnetGeometry.pointerIsClear(of: dockedFrame, pointer: pointerLocation()), !keepsRevealed(),
+              previewUntil.map({ Date() >= $0 }) ?? true else {
             scheduleHide()
             return
         }
