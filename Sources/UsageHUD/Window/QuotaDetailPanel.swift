@@ -38,10 +38,6 @@ struct QuotaDetailPlacement: Equatable {
 @available(macOS 14.0, *)
 @MainActor
 final class QuotaDetailPanelController {
-    /// Stands in for a snapshot's id while the tile's card is showing.
-    static let liveWorkID = "usAIge.liveWork"
-    /// Stands in for a snapshot's id while the Storage card is showing.
-    static let storageID = "usAIge.storage"
     /// How long a card waits after the pointer leaves, so it can cross to it.
     static let hideDelay: TimeInterval = 0.25
     private static let pointerPollInterval: TimeInterval = 0.05
@@ -50,18 +46,13 @@ final class QuotaDetailPanelController {
     private let pointerLocation: () -> CGPoint
     private var hostingView: NSHostingView<RailDetailCard>?
     private var rowFrame = CGRect.zero
-    private var shownSnapshot: QuotaSnapshot?
+    private var shownQuotaRow: RailQuotaRow?
     private var liveWork = LiveWorkSummary()
-    /// The visible card, without the transparent margin around it.
-    private var cardFrame = CGRect.zero
-    /// The card plus the gap between it and the rail.
-    private var keepOpenFrame = CGRect.zero
+    private var arrowEdge: HorizontalEdge = .leading
     private var hideTask: Task<Void, Never>?
     private var pointerTimer: Timer?
     private(set) var panel: NSPanel?
-    private(set) var shownSnapshotID: String?
-    private var shownOthers: [QuotaSnapshot] = []
-    private var showsOtherLimits = false
+    private(set) var shownRowID: RailDetailID?
     /// True while the pointer is on the card or crossing over to it. A docked
     /// rail has to stay out too: the card is its child window and moves with it.
     private(set) var isPointerOnCard = false
@@ -78,89 +69,83 @@ final class QuotaDetailPanelController {
         self.pointerLocation = pointerLocation
     }
 
-    /// Shows `snapshot` beside its row. `rowFrame` is in the rail's coordinates.
-    /// `others` are the tool's other limits when its row stands for them all.
-    func show(_ snapshot: QuotaSnapshot, others: [QuotaSnapshot] = [], rowFrame: CGRect) {
-        shownSnapshotID = snapshot.id
-        shownSnapshot = snapshot
-        shownOthers = others
-        showsOtherLimits = !others.isEmpty
-        self.rowFrame = rowFrame
-        cancelPendingHide()
-        present(content(for: snapshot))
-        startWatchingPointer()
-        onVisibilityChanged?(true)
+    /// Shows the limit or tool beside its row, in the rail's coordinates.
+    func show(_ row: RailQuotaRow, rowFrame: CGRect) {
+        shownRowID = row.id
+        shownQuotaRow = row
+        presentOnHover(content(for: row), rowFrame: rowFrame)
     }
 
     /// Shows every tool's current work beside the rail's tile.
     func showLiveWork(rowFrame: CGRect) {
-        shownSnapshotID = Self.liveWorkID
-        shownSnapshot = nil
-        self.rowFrame = rowFrame
-        cancelPendingHide()
-        present(.liveWork(liveWork))
-        startWatchingPointer()
-        onVisibilityChanged?(true)
+        shownRowID = .liveWork
+        shownQuotaRow = nil
+        presentOnHover(.liveWork(liveWork), rowFrame: rowFrame)
     }
 
     /// Shows the disk, and what the Branches window last measured on it,
     /// beside the rail's Storage paperweight.
     func showStorage(rowFrame: CGRect, disk: DiskSpace?, breakdown: StorageBreakdown?) {
-        shownSnapshotID = Self.storageID
-        shownSnapshot = nil
+        shownRowID = .storage
+        shownQuotaRow = nil
+        presentOnHover(.storage(disk, breakdown), rowFrame: rowFrame)
+    }
+
+    private func presentOnHover(_ content: RailDetailCard.Content, rowFrame: CGRect) {
         self.rowFrame = rowFrame
+        // A row's enter can arrive before the timer sees the pointer leave the
+        // card. Clear the old card's pointer state before the next poll.
+        isPointerOnCard = false
+        panel?.ignoresMouseEvents = true
         cancelPendingHide()
-        present(.storage(disk, breakdown))
+        present(content)
         startWatchingPointer()
         onVisibilityChanged?(true)
     }
 
-    /// Keeps the open card current as new usage arrives.
-    func update(_ snapshots: [QuotaSnapshot]) {
-        guard let shownSnapshotID, shownSnapshotID != Self.liveWorkID, shownSnapshotID != Self.storageID else { return }
-        if let snapshot = snapshots.first(where: { $0.id == shownSnapshotID }) {
-            shownSnapshot = snapshot
-            if showsOtherLimits {
-                shownOthers = snapshots.filter { $0.toolID == snapshot.toolID && $0.id != snapshot.id }
-            }
-            present(content(for: snapshot))
-        } else {
-            hide(snapshotID: shownSnapshotID)
+    /// Keeps the open card current as the rail's rows change.
+    func update(_ rows: [RailQuotaRow]) {
+        guard let shownQuotaRow else { return }
+        guard let row = rows.first(where: { $0.id == shownQuotaRow.id }) else {
+            hide(rowID: shownQuotaRow.id)
+            return
         }
+        self.shownQuotaRow = row
+        present(content(for: row))
     }
 
     /// Keeps the open card current as the work changes.
     func update(liveWork: LiveWorkSummary) {
         self.liveWork = liveWork
-        if shownSnapshotID == Self.liveWorkID {
+        if shownRowID == .liveWork {
             present(.liveWork(liveWork))
-        } else if let shownSnapshot {
-            present(content(for: shownSnapshot))
+        } else if let shownQuotaRow {
+            present(content(for: shownQuotaRow))
         }
     }
 
-    private func content(for snapshot: QuotaSnapshot) -> RailDetailCard.Content {
+    private func content(for row: RailQuotaRow) -> RailDetailCard.Content {
         .quota(
-            snapshot,
-            others: shownOthers,
-            work: liveWork.sessions(for: snapshot.toolID),
-            memoryBytes: liveWork.memoryBytes(for: snapshot.toolID)
+            row.snapshot,
+            others: row.otherLimits,
+            work: liveWork.sessions(for: row.snapshot.toolID),
+            memoryBytes: liveWork.memoryBytes(for: row.snapshot.toolID)
         )
     }
 
     /// The pointer left this row. The card stays a moment, so the pointer can
     /// cross to it, and goes if the pointer doesn't arrive.
-    func pointerLeft(snapshotID: String) {
-        guard shownSnapshotID == snapshotID else { return }
+    func pointerLeft(rowID: RailDetailID) {
+        guard shownRowID == rowID else { return }
         scheduleHide()
     }
 
     /// Hides the card if it still belongs to this row. When the pointer moves
     /// between rows, the new row's hover can arrive before the old row's exit.
-    func hide(snapshotID: String) {
-        guard shownSnapshotID == snapshotID else { return }
-        shownSnapshotID = nil
-        shownSnapshot = nil
+    func hide(rowID: RailDetailID) {
+        guard shownRowID == rowID else { return }
+        shownRowID = nil
+        shownQuotaRow = nil
         isPointerOnCard = false
         cancelPendingHide()
         stopWatchingPointer()
@@ -176,7 +161,18 @@ final class QuotaDetailPanelController {
     /// only while the pointer is on the card itself. Tracking areas can't
     /// decide this: they'd need the window to take events first.
     func handlePointer(at pointer: CGPoint) {
-        guard shownSnapshotID != nil, let panel else { return }
+        guard shownRowID != nil, let panel, let rail = panel.parent else { return }
+        // The child window moves with the rail during a drag or Magnet animation.
+        let inset = QuotaDetailCard.windowInset
+        let cardFrame = panel.frame.insetBy(dx: inset, dy: inset)
+        let railEdge = arrowEdge == .leading ? rail.frame.maxX : rail.frame.minX
+        let minX = min(railEdge, cardFrame.minX)
+        let keepOpenFrame = CGRect(
+            x: minX,
+            y: cardFrame.minY,
+            width: max(railEdge, cardFrame.maxX) - minX,
+            height: cardFrame.height
+        )
         panel.ignoresMouseEvents = !cardFrame.contains(pointer)
         if keepOpenFrame.contains(pointer) {
             isPointerOnCard = true
@@ -189,11 +185,11 @@ final class QuotaDetailPanelController {
 
     private func scheduleHide() {
         cancelPendingHide()
-        guard !isPointerOnCard, let id = shownSnapshotID else { return }
+        guard !isPointerOnCard, let id = shownRowID else { return }
         hideTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(Self.hideDelay * 1_000_000_000))
             guard let self, !Task.isCancelled, !self.isPointerOnCard else { return }
-            self.hide(snapshotID: id)
+            self.hide(rowID: id)
         }
     }
 
@@ -226,12 +222,12 @@ final class QuotaDetailPanelController {
     /// A paperweight's own card opens Branches with that paperweight in front;
     /// a usage card leaves whichever one is already there.
     func closeAndOpenBranches() {
-        let front: PaperweightID? = switch shownSnapshotID {
-        case Self.storageID: .storage
-        case Self.liveWorkID: .memory
+        let front: PaperweightID? = switch shownRowID {
+        case .storage: .storage
+        case .liveWork: .memory
         default: nil
         }
-        if let shownSnapshotID { hide(snapshotID: shownSnapshotID) }
+        if let shownRowID { hide(rowID: shownRowID) }
         openBranches(front)
     }
 
@@ -257,15 +253,7 @@ final class QuotaDetailPanelController {
             arrowOffset: placement.arrowOffset,
             openBranches: { [weak self] in self?.closeAndOpenBranches() }
         )
-        cardFrame = placement.cardFrame
-        let railEdge = placement.arrowEdge == .leading ? rail.frame.maxX : rail.frame.minX
-        let minX = min(railEdge, cardFrame.minX)
-        keepOpenFrame = CGRect(
-            x: minX,
-            y: cardFrame.minY,
-            width: max(railEdge, cardFrame.maxX) - minX,
-            height: cardFrame.height
-        )
+        arrowEdge = placement.arrowEdge
         panel.setFrame(placement.cardFrame.insetBy(dx: -inset, dy: -inset), display: true)
         panel.level = rail.level
         // As a child window the card follows the rail when it is dragged.

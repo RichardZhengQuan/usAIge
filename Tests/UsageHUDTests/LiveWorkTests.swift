@@ -667,12 +667,12 @@ private final class DiskPublications: @unchecked Sendable {
         guard #available(macOS 14.0, *) else { return }
         let rail = makeRail()
         let controller = QuotaDetailPanelController(rail: { rail })
-        controller.show(snapshot("a"), rowFrame: .zero)
+        controller.show(RailQuotaRow(snapshot: snapshot("a")), rowFrame: .zero)
         let first = controller.panel
-        controller.hide(snapshotID: "a")
+        controller.hide(rowID: .limit("a"))
         controller.showLiveWork(rowFrame: .zero)
         #expect(controller.panel === first)
-        #expect(controller.shownSnapshotID == QuotaDetailPanelController.liveWorkID)
+        #expect(controller.shownRowID == .liveWork)
         #expect(first?.parent === rail)
     }
 
@@ -681,11 +681,11 @@ private final class DiskPublications: @unchecked Sendable {
         let rail = makeRail()
         let controller = QuotaDetailPanelController(rail: { rail })
         controller.showLiveWork(rowFrame: .zero)
-        controller.update([snapshot("a")])
-        #expect(controller.shownSnapshotID == QuotaDetailPanelController.liveWorkID)
+        controller.update([RailQuotaRow(snapshot: snapshot("a"))])
+        #expect(controller.shownRowID == .liveWork)
         controller.update(liveWork: read([task("a")]))
-        #expect(controller.shownSnapshotID == QuotaDetailPanelController.liveWorkID)
-        controller.hide(snapshotID: QuotaDetailPanelController.liveWorkID)
+        #expect(controller.shownRowID == .liveWork)
+        controller.hide(rowID: .liveWork)
         #expect(controller.panel?.parent == nil)
     }
 
@@ -696,12 +696,12 @@ private final class DiskPublications: @unchecked Sendable {
         let rail = makeRail()
         let controller = QuotaDetailPanelController(rail: { rail })
         controller.showStorage(rowFrame: .zero, disk: DiskSpace(totalBytes: 1_000, availableBytes: 100), breakdown: nil)
-        #expect(controller.shownSnapshotID == QuotaDetailPanelController.storageID)
+        #expect(controller.shownRowID == .storage)
         #expect(controller.panel?.parent === rail)
-        controller.update([snapshot("a")])
+        controller.update([RailQuotaRow(snapshot: snapshot("a"))])
         controller.update(liveWork: read([task("a")]))
-        #expect(controller.shownSnapshotID == QuotaDetailPanelController.storageID)
-        controller.hide(snapshotID: QuotaDetailPanelController.storageID)
+        #expect(controller.shownRowID == .storage)
+        controller.hide(rowID: .storage)
         #expect(controller.panel?.parent == nil)
     }
 
@@ -713,11 +713,11 @@ private final class DiskPublications: @unchecked Sendable {
         let rail = makeRail()
         let controller = QuotaDetailPanelController(rail: { rail })
         controller.onVisibilityChanged = { visibility.values.append($0) }
-        controller.show(snapshot("a"), rowFrame: .zero)
-        controller.hide(snapshotID: "other")
-        controller.hide(snapshotID: "a")
+        controller.show(RailQuotaRow(snapshot: snapshot("a")), rowFrame: .zero)
+        controller.hide(rowID: .limit("other"))
+        controller.hide(rowID: .limit("a"))
         controller.showLiveWork(rowFrame: .zero)
-        controller.hide(snapshotID: QuotaDetailPanelController.liveWorkID)
+        controller.hide(rowID: .liveWork)
         #expect(visibility.values == [true, false, true, false])
     }
 
@@ -729,7 +729,7 @@ private final class DiskPublications: @unchecked Sendable {
     private func openCard(_ pointer: Pointer) throws -> (controller: QuotaDetailPanelController, card: CGPoint, rail: NSPanel) {
         let rail = makeRail()
         let controller = QuotaDetailPanelController(rail: { rail }, pointerLocation: { pointer.location })
-        controller.show(snapshot("a"), rowFrame: CGRect(x: 4, y: 10, width: 76, height: 80))
+        controller.show(RailQuotaRow(snapshot: snapshot("a")), rowFrame: CGRect(x: 4, y: 10, width: 76, height: 80))
         let window = try #require(controller.panel?.frame)
         return (controller, CGPoint(x: window.midX, y: window.midY), rail)
     }
@@ -743,14 +743,14 @@ private final class DiskPublications: @unchecked Sendable {
         guard #available(macOS 14.0, *) else { return }
         let pointer = Pointer()
         let (controller, card, _) = try openCard(pointer)
-        controller.pointerLeft(snapshotID: "a")
+        controller.pointerLeft(rowID: .limit("a"))
         pointer.location = card
         controller.handlePointer(at: card)
         #expect(controller.isPointerOnCard)
         try await wait()
-        #expect(controller.shownSnapshotID == "a")
+        #expect(controller.shownRowID == .limit("a"))
         #expect(controller.panel?.parent != nil)
-        controller.hide(snapshotID: "a")
+        controller.hide(rowID: .limit("a"))
     }
 
     @Test func aCardClosesSoonAfterThePointerLeavesIt() async throws {
@@ -762,12 +762,12 @@ private final class DiskPublications: @unchecked Sendable {
         pointer.location = CGPoint(x: -10_000, y: -10_000)
         controller.handlePointer(at: pointer.location)
         #expect(!controller.isPointerOnCard)
-        #expect(controller.shownSnapshotID == "a")
+        #expect(controller.shownRowID == .limit("a"))
         let deadline = Date().addingTimeInterval(30)
-        while controller.shownSnapshotID != nil, Date() < deadline {
+        while controller.shownRowID != nil, Date() < deadline {
             try await Task.sleep(nanoseconds: 20_000_000)
         }
-        #expect(controller.shownSnapshotID == nil)
+        #expect(controller.shownRowID == nil)
         #expect(controller.panel?.parent == nil)
     }
 
@@ -775,12 +775,12 @@ private final class DiskPublications: @unchecked Sendable {
         guard #available(macOS 14.0, *) else { return }
         let pointer = Pointer()
         let (controller, _, _) = try openCard(pointer)
-        controller.pointerLeft(snapshotID: "a")
+        controller.pointerLeft(rowID: .limit("a"))
         let deadline = Date().addingTimeInterval(30)
-        while controller.shownSnapshotID != nil, Date() < deadline {
+        while controller.shownRowID != nil, Date() < deadline {
             try await Task.sleep(nanoseconds: 20_000_000)
         }
-        #expect(controller.shownSnapshotID == nil)
+        #expect(controller.shownRowID == nil)
     }
 
     /// The gap between the rail and the card mustn't close it on a slow mouse.
@@ -793,7 +793,7 @@ private final class DiskPublications: @unchecked Sendable {
         controller.handlePointer(at: gap)
         #expect(controller.isPointerOnCard)
         #expect(controller.panel?.ignoresMouseEvents == true)
-        controller.hide(snapshotID: "a")
+        controller.hide(rowID: .limit("a"))
     }
 
     /// The window reaches over the rail for the shadow, and must not take the
@@ -813,19 +813,55 @@ private final class DiskPublications: @unchecked Sendable {
         controller.handlePointer(at: overRail)
         #expect(panel.ignoresMouseEvents)
 
-        controller.hide(snapshotID: "a")
+        controller.hide(rowID: .limit("a"))
         #expect(panel.ignoresMouseEvents)
+    }
+
+    @Test(arguments: ["a", "b"])
+    func returningFromTheCardToARowKeepsItsDetails(rowID: String) async throws {
+        let pointer = Pointer()
+        let (controller, card, rail) = try openCard(pointer)
+        pointer.location = card
+        controller.handlePointer(at: card)
+        #expect(controller.isPointerOnCard)
+
+        let rowFrame = CGRect(x: 4, y: rowID == "a" ? 10 : 100, width: 76, height: 80)
+        let railView = try #require(rail.contentView)
+        let rowOnScreen = rail.convertToScreen(railView.convert(rowFrame, to: nil))
+        pointer.location = CGPoint(x: rowOnScreen.midX, y: rowOnScreen.midY)
+        // The row's enter event can arrive before the next pointer poll.
+        controller.show(RailQuotaRow(snapshot: snapshot(rowID)), rowFrame: rowFrame)
+        defer { controller.hide(rowID: .limit(rowID)) }
+        controller.handlePointer(at: pointer.location)
+        try await wait()
+
+        #expect(controller.shownRowID == .limit(rowID))
+    }
+
+    @Test func theCardTakesMouseEventsAtItsNewPositionAfterTheRailMoves() throws {
+        let pointer = Pointer()
+        let (controller, oldCard, rail) = try openCard(pointer)
+        defer { controller.hide(rowID: .limit("a")) }
+        let panel = try #require(controller.panel)
+        rail.setFrameOrigin(CGPoint(x: rail.frame.minX, y: rail.frame.minY + 300))
+
+        let movedCard = CGPoint(x: panel.frame.midX, y: panel.frame.midY)
+        try #require(movedCard != oldCard)
+        pointer.location = movedCard
+        controller.handlePointer(at: movedCard)
+        #expect(controller.isPointerOnCard)
+        #expect(!panel.ignoresMouseEvents)
     }
 
     @Test func returningToARowKeepsItsCard() async throws {
         guard #available(macOS 14.0, *) else { return }
         let pointer = Pointer()
         let (controller, _, _) = try openCard(pointer)
-        controller.pointerLeft(snapshotID: "a")
-        controller.show(snapshot("a"), rowFrame: CGRect(x: 4, y: 10, width: 76, height: 80))
+        controller.pointerLeft(rowID: .limit("a"))
+        controller.show(RailQuotaRow(snapshot: snapshot("a")), rowFrame: CGRect(x: 4, y: 10, width: 76, height: 80))
         try await wait()
-        #expect(controller.shownSnapshotID == "a")
-        controller.hide(snapshotID: "a")
+        #expect(controller.shownRowID == .limit("a"))
+        controller.hide(rowID: .limit("a"))
     }
 
     /// A row's late exit mustn't close the card that replaced its own.
@@ -833,11 +869,11 @@ private final class DiskPublications: @unchecked Sendable {
         guard #available(macOS 14.0, *) else { return }
         let pointer = Pointer()
         let (controller, _, _) = try openCard(pointer)
-        controller.show(snapshot("b"), rowFrame: .zero)
-        controller.pointerLeft(snapshotID: "a")
+        controller.show(RailQuotaRow(snapshot: snapshot("b")), rowFrame: .zero)
+        controller.pointerLeft(rowID: .limit("a"))
         try await wait()
-        #expect(controller.shownSnapshotID == "b")
-        controller.hide(snapshotID: "b")
+        #expect(controller.shownRowID == .limit("b"))
+        controller.hide(rowID: .limit("b"))
     }
 
     @Test func theCardsLinkClosesItAndOpensTheList() throws {
@@ -852,7 +888,7 @@ private final class DiskPublications: @unchecked Sendable {
         }
         controller.closeAndOpenBranches()
         #expect(opened.count == 1)
-        #expect(controller.shownSnapshotID == nil)
+        #expect(controller.shownRowID == nil)
     }
 
     /// The Storage card's link once left Memory in front of an open window.
@@ -868,14 +904,14 @@ private final class DiskPublications: @unchecked Sendable {
         controller.showLiveWork(rowFrame: .zero)
         controller.closeAndOpenBranches()
         #expect(opened.fronts == [.storage, .memory])
-        #expect(controller.shownSnapshotID == nil)
+        #expect(controller.shownRowID == nil)
     }
 
     @Test func aRowsCardGrowsToFitItsToolsWork() {
         guard #available(macOS 14.0, *) else { return }
         let rail = makeRail()
         let controller = QuotaDetailPanelController(rail: { rail })
-        controller.show(snapshot("a"), rowFrame: .zero)
+        controller.show(RailQuotaRow(snapshot: snapshot("a")), rowFrame: .zero)
         let plainHeight = controller.panel?.frame.height ?? 0
         var work = read([task("a", tool: .chatGPT, branch: "topic")])
         work.appProcesses[.chatGPT] = [process(1, in: "/", bytes: 1024)]
