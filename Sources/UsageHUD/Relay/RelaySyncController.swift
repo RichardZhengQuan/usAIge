@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import OSLog
 
 struct RelayWindowPayload: Codable, Equatable, Sendable {
     let remainingPercent: Double
@@ -21,9 +22,59 @@ struct RelaySessionStatusPayload: Codable, Equatable, Sendable {
     let updatedAt: Date
 }
 
+struct RelayResetCreditPayload: Codable, Equatable, Sendable {
+    let id: String
+    let title: String
+    let expiresAt: Date?
+    let detail: String?
+
+    init?(_ credit: ResetCredit) {
+        guard !credit.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              credit.id.utf16.count <= 128,
+              let title = Self.boundedText(credit.title, limit: 80) else { return nil }
+        id = credit.id
+        self.title = title
+        expiresAt = credit.expiresAt
+        detail = credit.detail.flatMap { Self.boundedText($0, limit: 300) }
+    }
+
+    private static func boundedText(_ text: String, limit: Int) -> String? {
+        var length = 0
+        let bounded = text.trimmingCharacters(in: .whitespacesAndNewlines).prefix { character in
+            length += character.utf16.count
+            return length <= limit
+        }
+        return bounded.isEmpty ? nil : String(bounded)
+    }
+}
+
 struct RelayResetCreditsPayload: Codable, Equatable, Sendable {
     let availableCount: Int
     let expiresAt: Date?
+    let credits: [RelayResetCreditPayload]?
+
+    static func make(
+        from snapshots: [QuotaSnapshot],
+        at date: Date,
+        includeNamedResetCredits: Bool
+    ) -> Self? {
+        let reportedCount = snapshots.compactMap(\.availableResetCount).first
+        var seenIDs: Set<String> = []
+        let availableCredits = snapshots.flatMap(\.resetCredits).compactMap { credit -> RelayResetCreditPayload? in
+            guard credit.isUnexpired(at: date),
+                  let payload = RelayResetCreditPayload(credit),
+                  seenIDs.insert(payload.id).inserted else { return nil }
+            return payload
+        }
+        guard reportedCount != nil || !availableCredits.isEmpty else { return nil }
+        return Self(
+            availableCount: min(1_000, max(0, reportedCount ?? availableCredits.count)),
+            expiresAt: snapshots.compactMap(\.resetCreditExpiresAt).first,
+            credits: includeNamedResetCredits && !availableCredits.isEmpty
+                ? Array(availableCredits.prefix(20))
+                : nil
+        )
+    }
 }
 
 struct RelayToolPayload: Encodable, Equatable, Sendable {
@@ -57,7 +108,8 @@ struct RelaySnapshotPayload: Encodable, Equatable, Sendable {
     static func make(
         from snapshots: [QuotaSnapshot],
         sessionStatuses: [AIToolID: RelaySessionStatusPayload],
-        at date: Date = Date()
+        at date: Date = Date(),
+        includeNamedResetCredits: Bool = true
     ) -> Self {
         let orderedIDs = snapshots.reduce(into: [AIToolID]()) { values, snapshot in
             if !values.contains(snapshot.toolID) { values.append(snapshot.toolID) }
@@ -66,18 +118,15 @@ struct RelaySnapshotPayload: Encodable, Equatable, Sendable {
             let values = snapshots.filter { $0.toolID == toolID }
             guard let first = values.first else { return nil }
             let descriptor = AIToolDescriptor.descriptor(for: first)
-            let availableResetCount = values.compactMap(\.availableResetCount).first
-            let resetCreditExpiresAt = values.compactMap(\.resetCreditExpiresAt).first
             return RelayToolPayload(
                 id: toolID.rawValue,
                 name: first.toolName ?? descriptor.name,
                 symbolName: first.toolSystemImage ?? descriptor.systemImage,
-                resetCredits: availableResetCount.map {
-                    RelayResetCreditsPayload(
-                        availableCount: $0,
-                        expiresAt: resetCreditExpiresAt
-                    )
-                },
+                resetCredits: RelayResetCreditsPayload.make(
+                    from: values,
+                    at: date,
+                    includeNamedResetCredits: includeNamedResetCredits
+                ),
                 limits: values.map { snapshot in
                     RelayLimitPayload(
                         id: snapshot.id,
@@ -218,6 +267,7 @@ final class RelaySyncController: ObservableObject {
     @Published private(set) var lastUploadAt: Date?
 
     private static let relayURL = URL(string: "https://pmrichq.com/project/usaige/api/v1/")!
+    private static let logger = Logger(subsystem: "com.richardzhengquan.usaige", category: "RelaySync")
     private static let channelKey = "usageHUD.relay.channelID"
     private static let macNameKey = "usageHUD.relay.macName"
     private static let heartbeatInterval: TimeInterval = 20 * 60
@@ -237,6 +287,7 @@ final class RelaySyncController: ObservableObject {
     private var retryAttempt = 0
     private var isUploadInFlight = false
     private var hasPendingUpload = false
+    private var relayRejectedNamedResetCredits = false
     private var sentSessionEventIDs: Set<String> = []
     private static let maximumRememberedSessionEventIDs = 2_000
 
@@ -612,16 +663,36 @@ final class RelaySyncController: ObservableObject {
         }
         status = .uploading
         do {
+            let snapshots = latestSnapshots
+            let sessionStatuses = latestSessionStatuses
+            let generatedAt = Date()
             let payload = RelaySnapshotPayload.make(
-                from: latestSnapshots,
-                sessionStatuses: latestSessionStatuses
+                from: snapshots,
+                sessionStatuses: sessionStatuses,
+                at: generatedAt,
+                includeNamedResetCredits: !relayRejectedNamedResetCredits
             )
             var request = try authorizedURLRequest(method: "PUT", path: "channels/\(channelID)/snapshot")
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             request.httpBody = try encoder.encode(payload)
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            let _: UploadResponse = try await send(request)
+            do {
+                let _: UploadResponse = try await send(request)
+            } catch let RelaySyncError.server(statusCode, _)
+                where statusCode == 400 && payload.tools.contains(where: { $0.resetCredits?.credits != nil }) {
+                guard isCurrentChannel(channelID, generation: generation) else { return }
+                relayRejectedNamedResetCredits = true
+                Self.logger.debug("Relay rejected named reset credits. Retrying with the reset summary.")
+                let legacyPayload = RelaySnapshotPayload.make(
+                    from: snapshots,
+                    sessionStatuses: sessionStatuses,
+                    at: generatedAt,
+                    includeNamedResetCredits: false
+                )
+                request.httpBody = try encoder.encode(legacyPayload)
+                let _: UploadResponse = try await send(request)
+            }
             guard isCurrentChannel(channelID, generation: generation) else { return }
             lastUploadAt = Date()
             status = .connected
@@ -772,10 +843,10 @@ final class RelaySyncController: ObservableObject {
     }
 
     private func validateResponse(_ response: URLResponse, data: Data) throws {
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+        let http = response as? HTTPURLResponse
+        guard let statusCode = http?.statusCode, (200..<300).contains(statusCode) else {
             let serverError = try? JSONDecoder().decode(ErrorResponse.self, from: data)
-            if let http = response as? HTTPURLResponse,
-               http.statusCode == 404, http.mimeType?.lowercased() == "application/json",
+            if http?.statusCode == 404, http?.mimeType?.lowercased() == "application/json",
                serverError?.code == "channel_not_found" {
                 throw RelaySyncError.channelMissing
             }
@@ -783,7 +854,7 @@ final class RelaySyncController: ObservableObject {
             let sanitized = Self.sanitizedServerMessage(serverError?.error, fallback: fallback)
             let genericMessages = ["Relay request failed.", "The relay request failed."]
             let message = genericMessages.contains(sanitized) ? fallback : sanitized
-            throw RelaySyncError.server(message)
+            throw RelaySyncError.server(statusCode: http?.statusCode, message: message)
         }
     }
 }
@@ -794,7 +865,21 @@ private struct DeviceListResponse: Decodable { let devices: [RelayPhoneDevice] }
 private struct RemoteToolsResponse: Decodable { let tools: [RelayRemoteTool] }
 private struct UploadResponse: Decodable { let version: Int; let serverReceivedAt: Date; let changed: Bool }
 private struct ErrorResponse: Decodable { let error: String; let code: String? }
-private enum RelaySyncError: LocalizedError { case missingCredential, requestFailed, channelMissing, server(String); var errorDescription: String? { switch self { case .missingCredential: "This Mac’s connection key is missing. Restart usAIge and connect again."; case .requestFailed: "The sync service is unavailable. Try again later."; case .channelMissing: "This Mac’s previous connection is no longer available. Reconnect to create a new connection."; case let .server(message): message } } }
+private enum RelaySyncError: LocalizedError {
+    case missingCredential
+    case requestFailed
+    case channelMissing
+    case server(statusCode: Int?, message: String)
+
+    var errorDescription: String? {
+        switch self {
+        case .missingCredential: "This Mac’s connection key is missing. Restart usAIge and connect again."
+        case .requestFailed: "The sync service is unavailable. Try again later."
+        case .channelMissing: "This Mac’s previous connection is no longer available. Reconnect to create a new connection."
+        case let .server(_, message): message
+        }
+    }
+}
 
 struct RelayMacCredentialStore: Sendable {
     private static let defaultFileURL = FileManager.default.homeDirectoryForCurrentUser
