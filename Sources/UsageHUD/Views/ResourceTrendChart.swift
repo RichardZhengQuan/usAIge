@@ -18,7 +18,7 @@ struct ResourceTrendChart: View {
         let midpoint = (maximum + minimum) / 2
         let scale = max(0, midpoint - 0.6 * magnitude)...(midpoint + 0.6 * magnitude)
         let name: LocalizedStringKey = resource == .memory ? "Memory in use" : "Free disk space"
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: compact ? 4 : 7) {
             HStack(spacing: 4) {
                 if !compact {
                     Text(name, bundle: AppLanguage.resourceBundle).fontWeight(.medium)
@@ -58,7 +58,7 @@ struct ResourceTrendChart: View {
                     .fixedSize(horizontal: true, vertical: false)
                 }
             }
-            .frame(height: compact ? 32 : 44)
+            .frame(height: compact ? 68 : 128)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text(name, bundle: AppLanguage.resourceBundle))
             .accessibilityValue(values.isEmpty ? Text("Waiting for a reading…", bundle: AppLanguage.resourceBundle)

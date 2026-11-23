@@ -745,7 +745,7 @@ private struct ModernSummaryCard<Detail: View>: View {
                                 VStack(alignment: .leading, spacing: 10) { heading; amount }
                                     .fixedSize(horizontal: true, vertical: false)
                                 Spacer(minLength: 2)
-                                trend.frame(minWidth: 70, idealWidth: 115, maxWidth: 150)
+                                trend.frame(minWidth: 100, idealWidth: 165, maxWidth: 210)
                                 chevron
                             }
                             VStack(alignment: .leading, spacing: 6) {
@@ -829,7 +829,7 @@ private struct CPUOverviewSummary: View {
                           caption: AppLanguage.format("%ld logical cores", locale: locale, ProcessInfo.processInfo.activeProcessorCount),
                           placesDetailOnRight: true,
                           open: open) {
-            CPUTrendChart(samples: monitor.samples, plotHeight: 72)
+            CPUTrendChart(samples: monitor.samples, plotHeight: 108)
         }
     }
 }

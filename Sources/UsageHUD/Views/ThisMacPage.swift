@@ -68,7 +68,7 @@ private struct CPUReadings: View {
                 Spacer(minLength: 4)
                 SystemTrendRangePicker()
             }
-            CPUTrendChart(samples: monitor.samples, plotHeight: 145)
+            CPUTrendChart(samples: monitor.samples, plotHeight: 180)
             Divider()
             HStack(alignment: .top, spacing: 16) {
                 timeShare("User", usage?.user)

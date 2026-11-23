@@ -349,7 +349,7 @@ struct ModernResourcePage: View {
         let segments = ModernResourceCard.segments(configuration)
         let free = configuration.freeLayer
         return ModernCard(padding: 18) {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 18) {
                 let figure = VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text(value)
@@ -367,11 +367,11 @@ struct ModernResourcePage: View {
                     let source = resource == .memory ? liveWork.memoryHistory : liveWork.storageHistory
                     let chart = ResourceTrendChart(history: source, resource: resource)
                     ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 18) {
-                            figure.frame(minWidth: 245, maxWidth: .infinity, alignment: .leading)
-                            chart.frame(minWidth: 160, idealWidth: 245, maxWidth: 300)
+                        HStack(spacing: 24) {
+                            figure.frame(minWidth: 235, maxWidth: .infinity, alignment: .leading)
+                            chart.frame(minWidth: 250, idealWidth: 400, maxWidth: 520)
                         }
-                        VStack(alignment: .leading, spacing: 12) { figure; chart }
+                        VStack(alignment: .leading, spacing: 16) { figure; chart }
                     }
                 } else {
                     figure

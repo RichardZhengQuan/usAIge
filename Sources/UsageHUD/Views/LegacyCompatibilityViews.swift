@@ -111,7 +111,7 @@ private struct LegacyResourceReadings: View {
                 }
             }
             if showsCPUTrend {
-                CPUTrendChart(samples: cpu.samples)
+                CPUTrendChart(samples: cpu.samples, plotHeight: 88)
             }
             Label(memory?.compactTotal ?? "Memory unavailable", systemImage: "memorychip")
                 .hudRailLabel()

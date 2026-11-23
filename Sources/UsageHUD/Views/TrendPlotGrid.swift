@@ -12,18 +12,36 @@ struct TrendPlotGrid: View {
             let size = geometry.size
             let spacing = Self.cellSide(for: size, compact: compact)
             let tint = status.color
-            let opacity = contrast == .increased ? 0.48 : (scheme == .dark ? 0.25 : 0.23)
+            let opacity = contrast == .increased ? 0.66 : (scheme == .dark ? 0.46 : 0.39)
             ZStack {
-                tint.opacity(scheme == .dark ? 0.085 : 0.055)
+                tint.opacity(scheme == .dark ? 0.10 : 0.065)
                 grid(size: size, spacing: spacing, major: false)
-                    .stroke(tint.opacity(opacity), lineWidth: 0.6)
+                    .stroke(tint.opacity(opacity), lineWidth: 0.75)
                 grid(size: size, spacing: spacing, major: true)
-                    .stroke(tint.opacity(min(1, opacity * 1.35)), lineWidth: 0.8)
+                    .stroke(tint.opacity(min(1, opacity * 1.25)), lineWidth: 0.9)
             }
+            .mask(centerEmphasis(in: size))
+            .background(tint.opacity(0.018))
             .clipShape(RoundedRectangle(cornerRadius: compact ? 2 : 4))
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+
+    /// Scale the gradient with both axes so it reaches the edges of a wide plot evenly.
+    private func centerEmphasis(in size: CGSize) -> some View {
+        let side = max(1, size.width, size.height)
+        let edge = contrast == .increased ? 0.40 : 0.14
+        let gradient = Gradient(stops: [
+            .init(color: .white, location: 0.30),
+            .init(color: .white.opacity(0.85), location: 0.52),
+            .init(color: .white.opacity(0.48), location: 0.72),
+            .init(color: .white.opacity(edge), location: 1),
+        ])
+        return RadialGradient(gradient: gradient, center: .center, startRadius: 0, endRadius: side / sqrt(2))
+            .frame(width: side, height: side)
+            .scaleEffect(x: size.width / side, y: size.height / side)
+            .position(x: size.width / 2, y: size.height / 2)
     }
 
     /// Use two rows on a typical chart and limit columns on a wide Overview card.
