@@ -408,13 +408,31 @@ function sessionStatusSignature(value: unknown) {
   }));
 }
 function isResetCredits(value: unknown) {
-  const credits = value as { availableCount?: unknown; expiresAt?: unknown } | null;
+  const credits = value as { availableCount?: unknown; expiresAt?: unknown; credits?: unknown } | null;
   return !!credits
-    && hasOnlyKeys(credits, ["availableCount", "expiresAt"])
+    && hasOnlyKeys(credits, ["availableCount", "expiresAt", "credits"])
     && Number.isInteger(credits.availableCount)
     && Number(credits.availableCount) >= 0
     && Number(credits.availableCount) <= 1_000
-    && (credits.expiresAt == null || isDateString(credits.expiresAt));
+    && (credits.expiresAt == null || isDateString(credits.expiresAt))
+    && (credits.credits === undefined || isResetCreditList(credits.credits));
+}
+function isResetCreditList(value: unknown) {
+  if (!Array.isArray(value) || value.length > 20) return false;
+  const ids = new Set<string>();
+  for (const entry of value as unknown[]) {
+    const credit = entry as { id?: unknown; title?: unknown; expiresAt?: unknown; detail?: unknown } | null;
+    if (!credit || !hasOnlyKeys(credit, ["id", "title", "expiresAt", "detail"])
+      || !isBoundedString(credit.id, 128)
+      || !isBoundedString(credit.title, 80)
+      || (credit.expiresAt !== undefined && !isDateString(credit.expiresAt))
+      || (credit.detail !== undefined && !isBoundedString(credit.detail, 300))
+      || ids.has(credit.id)) {
+      return false;
+    }
+    ids.add(credit.id);
+  }
+  return true;
 }
 function isSessionStatus(value: unknown) {
   const status = value as { phase?: unknown; updatedAt?: unknown } | null;
