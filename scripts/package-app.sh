@@ -34,6 +34,10 @@ cp "$root/Sources/UsageHUD/Resources/Info.plist" "$app/Contents/Info.plist"
 cp "$root/Sources/UsageHUD/Resources/AppIcon.icns" "$app/Contents/Resources/AppIcon.icns"
 cp "$root/Sources/UsageHUD/Resources/ReleaseNotes.json" "$app/Contents/Resources/ReleaseNotes.json"
 cp -R "$root/Sources/UsageHUD/Resources/ToolMarks" "$app/Contents/Resources/ToolMarks"
+for language in en zh-Hans-SG; do
+    cp -R "$root/Sources/UsageHUD/Translations/$language.lproj" "$app/Contents/Resources/"
+    plutil -lint "$app/Contents/Resources/$language.lproj/Localizable.strings"
+done
 mkdir -p "$app/Contents/Resources/ClaudeUsageBridge/.claude-plugin" "$app/Contents/Resources/ClaudeUsageBridge/hooks"
 mkdir -p "$app/Contents/Resources/.claude-plugin"
 cp "$root/Integrations/.claude-plugin/marketplace.json" "$app/Contents/Resources/.claude-plugin/marketplace.json"

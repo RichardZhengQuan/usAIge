@@ -48,7 +48,7 @@ final class QuotaDetailPanelController {
 
     private let railWindow: () -> NSWindow?
     private let pointerLocation: () -> CGPoint
-    private var hostingView: NSHostingView<RailDetailCard>?
+    private var hostingView: NSHostingView<AppLanguageEnvironment<RailDetailCard>>?
     private var rowFrame = CGRect.zero
     private var shownSnapshot: QuotaSnapshot?
     private var liveWork = LiveWorkSummary()
@@ -259,7 +259,7 @@ final class QuotaDetailPanelController {
             arrowEdge: placement.arrowEdge,
             arrowOffset: placement.arrowOffset,
             openBranches: { [weak self] in self?.closeAndOpenBranches() }
-        )
+        ).appLanguageEnvironment()
         cardFrame = placement.cardFrame
         let railEdge = placement.arrowEdge == .leading ? rail.frame.maxX : rail.frame.minX
         let minX = min(railEdge, cardFrame.minX)
@@ -275,13 +275,13 @@ final class QuotaDetailPanelController {
         if panel.parent == nil { rail.addChildWindow(panel, ordered: .above) }
     }
 
-    private func cardView(showing content: RailDetailCard.Content) -> NSHostingView<RailDetailCard> {
+    private func cardView(showing content: RailDetailCard.Content) -> NSHostingView<AppLanguageEnvironment<RailDetailCard>> {
         let card = RailDetailCard(content: content, openBranches: { [weak self] in self?.closeAndOpenBranches() })
         if let hostingView {
-            hostingView.rootView = card
+            hostingView.rootView = card.appLanguageEnvironment()
             return hostingView
         }
-        let view = NSHostingView(rootView: card)
+        let view = NSHostingView(rootView: card.appLanguageEnvironment())
         hostingView = view
         return view
     }
