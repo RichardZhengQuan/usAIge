@@ -272,6 +272,10 @@ struct UIGalleryRenderTests {
             RailScene(name: "signed-out", result: .success(.signedOut)),
             RailScene(name: "unavailable", result: .failure(.http(503))),
         ]
+        let classicDefaults = try #require(UserDefaults(suiteName: "usaige.render.rail.classic.\(UUID().uuidString)"))
+        classicDefaults.set(InterfaceStyle.classic.rawValue, forKey: InterfaceStyle.defaultsKey)
+        let modernDefaults = try #require(UserDefaults(suiteName: "usaige.render.rail.modern.\(UUID().uuidString)"))
+        modernDefaults.set(InterfaceStyle.modern.rawValue, forKey: InterfaceStyle.defaultsKey)
         for scene in scenes {
             let (settings, _) = makeSettings()
             let store = UsageStore(provider: FixedUsageProvider(scene.result), monitorsNetworkChanges: false)
@@ -285,8 +289,8 @@ struct UIGalleryRenderTests {
             let railHeight = rowCount > 0 ? HUDMetrics.railHeight(rowCount: rowCount, maximumHeight: 2_000) : 120
             let canvas = CGSize(width: HUDMetrics.railWidth + 56, height: railHeight + 56)
 
-            func rail(hovered: Bool, wallpaper: GalleryWallpaper) -> some View {
-                ZStack {
+            func rail(hovered: Bool, wallpaper: GalleryWallpaper, modern: Bool = false) -> some View {
+                ZStack(alignment: .trailing) {
                     wallpaper.view
                     HUDView(
                         store: store,
@@ -297,9 +301,20 @@ struct UIGalleryRenderTests {
                         openCodex: {},
                         openSettings: {},
                         resizePanel: { _ in },
-                        screenState: PanelScreenState(visibleHeight: 2_000)
+                        screenState: modern ? Self.modernRailScreen : PanelScreenState(visibleHeight: 2_000)
                     )
                     .environment(\.hudPreviewsHover, hovered)
+                    .defaultAppStorage(modern ? modernDefaults : classicDefaults)
+                }
+            }
+            // The Modern rail runs the display's full height at its side.
+            let modernCanvas = CGSize(width: HUDMetrics.railWidth + 120, height: Self.modernRailScreen.screenHeight)
+            for appearance in GalleryAppearance.allCases {
+                let wallpaper: GalleryWallpaper = appearance == .light ? .light : .dark
+                for hovered in [false, true] {
+                    try render(rail(hovered: hovered, wallpaper: wallpaper, modern: true), size: modernCanvas,
+                               appearance: appearance,
+                               name: "modern-rail-\(scene.name)-\(appearance.rawValue)-\(hovered ? "hover" : "idle")")
                 }
             }
 
@@ -314,6 +329,246 @@ struct UIGalleryRenderTests {
                        name: "rail-\(scene.name)-light-idle-busy-wallpaper")
             try render(rail(hovered: true, wallpaper: .busy), size: canvas, appearance: .dark,
                        name: "rail-\(scene.name)-dark-hover-busy-wallpaper")
+        }
+    }
+
+    /// A display with a 34-point menu bar and a 70-point Dock below.
+    private static let modernRailScreen: PanelScreenState = {
+        let state = PanelScreenState(visibleHeight: 696, screenHeight: 800, safeTop: 34, safeBottom: 70)
+        state.railEdge = .right
+        return state
+    }()
+
+    /// The Modern window: the same sidebar and sections as Classic, with a
+    /// capacity bar and grouped lists instead of the ocean.
+    @Test func rendersModernStyle() async throws {
+        guard #available(macOS 14.0, *) else { return }
+        let suite = "usaige.render.modern.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(InterfaceStyle.modern.rawValue, forKey: InterfaceStyle.defaultsKey)
+        let snapshot = sampleBranchesSnapshot(now: Date())
+        let store = BranchesStore(
+            defaults: defaults, initialSnapshot: snapshot, initialDiskSpace: sampleDiskSpace,
+            initialToolStorage: sampleToolStorage
+        )
+        let tasks = sampleLiveWork(), processes = sampleProcesses(), disk = sampleDiskSpace
+        let memory = sampleMemoryUsage
+        let monitor = LiveWorkMonitor(
+            currentTasks: { tasks },
+            runningApplications: { [.claude: ["/Applications/Claude.app"]] },
+            locator: { RepositoryLocator(home: "/Users/me") },
+            scan: { _, _ in processes },
+            readDiskSpace: { disk }, readMemoryPressure: { .normal }, readMemoryUsage: { memory }
+        )
+        await monitor.refresh()
+        let (settings, _) = makeSettings()
+        let usageStore = UsageStore(provider: FixedUsageProvider(.success(.authenticated(mixedSnapshots))),
+                                    monitorsNetworkChanges: false)
+        await usageStore.refresh()
+        // A tool whose sign-in expired, one that isn't connected yet, and an
+        // opt-in tool that's off.
+        let status = LocalToolStatusRegistry()
+        status.report(.credentialExpired, for: .jetBrainsAI)
+        status.report(.signedOut, for: .windsurf)
+        status.report(.optInRequired, for: .copilot)
+        func window(_ presentation: BranchesPaperweightPresentation) -> some View {
+            MainRootView(store: store, liveWork: monitor, usageStore: usageStore, settings: settings,
+                         presentation: presentation, localToolStatus: status, openSettings: {})
+                .defaultAppStorage(defaults)
+        }
+        func page(_ page: ModernPage) -> BranchesPaperweightPresentation {
+            let presentation = BranchesPaperweightPresentation()
+            presentation.open(page)
+            return presentation
+        }
+        for appearance in GalleryAppearance.allCases {
+            for modernPage in ModernPage.allCases {
+                try render(window(page(modernPage)), size: CGSize(width: 1180, height: 780),
+                           appearance: appearance, name: "modern-page-\(modernPage.rawValue)-\(appearance.rawValue)")
+            }
+            try render(
+                BranchesRootView(store: store, liveWork: monitor, initialFront: .memory).defaultAppStorage(defaults),
+                size: CGSize(width: 1000, height: 1_400), appearance: appearance,
+                name: "modern-memory-\(appearance.rawValue)"
+            )
+            // The rail's card for one tool: its limits, free resets and what
+            // it's working on now.
+            let claude = usageStore.visibleSnapshots.filter { $0.toolID == .claude }
+            if let first = claude.first {
+                try render(
+                    RailDetailCard(content: .quota(first, others: Array(claude.dropFirst()),
+                                                   work: monitor.summary.sessions(for: .claude),
+                                                   memoryBytes: monitor.summary.memoryBytes(for: .claude)))
+                        .defaultAppStorage(defaults)
+                        .padding(20),
+                    size: CGSize(width: 400, height: 640), appearance: appearance,
+                    name: "modern-rail-card-\(appearance.rawValue)"
+                )
+            }
+            try render(
+                ModernDevicesPage(relaySync: RelaySyncController(defaults: defaults)).defaultAppStorage(defaults),
+                size: CGSize(width: 980, height: 700), appearance: appearance,
+                name: "modern-devices-\(appearance.rawValue)"
+            )
+            // Editing on the Usage page: switches and drag handles.
+            settings.hiddenBucketIDs.insert("codex_bengalfox")
+            try render(
+                ScrollView {
+                    ModernUsageBoard(store: usageStore, settings: settings, localToolStatus: status, editing: true)
+                        .padding(24)
+                }
+                .background(ModernPalette.page)
+                .defaultAppStorage(defaults),
+                size: CGSize(width: 980, height: 900), appearance: appearance,
+                name: "modern-usage-editing-\(appearance.rawValue)"
+            )
+            settings.hiddenBucketIDs.remove("codex_bengalfox")
+            for layerID in ["cache", "tool"] {
+                try render(
+                    BranchesRootView(store: store, liveWork: monitor, initialFront: .storage,
+                                     initialSelectedLayerID: layerID).defaultAppStorage(defaults),
+                    size: CGSize(width: 1000, height: 1_000), appearance: appearance,
+                    name: "modern-storage-\(layerID)-\(appearance.rawValue)"
+                )
+            }
+        }
+    }
+
+    /// Ten limits at once, as with many tools connected: the rail on a
+    /// 1107-point display and the Modern Overview and Usage pages.
+    @Test func rendersManyTools() async throws {
+        guard #available(macOS 14.0, *) else { return }
+        let ten = [
+            bucket("codex", "Codex", .chatGPT, remaining: 62, minutes: 300, secondaryRemaining: 81),
+            bucket("codex_spark", "GPT-5.3-Codex-Spark", .chatGPT, remaining: 90, minutes: 300),
+            bucket("claude", "All models", .claude, remaining: 45, minutes: 300, secondaryRemaining: 70, plan: "max"),
+            bucket("claude_fable", "Fable", .claude, remaining: 18, minutes: 10_080, plan: "max"),
+            bucket("cursor", "Cursor models", .cursor, remaining: 33, minutes: 44_640),
+            bucket("grok", "Weekly credits", .grok, remaining: 100, minutes: 10_080),
+            bucket("gemini", "Gemini Pro", .gemini, remaining: 74, minutes: 1_440),
+            bucket("gemini_flash", "Gemini Flash", .gemini, remaining: 91, minutes: 1_440),
+            bucket("grok_heavy", "Heavy", .grok, remaining: 55, minutes: 10_080),
+            bucket("cursor_auto", "Auto", .cursor, remaining: 12, minutes: 44_640),
+        ]
+        let suite = "usaige.render.many.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(InterfaceStyle.modern.rawValue, forKey: InterfaceStyle.defaultsKey)
+        let (settings, _) = makeSettings()
+        let store = UsageStore(provider: FixedUsageProvider(.success(.authenticated(ten))), monitorsNetworkChanges: false)
+        await store.refresh()
+        let agentStore = CodexAgentStore(sources: [])
+        let tasks = sampleLiveWork(), processes = sampleProcesses(), disk = sampleDiskSpace, memory = sampleMemoryUsage
+        let monitor = LiveWorkMonitor(
+            currentTasks: { tasks }, runningApplications: { [:] },
+            locator: { RepositoryLocator(home: "/Users/me") }, scan: { _, _ in processes },
+            readDiskSpace: { disk }, readMemoryPressure: { .normal }, readMemoryUsage: { memory }
+        )
+        await monitor.refresh()
+        let screen = PanelScreenState(visibleHeight: 1_003, screenHeight: 1_107, safeTop: 34, safeBottom: 70)
+        screen.railEdge = .right
+        for appearance in GalleryAppearance.allCases {
+            try render(
+                ZStack(alignment: .trailing) {
+                    (appearance == .light ? GalleryWallpaper.light : .dark).view
+                    HUDView(store: store, agentStore: agentStore, settings: settings, updateController: UpdateController(),
+                            openTool: { _ in }, openCodex: {}, openSettings: {}, resizePanel: { _ in },
+                            screenState: screen, liveWork: monitor)
+                        .defaultAppStorage(defaults)
+                },
+                size: CGSize(width: HUDMetrics.railWidth + 120, height: screen.screenHeight), appearance: appearance,
+                name: "many-rail-\(appearance.rawValue)"
+            )
+        }
+        let branches = BranchesStore(defaults: defaults, initialSnapshot: sampleBranchesSnapshot(now: Date()),
+                                     initialDiskSpace: sampleDiskSpace, initialToolStorage: sampleToolStorage)
+        for page in [ModernPage.overview, .usage] {
+            let presentation = BranchesPaperweightPresentation()
+            presentation.open(page)
+            try render(
+                MainRootView(store: branches, liveWork: monitor, usageStore: store, settings: settings,
+                             presentation: presentation, openSettings: {})
+                    .defaultAppStorage(defaults),
+                size: CGSize(width: 1180, height: 780), appearance: .light, name: "many-\(page.rawValue)-light"
+            )
+        }
+    }
+
+    /// Twelve tools on the rail on 13-inch MacBook screens: the rows scroll
+    /// between the safe areas with a fade, and the controls stay put.
+    @Test func rendersTwelveToolsOnASmallMacBook() async throws {
+        guard #available(macOS 14.0, *) else { return }
+        let twelve = [
+            bucket("codex", "Codex", .chatGPT, remaining: 62, minutes: 300, secondaryRemaining: 81),
+            bucket("claude", "All models", .claude, remaining: 45, minutes: 300, secondaryRemaining: 70, plan: "max"),
+            bucket("cursor", "Cursor models", .cursor, remaining: 33, minutes: 44_640),
+            bucket("grok", "Weekly credits", .grok, remaining: 100, minutes: 10_080),
+            bucket("gemini", "Gemini Pro", .gemini, remaining: 74, minutes: 1_440),
+            bucket("jetbrains", "Monthly quota", .jetBrainsAI, remaining: 58, minutes: 43_200),
+            bucket("windsurf", "Prompt credits", .windsurf, remaining: 21, minutes: 43_200),
+            bucket("antigravity", "Agent requests", .antigravity, remaining: 88, minutes: 300),
+            bucket("copilot", "Premium requests", .copilot, remaining: 40, minutes: 43_200),
+            bucket("kiro", "Vibe requests", .kiro, remaining: 66, minutes: 43_200),
+            bucket("amp", "Free tier", .amp, remaining: 9, minutes: 1_440),
+            bucket("cline", "Credits", .cline, remaining: 95, minutes: 43_200),
+        ]
+        let suite = "usaige.render.twelve.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(InterfaceStyle.modern.rawValue, forKey: InterfaceStyle.defaultsKey)
+        let (settings, _) = makeSettings()
+        let store = UsageStore(provider: FixedUsageProvider(.success(.authenticated(twelve))), monitorsNetworkChanges: false)
+        await store.refresh()
+        let agentStore = CodexAgentStore(sources: [])
+        let tasks = sampleLiveWork(), processes = sampleProcesses(), disk = sampleDiskSpace, memory = sampleMemoryUsage
+        let monitor = LiveWorkMonitor(
+            currentTasks: { tasks }, runningApplications: { [:] },
+            locator: { RepositoryLocator(home: "/Users/me") }, scan: { _, _ in processes },
+            readDiskSpace: { disk }, readMemoryPressure: { .normal }, readMemoryUsage: { memory }
+        )
+        await monitor.refresh()
+        // 13-inch MacBook Air (notch, 1470 x 956) and 13-inch MacBook Pro
+        // (1440 x 900), each with the Dock at the bottom.
+        let screens: [(String, PanelScreenState)] = [
+            ("air13", PanelScreenState(visibleHeight: 956 - 37 - 62, screenHeight: 956, safeTop: 37, safeBottom: 62)),
+            ("pro13", PanelScreenState(visibleHeight: 900 - 24 - 62, screenHeight: 900, safeTop: 24, safeBottom: 62)),
+        ]
+        for (name, screen) in screens {
+            screen.railEdge = .right
+            for appearance in GalleryAppearance.allCases {
+                try render(
+                    ZStack(alignment: .trailing) {
+                        (appearance == .light ? GalleryWallpaper.light : .dark).view
+                        HUDView(store: store, agentStore: agentStore, settings: settings, updateController: UpdateController(),
+                                openTool: { _ in }, openCodex: {}, openSettings: {}, resizePanel: { _ in },
+                                screenState: screen, liveWork: monitor)
+                            .defaultAppStorage(defaults)
+                    },
+                    size: CGSize(width: HUDMetrics.railWidth + 120, height: screen.screenHeight), appearance: appearance,
+                    name: "twelve-rail-\(name)-\(appearance.rawValue)"
+                )
+            }
+        }
+        // The Display settings people change: a lighter rail and a larger one.
+        let screen = screens[0].1
+        for (opacity, scale) in [(0.38, 1.2), (0.1, 0.8), (1.0, 1.5)] {
+        let (tuned, _) = makeSettings()
+        tuned.opacity = opacity
+        tuned.scale = scale
+        for appearance in GalleryAppearance.allCases {
+            try render(
+                ZStack(alignment: .trailing) {
+                    (appearance == .light ? GalleryWallpaper.light : .dark).view
+                    HUDView(store: store, agentStore: agentStore, settings: tuned, updateController: UpdateController(),
+                            openTool: { _ in }, openCodex: {}, openSettings: {}, resizePanel: { _ in },
+                            screenState: screen, liveWork: monitor)
+                        .defaultAppStorage(defaults)
+                },
+                size: CGSize(width: HUDMetrics.railWidth * scale + 120, height: screen.screenHeight), appearance: appearance,
+                name: "tuned-rail-\(Int(opacity * 100))-\(scale)-\(appearance.rawValue)"
+            )
+        }
         }
     }
 
@@ -488,11 +743,38 @@ struct UIGalleryRenderTests {
         await agentStore.refresh()
         let railHeight = HUDMetrics.railHeight(rowCount: snapshots.count, maximumHeight: 2_000, showsWorkTile: true)
         let canvas = CGSize(width: HUDMetrics.railWidth + 56, height: railHeight + 56)
+        let modernScreen = PanelScreenState(visibleHeight: 696, screenHeight: 800, safeTop: 34, safeBottom: 70)
+        modernScreen.railEdge = .right
         for appearance in GalleryAppearance.allCases {
             let wallpaper: GalleryWallpaper = appearance == .light ? .light : .dark
             for (name, tile) in railScenes {
                 for hovered in [false, true] {
-                    let (settings, _) = makeSettings()
+                    let (settings, settingsDefaults) = makeSettings()
+                    // Modern's rail runs the display's full height; Classic floats.
+                    settingsDefaults.set(InterfaceStyle.modern.rawValue, forKey: InterfaceStyle.defaultsKey)
+                    try render(
+                        ZStack(alignment: .trailing) {
+                            wallpaper.view
+                            HUDView(
+                                store: store,
+                                agentStore: agentStore,
+                                settings: settings,
+                                updateController: UpdateController(),
+                                openTool: { _ in },
+                                openCodex: {},
+                                openSettings: {},
+                                resizePanel: { _ in },
+                                screenState: modernScreen,
+                                liveWork: tile
+                            )
+                            .environment(\.hudPreviewsHover, hovered)
+                            .defaultAppStorage(settingsDefaults)
+                        },
+                        size: CGSize(width: HUDMetrics.railWidth + 120, height: modernScreen.screenHeight),
+                        appearance: appearance,
+                        name: "modern-live-rail-\(name)-\(appearance.rawValue)-\(hovered ? "hover" : "idle")"
+                    )
+                    settingsDefaults.set(InterfaceStyle.classic.rawValue, forKey: InterfaceStyle.defaultsKey)
                     try render(
                         ZStack {
                             wallpaper.view
@@ -509,6 +791,7 @@ struct UIGalleryRenderTests {
                                 liveWork: tile
                             )
                             .environment(\.hudPreviewsHover, hovered)
+                            .defaultAppStorage(settingsDefaults)
                         },
                         size: canvas, appearance: appearance,
                         name: "live-rail-\(name)-\(appearance.rawValue)-\(hovered ? "hover" : "idle")"
@@ -667,10 +950,14 @@ struct UIGalleryRenderTests {
                 facts: facts, ignoredFiles: [".build"]
             )
             row.sessions = WorkSessionSummary(count: 1, tools: ["Codex"], lastActiveAt: old, title: title)
+            // A finished scan has checked the ignored build folder, so it can go.
+            let review = WorktreeIgnoredReview(identity: CleanupFileIdentity(stat()), fingerprint: "sample",
+                                               unverifiedPaths: [])
+            row.ignoredReview = review
             row.size = FolderSize(
                 totalBytes: Int64(gigabytes * 1_000_000_000), cacheBytes: cache,
                 cacheBytesByName: [".build": cache], ignored: [".build"],
-                otherIgnoredBytes: 0, measuredAt: now
+                otherIgnoredBytes: 0, measuredAt: now, ignoredReview: review
             )
             return row
         }
@@ -735,6 +1022,7 @@ struct UIGalleryRenderTests {
         guard #available(macOS 14.0, *) else { return }
         let snapshot = sampleBranchesSnapshot(now: Date())
         let defaults = try #require(UserDefaults(suiteName: "usaige.render.branches.\(UUID().uuidString)"))
+        defaults.set(InterfaceStyle.classic.rawValue, forKey: InterfaceStyle.defaultsKey)
         let store = BranchesStore(
             defaults: defaults, initialSnapshot: snapshot, initialDiskSpace: sampleDiskSpace,
             initialToolStorage: sampleToolStorage

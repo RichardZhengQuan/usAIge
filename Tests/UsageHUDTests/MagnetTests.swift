@@ -178,3 +178,32 @@ private func isolatedDefaults() -> UserDefaults {
     #expect(panel.frame.minY == topY)
     controller.undock()
 }
+
+/// Changing the rail's look in Settings slides a hidden rail out so the
+/// change shows, and it stays out until the moment passes.
+@MainActor
+@Test func aHiddenRailSlidesOutBrieflyToShowAChange() throws {
+    guard let mainScreen = NSScreen.main else { return }
+    let controller = MagnetController(isEnabled: true, pointerLocation: { CGPoint(x: -10_000, y: -10_000) })
+    let panel = NSPanel(
+        contentRect: CGRect(origin: .zero, size: size),
+        styleMask: [.borderless, .nonactivatingPanel],
+        backing: .buffered,
+        defer: false
+    )
+    controller.attach(to: panel)
+    controller.dock(to: .right, y: 300, on: mainScreen, animated: false)
+    controller.hide()
+    #expect(!controller.isRevealed)
+
+    controller.showBriefly(for: 60)
+    #expect(controller.isRevealed)
+    // The pointer is far away, but the change is still being shown.
+    controller.hide()
+    #expect(controller.isRevealed)
+
+    controller.showBriefly(for: -1)
+    controller.hide()
+    #expect(!controller.isRevealed)
+    controller.undock()
+}

@@ -68,6 +68,8 @@ struct QuotaSnapshot: Identifiable, Codable, Equatable, Sendable {
     var availableResetCount: Int? = nil
     var resetCreditExpiresAt: Date? = nil
     var secondaryWindow: QuotaWindowSnapshot? = nil
+    /// Each free reset by name, for tools that list them.
+    var resetCredits: [ResetCredit]? = nil
 
     var typeTag: String {
         primaryWindow.typeTag

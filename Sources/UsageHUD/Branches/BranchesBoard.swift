@@ -457,3 +457,32 @@ enum BoardText {
         return "Running"
     }
 }
+
+/// Modern lists branches and worktrees on pages of their own: a worktree has
+/// a folder of its own, a branch lives only in its repository.
+enum WorkKind: Sendable {
+    case branches, worktrees
+
+    func includes(_ item: WorkItem) -> Bool {
+        (item.worktreePath != nil) == (self == .worktrees)
+    }
+
+    func includes(_ entry: LookEntry) -> Bool {
+        switch entry {
+        case let .item(item): includes(item)
+        case .copy, .notChecked: self == .worktrees
+        case .unreadable: self == .branches
+        }
+    }
+}
+
+extension BranchesBoard {
+    /// The same board, keeping only one kind of work.
+    func only(_ kind: WorkKind) -> BranchesBoard {
+        var board = self
+        board.running = running.filter(kind.includes)
+        board.needsLook = needsLook.filter(kind.includes)
+        board.safeToClear = safeToClear.filter(kind.includes)
+        return board
+    }
+}

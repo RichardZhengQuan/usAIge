@@ -121,3 +121,53 @@ func claudeCacheHistoryCannotInferCurrentOrganizationFromAnEarlierRecord(organiz
         #expect(ClaudeUsageProvider.snapshots(fromClaudeApp: sample, planType: nil).map(\.id) == ["claude", "claude_sonnet"])
     }
 }
+
+/// A response too old to show still lends the reset times of windows that
+/// haven't reset since: usage only grows within a window.
+@Test(arguments: [5.0, 6.0, 7.0])
+func claudeEarlierResponseLendsResetsWhileItsWindowsRun(cachedSession: Double) throws {
+    // History reads 6% of the 5-hour window and 26% of the week.
+    let reset = cacheHistoryNow.addingTimeInterval(3_600)
+    let payload = historyPayload(session: cachedSession, weekly: 20)
+    let earlier = ClaudeDesktopCachedUsage(payload: payload, recordedAt: cacheHistoryNow.addingTimeInterval(-3 * 3_600))
+    let sample = ClaudeAppUsageHistory.carryingResets(
+        from: earlier,
+        into: ClaudeAppUsageSample(recordedAt: cacheHistoryNow, sessionPercent: 6, weeklyPercent: 26),
+        now: cacheHistoryNow
+    )
+    // 5% and 6% are at or below the history's 6%: the same window. 7% is
+    // above it, so the window has reset since and its time is gone.
+    #expect((sample.sessionResetAt != nil) == (cachedSession <= 6))
+    #expect(sample.weeklyResetAt.map { abs($0.timeIntervalSince(reset)) < 1 } == true)
+    #expect(sample.cachedUsage == nil)
+    let snapshot = try #require(ClaudeUsageProvider.snapshots(fromClaudeApp: sample, planType: nil).first)
+    #expect(snapshot.usedPercent == 6)
+    #expect(snapshot.secondaryWindow?.usedPercent == 26)
+    #expect(snapshot.secondaryWindow?.resetAt != nil)
+}
+
+@Test func claudeEarlierResponseNeverLendsAPassedReset() throws {
+    let passed = ISO8601DateFormatter().string(from: cacheHistoryNow.addingTimeInterval(-60))
+    let payload = JSONValue.parse(Data("""
+    {"five_hour":{"utilization":3,"resets_at":"\(passed)"},"seven_day":{"utilization":20,"resets_at":"\(passed)"}}
+    """.utf8))!
+    let earlier = ClaudeDesktopCachedUsage(payload: payload, recordedAt: cacheHistoryNow.addingTimeInterval(-6 * 3_600))
+    let sample = ClaudeAppUsageHistory.carryingResets(
+        from: earlier,
+        into: ClaudeAppUsageSample(recordedAt: cacheHistoryNow, sessionPercent: 6, weeklyPercent: 26),
+        now: cacheHistoryNow
+    )
+    #expect(sample.sessionResetAt == nil)
+    #expect(sample.weeklyResetAt == nil)
+}
+
+@Test func claudeStaleCacheStillLendsResetsToHistory() throws {
+    let cache = ClaudeDesktopCachedUsage(payload: historyPayload(session: 6, weekly: 26),
+                                         recordedAt: cacheHistoryNow.addingTimeInterval(-2 * 3_600))
+    try withCacheHistory(cache: cache) { source in
+        let sample = try #require(source.latestSample())
+        #expect(sample.cachedUsage == nil)
+        #expect(sample.sessionResetAt != nil)
+        #expect(sample.weeklyResetAt != nil)
+    }
+}

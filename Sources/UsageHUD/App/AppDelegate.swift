@@ -35,6 +35,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     private var liveWorkObserver: AnyCancellable?
     private var manualRefreshTask: Task<Void, Never>?
     private var workspaceRefreshTask: Task<Void, Never>?
+    private var interfaceStyleObserver: NSObjectProtocol?
+    private var railStyle = InterfaceStyle.current()
+    private var restoredSettingsObserver: NSObjectProtocol?
+    /// The pairing steps the main window's Usage page shows, with their own
+    /// navigation so pairing a tool there doesn't move Settings.
+    private let toolsNavigation = SettingsNavigation()
+    private let syncNavigation = SettingsNavigation()
 
     override init() {
         let configuredSettings = HUDSettings()
@@ -89,6 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        closeRestoredSettingsWindow()
         DispatchQueue.main.async { [weak self] in
             self?.installWhatsNewMenuItem()
         }
@@ -145,15 +153,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         self.panel = panel
         magnet.attach(to: panel)
         magnet.onDockingChanged = { [weak self] edge, frame, screen in
-            self?.settings.setPosition(frame.origin, edge: edge, for: Self.displayKey(for: screen))
+            guard let self else { return }
+            self.settings.setPosition(frame.origin, edge: edge, for: Self.displayKey(for: screen))
+            if self.usesEdgeRail, let edge { self.screenState.railEdge = edge }
         }
         panel.onDragStateChanged = { [weak self] isDragging in
-            if isDragging { self?.magnet.dragDidBegin() } else { self?.magnet.dragDidEnd() }
+            guard let self else { return }
+            if isDragging {
+                self.magnet.dragDidBegin()
+            } else if self.usesEdgeRail {
+                self.magnet.dragDidEndWithoutDocking()
+                self.snapEdgeRailAfterDrag()
+            } else {
+                self.magnet.dragDidEnd()
+            }
         }
+        applyRailStyle()
+        interfaceStyleObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, InterfaceStyle.current() != self.railStyle else { return }
+                self.railStyle = InterfaceStyle.current()
+                self.applyRailStyle()
+                if let panel = self.panel {
+                    self.magnet.undock()
+                    self.positionPanel(panel, on: panel.screen ?? NSScreen.main)
+                }
+            }
+        }
+        var railLook = (opacity: settings.opacity, scale: settings.scale)
         magnetSettingsObserver = settings.objectWillChange.sink { [weak self] in
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.magnet.isEnabled = self.settings.magnetEnabled
+                // A docked rail is usually out of sight while its look is
+                // changed in Settings, so it slides out to show the change.
+                let look = (opacity: self.settings.opacity, scale: self.settings.scale)
+                if look != railLook {
+                    railLook = look
+                    if self.magnet.isDocked { self.magnet.showBriefly() }
+                }
+                // A full-height rail docks as soon as Magnet is on, so it
+                // starts sliding away without being dragged first.
+                if self.usesEdgeRail, self.settings.magnetEnabled, !self.magnet.isDocked,
+                   let panel = self.panel, let screen = panel.screen ?? NSScreen.main {
+                    self.placeEdgeRail(panel, on: screen, edge: self.screenState.railEdge ?? .right, animated: false)
+                }
             }
         }
         positionPanel(panel, on: launchScreen())
@@ -167,6 +215,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
                 guard let self, let panel = self.panel else { return }
                 self.screenState.update(for: panel)
                 self.magnet.screenParametersDidChange()
+                if self.usesEdgeRail, !self.magnet.isDocked, let screen = panel.screen ?? NSScreen.main {
+                    self.placeEdgeRail(panel, on: screen, edge: self.screenState.railEdge ?? .right, animated: false)
+                }
             }
         }
         panel.orderFrontRegardless()
@@ -291,6 +342,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
             return screen
         }
         return NSScreen.main
+    }
+
+    /// From macOS 14 Settings is a page of the main window. macOS can still
+    /// reopen the standalone Settings window an earlier run left open, so
+    /// close it once restoring finishes and Settings keeps one home.
+    private func closeRestoredSettingsWindow() {
+        guard #available(macOS 14.0, *) else { return }
+        DispatchQueue.main.async { [weak self] in self?.closeSettingsSceneWindows() }
+        restoredSettingsObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didFinishRestoringWindowsNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.closeSettingsSceneWindows()
+                if let observer = self.restoredSettingsObserver { NotificationCenter.default.removeObserver(observer) }
+                self.restoredSettingsObserver = nil
+            }
+        }
+    }
+
+    private func closeSettingsSceneWindows() {
+        let identifier = SettingsScenePresenter.settingsSceneIdentifier
+        for window in NSApp.windows where window.identifier?.rawValue == identifier {
+            window.close()
+        }
     }
 
     func resetPanelPosition() {
@@ -455,7 +531,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
                 refreshWorkspace: { [weak self] in self?.refreshWorkspace() },
                 addWorkspaceFolder: { [weak self] in self?.addWorkspaceFolder() },
                 layout: .page
-            )), updateController: updateController,
+            )),
+            connectContent: AnyView(HUDSettingsRootView(
+                settings: settings, store: store, launchAtLogin: launchAtLogin,
+                updateController: updateController, relaySync: relaySync,
+                localToolStatus: localToolStatus, navigation: toolsNavigation,
+                layout: .page, rootDestination: .remoteToolPairing
+            )),
+            syncContent: AnyView(ModernDevicesPage(relaySync: relaySync)),
+            localToolStatus: localToolStatus, updateController: updateController,
             openSettings: { [weak self] in self?.showSettings() }
         ) { [weak self] in
             self?.branchesWindowController = nil
@@ -474,8 +558,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         magnet.reveal()
     }
 
+    /// Modern's rail runs the full height of the display at one side.
+    /// Before macOS 14 the rail is the legacy view, which always floats.
+    private var usesEdgeRail: Bool {
+        guard #available(macOS 14.0, *) else { return false }
+        return railStyle == .modern
+    }
+
+    private func applyRailStyle() {
+        panel?.dragsHorizontallyOnly = usesEdgeRail
+        magnet.isEdgeRail = usesEdgeRail
+        if !usesEdgeRail { screenState.railEdge = nil }
+    }
+
+    /// The side a full-height rail goes to on `screen`: where it was last,
+    /// otherwise the side its last floating position was nearer, otherwise
+    /// the right, where the floating rail starts.
+    private func preferredEdge(on screen: NSScreen) -> MagnetEdge {
+        let key = Self.displayKey(for: screen)
+        if let edge = settings.magnetEdge(for: key) { return edge }
+        if let saved = settings.position(for: key) {
+            return saved.x + HUDMetrics.railWidth / 2 < screen.visibleFrame.midX ? .left : .right
+        }
+        return .right
+    }
+
+    private func placeEdgeRail(_ panel: NSPanel, on screen: NSScreen, edge: MagnetEdge, animated: Bool) {
+        screenState.railEdge = edge
+        let frame = MagnetGeometry.edgeRailFrame(
+            width: HUDMetrics.railWidth * settings.scale,
+            edge: edge,
+            screenFrame: screen.frame,
+            visibleFrame: screen.visibleFrame
+        )
+        if settings.magnetEnabled {
+            if panel.frame.size != frame.size { panel.setFrame(frame, display: true, animate: false) }
+            magnet.dock(to: edge, y: frame.minY, on: screen, animated: animated)
+            return
+        }
+        panel.setFrame(frame, display: true, animate: animated)
+        settings.setPosition(frame.origin, edge: edge, for: Self.displayKey(for: screen))
+    }
+
+    /// A full-height rail always belongs at a side. A short flick toward
+    /// the other side sends it there; a small wobble puts it back.
+    private func snapEdgeRailAfterDrag() {
+        guard let panel, let screen = panel.screen ?? NSScreen.main else { return }
+        let current = screenState.railEdge ?? MagnetGeometry.nearestEdge(to: panel.frame, in: screen.visibleFrame)
+        let edge = MagnetGeometry.edgeAfterDrag(from: current, horizontalTranslation: panel.lastDragTranslation.width)
+        placeEdgeRail(panel, on: screen, edge: edge, animated: true)
+    }
+
     private func positionPanel(_ panel: NSPanel, on screen: NSScreen? = NSScreen.main) {
         guard let screen else { return }
+        if usesEdgeRail {
+            placeEdgeRail(panel, on: screen, edge: preferredEdge(on: screen), animated: false)
+            return
+        }
         let key = Self.displayKey(for: screen)
         if settings.magnetEnabled,
            let edge = settings.magnetEdge(for: key),
@@ -497,6 +636,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
                 || abs(panel.frame.height - size.height) > 0.5 else { return }
         if magnet.isDocked {
             magnet.panelDidResize(to: size)
+            return
+        }
+        if usesEdgeRail, let screen = panel.screen ?? NSScreen.main {
+            let edge = screenState.railEdge ?? MagnetGeometry.nearestEdge(to: panel.frame, in: screen.visibleFrame)
+            screenState.railEdge = edge
+            panel.setFrame(
+                MagnetGeometry.edgeRailFrame(width: size.width, edge: edge,
+                                             screenFrame: screen.frame, visibleFrame: screen.visibleFrame),
+                display: true, animate: false
+            )
             return
         }
 
@@ -623,6 +772,9 @@ private final class CodexAttentionMonitor {
 
 @MainActor
 enum SettingsScenePresenter {
+    /// The identifier SwiftUI gives its standalone Settings window.
+    static let settingsSceneIdentifier = "com_apple_SwiftUI_Settings_window"
+
     static func open() {
         NSApp.activate(ignoringOtherApps: true)
         if let item = settingsMenuItem(in: NSApp.mainMenu),

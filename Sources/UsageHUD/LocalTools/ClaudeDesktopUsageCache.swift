@@ -19,12 +19,24 @@ struct ClaudeDesktopCachedUsage: Equatable, Sendable {
 struct ClaudeDesktopUsageCache: Sendable {
     static let maximumEntryBytes = 2 * 1_024 * 1_024
     static let maximumAge: TimeInterval = 30 * 60
+    /// How far back a response can still lend its reset times: a week's
+    /// window and a day's grace. Its percentages are never used.
+    static let resetLookback: TimeInterval = 8 * 86_400
     private static let rewriteGrace: TimeInterval = 15
     private let directory: URL
+    /// The oldest response this reader returns.
+    private let acceptedAge: TimeInterval
+    /// Claude asks for its usage both with and without its free resets;
+    /// this reader returns only responses that list them.
+    private let requiresResetCredits: Bool
     private let memory = ScanMemory()
 
-    init(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) {
+    init(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+         acceptedAge: TimeInterval = ClaudeDesktopUsageCache.maximumAge,
+         requiresResetCredits: Bool = false) {
         directory = homeDirectory.appendingPathComponent("Library/Application Support/Claude/Cache/Cache_Data")
+        self.acceptedAge = acceptedAge
+        self.requiresResetCredits = requiresResetCredits
     }
 
     /// How many entries have been opened to read their key.
@@ -49,11 +61,13 @@ struct ClaudeDesktopUsageCache: Sendable {
                 let name = Self.entryFilename(hash: hash)
                 let file = directory.appendingPathComponent(name)
                 guard let data = Self.readBounded(file, limit: Self.maximumEntryBytes),
-                      let usage = Self.parseEntry(data, filename: name, organizationID: organizationID, now: now),
+                      let usage = Self.parseEntry(data, filename: name, organizationID: organizationID, now: now,
+                                                  acceptedAge: acceptedAge),
                       // Reject partial/in-flight replacement rather than locking or
                       // copying any of Claude's cache files.
                       Self.readBounded(file, limit: Self.maximumEntryBytes) == data,
-                      currentHashes(indexURL)?.contains(hash) == true
+                      currentHashes(indexURL)?.contains(hash) == true,
+                      !requiresResetCredits || usage.payload["cedar_ember"]?["grants"]?.arrayValue != nil
                 else { continue }
                 if newest.map({ usage.recordedAt > $0.usage.recordedAt }) ?? true {
                     newest = VerifiedUsage(hash: hash, usage: usage, verifiedAt: now)
@@ -64,7 +78,7 @@ struct ClaudeDesktopUsageCache: Sendable {
             if let previous = memory.latestUsage,
                newest.map({ $0.usage.recordedAt < previous.usage.recordedAt }) ?? true,
                (0...Self.rewriteGrace).contains(now.timeIntervalSince(previous.verifiedAt)),
-               (0...Self.maximumAge).contains(now.timeIntervalSince(previous.usage.recordedAt)),
+               (0...acceptedAge).contains(now.timeIntervalSince(previous.usage.recordedAt)),
                currentHashes(indexURL)?.contains(previous.hash) == true,
                FileStamp(directory.appendingPathComponent(Self.entryFilename(hash: previous.hash))) != nil,
                let payload = Self.validatedPayload(previous.usage.payload, now: now) {
@@ -123,7 +137,8 @@ struct ClaudeDesktopUsageCache: Sendable {
         return hashes
     }
 
-    static func parseEntry(_ data: Data, filename: String, organizationID: String, now: Date) -> ClaudeDesktopCachedUsage? {
+    static func parseEntry(_ data: Data, filename: String, organizationID: String, now: Date,
+                           acceptedAge: TimeInterval = maximumAge) -> ClaudeDesktopCachedUsage? {
         let bytes = CacheBytes(data)
         guard data.count <= maximumEntryBytes, data.count >= 72,
               bytes.u64(0) == 0xfcfb6d1ba7725c30, bytes.u32(8) == 5, bytes.u32(20) == 0,
@@ -152,7 +167,7 @@ struct ClaudeDesktopUsageCache: Sendable {
         guard bytes.u32(bodyEnd + 12) == crc32(body),
               bytes.u32(footer + 12) == crc32(metadata),
               let recordedAt = responseDate(metadata),
-              (0...maximumAge).contains(now.timeIntervalSince(recordedAt))
+              (0...acceptedAge).contains(now.timeIntervalSince(recordedAt))
         else { return nil }
         let decoded: Data
         if body.starts(with: [0x28, 0xb5, 0x2f, 0xfd]) {

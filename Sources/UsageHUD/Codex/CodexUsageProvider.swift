@@ -34,6 +34,9 @@ actor CodexUsageProvider: CodexUsageProviding {
     private struct ResetCreditSummary {
         let availableCount: Int
         let earliestExpiration: Date?
+        /// Each available credit with its own name and dates, when listed.
+        var credits: [ResetCredit] = []
+        var listed: [ResetCredit]? { credits.isEmpty ? nil : credits }
     }
 
     private struct UpdateMergeResult {
@@ -167,11 +170,14 @@ actor CodexUsageProvider: CodexUsageProviding {
             if let resetCredits {
                 snapshot.availableResetCount = resetCredits.availableCount
                 snapshot.resetCreditExpiresAt = resetCredits.earliestExpiration
+                snapshot.resetCredits = resetCredits.listed
             } else {
                 snapshot.availableResetCount = snapshotsByID[snapshot.id]?.availableResetCount
                     ?? snapshotsByID.values.compactMap(\.availableResetCount).first
                 snapshot.resetCreditExpiresAt = snapshotsByID[snapshot.id]?.resetCreditExpiresAt
                     ?? snapshotsByID.values.compactMap(\.resetCreditExpiresAt).first
+                snapshot.resetCredits = snapshotsByID[snapshot.id]?.resetCredits
+                    ?? snapshotsByID.values.compactMap(\.resetCredits).first
             }
             snapshotsByID[snapshot.id] = snapshot
             mergedAtCount[snapshot.id] = mergeCount
@@ -180,6 +186,7 @@ actor CodexUsageProvider: CodexUsageProviding {
             for id in snapshotsByID.keys {
                 snapshotsByID[id]?.availableResetCount = resetCredits.availableCount
                 snapshotsByID[id]?.resetCreditExpiresAt = resetCredits.earliestExpiration
+                snapshotsByID[id]?.resetCredits = resetCredits.listed
             }
         }
         return UpdateMergeResult(
@@ -212,15 +219,27 @@ actor CodexUsageProvider: CodexUsageProviding {
     private static func resetCreditSummary(in response: JSONValue) -> ResetCreditSummary? {
         guard let value = response["rateLimitResetCredits"],
               let availableCount = value["availableCount"]?.intValue else { return nil }
-        let expirations = value["credits"]?.arrayValue?.compactMap { credit -> Date? in
-            guard credit["status"]?.stringValue == "available",
-                  credit["resetType"]?.stringValue == "codexRateLimits",
-                  let timestamp = credit["expiresAt"]?.numberValue else { return nil }
-            return Date(timeIntervalSince1970: timestamp)
+        let available = value["credits"]?.arrayValue?.filter {
+            $0["status"]?.stringValue == "available" && $0["resetType"]?.stringValue == "codexRateLimits"
         } ?? []
+        let expirations = available.compactMap { $0["expiresAt"]?.numberValue.map(Date.init(timeIntervalSince1970:)) }
+        // Each credit as Codex lists it: its title, when it was given and
+        // when it expires.
+        let credits = available.enumerated().map { index, credit in
+            ResetCredit(
+                id: "codex-\(credit["id"]?.stringValue ?? "\(index)")",
+                name: credit["title"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? "Reset credit",
+                detail: "Refills your Codex limits.",
+                remaining: 1,
+                expiresAt: credit["expiresAt"]?.numberValue.map(Date.init(timeIntervalSince1970:)),
+                grantedAt: credit["grantedAt"]?.numberValue.map(Date.init(timeIntervalSince1970:))
+            )
+        }
         return ResetCreditSummary(
             availableCount: max(0, availableCount),
-            earliestExpiration: expirations.min()
+            earliestExpiration: expirations.min(),
+            // Listed only when the list accounts for every credit counted.
+            credits: credits.count == max(0, availableCount) ? credits : []
         )
     }
 
@@ -264,6 +283,7 @@ actor CodexUsageProvider: CodexUsageProviding {
         )
         snapshot.availableResetCount = resetCredits?.availableCount
         snapshot.resetCreditExpiresAt = resetCredits?.earliestExpiration
+        snapshot.resetCredits = resetCredits?.listed
         return snapshot
     }
 }

@@ -232,7 +232,11 @@ struct ClaudeDesktopCacheProviderTests {
         #expect(await http.requests.count == 1)
     }
 
-    @Test(arguments: [4.0, 12.0])
+    /// The cached response shows 4% of the 5-hour window. History that
+    /// agrees shows the response; history that has grown shows its own
+    /// percentage with the response's reset; history below it means the
+    /// window reset since, so its reset is unknown.
+    @Test(arguments: [4.0, 12.0, 2.0])
     func laterHistoryMustAgreeBeforeUsingAnOlderCachedReset(sessionPercent: Double) async throws {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent("usaige-cache-provider-\(UUID().uuidString)")
         let directory = home.appendingPathComponent("Library/Application Support/Claude")
@@ -257,7 +261,7 @@ struct ClaudeDesktopCacheProviderTests {
         )
         let snapshots = try await provider.refresh().snapshots
         #expect(snapshots.first?.usedPercent == sessionPercent)
-        #expect((snapshots.first?.resetAt != nil) == (sessionPercent == 4))
+        #expect((snapshots.first?.resetAt != nil) == (sessionPercent >= 4))
         #expect(await credentials.loads == (sessionPercent == 4 ? 0 : 1))
         #expect(await http.requests.isEmpty)
     }

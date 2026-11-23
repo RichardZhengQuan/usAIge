@@ -150,8 +150,25 @@ struct QuotaRowView: View {
     let onDetailHoverChanged: (Bool, CGRect) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @AppStorage(InterfaceStyle.defaultsKey) private var style = InterfaceStyle.standard
     @State private var isHovered = false
     @State private var rowFrame = CGRect.zero
+
+    /// Modern draws Activity-style rings: thicker, on a track tinted with
+    /// the ring's own colour.
+    private var isModern: Bool { style == .modern }
+
+    /// Modern draws every tool's outer ring at one size; a second limit
+    /// nests inside it rather than shrinking the ring.
+    private var primaryDiameter: CGFloat {
+        if isModern { return snapshot.secondaryWindow == nil ? 58 : 45 }
+        return 46
+    }
+
+    private func track(_ severity: QuotaSeverity, classicOpacity: Double) -> Color {
+        if severity.showsScaryGlow { return .clear }
+        return isModern ? severity.color.opacity(0.2) : Color.secondary.opacity(classicOpacity)
+    }
 
     private var tool: AIToolDescriptor {
         .descriptor(for: snapshot)
@@ -214,29 +231,23 @@ struct QuotaRowView: View {
         ZStack {
             if let secondaryWindow = snapshot.secondaryWindow {
                 Circle()
-                    .stroke(
-                        .secondary.opacity(secondarySeverity?.showsScaryGlow == true ? 0 : 0.14),
-                        lineWidth: 3
-                    )
+                    .stroke(track(secondarySeverity ?? .abundant, classicOpacity: 0.14), lineWidth: isModern ? 4.5 : 3)
                     .frame(width: 58, height: 58)
                 quotaArc(
                     remainingPercent: secondaryWindow.remainingPercent,
                     diameter: 58,
-                    lineWidth: 3,
+                    lineWidth: isModern ? 4.5 : 3,
                     severity: secondarySeverity ?? .abundant
                 )
             }
 
             Circle()
-                .stroke(
-                    .secondary.opacity(primarySeverity.showsScaryGlow ? 0 : 0.18),
-                    lineWidth: 4
-                )
-                .frame(width: 46, height: 46)
+                .stroke(track(primarySeverity, classicOpacity: 0.18), lineWidth: isModern ? 5 : 4)
+                .frame(width: primaryDiameter, height: primaryDiameter)
             quotaArc(
                 remainingPercent: snapshot.remainingPercent,
-                diameter: 46,
-                lineWidth: 4,
+                diameter: primaryDiameter,
+                lineWidth: isModern ? 5 : 4,
                 severity: primarySeverity
             )
             Button(action: performPrimaryAction) {
@@ -250,7 +261,9 @@ struct QuotaRowView: View {
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .help(agentTaskID == nil ? "Open \(tool.name)" : "Open \(sessionNoun) · \(agentPhase.label)")
+            // Modern's card beside the rail says all this; a tooltip would
+            // only cover it.
+            .help(isModern ? "" : agentTaskID == nil ? "Open \(tool.name)" : "Open \(sessionNoun) · \(agentPhase.label)")
             .accessibilityLabel(agentTaskID == nil ? "Open \(tool.name)" : "Open \(sessionNoun)")
         }
         .frame(width: 60, height: 60)
@@ -259,14 +272,14 @@ struct QuotaRowView: View {
                 AgentStatusRingLight(
                     phase: agentPhase,
                     diameter: AgentBreathingMotion.baseDiameter(
-                        outsideQuotaRing: snapshot.secondaryWindow == nil ? 46 : 58,
-                        quotaLineWidth: snapshot.secondaryWindow == nil ? 4 : 3
+                        outsideQuotaRing: isModern || snapshot.secondaryWindow != nil ? 58 : 46,
+                        quotaLineWidth: isModern ? 5 : snapshot.secondaryWindow == nil ? 4 : 3
                     ),
                     isHovered: isHovered
                 )
             }
         }
-        .help(agentPhase.showsLight ? "\(tool.name) sessions · \(agentPhase.label)" : "")
+        .help(agentPhase.showsLight && !isModern ? "\(tool.name) sessions · \(agentPhase.label)" : "")
     }
 
     /// What clicking the ring opens: Codex's own task, another tool's app.
@@ -333,7 +346,7 @@ struct QuotaRowView: View {
             HStack(alignment: .center, spacing: isCondensed ? 1 : 2) {
                 Text(resetText)
                     .font(.system(
-                        size: isCondensed ? 9 : 11,
+                        size: isModern ? (isCondensed ? 11.5 : 13) : (isCondensed ? 9 : 11),
                         weight: .bold,
                         design: .rounded
                     ))
@@ -344,7 +357,7 @@ struct QuotaRowView: View {
                 if let availableResetCount {
                     Text("\(availableResetCount)r")
                         .font(.system(
-                            size: isCondensed ? 7 : 8,
+                            size: isModern ? (isCondensed ? 9 : 10) : (isCondensed ? 7 : 8),
                             weight: .semibold,
                             design: .rounded
                         ))
@@ -353,7 +366,7 @@ struct QuotaRowView: View {
                 }
             }
             .padding(.horizontal, isCondensed ? 3 : 6)
-            .frame(height: isCondensed ? 16 : 20, alignment: .center)
+            .frame(height: isModern ? 20 : (isCondensed ? 16 : 20), alignment: .center)
             // A material keeps the tag legible over any wallpaper. With Reduce
             // Transparency the rail's surface is the same solid material, so a
             // tint keeps the capsule distinct from it.
@@ -368,7 +381,7 @@ struct QuotaRowView: View {
             .accessibilityValue(
                 availableResetCount.map { "\($0) reset credits available" } ?? ""
             )
-            .help(ResetRemainingText.accessibilityLabel(until: resetAt, now: context.date))
+            .help(isModern ? "" : ResetRemainingText.accessibilityLabel(until: resetAt, now: context.date))
         }
     }
 
@@ -456,12 +469,15 @@ struct QuotaDetailCard: View {
     static let windowInset: CGFloat = 28
 
     let snapshot: QuotaSnapshot
+    /// The tool's other limits, when its rail ring stands for all of them.
+    var otherLimits: [QuotaSnapshot] = []
     /// What this tool is doing now, and the memory it and that work use.
     var work: [LiveSessionWork] = []
     var memoryBytes: UInt64 = 0
     var arrowEdge: HorizontalEdge = .leading
     var arrowOffset: CGFloat = 0
     var openBranches: (() -> Void)? = nil
+    @AppStorage(InterfaceStyle.defaultsKey) private var style = InterfaceStyle.standard
 
     private var tool: AIToolDescriptor {
         .descriptor(for: snapshot)
@@ -476,7 +492,92 @@ struct QuotaDetailCard: View {
         )
     }
 
+    @ViewBuilder
     var body: some View {
+        if style == .modern { modern } else { classic }
+    }
+
+    /// The window's language: the tool's icon on a tile, then a bar for each
+    /// limit window with what's left and its reset, as on the Usage page.
+    private var modern: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                AIToolIcon(tool: tool, size: 18)
+                    .frame(width: 30, height: 30)
+                    .background(Color.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(tool.name).font(.headline)
+                    Text(snapshot.displayName).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                if let planType = snapshot.planType, !planType.isEmpty {
+                    Text(planType.capitalized)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color.primary.opacity(0.07), in: Capsule())
+                        .accessibilityLabel("Plan \(planType.capitalized)")
+                }
+            }
+            limitWindows(snapshot)
+            ForEach(otherLimits) { other in
+                Divider()
+                Text(other.displayName).font(.caption.weight(.semibold)).foregroundStyle(.secondary).lineLimit(1)
+                limitWindows(other)
+            }
+            let credits = ([snapshot] + otherLimits).availableResets()
+            if !credits.isEmpty {
+                Divider()
+                ModernResetCredits(credits: credits)
+            }
+            if !work.isEmpty || memoryBytes > 0 {
+                Divider()
+                HStack {
+                    Text(work.isEmpty ? "Memory" : "Working now").font(.caption.weight(.semibold))
+                    Spacer()
+                    if memoryBytes > 0 {
+                        Text(LiveWorkText.memory(memoryBytes)).font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                    }
+                }
+                if !work.isEmpty {
+                    LiveSessionList(sessions: work).font(.caption)
+                    if let openBranches {
+                        Button("All branches and worktrees…", action: openBranches)
+                            .buttonStyle(.link)
+                            .font(.caption)
+                    }
+                }
+            }
+        }
+        .railDetailCardChrome(
+            width: 320,
+            showsCriticalGlow: lowestSeverity.showsScaryGlow
+                || otherLimits.contains { QuotaSeverity(remainingPercent: min($0.remainingPercent, $0.secondaryWindow?.remainingPercent ?? 100)).showsScaryGlow },
+            arrowEdge: arrowEdge,
+            arrowOffset: arrowOffset
+        )
+    }
+
+    private func limitWindows(_ limit: QuotaSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(([limit.primaryWindow] + [limit.secondaryWindow].compactMap { $0 }).enumerated()), id: \.offset) { _, window in
+                VStack(alignment: .leading, spacing: 3) {
+                    ModernQuotaBar(window: window, showsReset: false)
+                    TimelineView(.periodic(from: .now, by: 60)) { context in
+                        Text([ResetMomentText.sentence(window.resetAt, now: context.date),
+                              ResetMomentText.countdown(window.resetAt, now: context.date).map { "in \($0)" }]
+                            .compactMap { $0 }.joined(separator: " · "))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.leading, 36)
+                    }
+                }
+            }
+        }
+    }
+
+    private var classic: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 9) {
                 AIToolIcon(tool: tool, size: 30)
@@ -515,6 +616,23 @@ struct QuotaDetailCard: View {
                 )
             }
 
+            ForEach(otherLimits) { other in
+                Divider()
+                Text(other.displayName).fontWeight(.semibold).lineLimit(1)
+                windowDetail(
+                    title: other.typeTag,
+                    window: other.primaryWindow,
+                    severity: QuotaSeverity(remainingPercent: other.remainingPercent)
+                )
+                if let secondary = other.secondaryWindow {
+                    windowDetail(
+                        title: secondary.typeTag,
+                        window: secondary,
+                        severity: QuotaSeverity(remainingPercent: secondary.remainingPercent)
+                    )
+                }
+            }
+
             if !work.isEmpty || memoryBytes > 0 {
                 Divider()
                 HStack {
@@ -536,7 +654,8 @@ struct QuotaDetailCard: View {
         .font(.caption)
         .railDetailCardChrome(
             width: work.isEmpty ? 260 : 300,
-            showsCriticalGlow: lowestSeverity.showsScaryGlow,
+            showsCriticalGlow: lowestSeverity.showsScaryGlow
+                || otherLimits.contains { QuotaSeverity(remainingPercent: min($0.remainingPercent, $0.secondaryWindow?.remainingPercent ?? 100)).showsScaryGlow },
             arrowEdge: arrowEdge,
             arrowOffset: arrowOffset
         )
@@ -718,6 +837,68 @@ enum ResetDateText {
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
         return formatter.string(from: date)
+    }
+}
+
+/// When a limit resets, said the way a person would: a time today, then
+/// tomorrow, a weekday this week, or a date. Close to the reset it counts
+/// down instead.
+enum ResetMomentText {
+    /// "3:40 PM", "tomorrow 9:00 AM", "Tue 9:00 AM", "Dec 3", "in 41 min".
+    /// Read after "Resets" or "resets".
+    static func moment(
+        _ resetAt: Date?,
+        now: Date = Date(),
+        locale: Locale = .autoupdatingCurrent,
+        timeZone: TimeZone = .autoupdatingCurrent
+    ) -> String? {
+        guard let resetAt else { return nil }
+        let seconds = resetAt.timeIntervalSince(now)
+        if seconds <= 0 { return "now" }
+        if seconds < 3_600 { return "in \(max(1, Int(ceil(seconds / 60)))) min" }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = locale
+        calendar.timeZone = timeZone
+        func format(_ template: String) -> String {
+            let formatter = DateFormatter()
+            formatter.locale = locale
+            formatter.timeZone = timeZone
+            formatter.setLocalizedDateFormatFromTemplate(template)
+            return formatter.string(from: resetAt)
+        }
+        let time: String = {
+            let formatter = DateFormatter()
+            formatter.locale = locale
+            formatter.timeZone = timeZone
+            formatter.dateStyle = .none
+            formatter.timeStyle = .short
+            return formatter.string(from: resetAt)
+        }()
+        let today = calendar.startOfDay(for: now)
+        let days = calendar.dateComponents([.day], from: today, to: calendar.startOfDay(for: resetAt)).day ?? 0
+        switch days {
+        case 0: return time
+        case 1: return "tomorrow \(time)"
+        case 2...6: return "\(format("EEE")) \(time)"
+        default:
+            return calendar.isDate(resetAt, equalTo: now, toGranularity: .year) ? format("MMMd") : format("yMMMd")
+        }
+    }
+
+    /// "Resets 3:40 PM", or that the reset time is unknown.
+    static func sentence(_ resetAt: Date?, now: Date = Date()) -> String {
+        guard let moment = moment(resetAt, now: now) else { return "No reset time" }
+        return moment == "now" ? "Resetting now" : "Resets \(moment)"
+    }
+
+    /// How long until the reset, to the minute: "2h 41m", "3d 4h".
+    static func countdown(_ resetAt: Date?, now: Date = Date()) -> String? {
+        guard let resetAt, resetAt > now else { return nil }
+        let formatter = DateComponentsFormatter()
+        formatter.unitsStyle = .abbreviated
+        formatter.maximumUnitCount = 2
+        formatter.allowedUnits = [.day, .hour, .minute]
+        return formatter.string(from: now, to: resetAt)
     }
 }
 

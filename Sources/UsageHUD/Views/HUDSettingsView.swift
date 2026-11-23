@@ -19,6 +19,9 @@ struct HUDSettingsRootView: View {
     var refreshWorkspace: () -> Void = {}
     var addWorkspaceFolder: () -> Void = {}
     var layout: HUDSettingsLayout = .window
+    /// Shows this page as the root instead of the main Settings page, for a
+    /// page of the main window that hosts it, as Usage hosts AI Tools.
+    var rootDestination: SettingsDestination? = nil
 
     @ViewBuilder
     var body: some View {
@@ -27,7 +30,7 @@ struct HUDSettingsRootView: View {
             SettingsWindowSizing { settingsContent }
         case .page:
             settingsContent
-                .frame(maxWidth: 780)
+                .frame(maxWidth: rootDestination == nil ? 780 : .infinity)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
     }
@@ -43,7 +46,8 @@ struct HUDSettingsRootView: View {
             navigation: navigation,
             refreshUsage: { await store.refresh() },
             refreshWorkspace: refreshWorkspace,
-            addWorkspaceFolder: addWorkspaceFolder
+            addWorkspaceFolder: addWorkspaceFolder,
+            rootDestination: rootDestination
         )
     }
 }
@@ -176,7 +180,9 @@ struct HUDSettingsView: View {
     let refreshUsage: () async -> Void
     var refreshWorkspace: () -> Void = {}
     var addWorkspaceFolder: () -> Void = {}
+    var rootDestination: SettingsDestination? = nil
     @State private var remoteToolToDelete: RelayRemoteTool?
+    @AppStorage(InterfaceStyle.defaultsKey) private var interfaceStyle = InterfaceStyle.standard
     @State private var isDetectingLocalTools = false
     @State private var isRetryingRemoteTools = false
     @State private var isReconnectingRemoteTools = false
@@ -215,7 +221,7 @@ struct HUDSettingsView: View {
 
     var body: some View {
         Group {
-            if let destination = navigation.route.last {
+            if let destination = navigation.route.last ?? rootDestination {
                 destinationPage(destination)
             } else {
                 settingsPage
@@ -288,12 +294,37 @@ struct HUDSettingsView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                pageLink("AI Tools", destination: .aiTools)
-                pageLink("iPhone & Apple Watch Sync", destination: .iphoneSync)
+                // Modern manages tools on Usage and sync on its own page.
+                if interfaceStyle == .classic {
+                    pageLink("AI Tools", destination: .aiTools)
+                    pageLink("iPhone & Apple Watch Sync", destination: .iphoneSync)
+                }
             }
 
             Section("Display") {
-                LabeledContent("Opacity") {
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Style")
+
+                        Text(interfaceStyle == .modern
+                             ? "Clean gauges and lists. Classic brings back the liquid paperweights and ships."
+                             : "Liquid paperweights with ships, as in earlier versions.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Picker("Style", selection: $interfaceStyle) {
+                        ForEach(InterfaceStyle.allCases) { style in
+                            Text(style.title).tag(style)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize()
+                    .accessibilityLabel("Style")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                LabeledContent {
                     HStack(spacing: 8) {
                         Slider(value: binding(for: \HUDSettings.opacity), in: HUDSettings.opacityRange)
                             .frame(width: 180)
@@ -303,6 +334,15 @@ struct HUDSettingsView: View {
                             .foregroundStyle(.secondary)
                             .frame(width: 40, alignment: .trailing)
                             .accessibilityHidden(true)
+                    }
+                } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Opacity")
+                        if interfaceStyle == .modern {
+                            Text("How solid the rail's background is. Its rings and text stay fully visible.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
                 LabeledContent("Scale") {
@@ -321,7 +361,7 @@ struct HUDSettingsView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Show reset credits")
 
-                        Text("Shows available Codex resets beside the live reset countdown.")
+                        Text("Shows the free resets your AI tools offer and when they expire.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -360,6 +400,9 @@ struct HUDSettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
+            // Modern rescans from Storage, Branches and Worktrees, and adds
+            // folders from Branches and Worktrees.
+            if interfaceStyle == .classic {
             Section("Workspace") {
                 LabeledContent("Repository data") {
                     Button("Read Everything Again", action: refreshWorkspace)
@@ -369,6 +412,7 @@ struct HUDSettingsView: View {
                     Button("Add Folder…", action: addWorkspaceFolder)
                         .help("Choose a folder inside a Git repository")
                 }
+            }
             }
 
             Section("More") {
@@ -961,6 +1005,8 @@ struct HUDSettingsView: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(spacing: 0) {
+            // A hosting page shows its own title above its root page.
+            if rootDestination == nil || !navigation.route.isEmpty {
             HStack(spacing: 10) {
                 Button(action: goBack) {
                     Image(systemName: "chevron.left")
@@ -980,6 +1026,7 @@ struct HUDSettingsView: View {
             .padding(.bottom, 4)
             .background(measuredHeight)
             .task(id: title) { isPageTitleFocused = true }
+            }
 
             content()
         }

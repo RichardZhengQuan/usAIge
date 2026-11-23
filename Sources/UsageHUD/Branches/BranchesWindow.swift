@@ -37,6 +37,48 @@ enum OverviewSection: String, Hashable {
     case overview, resources, branches, settings
 }
 
+/// Modern gives each part of the window a page of its own; Classic scrolls
+/// one page through the `OverviewSection`s.
+enum ModernPage: String, CaseIterable, Identifiable, Hashable, Sendable {
+    case overview, usage, memory, storage, branches, worktrees, devices
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .overview: "Overview"
+        case .usage: "Usage"
+        case .memory: "Memory"
+        case .storage: "Storage"
+        case .branches: "Branches"
+        case .worktrees: "Worktrees"
+        case .devices: "iPhone & Watch"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .overview: "square.grid.2x2.fill"
+        case .usage: "gauge.with.dots.needle.67percent"
+        case .memory: "memorychip.fill"
+        case .storage: "internaldrive.fill"
+        case .branches: "arrow.triangle.branch"
+        case .worktrees: "folder.fill"
+        case .devices: "applewatch"
+        }
+    }
+
+    /// The Classic section showing the same thing.
+    var section: OverviewSection {
+        switch self {
+        case .overview, .usage: .overview
+        case .memory, .storage: .resources
+        case .branches, .worktrees: .branches
+        case .devices: .overview
+        }
+    }
+}
+
 /// Main-window navigation is independent of the resource ocean's selected layer.
 @available(macOS 14.0, *)
 @MainActor
@@ -62,6 +104,7 @@ final class BranchesPaperweightPresentation: ObservableObject {
     @Published private(set) var request: Request?
     @Published private(set) var focusRequest: FocusRequest?
     @Published private(set) var selectedSection: OverviewSection = .overview
+    @Published private(set) var modernPage: ModernPage = .overview
     @Published var showsCleanupProgress = false
     var isReviewingCleanup = false
     let worktreePage = BranchesPageState()
@@ -82,12 +125,25 @@ final class BranchesPaperweightPresentation: ObservableObject {
     func focus(_ section: OverviewSection) {
         selectedSection = section
         focusRequest = FocusRequest(section: section)
+        switch section {
+        case .overview: modernPage = .overview
+        case .resources: if modernPage != .memory { modernPage = .storage }
+        case .branches: modernPage = .worktrees
+        case .settings: break
+        }
     }
 
     func show(_ front: PaperweightID) {
         request = Request(front: front)
         destination = .overview
         focus(.resources)
+        modernPage = front == .memory ? .memory : .storage
+    }
+
+    /// Opens one of Modern's pages.
+    func open(_ page: ModernPage) {
+        modernPage = page
+        selectedSection = page.section
     }
 }
 
@@ -105,14 +161,21 @@ final class BranchesWindowController: NSWindowController, NSWindowDelegate {
     private let settings: HUDSettings?
     private let openSettings: () -> Void
     private let settingsContent: AnyView?
+    private let connectContent: AnyView?
+    private let syncContent: AnyView?
+    private let localToolStatus: LocalToolStatusRegistry?
     private let updateController: UpdateController?
     private let onClose: () -> Void
 
     /// `liveWork` is the rail's monitor, so both surfaces share one reading.
     init(store: BranchesStore = BranchesStore(), liveWork: LiveWorkMonitor? = nil,
          agentStore: CodexAgentStore? = nil, usageStore: UsageStore? = nil, settings: HUDSettings? = nil,
-         settingsContent: AnyView? = nil, updateController: UpdateController? = nil,
+         settingsContent: AnyView? = nil, connectContent: AnyView? = nil, syncContent: AnyView? = nil,
+         localToolStatus: LocalToolStatusRegistry? = nil, updateController: UpdateController? = nil,
          openSettings: @escaping () -> Void = {}, onClose: @escaping () -> Void) {
+        self.connectContent = connectContent
+        self.syncContent = syncContent
+        self.localToolStatus = localToolStatus
         self.store = store
         self.liveWork = liveWork
         self.agentStore = agentStore
@@ -173,7 +236,9 @@ final class BranchesWindowController: NSWindowController, NSWindowDelegate {
         guard let window, window.contentView == nil else { return }
         window.contentView = NSHostingView(rootView: MainRootView(
             store: store, liveWork: liveWork, agentStore: agentStore, usageStore: usageStore, settings: settings,
-            presentation: presentation, settingsContent: settingsContent,
+            presentation: presentation, settingsContent: settingsContent, connectContent: connectContent,
+            syncContent: syncContent,
+            localToolStatus: localToolStatus,
             updateController: updateController, openSettings: openSettings
         ))
         window.titlebarSeparatorStyle = .none

@@ -34,6 +34,10 @@ struct BranchesRootView: View {
     var mode: BranchesPageMode
     var liveWork: LiveWorkMonitor?
     private let overviewHeader: AnyView?
+    /// A large title for a page of its own, as Modern's Resources page is.
+    private let pageTitle: String?
+    /// Modern's Branches and Worktrees pages each list one kind of work.
+    private let workKind: WorkKind?
     private let presentation: BranchesPaperweightPresentation?
     @ObservedObject private var page: BranchesPageState
     @State private var summary: LiveWorkSummary
@@ -41,6 +45,7 @@ struct BranchesRootView: View {
     @State private var commandID = 0
     @State private var sceneCommand: PaperweightSceneCommand?
     @AppStorage(CruiseWeather.defaultsKey) private var weatherName = CruiseWeather.automatic.rawValue
+    @AppStorage(InterfaceStyle.defaultsKey) private var interfaceStyle = InterfaceStyle.standard
     @State private var memoryPressure: SystemMemoryPressure
     @State private var memoryUsage: SystemMemoryUsage?
     @State private var clearReview: ClearReviewRequest?
@@ -52,9 +57,11 @@ struct BranchesRootView: View {
     init(store: BranchesStore, liveWork: LiveWorkMonitor? = nil, agentStore: CodexAgentStore? = nil,
          initialFront: PaperweightID = .storage, initialSelectedLayerID: String? = nil,
          presentation: BranchesPaperweightPresentation? = nil, mode: BranchesPageMode = .resources,
-         overviewHeader: AnyView? = nil) {
+         overviewHeader: AnyView? = nil, pageTitle: String? = nil, workKind: WorkKind? = nil) {
         self.store = store
         self.mode = mode
+        self.pageTitle = pageTitle
+        self.workKind = workKind
         self.liveWork = liveWork
         self.overviewHeader = overviewHeader
         self.presentation = presentation
@@ -76,6 +83,10 @@ struct BranchesRootView: View {
         get { page.lastPresentationRequestID }
         nonmutating set { page.lastPresentationRequestID = newValue }
     }
+
+    /// Modern trades the ocean, ships and weather for a capacity bar and
+    /// grouped lists. Everything they show and do stays the same.
+    private var isModern: Bool { interfaceStyle == .modern }
 
     private var weather: CruiseWeather {
         CruiseWeather(rawValue: weatherName) ?? .automatic
@@ -114,7 +125,8 @@ struct BranchesRootView: View {
     var body: some View {
         let now = Date()
         let everything = BranchesBoard.make(snapshot: store.snapshot, now: now)
-        let shown = BranchesBoard.make(snapshot: store.snapshot, query: query, projectID: projectID, now: now)
+        let matching = BranchesBoard.make(snapshot: store.snapshot, query: query, projectID: projectID, now: now)
+        let shown = workKind.map { matching.only($0) } ?? matching
         let picks = ClearSelection(items: everything.safeToClear, now: now)
         let selectedItems = picks.chosenItems(from: everything.safeToClear)
         let freeing = preview ? picks.bytes(from: everything.safeToClear) : 0
@@ -133,7 +145,47 @@ struct BranchesRootView: View {
             : storage
         let breakdown = StorageBreakdown(storage: measured, freeableBytes: picks.bytes(from: everything.safeToClear), measuredAt: now)
         VStack(spacing: 0) {
-            if mode == .worktrees {
+            if mode == .worktrees, isModern {
+                // The title and status tabs stay put above the list, so the
+                // tabs are always at hand and nothing scrolls behind them.
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(alignment: .top, spacing: 10) {
+                        pageHeading(workPageTitle, detail: workPageSummary(shown))
+                        Spacer(minLength: 12)
+                        Button("Add Folder…", systemImage: "folder.badge.plus", action: chooseFolder)
+                            .controlSize(.large)
+                            .help("Add a repository no AI tool has worked in")
+                        rescanButton
+                        if !shown.safeToClear.isEmpty {
+                            Button("Review and Clear…") { startReview(shown.safeToClear, now: now) }
+                                .buttonStyle(.borderedProminent)
+                                .controlSize(.large)
+                                .disabled(store.isDeleting)
+                                .help("Review the \(shown.safeToClear.count) items safe to clear on this page")
+                        }
+                    }
+                    HStack(spacing: 12) {
+                        statusPicker(shown)
+                        if store.snapshot.activity != .idle { activityView }
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 8)
+                .padding(.bottom, 14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Divider()
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 16) {
+                        if workKind != nil {
+                            projectList(shown, now: now)
+                        } else {
+                            worktreeList(shown, now: now)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 16)
+                }
+            } else if mode == .worktrees {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 16) {
                         VStack(alignment: .leading, spacing: 6) {
@@ -152,12 +204,22 @@ struct BranchesRootView: View {
                 ScrollViewReader { scroll in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 16) {
+                        if let pageTitle {
+                            pageHeading(pageTitle, detail: "Memory and storage on this Mac, and what is using them.")
+                                .padding(.horizontal, 4)
+                                .padding(.top, 8)
+                        }
                         if let overviewHeader { overviewHeader.id(OverviewSection.overview) }
                         overview(memory: memory, storage: storage)
                             .padding(.horizontal, 4)
                             .padding(.top, 20)
                             .padding(.bottom, 4)
                             .id(OverviewSection.resources)
+                        if isModern {
+                            ModernResourceCard(configuration: configuration, selectedLayerID: selectedLayerID) {
+                                selectedLayerID = $0
+                            }
+                        } else {
                         ResourceOceanView(
                             configuration: configuration, selectedLayerID: selectedLayerID,
                             weather: weatherStatus.resolvedWeather(preference: weather),
@@ -184,8 +246,9 @@ struct BranchesRootView: View {
                         .padding(.horizontal, 4)
 
                         oceanLayers(configuration)
+                        }
 
-                        if front == .storage, overviewHeader != nil {
+                        if front == .storage, overviewHeader != nil || pageTitle != nil {
                             HStack {
                                 StorageRecoveryView(store: store, showProgress: showCleanupProgress)
                                 Spacer(minLength: 12)
@@ -203,6 +266,27 @@ struct BranchesRootView: View {
                         Divider()
 
                         if overviewHeader == nil || front != .storage || selected.id != "wt" {
+                        if isModern {
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack(alignment: .firstTextBaseline, spacing: 7) {
+                                    Circle()
+                                        .fill(selected.id == configuration.freeLayer.id
+                                              ? Color.primary.opacity(0.18) : ModernPalette.color(for: selected))
+                                        .frame(width: 10, height: 10)
+                                    Text(selected.title)
+                                        .font(.title3.weight(.semibold))
+                                        .accessibilityAddTraits(.isHeader)
+                                    Text(configuration.amount(for: selected))
+                                        .font(.title3)
+                                        .foregroundStyle(.secondary)
+                                        .monospacedDigit()
+                                }
+                                .padding(.horizontal, 4)
+                                ModernGroupBox {
+                                    selectedRows(selected, board: shown, configuration: configuration, now: now)
+                                }
+                            }
+                        } else {
                         VStack(alignment: .leading, spacing: 12) {
                             HStack(alignment: .firstTextBaseline) {
                                 Text("\(selected.title) · \(configuration.amount(for: selected))")
@@ -222,6 +306,7 @@ struct BranchesRootView: View {
                         .padding(18)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
+                        }
                         }
 
                         if overviewHeader != nil {
@@ -268,7 +353,8 @@ struct BranchesRootView: View {
             }
             }
         }
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(isModern ? ModernPalette.page : Color(nsColor: .windowBackgroundColor))
+        .environment(\.interfaceStyle, interfaceStyle)
         .frame(minWidth: 620, minHeight: 480)
         .searchable(text: $page.query, placement: .toolbar, prompt: "Find a branch or worktree")
         .toolbar {
@@ -405,15 +491,29 @@ struct BranchesRootView: View {
                 Text(preview && front == .storage
                      ? "Preview after removing the default worktree selection."
                      : front == .memory ? "Layer sizes for AI tools and dev servers are estimates."
+                     : isModern ? "Choose a category to see what’s using this Mac."
                      : "Click an ocean layer to explore what’s using this Mac.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
             VStack(alignment: .trailing, spacing: 10) {
+                if isModern {
+                    Picker("Resource", selection: Binding(get: { front }, set: { choose($0 == .memory ? memory : storage) })) {
+                        Label("Memory \(memory.usedShare.map { LiveWorkText.percent($0) } ?? "–")", systemImage: "memorychip")
+                            .tag(PaperweightID.memory)
+                        Label("Storage \(storage.usedShare.map { LiveWorkText.percent($0) } ?? "–")", systemImage: "internaldrive")
+                            .tag(PaperweightID.storage)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize()
+                    .help("Percent of this Mac's memory or storage in use")
+                } else {
                 HStack(spacing: 8) {
                     paperweightButton(memory)
                     paperweightButton(storage)
+                }
                 }
                 if front == .storage {
                     StorageCleanupButton(store: store,
@@ -450,13 +550,17 @@ struct BranchesRootView: View {
         }
     }
 
+    private func choose(_ configuration: PaperweightConfiguration) {
+        guard front != configuration.id else { return }
+        front = configuration.id
+        selectedLayerID = configuration.id == .storage ? "wt" : configuration.layers.first?.id ?? configuration.freeLayer.id
+    }
+
     private func paperweightButton(_ configuration: PaperweightConfiguration) -> some View {
         let selected = front == configuration.id
         let usage = configuration.usedShare.map { "\(LiveWorkText.percent($0)) used" }
         return Button {
-            guard !selected else { return }
-            front = configuration.id
-            selectedLayerID = configuration.id == .storage ? "wt" : configuration.layers.first?.id ?? configuration.freeLayer.id
+            choose(configuration)
         } label: {
             VStack(alignment: .leading, spacing: 4) {
                 Label(configuration.id == .memory ? "Memory" : "Storage",
@@ -535,35 +639,43 @@ struct BranchesRootView: View {
     private func selectedRows(_ layer: PaperweightLayer, board: BranchesBoard,
                               configuration: PaperweightConfiguration, now: Date) -> some View {
         if configuration.allocationIsEstimated {
-            Text(front == .storage
+            layerNote(front == .storage
                  ? "Measured folder sizes can overlap. Layer shares are scaled to disk use."
-                 : "Process footprints include memory that macOS compresses or swaps. The ocean scales the estimates to fit system memory in use.")
-                .font(.caption).foregroundStyle(.secondary)
+                 : isModern
+                 ? "Process footprints include memory that macOS compresses or swaps. Sizes are scaled to fit system memory in use."
+                 : "Process footprints include memory that macOS compresses or swaps. The ocean scales the estimates to fit system memory in use.",
+                 caption: true)
         }
         if front == .storage {
             switch layer.id {
+            case "wt" where isModern && pageTitle != nil:
+                // Modern's Branches page lists these; Resources links to it.
+                layerNote("Folder sizes include their build cache, shown separately in the bar.", caption: true)
+                ModernNavigationRow(
+                    symbol: "arrow.triangle.branch", color: ModernPalette.worktrees, title: "Open Branches & Worktrees",
+                    subtitle: "\(board.running.count) running, \(board.needsLookCount) need a look, \(board.safeToClear.count) safe to clear",
+                    action: { presentation?.focus(.branches) }
+                )
             case "wt":
-                Text("Folder sizes below include their build cache, shown separately in the ocean.")
-                    .font(.caption).foregroundStyle(.secondary)
+                layerNote(isModern
+                          ? "Folder sizes below include their build cache, shown separately in the bar."
+                          : "Folder sizes below include their build cache, shown separately in the ocean.", caption: true)
                 worktreeRows(board, now: now)
             case "cache": cacheRows(BranchesStorageSummary(board: board, toolStorage: store.toolStorage), now: now)
             case "tool": toolStorageRows()
-            case "free": Text("Room left on the disk holding your home folder.").foregroundStyle(.secondary)
-            default: Text("The system, apps and your own files. usAIge doesn't clear these.").foregroundStyle(.secondary)
+            case "free": layerNote("Room left on the disk holding your home folder.")
+            default: layerNote("The system, apps and your own files. usAIge doesn't clear these.")
             }
         } else if liveWork == nil {
-            Text("No memory reading is available.").foregroundStyle(.secondary)
+            layerNote("No memory reading is available.")
         } else {
             let rows = PaperweightData.memoryRows(for: layer, in: configuration, running: board.running)
             if layer.id == configuration.freeLayer.id {
-                Text(layer.isMeasuring ? "No system memory reading is available." : "Physical memory outside the in-use total, including reclaimable cache.")
-                    .foregroundStyle(.secondary)
+                layerNote(layer.isMeasuring ? "No system memory reading is available." : "Physical memory outside the in-use total, including reclaimable cache.")
             } else if layer.id == PaperweightData.otherMemoryLayerID {
-                Text("Estimated memory in use by macOS and other apps.")
-                    .foregroundStyle(.secondary)
+                layerNote("Estimated memory in use by macOS and other apps.")
             } else if rows.measured.isEmpty, rows.sessionOnly.isEmpty {
-                Text("This memory belongs to the app and its helpers outside repository folders.")
-                    .foregroundStyle(.secondary)
+                layerNote("This memory belongs to the app and its helpers outside repository folders.")
             }
             let largest = rows.measured.map(memoryBytes).max() ?? 0
             ForEach(rows.measured) { item in
@@ -572,12 +684,34 @@ struct BranchesRootView: View {
                      color: layerColor(layer.colorHex))
             }
             if !rows.sessionOnly.isEmpty {
-                Text("Active in the last few minutes, with no process here to measure.")
-                    .font(.caption).foregroundStyle(.secondary)
+                layerNote("Active in the last few minutes, with no process here to measure.", caption: true)
                 ForEach(rows.sessionOnly) { item in
                     card(item, .running, now: now, share: 0, color: layerColor(layer.colorHex))
                 }
             }
+        }
+    }
+
+    /// A note in a layer's list: a quiet row on Modern's card, a caption on
+    /// Classic's material.
+    @ViewBuilder
+    private func layerNote(_ text: String, caption: Bool = false) -> some View {
+        if isModern {
+            ModernNoteRow(text: text)
+        } else if caption {
+            Text(text).font(.caption).foregroundStyle(.secondary)
+        } else {
+            Text(text).foregroundStyle(.secondary)
+        }
+    }
+
+    /// Modern puts a group's rows on one card; Classic lists them bare.
+    @ViewBuilder
+    private func rowsGroup<Content: View>(@ViewBuilder _ content: @escaping () -> Content) -> some View {
+        if isModern {
+            ModernGroupBox(content: content)
+        } else {
+            content()
         }
     }
 
@@ -661,6 +795,11 @@ struct BranchesRootView: View {
 
     @ViewBuilder
     private func worktreeRows(_ board: BranchesBoard, now: Date) -> some View {
+        statusPicker(board)
+        worktreeList(board, now: now)
+    }
+
+    private func statusPicker(_ board: BranchesBoard) -> some View {
         Picker("Work status", selection: $page.workStatus) {
             Text("All (\(board.running.count + board.needsLookCount + board.safeToClear.count))").tag(WorkStatusFilter.all)
             Text("Running (\(board.running.count))").tag(WorkStatusFilter.running)
@@ -671,12 +810,206 @@ struct BranchesRootView: View {
         .labelsHidden()
         .frame(maxWidth: 680, alignment: .leading)
         .accessibilityLabel("Branch and worktree status")
+    }
 
+    private var workPageTitle: String {
+        switch workKind {
+        case .branches: "Branches"
+        case .worktrees: "Worktrees"
+        case nil: "Branches and Worktrees"
+        }
+    }
+
+    /// The page's state in one line: what is running, what needs you.
+    private func workPageSummary(_ board: BranchesBoard) -> String {
+        var parts: [String] = []
+        if !board.running.isEmpty { parts.append("\(board.running.count) running") }
+        if board.needsLookCount > 0 { parts.append("\(board.needsLookCount) need a look") }
+        if !board.safeToClear.isEmpty {
+            parts.append("\(board.safeToClear.count) safe to clear"
+                         + (board.safeBytes > 0 ? ", \(BoardText.bytes(board.safeBytes))" : ""))
+        }
+        if !parts.isEmpty { return parts.joined(separator: " · ") }
+        return workKind == .branches
+            ? "Branches without a worktree."
+            : "Folders AI tools work in."
+    }
+
+    /// A page's large title, with what the page is for under it.
+    private func pageHeading(_ title: String, detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.largeTitle.weight(.bold))
+                .accessibilityAddTraits(.isHeader)
+            Text(detail)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var rescanButton: some View {
+        Button(store.snapshot.activity == .idle ? "Rescan" : "Scanning…", systemImage: "arrow.clockwise") {
+            store.refresh()
+            store.loadToolStorage(force: true)
+            store.readDiskSpace()
+        }
+        .controlSize(.large)
+        .disabled(store.snapshot.activity != .idle || store.isDeleting)
+        .help("Scan branches, worktrees, and local tool storage again")
+    }
+
+    /// Modern's Branches and Worktrees pages: a section per project, what
+    /// needs a look first, then what is running, then what can go. The
+    /// status tabs filter; each project folds away.
+    @ViewBuilder
+    private func projectList(_ board: BranchesBoard, now: Date) -> some View {
+        let groups = projectGroups(board, now: now)
         if store.snapshot.gitIsMissing {
-            LaneEmpty(text: "Git isn't installed. Install the Xcode Command Line Tools to see branches and worktrees here.")
+            rowsGroup {
+                LaneEmpty(text: "Git isn't installed. Install the Xcode Command Line Tools to see branches and worktrees here.")
+            }
         } else if store.snapshot.repositories.isEmpty, store.snapshot.items.isEmpty,
                   store.snapshot.notCheckedFolders.isEmpty, store.snapshot.activity == .idle {
-            LaneEmpty(text: "No repositories yet. Use Add Folder in Settings → Workspace, or work in a repository with an AI tool.")
+            rowsGroup {
+                HStack(spacing: 12) {
+                    Text("No repositories yet. Work in one with an AI tool, or add a folder.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 12)
+                    Button("Add Folder…", action: chooseFolder)
+                }
+                .padding(.horizontal, ModernMetrics.rowPadding)
+                .padding(.vertical, 12)
+            }
+        } else if groups.isEmpty {
+            rowsGroup {
+                LaneEmpty(text: store.snapshot.activity == .idle
+                          ? (workKind == .branches ? "No branches match this view." : "No worktrees match this view.")
+                          : "Reading your repositories…")
+            }
+        }
+        ForEach(groups) { group in
+            let key = "project-folded|" + group.id
+            let folded = expanded.contains(key)
+            VStack(alignment: .leading, spacing: 7) {
+                Button { toggle(key) } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(.secondary)
+                            .rotationEffect(.degrees(folded ? 0 : 90))
+                            .frame(width: 12)
+                        Text(group.name).font(.headline)
+                        Text("\(group.rows.count)").font(.subheadline).foregroundStyle(.secondary).monospacedDigit()
+                        Spacer(minLength: 8)
+                        if group.bytes > 0 {
+                            Text(BoardText.bytes(group.bytes)).font(.subheadline).foregroundStyle(.secondary).monospacedDigit()
+                        }
+                    }
+                    .padding(.horizontal, 4)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(group.name), \(group.rows.count) items")
+                .accessibilityValue(folded ? "Folded" : "Unfolded")
+                .accessibilityAddTraits(.isHeader)
+                if !folded {
+                    rowsGroup {
+                        ForEach(group.rows) { row in projectRow(row, now: now) }
+                    }
+                    .environment(\.rowShowsProject, false)
+                }
+            }
+        }
+        if board.stillChecking > 0 {
+            Text("Still checking \(board.stillChecking) more…").font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose a folder inside a Git repository."
+        panel.prompt = "Add"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        store.addFolder(url.standardizedFileURL.path)
+    }
+
+    @ViewBuilder
+    private func projectRow(_ row: ProjectRow, now: Date) -> some View {
+        switch row {
+        case let .work(item, kind):
+            card(item, kind, now: now, share: 0, color: .clear)
+        case let .look(entry):
+            switch entry {
+            case let .item(item):
+                card(item, .look, now: now, share: 0, color: .clear)
+            case let .copy(copy):
+                LeftoverCopyCard(copy: copy, now: now, isExpanded: expanded.contains(entry.id),
+                                 toggle: { toggle(entry.id) }) {
+                    ForEach(copy.items) { item in card(item, .look, now: now, share: 0, color: .clear) }
+                }
+            case let .notChecked(folder):
+                NotCheckedCard(folder: folder, isExpanded: expanded.contains(entry.id), toggle: { toggle(entry.id) }) {
+                    store.addFolder(folder)
+                }
+            case let .unreadable(repository):
+                UnreadableCard(repository: repository, isExpanded: expanded.contains(entry.id), toggle: { toggle(entry.id) })
+            }
+        }
+    }
+
+    private func projectGroups(_ board: BranchesBoard, now: Date) -> [ProjectRows] {
+        let repositories = Dictionary(store.snapshot.repositories.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        func project(_ item: WorkItem) -> ProjectChoice {
+            repositories[item.repositoryID].map(BranchesBoard.project(of:))
+                ?? ProjectChoice(id: item.repositoryID, name: item.repositoryName)
+        }
+        var rows: [(ProjectChoice, ProjectRow)] = []
+        let status = page.workStatus
+        if status == .all || status == .needsLook {
+            for entry in board.needsLook {
+                let choice: ProjectChoice = switch entry {
+                case let .item(item): project(item)
+                case let .copy(copy): ProjectChoice(id: BranchesBoard.project(of: copy.repository).id, name: copy.projectName)
+                case let .notChecked(folder): ProjectChoice(id: folder, name: URL(fileURLWithPath: folder).lastPathComponent)
+                case let .unreadable(repository): BranchesBoard.project(of: repository)
+                }
+                rows.append((choice, .look(entry)))
+            }
+        }
+        if status == .all || status == .running {
+            rows += board.running.map { (project($0), .work($0, .running)) }
+        }
+        if status == .all || status == .safeToClear {
+            rows += board.safeToClear.map { (project($0), .work($0, .safe(fill: 0))) }
+        }
+        var order: [String] = []
+        var grouped: [String: ProjectRows] = [:]
+        for (choice, row) in rows {
+            if grouped[choice.id] == nil {
+                order.append(choice.id)
+                grouped[choice.id] = ProjectRows(id: choice.id, name: choice.name, rows: [])
+            }
+            grouped[choice.id]?.rows.append(row)
+        }
+        return order.compactMap { grouped[$0] }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    @ViewBuilder
+    private func worktreeList(_ board: BranchesBoard, now: Date) -> some View {
+        if store.snapshot.gitIsMissing {
+            rowsGroup {
+                LaneEmpty(text: "Git isn't installed. Install the Xcode Command Line Tools to see branches and worktrees here.")
+            }
+        } else if store.snapshot.repositories.isEmpty, store.snapshot.items.isEmpty,
+                  store.snapshot.notCheckedFolders.isEmpty, store.snapshot.activity == .idle {
+            rowsGroup {
+                LaneEmpty(text: "No repositories yet. Use Add Folder in Settings → Workspace, or work in a repository with an AI tool.")
+            }
         } else {
             switch page.workStatus {
             case .all:
@@ -684,7 +1017,9 @@ struct BranchesRootView: View {
                 if board.needsLookCount > 0 { needsLookRows(board, now: now) }
                 if !board.safeToClear.isEmpty { safeToClearRows(board, now: now) }
                 if board.running.isEmpty && board.needsLookCount == 0 && board.safeToClear.isEmpty {
-                    LaneEmpty(text: "No branches or worktrees match this view.")
+                    rowsGroup { LaneEmpty(text: workKind == .branches ? "No branches match this view."
+                                      : workKind == .worktrees ? "No worktrees match this view."
+                                      : "No branches or worktrees match this view.") }
                 }
             case .running:
                 runningRows(board, now: now)
@@ -702,11 +1037,13 @@ struct BranchesRootView: View {
             Text("Running").font(.headline)
             Text("\(board.running.count)").foregroundStyle(.secondary)
         }
-        if board.running.isEmpty {
-            LaneEmpty(text: "No repository work is running in this view.")
-        }
-        ForEach(board.running) { item in
-            card(item, .running, now: now, share: 0, color: .green)
+        rowsGroup {
+            if board.running.isEmpty {
+                LaneEmpty(text: "No repository work is running in this view.")
+            }
+            ForEach(board.running) { item in
+                card(item, .running, now: now, share: 0, color: .green)
+            }
         }
     }
 
@@ -715,6 +1052,7 @@ struct BranchesRootView: View {
         let largest = board.needsLook.map(\.bytes).max() ?? 0
         let color = layerColor(0xE2729A)
         groupHeading("Needs a look", count: board.needsLookCount, bytes: board.needsLookBytes)
+        rowsGroup {
         if board.needsLook.isEmpty {
             LaneEmpty(text: "Work that exists only on this Mac, or isn't on main yet, shows here.")
         }
@@ -739,6 +1077,7 @@ struct BranchesRootView: View {
                 UnreadableCard(repository: repository, isExpanded: expanded.contains(entry.id), toggle: { toggle(entry.id) })
             }
         }
+        }
         if board.stillChecking > 0 {
             Text("Still checking \(board.stillChecking) more…").font(.caption).foregroundStyle(.secondary)
         }
@@ -757,6 +1096,7 @@ struct BranchesRootView: View {
                     .help("Review exactly the \(board.safeToClear.count) shown here")
             }
         }
+        rowsGroup {
         if board.safeToClear.isEmpty {
             LaneEmpty(text: "Merged or empty branches and worktrees that nothing runs in show here.")
         }
@@ -776,13 +1116,15 @@ struct BranchesRootView: View {
                 }
             }
         }
+        }
     }
 
     @ViewBuilder
     private func cacheRows(_ totals: BranchesStorageSummary, now: Date) -> some View {
-        groupHeading("Build cache", count: totals.cacheFolders.count, bytes: totals.bytes(for: .buildCache))
-        Text("Cache inside worktree folders. Delete… reviews the whole folder, including its cache.")
-            .font(.caption).foregroundStyle(.secondary)
+        if !isModern {
+            groupHeading("Build cache", count: totals.cacheFolders.count, bytes: totals.bytes(for: .buildCache))
+        }
+        layerNote("Cache inside worktree folders. Delete… reviews the whole folder, including its cache.", caption: true)
         if totals.cacheFolders.isEmpty { LaneEmpty(text: "No measured build cache in these folders.") }
         let largest = totals.cacheFolders.first?.size?.cacheBytes ?? 0
         ForEach(totals.cacheFolders) { item in
@@ -800,11 +1142,13 @@ struct BranchesRootView: View {
             let text = [entry.name, entry.path ?? "", entry.kind.label].joined(separator: " ").lowercased()
             return terms.allSatisfy { text.contains($0) }
         }.sorted { $0.bytes == $1.bytes ? $0.id < $1.id : $0.bytes > $1.bytes }
-        groupHeading("Tool storage", count: entries.count, bytes: entries.reduce(0) { $0 + $1.bytes })
-        Text("Outside repositories. Shown only: usAIge clears nothing here.")
-            .font(.caption).foregroundStyle(.secondary)
+        if !isModern {
+            groupHeading("Tool storage", count: entries.count, bytes: entries.reduce(0) { $0 + $1.bytes })
+        }
+        layerNote("Outside repositories. Shown only: usAIge clears nothing here.", caption: true)
         if store.isMeasuringToolStorage {
             HStack { ProgressView().controlSize(.small); Text("Measuring…").font(.caption) }
+                .padding(isModern ? 14 : 0)
         } else if entries.isEmpty {
             LaneEmpty(text: "Nothing to show. Folders under 10 MB are left out.")
         }
@@ -1064,8 +1408,17 @@ struct BoardGlass<S: Shape>: View {
 @available(macOS 14.0, *)
 private struct LaneEmpty: View {
     let text: String
+    @Environment(\.interfaceStyle) private var style
 
     var body: some View {
+        if style == .modern {
+            ModernNoteRow(text: text)
+        } else {
+            classic
+        }
+    }
+
+    private var classic: some View {
         Text(text)
             .font(.callout)
             .foregroundStyle(.secondary)
@@ -1288,8 +1641,24 @@ private struct ShowInFinderButton: View {
 @available(macOS 14.0, *)
 struct FoldChevron: View {
     let isExpanded: Bool
+    @Environment(\.interfaceStyle) private var style
 
     var body: some View {
+        if style == .modern {
+            // A list disclosure: points right, turns down when open.
+            Image(systemName: "chevron.right")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.tertiary)
+                .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                .frame(width: 16, height: 20)
+                .animation(.snappy(duration: 0.2), value: isExpanded)
+                .accessibilityHidden(true)
+        } else {
+            classic
+        }
+    }
+
+    private var classic: some View {
         Image(systemName: "chevron.down")
             .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(.secondary)
@@ -1485,5 +1854,35 @@ private struct ResultBanner: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 9)
+    }
+}
+
+/// One project's rows on Modern's Branches or Worktrees page.
+@available(macOS 14.0, *)
+struct ProjectRows: Identifiable {
+    let id: String
+    let name: String
+    var rows: [ProjectRow]
+
+    var bytes: Int64 {
+        rows.reduce(0) { total, row in
+            switch row {
+            case let .work(item, _): total + (item.size?.totalBytes ?? 0)
+            case let .look(entry): total + entry.bytes
+            }
+        }
+    }
+}
+
+@available(macOS 14.0, *)
+enum ProjectRow: Identifiable {
+    case work(WorkItem, WorkCard.Kind)
+    case look(LookEntry)
+
+    var id: String {
+        switch self {
+        case let .work(item, _): "work|" + item.id
+        case let .look(entry): entry.id
+        }
     }
 }
