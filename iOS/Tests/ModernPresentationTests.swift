@@ -171,6 +171,40 @@ final class ModernPresentationTests: XCTestCase {
         let noCredit = try XCTUnwrap(ToolUsageSummary.group([unavailable]).first)
         XCTAssertNil(noCredit.availableResetCount)
         XCTAssertNil(noCredit.resetCreditExpiresAt)
+        XCTAssertTrue(ResetCreditLine.lines(for: noCredit).isEmpty)
+    }
+
+    func testToolUsageSummaryUsesFirstLimitWithNamedResetCredits() throws {
+        let toolID = UUID()
+        let full = ResetCreditSnapshot(id: "full", title: "Full reset", expiresAt: now)
+        let fable = ResetCreditSnapshot(id: "fable", title: "Fable reset", detail: "Refills your Fable allowance.")
+        let legacy = snapshot("legacy", toolID: toolID, remainingPercent: 70, availableResetCount: 2)
+        let named = snapshot("named", toolID: toolID, remainingPercent: 60, resetCredits: [full, fable])
+        let tightest = snapshot("tightest", toolID: toolID, remainingPercent: 10, resetCredits: [fable])
+
+        let summary = try XCTUnwrap(ToolUsageSummary.group([legacy, named, tightest]).first)
+
+        XCTAssertEqual(summary.availableResetCount, 2)
+        XCTAssertEqual(summary.resetCredits, [full, fable])
+        XCTAssertEqual(ResetCreditLine.lines(for: summary), [
+            ResetCreditLine(credit: full, availableCount: nil),
+            ResetCreditLine(credit: fable, availableCount: nil),
+        ])
+    }
+
+    func testResetCreditLineFallsBackToCountAndEarliestExpiry() throws {
+        let expiration = now.addingTimeInterval(86_400)
+        let legacy = snapshot(remainingPercent: 50, availableResetCount: 2, resetCreditExpiresAt: expiration)
+        let summary = try XCTUnwrap(ToolUsageSummary.group([legacy]).first)
+
+        let lines = ResetCreditLine.lines(for: summary)
+
+        XCTAssertEqual(lines.count, 1)
+        let line = try XCTUnwrap(lines.first)
+        XCTAssertEqual(line.credit.title, "Full reset")
+        XCTAssertEqual(line.availableCount, 2)
+        XCTAssertEqual(line.credit.expiresAt, expiration)
+        XCTAssertNil(line.credit.detail)
     }
 
     func testToolMarkKindMatchesVendorNamesToAssets() {
@@ -314,6 +348,33 @@ final class ModernPresentationTests: XCTestCase {
         let claude = try XCTUnwrap(summaries.first { $0.name == "Claude" })
         XCTAssertEqual(claude.tightest.displayName, "Fable")
     }
+
+    func testPhoneDemoIncludesNamedResets() throws {
+        for scenario: UsageDemoData.Scenario in [.standard, .edge] {
+            let sections = UsageDemoData.macSections(scenario, now: now)
+            let mac = try XCTUnwrap(sections.first)
+            let summaries = ToolUsageSummary.group(mac.snapshots)
+            let chatGPT = try XCTUnwrap(summaries.first { $0.name == "ChatGPT" })
+            let claude = try XCTUnwrap(summaries.first { $0.name == "Claude" })
+
+            XCTAssertEqual(chatGPT.resetCredits.map(\.title), ["Full reset"])
+            XCTAssertEqual(chatGPT.resetCredits.first?.expiresAt, now.addingTimeInterval(5 * 86_400))
+            if scenario == .edge {
+                XCTAssertEqual(claude.availableResetCount, 2)
+                XCTAssertEqual(claude.resetCredits.map(\.title), ["Full reset", "Fable reset"])
+                XCTAssertEqual(claude.resetCredits.map(\.expiresAt), [
+                    Date(timeIntervalSince1970: 1_796_940_000),
+                    Date(timeIntervalSince1970: 1_804_579_140),
+                ])
+                XCTAssertEqual(
+                    claude.resetCredits.last?.detail,
+                    "Refills your 5-hour limit and your Fable allowance, and gives back what Fable used on your weekly limit."
+                )
+            } else {
+                XCTAssertTrue(claude.resetCredits.isEmpty)
+            }
+        }
+    }
     #endif
 
     func testQuotaSnapshotKeepsSymbolOnRoundTripAndDecodesLegacyJSON() throws {
@@ -330,6 +391,29 @@ final class ModernPresentationTests: XCTestCase {
         XCTAssertNil(legacySnapshot.toolSymbolName)
     }
 
+    func testQuotaSnapshotKeepsNamedResetsOnRoundTripAndDecodesLegacyJSON() throws {
+        let expiration = now.addingTimeInterval(86_400)
+        let original = snapshot(
+            remainingPercent: 50,
+            availableResetCount: 1,
+            resetCreditExpiresAt: expiration,
+            resetCredits: [ResetCreditSnapshot(id: "full", title: "Full reset", expiresAt: expiration)]
+        )
+        let data = try JSONEncoder().encode(original)
+        let decoder = JSONDecoder()
+
+        XCTAssertEqual(try decoder.decode(QuotaSnapshot.self, from: data), original)
+
+        var legacyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertNotNil(legacyJSON.removeValue(forKey: "resetCredits"))
+        let legacyData = try JSONSerialization.data(withJSONObject: legacyJSON)
+        let legacySnapshot = try decoder.decode(QuotaSnapshot.self, from: legacyData)
+
+        XCTAssertTrue(legacySnapshot.resetCredits.isEmpty)
+        XCTAssertEqual(legacySnapshot.availableResetCount, 1)
+        XCTAssertEqual(legacySnapshot.resetCreditExpiresAt, expiration)
+    }
+
     private func snapshot(
         _ limitID: String = "limit",
         toolID: UUID = UUID(),
@@ -338,7 +422,8 @@ final class ModernPresentationTests: XCTestCase {
         secondaryPercent: Double? = nil,
         symbolName: String? = nil,
         availableResetCount: Int? = nil,
-        resetCreditExpiresAt: Date? = nil
+        resetCreditExpiresAt: Date? = nil,
+        resetCredits: [ResetCreditSnapshot] = []
     ) -> QuotaSnapshot {
         QuotaSnapshot(
             id: QuotaSnapshot.stableID(toolID: toolID, limitID: limitID),
@@ -351,6 +436,7 @@ final class ModernPresentationTests: XCTestCase {
             updatedAt: now,
             availableResetCount: availableResetCount,
             resetCreditExpiresAt: resetCreditExpiresAt,
+            resetCredits: resetCredits,
             secondaryWindow: secondaryPercent.map {
                 QuotaWindowSnapshot(remainingPercent: $0, resetAt: nil, windowDurationMinutes: nil)
             },

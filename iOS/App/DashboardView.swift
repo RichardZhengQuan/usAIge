@@ -3,6 +3,8 @@ import SwiftUI
 
 struct DashboardView: View {
     @Environment(RelayAppModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @SceneStorage("usage.expandedToolIDs") private var storedExpandedToolIDs = ""
 
     var body: some View {
         let sections = macSections
@@ -43,7 +45,8 @@ struct DashboardView: View {
     }
 
     private func quotaList(_ sections: [MacUsageSection]) -> some View {
-        List {
+        let expanded = expandedToolIDs
+        return List {
             if !isShowingDemo, model.isCacheStale || model.errorMessage != nil {
                 Section {
                     Label {
@@ -69,10 +72,9 @@ struct DashboardView: View {
                             .foregroundStyle(.secondary)
                     }
                     ForEach(tools) { tool in
-                        NavigationLink {
-                            ToolDetailView(tool: tool)
-                        } label: {
-                            QuotaRow(tool: tool)
+                        let id = tool.id.uuidString
+                        QuotaRow(tool: tool, isExpanded: expanded.contains(id)) {
+                            toggleTool(id)
                         }
                     }
                 } header: {
@@ -97,6 +99,20 @@ struct DashboardView: View {
                     .usaigeRefreshSurface()
                     .padding(.top, 8)
             }
+        }
+    }
+
+    private var expandedToolIDs: Set<String> {
+        Set(storedExpandedToolIDs.split(separator: ",").map(String.init))
+    }
+
+    private func toggleTool(_ id: String) {
+        var expanded = expandedToolIDs
+        if !expanded.insert(id).inserted {
+            expanded.remove(id)
+        }
+        withAnimation(reduceMotion ? nil : .snappy) {
+            storedExpandedToolIDs = expanded.sorted().joined(separator: ",")
         }
     }
 

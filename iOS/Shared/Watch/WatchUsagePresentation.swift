@@ -59,6 +59,28 @@ public enum UsageDemoData {
 
     public static var isEnabled: Bool { scenario != nil }
 
+    #if os(iOS)
+    static func resetCredits(for tool: WatchToolQuotaSnapshot, in scenario: Scenario) -> [ResetCreditSnapshot] {
+        switch tool.id {
+        case "demo-mac:chatgpt":
+            return [ResetCreditSnapshot(id: "full", title: "Full reset", expiresAt: tool.resetCreditExpiresAt)]
+        case "demo-mac:claude" where scenario == .edge:
+            let dates = ISO8601DateFormatter()
+            return [
+                ResetCreditSnapshot(
+                    id: "full", title: "Full reset", expiresAt: dates.date(from: "2026-12-11T06:00:00+08:00")
+                ),
+                ResetCreditSnapshot(
+                    id: "fable", title: "Fable reset", expiresAt: dates.date(from: "2027-03-09T15:59:00+08:00"),
+                    detail: "Refills your 5-hour limit and your Fable allowance, and gives back what Fable used on your weekly limit."
+                ),
+            ]
+        default:
+            return []
+        }
+    }
+    #endif
+
     public static func envelope(now: Date = Date()) -> WatchUsageSnapshotEnvelope {
         envelope(scenario ?? .standard, now: now)
     }

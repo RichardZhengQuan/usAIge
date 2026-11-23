@@ -19,6 +19,7 @@ public struct ToolUsageSummary: Identifiable, Equatable, Sendable {
     public let tightest: QuotaSnapshot
     public let availableResetCount: Int?
     public let resetCreditExpiresAt: Date?
+    public let resetCredits: [ResetCreditSnapshot]
 
     public var otherLimitCount: Int { limits.count - 1 }
 
@@ -40,7 +41,8 @@ public struct ToolUsageSummary: Identifiable, Equatable, Sendable {
                 limits: limits,
                 tightest: tightest,
                 availableResetCount: credit?.availableResetCount,
-                resetCreditExpiresAt: credit?.resetCreditExpiresAt
+                resetCreditExpiresAt: credit?.resetCreditExpiresAt,
+                resetCredits: limits.first { !$0.resetCredits.isEmpty }?.resetCredits ?? []
             )
         }
     }
@@ -60,8 +62,11 @@ public extension UsageDemoData {
     }
 
     /// The sample readings grouped by Mac, as the iPhone's Usage tab shows them.
-    static func macSections(now: Date = Date()) -> [(id: UUID, name: String, snapshots: [QuotaSnapshot], updatedAt: Date)] {
-        let tools = envelope(now: now).tools
+    static func macSections(
+        _ scenario: Scenario = UsageDemoData.scenario ?? .standard,
+        now: Date = Date()
+    ) -> [(id: UUID, name: String, snapshots: [QuotaSnapshot], updatedAt: Date)] {
+        let tools = envelope(scenario, now: now).tools
         var macs: [String] = []
         for tool in tools where !macs.contains(tool.sourceID ?? "") { macs.append(tool.sourceID ?? "") }
         return macs.enumerated().map { macIndex, mac in
@@ -69,6 +74,9 @@ public extension UsageDemoData {
             let snapshots = macTools.flatMap { tool -> [QuotaSnapshot] in
                 let index = tools.firstIndex(of: tool) ?? 0
                 let toolID = demoUUID(index + 1)
+                let credits = resetCredits(for: tool, in: scenario)
+                let resetCount = tool.availableResetCount ?? (credits.isEmpty ? nil : credits.count)
+                let resetExpiry = tool.resetCreditExpiresAt ?? credits.compactMap(\.expiresAt).min()
                 return tool.limits.map { limit in
                     QuotaSnapshot(
                         id: QuotaSnapshot.stableID(toolID: toolID, limitID: limit.id),
@@ -81,8 +89,9 @@ public extension UsageDemoData {
                         updatedAt: tool.sourceUpdatedAt,
                         planType: limit.planType,
                         windowDurationMinutes: limit.primary.windowDurationSeconds.map { $0 / 60 },
-                        availableResetCount: tool.availableResetCount,
-                        resetCreditExpiresAt: tool.resetCreditExpiresAt,
+                        availableResetCount: resetCount,
+                        resetCreditExpiresAt: resetExpiry,
+                        resetCredits: credits,
                         secondaryWindow: limit.secondary.map {
                             QuotaWindowSnapshot(
                                 remainingPercent: $0.remainingPercent,

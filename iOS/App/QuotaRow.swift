@@ -5,24 +5,137 @@ struct QuotaRow: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     let tool: ToolUsageSummary
+    let isExpanded: Bool
+    let toggle: () -> Void
 
     var body: some View {
-        let limit = tool.tightest
-        let phase = tool.activeSession?.phase
+        let session = tool.activeSession
+        VStack(alignment: .leading, spacing: 8) {
+            disclosureButton(phase: session?.phase)
+            if isExpanded {
+                expandedContent(session: session)
+            }
+        }
+        .padding(.vertical, 4)
+    }
 
+    private func disclosureButton(phase: CodexSessionPhase?) -> some View {
         TimelineView(.everyMinute) { context in
-            VStack(alignment: .leading, spacing: 8) {
-                header(phase: phase)
-                ModernQuotaBar(window: limit.primaryWindow)
-                if let secondary = limit.secondaryWindow {
-                    ModernQuotaBar(window: secondary)
+            Button(action: toggle) {
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        header(phase: phase)
+                        if !isExpanded {
+                            quotaBars(for: tool.tightest)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .accessibilityHidden(true)
+                }
+                .frame(minHeight: 44, alignment: .topLeading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(accessibilityTitle(phase: phase, now: context.date))
+            .accessibilityValue(isExpanded ? Text("expanded") : Text("collapsed"))
+            .accessibilityHint(Text("Shows every limit"))
+        }
+    }
+
+    @ViewBuilder
+    private func expandedContent(session: CodexSessionStatus?) -> some View {
+        ForEach(tool.limits) { limit in
+            VStack(alignment: .leading, spacing: 4) {
+                limitTitle(limit)
+                    .font(.caption)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    quotaBars(for: limit)
                 }
             }
-            .padding(.vertical, 4)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(accessibilityTitle(phase: phase))
-            .accessibilityValue(Text(accessibilityWindows(now: context.date)))
         }
+
+        let resets = ResetCreditLine.lines(for: tool)
+        if !resets.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(resets) { resetRow($0) }
+            }
+        }
+
+        if let session {
+            sessionRow(session)
+        }
+    }
+
+    @ViewBuilder
+    private func quotaBars(for limit: QuotaSnapshot) -> some View {
+        ModernQuotaBar(window: limit.primaryWindow)
+        if let secondary = limit.secondaryWindow {
+            ModernQuotaBar(window: secondary)
+        }
+    }
+
+    private func limitTitle(_ limit: QuotaSnapshot) -> Text {
+        let name = Text(limit.displayName)
+            .fontWeight(.semibold)
+            .foregroundStyle(.secondary)
+        if let plan = limit.planType, !plan.isEmpty {
+            return Text("\(name) \(Text(plan).foregroundStyle(.tertiary))")
+        }
+        return name
+    }
+
+    private func resetRow(_ line: ResetCreditLine) -> some View {
+        let title = Text(line.credit.title).fontWeight(.semibold)
+        let metadata = resetMetadata(line)?.foregroundStyle(.secondary)
+
+        return HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: "arrow.counterclockwise")
+                .foregroundStyle(.green)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 2) {
+                if let metadata {
+                    Text("\(title) \(metadata)")
+                } else {
+                    title
+                }
+                if let detail = line.credit.detail, !detail.isEmpty {
+                    Text(detail)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .font(.caption)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func resetMetadata(_ line: ResetCreditLine) -> Text? {
+        let expiry = line.credit.expiresAt.map { Text("expires \($0, format: .dateTime.month(.abbreviated).day())") }
+        guard let count = line.availableCount else { return expiry }
+        let availability = Text("\(count) available")
+        return expiry.map { Text("\(availability) · \($0)") } ?? availability
+    }
+
+    private func sessionRow(_ session: CodexSessionStatus) -> some View {
+        let phase = Text(session.phase.label)
+        let relativeTime = Text(.currentDate, format: .reference(to: session.updatedAt, maxFieldCount: 1))
+            .foregroundStyle(.secondary)
+
+        return HStack(alignment: .firstTextBaseline, spacing: 6) {
+            UsageSessionDot(phase: session.phase)
+            Text("\(phase) \(relativeTime)")
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .font(.caption)
+        .accessibilityElement(children: .combine)
     }
 
     private func header(phase: CodexSessionPhase?) -> some View {
@@ -41,7 +154,7 @@ struct QuotaRow: View {
                 kind: ToolMarkKind(toolName: tool.name, symbolName: tool.symbolName),
                 fallbackSymbol: tool.symbolName
             )
-            if tool.otherLimitCount > 0 {
+            if !isExpanded, tool.otherLimitCount > 0 {
                 let caption = limitCaption
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -63,8 +176,8 @@ struct QuotaRow: View {
                 title
             }
 
+            Spacer(minLength: 0)
             if let count = tool.availableResetCount, count > 0 {
-                Spacer(minLength: 0)
                 ResetCreditBadge(count: count)
                     .accessibilityHidden(true)
             }
@@ -76,14 +189,18 @@ struct QuotaRow: View {
         Text("\(tool.tightest.displayName) · +\(tool.otherLimitCount) more")
     }
 
-    private func accessibilityTitle(phase: CodexSessionPhase?) -> Text {
+    private func accessibilityTitle(phase: CodexSessionPhase?, now: Date) -> Text {
         let name = Text(tool.name)
-        var title = tool.otherLimitCount > 0 ? Text("\(name), \(limitCaption)") : name
+        var title = !isExpanded && tool.otherLimitCount > 0 ? Text("\(name), \(limitCaption)") : name
         if let phase {
             title = Text("\(title), \(phase.label)")
         }
-        if let credit = ResetCreditText.accessibilityLabel(count: tool.availableResetCount) {
+        if let count = tool.availableResetCount, count > 0 {
+            let credit = count == 1 ? Text("\(count) reset available") : Text("\(count) resets available")
             title = Text("\(title), \(credit)")
+        }
+        if !isExpanded {
+            title = Text("\(title). \(accessibilityWindows(now: now))")
         }
         return title
     }
@@ -97,6 +214,25 @@ struct QuotaRow: View {
             let reset = ResetCountdown.accessibilityLabel(until: window.resetAt, now: now)
             return String(localized: "\(label), \(percent) left, \(reset)")
         }.joined(separator: ". ")
+    }
+}
+
+struct ResetCreditLine: Identifiable, Equatable {
+    let credit: ResetCreditSnapshot
+    let availableCount: Int?
+
+    var id: String { credit.id }
+
+    static func lines(for tool: ToolUsageSummary) -> [Self] {
+        if !tool.resetCredits.isEmpty {
+            return tool.resetCredits.map { Self(credit: $0, availableCount: nil) }
+        }
+        guard let count = tool.availableResetCount, count > 0 else { return [] }
+
+        let fallback = ResetCreditSnapshot(
+            id: "full-reset", title: String(localized: "Full reset"), expiresAt: tool.resetCreditExpiresAt
+        )
+        return [Self(credit: fallback, availableCount: count)]
     }
 }
 
