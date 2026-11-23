@@ -1,4 +1,5 @@
-import Foundation
+import AppKit
+import SwiftUI
 import Testing
 @testable import UsageHUD
 
@@ -53,6 +54,33 @@ struct ResourceTrendTests {
         #expect(TrendPlotGrid.cellSide(for: CGSize(width: 540, height: 120), compact: false) == 60)
         #expect(TrendPlotGrid.cellSide(for: CGSize(width: 100, height: 32), compact: true) == 20)
         #expect(TrendPlotGrid.cellSide(for: CGSize(width: 30, height: 15), compact: true) == 10)
+    }
+
+    @Test func chartBackdropReachesTransparencyAtEveryEdgeAndPreservesTheTrace() throws {
+        guard #available(macOS 13.0, *) else { return }
+        let size = CGSize(width: 240, height: 96)
+        let area = Path(CGRect(origin: .zero, size: size))
+        let backdrop = TrendPlotGrid(compact: false, status: .critical, areas: [.critical: area])
+            .frame(width: size.width, height: size.height)
+            .environment(\.colorScheme, .dark)
+        let backdropImage = try #require(ImageRenderer(content: backdrop).cgImage)
+        let bitmap = NSBitmapImageRep(cgImage: backdropImage)
+        func alpha(_ x: Int, _ y: Int) -> CGFloat {
+            bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 1
+        }
+        let width = bitmap.pixelsWide, height = bitmap.pixelsHigh
+        #expect((0..<width).allSatisfy { alpha($0, 0) == 0 && alpha($0, height - 1) == 0 })
+        #expect((0..<height).allSatisfy { alpha(0, $0) == 0 && alpha(width - 1, $0) == 0 })
+        #expect(alpha(width / 2, height / 2) > 0.1)
+
+        let end = start.addingTimeInterval(60)
+        let points = [start, end].map { TrendPoint(date: $0, value: 0.5, status: .normal) }
+        let plot = TrendLinePlot(points: points, domain: start...end, valueRange: 0...1)
+            .frame(width: size.width, height: size.height)
+        let plotImage = try #require(ImageRenderer(content: plot).cgImage)
+        let trace = NSBitmapImageRep(cgImage: plotImage)
+        #expect((trace.colorAt(x: 3, y: height / 2)?.alphaComponent ?? 0) > 0.9)
+        #expect((trace.colorAt(x: width - 3, y: height / 2)?.alphaComponent ?? 0) > 0.9)
     }
 
     @Test func usesRAMAndSwapForMemoryAndAvailableBytesForDisk() async {

@@ -208,12 +208,11 @@ struct TrendLinePlot: View {
         GeometryReader { geometry in
             let paths = self.paths(in: geometry.size)
             ZStack(alignment: .topLeading) {
-                TrendPlotGrid(compact: compact, status: TrendPoint.currentStatus(in: points, domain: domain))
+                TrendPlotGrid(compact: compact, status: TrendPoint.currentStatus(in: points, domain: domain),
+                              areas: paths.mapValues(\.fill))
                 ForEach(TrendStatus.allCases, id: \.self) { status in
                     if let path = paths[status] {
                         let color = status.color
-                        path.fill.fill(LinearGradient(gradient: Gradient(colors: [color.opacity(0.19), color.opacity(0.025)]),
-                                                      startPoint: .top, endPoint: .bottom))
                         path.line.stroke(color, style: StrokeStyle(lineWidth: compact ? 1.5 : 2, lineCap: .round, lineJoin: .round))
                         path.endpoints.fill(color)
                     }
