@@ -164,22 +164,12 @@ private struct WatchQuotaRow: View {
                     .foregroundStyle(.primary)
             }
 
-            VStack(alignment: .leading, spacing: 2) {
-                WatchToolTitle(name: tool.displayName, phase: phase)
-                    .font(.headline)
-
-                remainingAndReset
-
-                if tool.otherLimitCount > 0 {
-                    ViewThatFits(in: .horizontal) {
-                        Text("\(limit.displayName) · +\(tool.otherLimitCount) more")
-                            .fixedSize(horizontal: true, vertical: false)
-                        Text("+\(tool.otherLimitCount) more")
-                    }
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                }
+            // The reset badge sits at the end of the title line, as on the
+            // iPhone. On a small watch where the name and badge don't both
+            // fit, it moves to the caption line so the name stays whole.
+            ViewThatFits(in: .horizontal) {
+                details(phase: phase, badgeOnTitleLine: true)
+                details(phase: phase, badgeOnTitleLine: false)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -187,6 +177,44 @@ private struct WatchQuotaRow: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityTitle(phase: phase))
         .accessibilityValue(accessibilitySummary)
+    }
+
+    private func details(phase: WatchSessionPhase?, badgeOnTitleLine: Bool) -> some View {
+        let hasBadge = (tool.availableResetCount ?? 0) > 0
+        return VStack(alignment: .leading, spacing: 2) {
+            if badgeOnTitleLine {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    WatchToolTitle(name: tool.displayName, phase: phase)
+                        .font(.headline)
+                    Spacer(minLength: 0)
+                    ResetCreditBadge(count: tool.availableResetCount)
+                }
+                .fixedSize(horizontal: true, vertical: false)
+            } else {
+                WatchToolTitle(name: tool.displayName, phase: phase)
+                    .font(.headline)
+            }
+
+            remainingAndReset
+
+            if tool.otherLimitCount > 0 || (hasBadge && !badgeOnTitleLine) {
+                HStack(spacing: 4) {
+                    if tool.otherLimitCount > 0 {
+                        ViewThatFits(in: .horizontal) {
+                            Text("\(limit.displayName) · +\(tool.otherLimitCount) more")
+                                .fixedSize(horizontal: true, vertical: false)
+                            Text("+\(tool.otherLimitCount) more")
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    }
+                    if !badgeOnTitleLine {
+                        ResetCreditBadge(count: tool.availableResetCount)
+                    }
+                }
+            }
+        }
     }
 
     private var remainingAndReset: some View {
@@ -198,35 +226,35 @@ private struct WatchQuotaRow: View {
             .lineLimit(1)
             .minimumScaleFactor(0.8)
 
+        // "62% resets 2H", then "62% 2H" on small watches, and only then two lines.
         return ViewThatFits(in: .horizontal) {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 percent
-                resetLine
+                resetText(ResetCountdown.phrase(until: window.resetAt, now: now))
+            }
+            .fixedSize(horizontal: true, vertical: false)
+
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                percent
+                resetText(window.resetAt == nil ? nil : ResetCountdown.compact(until: window.resetAt, now: now))
             }
             .fixedSize(horizontal: true, vertical: false)
 
             VStack(alignment: .leading, spacing: 1) {
                 percent
-                resetLine
+                resetText(ResetCountdown.phrase(until: window.resetAt, now: now))
             }
         }
     }
 
     @ViewBuilder
-    private var resetLine: some View {
-        let reset = ResetCountdown.phrase(until: limit.tightestWindow.resetAt, now: now)
-        if reset != nil || (tool.availableResetCount ?? 0) > 0 {
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                if let reset {
-                    Text(reset)
-                        .font(.caption2)
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                }
-                ResetCreditBadge(count: tool.availableResetCount)
-            }
+    private func resetText(_ text: String?) -> some View {
+        if let text {
+            Text(text)
+                .font(.caption2)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
         }
     }
 
