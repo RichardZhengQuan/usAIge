@@ -12,6 +12,7 @@ enum ModernMetrics {
 
 /// The Modern look's colours: the system's own, so they follow light, dark and
 /// Increase Contrast like the rest of macOS.
+@available(macOS 14.0, *)
 enum ModernPalette {
     static let worktrees = Color(nsColor: .systemPink)
     static let buildCache = Color(nsColor: .systemGreen)

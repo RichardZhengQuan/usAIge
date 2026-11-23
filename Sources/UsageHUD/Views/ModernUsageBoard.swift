@@ -290,6 +290,7 @@ struct ModernUsageBoard: View {
 
 /// What a tool without a reading needs: a warning for a problem, such as an
 /// expired sign-in, and plain text for a tool that isn't connected yet.
+@available(macOS 14.0, *)
 struct ModernToolStatusText: View {
     let status: LocalToolGuidance.Presentation
     var font: Font = .callout
