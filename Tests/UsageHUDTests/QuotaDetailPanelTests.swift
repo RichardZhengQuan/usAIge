@@ -127,6 +127,41 @@ import Testing
         }
     }
 
+    @Test func railAndHoverCardCanJoinAnotherAppsFullScreenSpaceWithoutTakingFocus() throws {
+        let rail = HUDPanel(contentView: NSView(frame: CGRect(x: 0, y: 0, width: 84, height: 300)))
+        let controller = QuotaDetailPanelController(rail: { rail })
+        controller.showLiveWork(rowFrame: CGRect(x: 4, y: 10, width: 76, height: 80))
+        defer { controller.hide(rowID: .liveWork) }
+        let detail = try #require(controller.panel)
+        #expect(detail.parent === rail)
+        for panel in [rail as NSPanel, detail] {
+            #expect(panel.collectionBehavior.contains([.canJoinAllSpaces, .fullScreenAuxiliary, .canJoinAllApplications]))
+            #expect(panel.styleMask.contains(.nonactivatingPanel))
+            #expect(panel.isFloatingPanel)
+            #expect(!panel.hidesOnDeactivate)
+            #expect(panel.level == .floating)
+            #expect(panel.level.rawValue < NSWindow.Level.mainMenu.rawValue)
+        }
+    }
+
+    @Test func cpuHoverReusesThePanelAndOpensCPU() throws {
+        let rail = makeRail()
+        let controller = QuotaDetailPanelController(rail: { rail })
+        let monitor = SystemCPUMonitor(read: { nil })
+        var openedCPU = false
+        controller.openCPU = { openedCPU = true }
+        controller.showLiveWork(rowFrame: .zero)
+        let first = try #require(controller.panel)
+        controller.showCPU(rowFrame: .zero, monitor: monitor)
+        controller.hide(rowID: .liveWork)
+        controller.update([])
+        #expect(controller.shownRowID == .cpu)
+        #expect(controller.panel === first)
+        controller.openShownDetails()
+        #expect(openedCPU)
+        #expect(controller.shownRowID == nil)
+    }
+
     @Test func aLateExitFromThePreviousRowDoesNotHideTheNewOne() {
         let rail = makeRail()
         let controller = QuotaDetailPanelController(rail: { rail })

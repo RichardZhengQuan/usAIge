@@ -153,25 +153,50 @@ struct CapacityBar: View {
     var gap: CGFloat = 1.5
 
     var body: some View {
+        let total = Double(max(capacity, PaperweightData.total(segments.map(\.bytes)), 1))
+        ProportionalBar(segments: segments.map {
+            .init(id: $0.id, fraction: Double($0.bytes) / total, color: $0.color)
+        }, height: height, gap: gap)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(segments.map { "\($0.title) \(BoardText.bytes($0.bytes))" }.joined(separator: ", "))
+    }
+}
+
+/// Shared geometry for storage capacity, memory allocation and CPU time shares.
+struct ProportionalBar: View {
+    static let thinHeight: CGFloat = 8
+
+    struct Segment: Identifiable {
+        let id: String
+        let fraction: Double
+        let color: Color
+    }
+
+    let segments: [Segment]
+    var height = ProportionalBar.thinHeight
+    var gap: CGFloat = 1.5
+
+    var body: some View {
         GeometryReader { geometry in
-            let visible = segments.filter { $0.bytes > 0 }
+            let visible = segments.filter { $0.fraction > 0 }
             let gaps = gap * CGFloat(max(0, visible.count - 1))
             let usable = max(0, geometry.size.width - gaps)
-            let total = Double(max(capacity, PaperweightData.total(visible.map(\.bytes)), 1))
             HStack(spacing: gap) {
                 ForEach(visible) { segment in
-                    Rectangle()
-                        .fill(segment.color.gradient)
-                        .frame(width: max(2, usable * CGFloat(Double(segment.bytes) / total)))
+                    Group {
+                        if #available(macOS 13.0, *) {
+                            Rectangle().fill(segment.color.gradient)
+                        } else {
+                            Rectangle().fill(segment.color)
+                        }
+                    }
+                    .frame(width: max(2, usable * CGFloat(segment.fraction)))
                 }
-                Spacer(minLength: 0)
             }
         }
         .frame(height: height)
-        .background(ModernPalette.free)
+        .background(Color.primary.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: min(height * 0.32, 7), style: .continuous))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(segments.map { "\($0.title) \(BoardText.bytes($0.bytes))" }.joined(separator: ", "))
     }
 }
 

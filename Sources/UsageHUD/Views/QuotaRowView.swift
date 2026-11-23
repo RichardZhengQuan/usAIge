@@ -155,7 +155,6 @@ struct QuotaRowView: View {
     @Environment(\.hudTextSize) private var textSize
     @AppStorage(InterfaceStyle.defaultsKey) private var style = InterfaceStyle.standard
     @State private var isHovered = false
-    @State private var rowFrame = CGRect.zero
 
     /// Modern draws Activity-style rings: thicker, on a track tinted with
     /// the ring's own colour.
@@ -204,15 +203,7 @@ struct QuotaRowView: View {
         .frame(maxWidth: .infinity)
         .frame(height: HUDMetrics.rowHeight(for: textSize))
         .contentShape(Rectangle())
-        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
-            rowFrame = frame
-            if isHovered { onDetailHoverChanged(true, frame) }
-        }
-        .onHover { hoverState in
-            isHovered = hoverState
-            onDetailHoverChanged(hoverState, rowFrame)
-        }
-        .onDisappear { onDetailHoverChanged(false, rowFrame) }
+        .modifier(RailDetailHover(isHovered: $isHovered, changed: onDetailHoverChanged))
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilitySummary)
     }

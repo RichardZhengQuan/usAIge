@@ -56,23 +56,12 @@ struct SystemCPUUsage: Equatable, Sendable {
     }
 }
 
-enum SystemTrendRange: String, CaseIterable, Sendable {
-    case oneMinute, fiveMinutes, fifteenMinutes, oneHour
+enum SystemTrendWindow {
+    static let duration: TimeInterval = 10 * 60
 
-    static let defaultsKey = "usageHUD.systemTrendRange"
-    static let standard = Self.fiveMinutes
-
-    var minutes: Int {
-        switch self {
-        case .oneMinute: 1
-        case .fiveMinutes: 5
-        case .fifteenMinutes: 15
-        case .oneHour: 60
-        }
+    static func ending(at date: Date) -> ClosedRange<Date> {
+        date.addingTimeInterval(-duration)...date
     }
-
-    var duration: TimeInterval { TimeInterval(minutes * 60) }
-    var title: String { self == .oneHour ? "1 hr" : "\(minutes) min" }
 }
 
 /// CPU has its own lightweight clock so displaying a fresh reading never
@@ -84,12 +73,11 @@ final class SystemCPUMonitor: ObservableObject {
         let usage: SystemCPUUsage?
     }
 
-    nonisolated static let historyDuration = SystemTrendRange.oneHour.duration
     nonisolated static let sampleInterval: TimeInterval = 2
 
     /// Chronological access to a bounded ring, including explicit gaps.
     struct History: RandomAccessCollection {
-        private static let capacity = Int(SystemCPUMonitor.historyDuration / SystemCPUMonitor.sampleInterval) + 1
+        private static let capacity = Int(SystemTrendWindow.duration / SystemCPUMonitor.sampleInterval) + 1
         private var storage: [Sample] = []
         private var head = 0
         private(set) var count = 0
@@ -100,7 +88,7 @@ final class SystemCPUMonitor: ObservableObject {
 
         fileprivate mutating func append(_ sample: Sample) {
             if let last, sample.date <= last.date { self = Self() }
-            let cutoff = sample.date.addingTimeInterval(-SystemCPUMonitor.historyDuration)
+            let cutoff = sample.date.addingTimeInterval(-SystemTrendWindow.duration)
             while let first, count == Self.capacity || first.date < cutoff {
                 head = (head + 1) % Self.capacity
                 count -= 1
@@ -110,23 +98,7 @@ final class SystemCPUMonitor: ObservableObject {
             count += 1
         }
 
-        func domain(for range: SystemTrendRange) -> ClosedRange<Date> {
-            let end = last?.date ?? Date()
-            let cutoff = end.addingTimeInterval(-range.duration)
-            let start = Swift.max(cutoff, first?.date ?? cutoff)
-            return Swift.min(start, end.addingTimeInterval(-SystemCPUMonitor.sampleInterval))...end
-        }
-
-        func window(for range: SystemTrendRange) -> Slice<Self> {
-            guard let last else { return self[...] }
-            let cutoff = last.date.addingTimeInterval(-range.duration)
-            var lower = startIndex, upper = endIndex
-            while lower < upper {
-                let middle = lower + (upper - lower) / 2
-                if self[middle].date < cutoff { lower = middle + 1 } else { upper = middle }
-            }
-            return self[lower...]
-        }
+        var domain: ClosedRange<Date> { SystemTrendWindow.ending(at: last?.date ?? Date()) }
     }
 
     @Published private(set) var usage: SystemCPUUsage?

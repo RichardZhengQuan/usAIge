@@ -4,6 +4,7 @@ import SwiftUI
 enum RailDetailID: Hashable {
     case limit(String)
     case tool(AIToolID)
+    case cpu
     case liveWork
     case storage
 }
@@ -111,7 +112,11 @@ struct HUDView: View {
     }
 
     private var scaledSize: CGSize {
-        HUDMetrics.scaledSize(desiredSize, scale: settings.scale)
+        let size = HUDMetrics.scaledSize(desiredSize, scale: settings.scale)
+        guard isEdgeRail else { return size }
+        // AppKit rounds the panel frame to window points. Paint all of it even
+        // when the user's scale produces a fractional content width.
+        return CGSize(width: ceil(size.width), height: screenState.screenHeight)
     }
 
     private var hasCriticalQuota: Bool {
@@ -151,12 +156,13 @@ struct HUDView: View {
             }
             .frame(width: desiredSize.width, height: desiredSize.height)
             .background {
-                panelSurface
+                if !isEdgeRail { panelSurface }
             }
             .overlay {
                 ZStack {
-                    edgeLine
-                        .opacity(isEdgeRail || isPanelHovered || !detailHoveredRowIDs.isEmpty ? 1 : 0)
+                    if !isEdgeRail {
+                        edgeLine.opacity(isPanelHovered || !detailHoveredRowIDs.isEmpty ? 1 : 0)
+                    }
                     if hasCriticalQuota && isPanelHovered {
                         // The window ends at the rail's edge, so anything drawn
                         // past its rounded corners shows as a square pocket.
@@ -202,6 +208,8 @@ struct HUDView: View {
             ))
             .scaleEffect(settings.scale)
             .frame(width: scaledSize.width, height: scaledSize.height)
+            .background { if isEdgeRail { panelSurface } }
+            .overlay { if isEdgeRail { edgeLine.allowsHitTesting(false) } }
             .task(id: availableSnapshots.map(\.id)) {
                 settings.registerBuckets(availableSnapshots)
             }
@@ -390,12 +398,8 @@ struct HUDView: View {
                     }
                 },
                 onDetailHoverChanged: { isHovered, rowFrame in
-                    if isHovered {
-                        detailHoveredRowIDs.insert(row.id)
+                    detailHoverChanged(row.id, inside: isHovered) {
                         quotaDetail?.show(row, rowFrame: rowFrame)
-                    } else {
-                        detailHoveredRowIDs.remove(row.id)
-                        quotaDetail?.pointerLeft(rowID: row.id)
                     }
                 }
             )
@@ -406,30 +410,34 @@ struct HUDView: View {
     private var resourceTiles: some View {
         if let liveWork {
             VStack(spacing: isEdgeRail ? HUDMetrics.itemSpacing : HUDMetrics.resourcePaperweightGap) {
-                CPUTile(monitor: liveWork.cpu, open: openThisMac)
+                CPUTile(monitor: liveWork.cpu, open: openThisMac) { isHovered, frame in
+                    detailHoverChanged(.cpu, inside: isHovered) {
+                        quotaDetail?.showCPU(rowFrame: frame, monitor: liveWork.cpu)
+                    }
+                }
                 LiveWorkTile(monitor: liveWork, open: { openPaperweight(.memory) }) { isHovered, frame in
-                    let id = RailDetailID.liveWork
-                    if isHovered {
-                        detailHoveredRowIDs.insert(id)
+                    detailHoverChanged(.liveWork, inside: isHovered) {
                         quotaDetail?.showLiveWork(rowFrame: frame)
-                    } else {
-                        detailHoveredRowIDs.remove(id)
-                        quotaDetail?.pointerLeft(rowID: id)
                     }
                 }
                 StorageTile(monitor: liveWork, open: { openPaperweight(.storage) }) { isHovered, frame in
-                    let id = RailDetailID.storage
-                    if isHovered {
-                        detailHoveredRowIDs.insert(id)
+                    detailHoverChanged(.storage, inside: isHovered) {
                         quotaDetail?.showStorage(rowFrame: frame, disk: liveWork.diskSpace,
                                                  breakdown: StorageBreakdown.load(from: .standard))
-                    } else {
-                        detailHoveredRowIDs.remove(id)
-                        quotaDetail?.pointerLeft(rowID: id)
                     }
                 }
             }
             .frame(maxWidth: .infinity)
+        }
+    }
+
+    private func detailHoverChanged(_ id: RailDetailID, inside: Bool, show: () -> Void) {
+        if inside {
+            detailHoveredRowIDs.insert(id)
+            show()
+        } else {
+            detailHoveredRowIDs.remove(id)
+            quotaDetail?.pointerLeft(rowID: id)
         }
     }
 

@@ -23,11 +23,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     private let magnet: MagnetController
     private var magnetSettingsObserver: AnyCancellable?
     private var iconSettingsObserver: AnyCancellable?
+    private var dockIconTransition: AnyCancellable?
     private lazy var menuBarIcon = MenuBarIconController(
         hoverChanged: { [weak self] inside in
             guard let self else { return }
             if inside {
-                self.panel?.orderFrontRegardless()
+                // The native status item owns the click on the current display.
+                // The rail is already ordered on every Space and only needs to slide out.
                 self.magnet.reveal()
             } else if self.magnet.isRevealed {
                 // Give the pointer time to travel from the menu bar to the rail.
@@ -143,6 +145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
                     quotaDetail?.update(liveWork: summary, memory: memory)
                 }
             quotaDetail.openBranches = { [weak self] front in self?.showBranches(front: front) }
+            quotaDetail.openCPU = { [weak self] in self?.presentMainWindow(destination: .thisMac) }
             pointerIsOnDetail = { [weak quotaDetail] in quotaDetail?.isPointerOnCard ?? false }
             content = AnyView(HUDView(
                 store: store,
@@ -298,8 +301,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     private func applyIconVisibility() {
         menuBarIcon.setVisible(settings.showsMenuBarIcon)
         let policy: NSApplication.ActivationPolicy = settings.showsDockIcon ? .regular : .accessory
-        if NSApp.activationPolicy() != policy {
+        guard NSApp.activationPolicy() != policy else { return }
+        dockIconTransition = nil
+        let keyWindow = NSApp.keyWindow ?? NSApp.mainWindow
+        guard NSApp.isActive, let window = keyWindow?.sheetParent ?? keyWindow,
+              window.isVisible, !window.isMiniaturized else {
             NSApp.setActivationPolicy(policy)
+            return
+        }
+
+        // Removing a Dock tile can deactivate the app several times, even
+        // after setActivationPolicy returns. Keep the open window on screen.
+        let wasHideable = window.canHide
+        window.canHide = false
+        let started = ProcessInfo.processInfo.systemUptime
+        let deactivation = NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification, object: NSApp)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak window] _ in
+                guard let window, window.isVisible, !window.isMiniaturized, NSApp.activationPolicy() == policy else { return }
+                // A new click or keystroke can deliberately move focus elsewhere.
+                let elapsed = ProcessInfo.processInfo.systemUptime - started
+                guard [CGEventType.leftMouseDown, .rightMouseDown, .keyDown].allSatisfy({
+                    CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) >= elapsed
+                }) else { return }
+                if NSApp.isHidden { NSApp.unhideWithoutActivation() }
+                NSApp.activate(ignoringOtherApps: true)
+                (window.attachedSheet ?? window).makeKeyAndOrderFront(nil)
+            }
+        let transition = AnyCancellable { [weak window] in
+            deactivation.cancel()
+            window?.canHide = wasHideable
+        }
+        dockIconTransition = transition
+        guard NSApp.setActivationPolicy(policy) else { dockIconTransition = nil; return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { [weak self, weak transition] in
+            guard let self, let transition, self.dockIconTransition === transition else { return }
+            self.dockIconTransition = nil
         }
     }
 
@@ -582,7 +619,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
             showSettings()
             return
         }
-        NSApp.activate(ignoringOtherApps: true)
         panel.orderFrontRegardless()
         magnet.showBriefly()
     }

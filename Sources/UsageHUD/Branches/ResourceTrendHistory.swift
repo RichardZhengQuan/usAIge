@@ -7,10 +7,12 @@ final class ResourceTrendHistory: ObservableObject {
     @Published private(set) var samples: [TrendPoint] = []
     private let interval: TimeInterval
 
+    var domain: ClosedRange<Date> { SystemTrendWindow.ending(at: samples.last?.date ?? Date()) }
+
     init(interval: TimeInterval) { self.interval = interval }
 
     func record(bytes: Int64?, status: TrendStatus = .unknown, at date: Date) {
-        let cutoff = date.addingTimeInterval(-SystemTrendRange.oneHour.duration)
+        let cutoff = SystemTrendWindow.ending(at: date).lowerBound
         var recent = samples
         if let last = recent.last, date < last.date { recent.removeAll() }
         recent.removeFirst(recent.prefix { $0.date < cutoff }.count)

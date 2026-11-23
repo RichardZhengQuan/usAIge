@@ -3,12 +3,11 @@ import SwiftUI
 struct CPUTrendChart: View {
     let samples: SystemCPUMonitor.History
     var plotHeight: CGFloat = 48
-    @AppStorage(SystemTrendRange.defaultsKey) private var range = SystemTrendRange.standard
     @Environment(\.locale) private var locale
 
     var body: some View {
-        let domain = samples.domain(for: range)
-        let points = samples.window(for: range).map(TrendPoint.init(cpu:))
+        let domain = samples.domain
+        let points = samples.map(TrendPoint.init(cpu:))
         let readings = points.compactMap(\.value)
         return HStack(alignment: .top, spacing: 6) {
             TrendHistoryPlot(points: points, domain: domain, valueRange: 0...1, plotHeight: plotHeight) {
@@ -27,7 +26,7 @@ struct CPUTrendChart: View {
         .font(.caption2.monospacedDigit())
         .foregroundColor(.secondary)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text("CPU usage, \(Text(LocalizedStringKey(range.title), bundle: AppLanguage.resourceBundle)) history",
+        .accessibilityLabel(Text("CPU usage, last 10 minutes",
                                  bundle: AppLanguage.resourceBundle))
         .accessibilityValue(accessibleRange(readings, domain: domain, status: points.last?.status ?? .unknown))
     }
@@ -43,37 +42,20 @@ struct CPUTrendChart: View {
     }
 }
 
-/// A rail tile keeps only the points it draws, so it does not hold an hour-long history snapshot.
+/// The floating CPU gauge uses the same measurements and time scale as the dashboard.
 struct CPUTrendPlot: View {
     private let points: [TrendPoint]
     private let domain: ClosedRange<Date>
     let compact: Bool
 
     init(samples: SystemCPUMonitor.History, compact: Bool) {
-        domain = samples.domain(for: .oneMinute)
-        points = samples.window(for: .oneMinute).map(TrendPoint.init(cpu:))
+        domain = samples.domain
+        points = samples.map(TrendPoint.init(cpu:))
         self.compact = compact
     }
 
     var body: some View {
         TrendLinePlot(points: points, domain: domain, valueRange: 0...1, compact: compact)
-    }
-}
-
-struct SystemTrendRangePicker: View {
-    @AppStorage(SystemTrendRange.defaultsKey) private var range = SystemTrendRange.standard
-
-    var body: some View {
-        Picker(selection: $range) {
-            ForEach(SystemTrendRange.allCases, id: \.self) { choice in
-                Text(LocalizedStringKey(choice.title), bundle: AppLanguage.resourceBundle).tag(choice)
-            }
-        } label: {
-            Text("Time range", bundle: AppLanguage.resourceBundle)
-        }
-        .labelsHidden()
-        .pickerStyle(SegmentedPickerStyle())
-        .frame(maxWidth: 250)
     }
 }
 
@@ -88,7 +70,7 @@ struct TrendHistoryPlot<Overlay: View>: View {
 
     var body: some View {
         VStack(spacing: 3) {
-            TrendLinePlot(points: points, domain: domain, valueRange: valueRange, reservesLiveMargin: true)
+            TrendLinePlot(points: points, domain: domain, valueRange: valueRange)
                 .overlay(overlay)
                 .frame(height: plotHeight)
             TrendTimeAxis(domain: domain)
@@ -102,12 +84,11 @@ struct TrendTimeScale {
     let nowX: CGFloat
     private let pointsPerSecond: CGFloat
 
-    init(domain: ClosedRange<Date>, width: CGFloat, inset: CGFloat = 3, reservesLiveMargin: Bool) {
+    init(domain: ClosedRange<Date>, width: CGFloat, inset: CGFloat = 3) {
         self.domain = domain
         let width = max(0, width)
         startX = min(inset, width / 2)
-        let liveMargin = min(100, max(14, width * 0.12), width / 3)
-        nowX = width - (reservesLiveMargin ? max(startX, liveMargin) : startX)
+        nowX = startX + (width - 2 * startX) * 0.60
         let duration = domain.upperBound.timeIntervalSince(domain.lowerBound)
         pointsPerSecond = duration > 0 ? (nowX - startX) / CGFloat(duration) : 0
     }
@@ -132,12 +113,14 @@ struct TrendTimeAxis: View {
             .frame(maxWidth: .infinity)
             .overlay(GeometryReader { geometry in
                 let width = geometry.size.width
-                let scale = TrendTimeScale(domain: domain, width: width, reservesLiveMargin: true)
+                let scale = TrendTimeScale(domain: domain, width: width)
                 let middleX = scale.x(at: midpoint)
-                let showsStart = width >= 110
-                let showsMiddle = width >= 280
+                let historyWidth = scale.nowX - scale.startX
+                let showsStart = historyWidth >= 90
+                let showsMiddle = historyWidth >= 190
                 let labelY = (geometry.size.height + tickSpace) / 2
-                let nowRoom = max(0, 2 * (width - scale.nowX))
+                let labelSpace = showsMiddle ? scale.nowX - middleX : historyWidth
+                let nowRoom = max(0, min(2 * (width - scale.nowX), showsStart ? labelSpace - 12 : width))
                 ZStack(alignment: .topLeading) {
                     Path { path in
                         let ticks = [scale.nowX] + (showsStart ? [scale.startX] : []) + (showsMiddle ? [middleX] : [])
@@ -167,8 +150,8 @@ struct TrendTimeAxis: View {
     }
 
     @ViewBuilder private func nowLabel(time: String, available: CGFloat) -> some View {
-        let full = Text("Now · \(time)", bundle: AppLanguage.resourceBundle)
-        let short = Text("Now", bundle: AppLanguage.resourceBundle)
+        let full = Text("Latest · \(time)", bundle: AppLanguage.resourceBundle)
+        let short = Text("Latest", bundle: AppLanguage.resourceBundle)
         if #available(macOS 13.0, *) {
             ViewThatFits(in: .horizontal) {
                 full.fixedSize()
@@ -273,7 +256,6 @@ struct TrendLinePlot: View {
     let domain: ClosedRange<Date>
     let valueRange: ClosedRange<Double>
     var compact = false
-    var reservesLiveMargin = false
 
     private struct Paths {
         var line = Path()
@@ -299,11 +281,11 @@ struct TrendLinePlot: View {
         .accessibilityHidden(true)
     }
 
-    /// Batch disjoint paths of each color so even an hour of oscillating
+    /// Batch disjoint paths of each color so even rapidly oscillating
     /// readings creates at most four drawing layers for the sampled data.
     private func paths(in size: CGSize) -> [TrendStatus: Paths] {
         let inset: CGFloat = compact ? 1.5 : 3
-        let timeScale = TrendTimeScale(domain: domain, width: size.width, inset: inset, reservesLiveMargin: reservesLiveMargin)
+        let timeScale = TrendTimeScale(domain: domain, width: size.width, inset: inset)
         let height = max(0, size.height - 2 * inset)
         let span = valueRange.upperBound - valueRange.lowerBound
         let dot: CGFloat = compact ? 3 : 5

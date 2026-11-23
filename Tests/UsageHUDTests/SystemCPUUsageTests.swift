@@ -32,28 +32,29 @@ import Testing
         #expect(runs.map(\.marksEndpoint) == [false, false, true, false, true])
     }
 
-    @Test func historyMapsRealTimestampsIntoTheMeasuredPartOfEachChart() {
-        let start = Date(timeIntervalSinceReferenceDate: 1_000)
-        let end = start.addingTimeInterval(300)
-        let sizes: [(width: CGFloat, margin: CGFloat)] = [(160, 19.2), (540, 64.8), (1_100, 100)]
-        for size in sizes {
-            let scale = TrendTimeScale(domain: start...end, width: size.width, reservesLiveMargin: true)
-            #expect(abs(scale.x(at: start) - 3) < 0.001)
-            #expect(abs(scale.x(at: end) - (size.width - size.margin)) < 0.001)
-            #expect(scale.x(at: end) == scale.nowX)
-            // A disk reading taken one minute ago keeps its real age.
-            let olderX = scale.x(at: end.addingTimeInterval(-60))
-            #expect(abs((olderX - scale.startX) / (scale.nowX - scale.startX) - 0.8) < 0.001)
+    @Test func everyChartKeepsTenMinutesOfHistoryAtTheSameScaleAsSamplesArrive() {
+        let end = Date(timeIntervalSinceReferenceDate: 1_000)
+        let domain = SystemTrendWindow.ending(at: end)
+        #expect(domain.lowerBound == end.addingTimeInterval(-600))
+        let next = SystemTrendWindow.ending(at: end.addingTimeInterval(30))
+        for (width, inset): (CGFloat, CGFloat) in [(22, 1.5), (39, 1.5), (165, 1.5), (540, 3), (1_100, 3)] {
+            let first = TrendTimeScale(domain: domain, width: width, inset: inset)
+            let second = TrendTimeScale(domain: next, width: width, inset: inset)
+            let span = (width - 2 * inset) * 0.60
+            #expect(abs(first.x(at: domain.lowerBound) - inset) < 0.001)
+            #expect(abs(first.x(at: end) - inset - span) < 0.001)
+            #expect(second.x(at: next.upperBound) == first.nowX)
+            for offset in [-550.0, -190, -30, 0] {
+                let measured = end.addingTimeInterval(offset)
+                #expect(abs(first.x(at: measured) - second.x(at: measured) - span * 30 / 600) < 0.001)
+            }
         }
-        let rail = TrendTimeScale(domain: start...end, width: 72, inset: 1.5, reservesLiveMargin: false)
-        #expect(rail.x(at: start) == 1.5)
-        #expect(rail.x(at: end) == 70.5)
     }
 
     @MainActor
-    @Test func fullSizeChartDrawsItsNowTickUnderTheLiveDotAndLeavesTheRightMarginOpen() throws {
+    @Test func fullSizeChartDrawsItsLatestTickUnderTheLiveDotAndLeavesTheRightMarginOpen() throws {
         guard #available(macOS 13.0, *) else { return }
-        let start = Date(timeIntervalSinceReferenceDate: 1_000), end = start.addingTimeInterval(300)
+        let start = Date(timeIntervalSinceReferenceDate: 1_000), end = start.addingTimeInterval(600)
         let points = [start, end].map { TrendPoint(date: $0, value: 0.5, status: .normal) }
             + [TrendPoint(date: end.addingTimeInterval(10), value: 0.9, status: .critical)]
         let width = 320, plotHeight = 80
@@ -61,16 +62,21 @@ import Testing
                                      plotHeight: CGFloat(plotHeight)) { EmptyView() }
             .frame(width: CGFloat(width))
             .environment(\.colorScheme, .dark)
-        let image = try #require(ImageRenderer(content: chart).cgImage)
+        let renderer = ImageRenderer(content: chart)
+        renderer.scale = 2
+        let image = try #require(renderer.cgImage)
         let bitmap = NSBitmapImageRep(cgImage: image)
         func alpha(_ x: Int, _ y: Int) -> CGFloat { bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0 }
-        let nowX = TrendTimeScale(domain: start...end, width: CGFloat(width), reservesLiveMargin: true).nowX
-        let lastStrokePixel = try #require((0..<width).last { alpha($0, plotHeight / 2) > 0.9 })
-        #expect(abs(CGFloat(lastStrokePixel) - (nowX + 2)) <= 1)
-        let tickPixels = (width * 3 / 4..<width).filter { alpha($0, plotHeight + 4) > 0.1 }
-        #expect(!tickPixels.isEmpty && tickPixels.allSatisfy { abs(CGFloat($0) - nowX) <= 1 })
-        let margin = Int(ceil(nowX)) + 4..<width
-        #expect(margin.allSatisfy { x in (0..<plotHeight).allSatisfy { alpha(x, $0) < 0.9 } })
+        let nowX = TrendTimeScale(domain: start...end, width: CGFloat(width)).nowX * renderer.scale
+        let plotBottom = plotHeight * 2
+        // At two points above the flat line, only the endpoint disk is opaque.
+        let dotPixels = (0..<bitmap.pixelsWide).filter { alpha($0, plotHeight - 4) > 0.9 }
+        let left = try #require(dotPixels.first), right = try #require(dotPixels.last)
+        #expect(abs(CGFloat(left + right + 1) / 2 - nowX) <= 1)
+        let tickPixels = (width..<bitmap.pixelsWide).filter { alpha($0, plotBottom + 8) > 0.1 }
+        #expect(!tickPixels.isEmpty && tickPixels.allSatisfy { abs(CGFloat($0) + 0.5 - nowX) <= 1 })
+        let margin = Int(ceil(nowX)) + 6..<bitmap.pixelsWide
+        #expect(margin.allSatisfy { x in (0..<plotBottom).allSatisfy { alpha(x, $0) < 0.9 } })
     }
 
     @Test func usesAllHostTickDeltasIncludingNiceTimeAndCounterRollover() throws {
@@ -109,7 +115,7 @@ import Testing
     }
 
     @MainActor
-    @Test func hourlyHistoryKeepsEqualReadingsAndSelectsRealSamplesForEveryRangeAfterWrapping() {
+    @Test func tenMinuteHistoryRetainsEqualReadingsAndEvictsExpiredSamplesAfterWrapping() {
         var count: UInt32 = 0
         let monitor = SystemCPUMonitor {
             count += 10
@@ -120,31 +126,24 @@ import Testing
             monitor.sample(at: start.addingTimeInterval(Double(second)))
         }
         let end = start.addingTimeInterval(7_200)
-        #expect(SystemTrendRange.standard == .fiveMinutes)
-        #expect(SystemTrendRange.allCases.map(\.minutes) == [1, 5, 15, 60])
-        #expect(monitor.samples.count == 1_801)
-        #expect(monitor.samples.first?.date == start.addingTimeInterval(3_600))
+        #expect(monitor.samples.count == 301)
+        #expect(monitor.samples.first?.date == start.addingTimeInterval(6_600))
+        #expect(monitor.samples.last?.date == end)
         #expect(monitor.samples.allSatisfy { $0.usage?.busy == 0.5 })
-        for range in SystemTrendRange.allCases {
-            let visible = monitor.samples.window(for: range)
-            #expect(visible.count == range.minutes * 30 + 1)
-            #expect(visible.first?.date == end.addingTimeInterval(-range.duration))
-            #expect(visible.last?.date == end)
-            #expect(monitor.samples.domain(for: range) == end.addingTimeInterval(-range.duration)...end)
-        }
+        #expect(monitor.samples.domain == end.addingTimeInterval(-600)...end)
         monitor.sample(at: end.addingTimeInterval(10))
         #expect(monitor.usage == nil)
-        #expect(monitor.samples.first?.date == start.addingTimeInterval(3_610))
+        #expect(monitor.samples.first?.date == start.addingTimeInterval(6_610))
         monitor.sample(at: end.addingTimeInterval(12))
         #expect(monitor.usage?.busy == 0.5)
-        #expect(monitor.samples.window(for: .oneMinute).suffix(2).map { $0.usage?.busy } == [nil, 0.5])
+        #expect(monitor.samples.suffix(2).map { $0.usage?.busy } == [nil, 0.5])
         monitor.sample(at: start)
         #expect(monitor.samples.count == 1)
         #expect(monitor.usage == nil)
     }
 
     @MainActor
-    @Test func chartGrowsFromTheFirstObservationAndDiscardsExpiredSamplesAfterSleep() {
+    @Test func chartKeepsTheFullTimeWindowDuringWarmupAndAfterSleep() {
         var tick: UInt32 = 0
         let monitor = SystemCPUMonitor {
             tick += 1
@@ -154,15 +153,15 @@ import Testing
         for second in stride(from: 0, through: 40, by: 2) {
             monitor.sample(at: start.addingTimeInterval(Double(second)))
         }
-        for range in SystemTrendRange.allCases {
-            #expect(monitor.samples.domain(for: range) == start...start.addingTimeInterval(40))
-            #expect(monitor.samples.window(for: range).count == 21)
-        }
+        #expect(monitor.samples.domain == start.addingTimeInterval(-560)...start.addingTimeInterval(40))
+        #expect(monitor.samples.count == 21)
+        #expect(monitor.samples.first?.date == start)
         let wake = start.addingTimeInterval(10_000)
         monitor.sample(at: wake)
         #expect(monitor.usage == nil)
         #expect(monitor.samples.count == 1)
         #expect(monitor.samples.first?.date == wake)
+        #expect(monitor.samples.domain == wake.addingTimeInterval(-600)...wake)
         monitor.sample(at: wake.addingTimeInterval(2))
         #expect(monitor.usage?.busy == 0.5)
     }

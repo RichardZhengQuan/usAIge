@@ -32,7 +32,7 @@ struct MainRootView: View {
     static let modernGroups: [(title: String?, pages: [ModernPage])] = [
         ("usAIge", [.overview]),
         ("AI tools", [.usage]),
-        ("This Mac", [.thisMac, .memory, .storage, .branches, .worktrees]),
+        ("Running", [.thisMac, .memory, .storage, .clean, .branches, .worktrees]),
         ("Devices", [.devices]),
     ]
 
@@ -43,6 +43,7 @@ struct MainRootView: View {
         case .thisMac: ModernPalette.cpu
         case .memory: ModernPalette.memory
         case .storage: Color(nsColor: .systemGray)
+        case .clean: Color(nsColor: .systemTeal)
         case .branches: Color(nsColor: .systemGreen)
         case .worktrees: Color(nsColor: .systemTeal)
         case .devices: Color(nsColor: .systemIndigo)
@@ -62,7 +63,7 @@ struct MainRootView: View {
                 if interfaceStyle == .modern {
                     List(selection: modernSelection) {
                         // Grouped like System Settings: the overview, AI
-                        // tools, this Mac, then devices. No sections: a
+                        // tools, running resources, then devices. A native
                         // sidebar section collapses when its header is
                         // clicked, so titles are plain rows that can't.
                         ForEach(Self.modernGroups, id: \.pages) { group in
@@ -95,13 +96,17 @@ struct MainRootView: View {
                             navigationItem("Overview", symbol: "square.grid.2x2", section: .overview)
                                 .tag(OverviewSection.overview)
                         }
-                        Section("This Mac") {
+                        Section {
                             navigationItem(ModernPage.thisMac.title, symbol: ModernPage.thisMac.symbol, section: .thisMac)
                                 .tag(OverviewSection.thisMac)
                             navigationItem("Resources", symbol: "chart.pie", section: .resources)
                                 .tag(OverviewSection.resources)
+                            navigationItem("Clean", symbol: ModernPage.clean.symbol, section: .clean)
+                                .tag(OverviewSection.clean)
                             navigationItem("Branches & Worktrees", symbol: "arrow.triangle.branch", section: .branches)
                                 .tag(OverviewSection.branches)
+                        } header: {
+                            Text("Running", bundle: AppLanguage.resourceBundle)
                         }
                         if syncContent != nil {
                             Section("Devices") {
@@ -135,6 +140,8 @@ struct MainRootView: View {
                 settingsContent.navigationTitle("Settings")
             } else if interfaceStyle == .modern {
                 modernPage
+            } else if presentation.selectedSection == .clean {
+                CleanPage(store: store, presentation: presentation)
             } else if presentation.selectedSection == .thisMac {
                 ThisMacPage(liveWork: liveWork).navigationTitle(ModernPage.thisMac.title)
             } else if presentation.selectedSection == .devices, let syncContent {
@@ -184,6 +191,7 @@ struct MainRootView: View {
         case .thisMac: ModernPage.thisMac.symbol
         case .devices: ModernPage.devices.symbol
         case .resources: "chart.pie.fill"
+        case .clean: ModernPage.clean.symbol
         case .branches: "arrow.triangle.branch"
         case .settings: "gearshape.fill"
         }
@@ -195,6 +203,7 @@ struct MainRootView: View {
         case .thisMac: ModernPalette.cpu
         case .devices: Self.color(for: .devices)
         case .resources: Color(nsColor: .systemPurple)
+        case .clean: Self.color(for: .clean)
         case .branches: Color(nsColor: .systemGreen)
         case .settings: Color(nsColor: .systemGray)
         }
@@ -224,6 +233,9 @@ struct MainRootView: View {
                 .background(ModernPalette.page)
                 .environment(\.interfaceStyle, .modern)
                 .navigationTitle(ModernPage.thisMac.title)
+        case .clean:
+            CleanPage(store: store, presentation: presentation)
+                .navigationTitle(Text("Clean", bundle: AppLanguage.resourceBundle))
         case .memory, .storage:
             ModernResourcePage(resource: presentation.modernPage == .memory ? .memory : .storage,
                                store: store, liveWork: liveWork, presentation: presentation)
@@ -520,7 +532,7 @@ private struct ModernOverviewPage: View {
                         presentation.open(.usage)
                     }
                 }
-                sectionTitle("This Mac")
+                sectionTitle("Running")
                 if let liveWork {
                     CPUOverviewSummary(monitor: liveWork.cpu) { presentation.open(.thisMac) }
                 }
@@ -722,13 +734,12 @@ private struct ModernToolCards: View {
 /// A dashboard card with one reading and its supporting chart or summary.
 @available(macOS 14.0, *)
 private struct ModernSummaryCard<Detail: View>: View {
-    @AppStorage(SystemTrendRange.defaultsKey) private var range = SystemTrendRange.standard
     let page: ModernPage
     var title: String? = nil
     let value: String
     var unit: String? = nil
     let caption: String
-    var placesDetailOnRight = false
+    var cpuHistory: SystemCPUMonitor.History? = nil
     var resourceHistory: ResourceTrendHistory? = nil
     let open: () -> Void
     @ViewBuilder let detail: () -> Detail
@@ -736,38 +747,31 @@ private struct ModernSummaryCard<Detail: View>: View {
     var body: some View {
         Button(action: open) {
             ModernCard {
-                if placesDetailOnRight {
+                if let cpuHistory {
+                    let trend = CPUTrendChart(samples: cpuHistory, plotHeight: 108)
                     VStack(alignment: .leading, spacing: 10) {
                         header
                         ViewThatFits(in: .horizontal) {
                             HStack(spacing: 16) {
                                 reading.fixedSize(horizontal: true, vertical: false)
-                                detail().frame(minWidth: 210, maxWidth: .infinity)
+                                trend.frame(minWidth: 210, maxWidth: .infinity)
                             }
                             VStack(alignment: .leading, spacing: 10) {
                                 reading
-                                detail()
+                                trend
                             }
                         }
+                        detail()
                     }
                 } else if let resourceHistory {
                     let trend = ResourceTrendChart(history: resourceHistory, resource: page == .memory ? .memory : .storage,
                                                    compact: true)
                     VStack(alignment: .leading, spacing: 10) {
                         header
-                        ViewThatFits(in: .horizontal) {
-                            HStack(spacing: 8) {
-                                amount.fixedSize(horizontal: true, vertical: false)
-                                Spacer(minLength: 2)
-                                trend.frame(minWidth: 100, idealWidth: 165, maxWidth: 210)
-                            }
-                            VStack(alignment: .leading, spacing: 6) {
-                                amount
-                                trend
-                            }
-                        }
+                        amount
                         Text(caption).font(.callout).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
+                        trend
                         detail()
                     }
                 } else {
@@ -797,7 +801,7 @@ private struct ModernSummaryCard<Detail: View>: View {
             Text(LocalizedStringKey(title ?? page.title), bundle: AppLanguage.resourceBundle).font(.headline)
             Spacer(minLength: 4)
             if resourceHistory != nil {
-                Text(LocalizedStringKey(range.title), bundle: AppLanguage.resourceBundle)
+                Text("10 min", bundle: AppLanguage.resourceBundle)
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
@@ -842,9 +846,9 @@ private struct CPUOverviewSummary: View {
                           value: monitor.usage.map { LiveWorkText.percent($0.busy) } ?? "–",
                           unit: "in use",
                           caption: AppLanguage.format("%ld logical cores", locale: locale, ProcessInfo.processInfo.activeProcessorCount),
-                          placesDetailOnRight: true,
+                          cpuHistory: monitor.samples,
                           open: open) {
-            CPUTrendChart(samples: monitor.samples, plotHeight: 108)
+            CPUTimeBreakdown(usage: monitor.usage)
         }
     }
 }
@@ -869,7 +873,8 @@ private struct ModernMemorySummary: View {
             resourceHistory: monitor.memoryHistory,
             open: open
         ) {
-            CapacityBar(segments: ModernResourceCard.segments(memory), capacity: memory.capacityBytes, height: 8, gap: 0)
+            CapacityBar(segments: ModernResourceCard.segments(memory), capacity: memory.capacityBytes,
+                        height: ProportionalBar.thinHeight, gap: 0)
         }
     }
 }
@@ -898,7 +903,8 @@ private struct ModernStorageSummary: View {
             resourceHistory: history,
             open: open
         ) {
-            CapacityBar(segments: ModernResourceCard.segments(storage), capacity: storage.capacityBytes, height: 8, gap: 0)
+            CapacityBar(segments: ModernResourceCard.segments(storage), capacity: storage.capacityBytes,
+                        height: ProportionalBar.thinHeight, gap: 0)
         }
     }
 }

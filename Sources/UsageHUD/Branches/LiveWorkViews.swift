@@ -44,7 +44,6 @@ struct LiveWorkTile: View {
     @AppStorage(InterfaceStyle.defaultsKey) private var style = InterfaceStyle.standard
     @Environment(\.hudPreviewsHover) private var previewsHover
     @State private var isHovered = false
-    @State private var frame = CGRect.zero
 
     var body: some View {
         let memory = monitor.memoryUsage
@@ -71,15 +70,7 @@ struct LiveWorkTile: View {
         }
         .buttonStyle(.plain)
         .help(memory?.breakdown() ?? AppLanguage.text("Memory unavailable"))
-        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { value in
-            frame = value
-            if isHovered { onHoverChanged(true, value) }
-        }
-        .onHover { hovering in
-            isHovered = hovering
-            onHoverChanged(hovering, frame)
-        }
-        .onDisappear { onHoverChanged(false, frame) }
+        .modifier(RailDetailHover(isHovered: $isHovered, changed: onHoverChanged))
         .accessibilityLabel("Memory")
         .accessibilityValue(memory?.breakdown() ?? AppLanguage.text("Unavailable"))
         .accessibilityHint("Opens Memory")
@@ -90,6 +81,7 @@ struct LiveWorkTile: View {
 struct CPUTile: View {
     @ObservedObject var monitor: SystemCPUMonitor
     let open: () -> Void
+    var onHoverChanged: (Bool, CGRect) -> Void = { _, _ in }
     @AppStorage(InterfaceStyle.defaultsKey) private var style = InterfaceStyle.standard
     @Environment(\.hudTextSize) private var textSize
     @State private var hovered = false
@@ -117,12 +109,11 @@ struct CPUTile: View {
             }
         }
         .buttonStyle(.plain)
-        .onHover { hovered = $0 }
-        .help("CPU usage over the last minute. Click to open CPU on This Mac.")
+        .modifier(RailDetailHover(isHovered: $hovered, changed: onHoverChanged))
         .accessibilityLabel(Text("CPU usage", bundle: AppLanguage.resourceBundle))
         .accessibilityValue(monitor.usage == nil ? status.localizedTitle : Text("\(value) · \(status.localizedTitle)",
                                                                               bundle: AppLanguage.resourceBundle))
-        .accessibilityHint("Opens This Mac")
+        .accessibilityHint(Text("Opens CPU", bundle: AppLanguage.resourceBundle))
     }
 }
 
@@ -137,7 +128,6 @@ struct StorageTile: View {
     @AppStorage(InterfaceStyle.defaultsKey) private var style = InterfaceStyle.standard
     @Environment(\.hudPreviewsHover) private var previewsHover
     @State private var isHovered = false
-    @State private var frame = CGRect.zero
 
     private var disk: DiskSpace? { monitor.diskSpace }
 
@@ -168,15 +158,7 @@ struct StorageTile: View {
             }
         }
         .buttonStyle(.plain)
-        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { value in
-            frame = value
-            if isHovered { onHoverChanged(true, value) }
-        }
-        .onHover { hovering in
-            isHovered = hovering
-            onHoverChanged(hovering, frame)
-        }
-        .onDisappear { onHoverChanged(false, frame) }
+        .modifier(RailDetailHover(isHovered: $isHovered, changed: onHoverChanged))
         .accessibilityLabel("Storage")
         .accessibilityValue(detail)
         .accessibilityHint("Opens Storage in branches and worktrees")
@@ -522,6 +504,7 @@ struct StorageCard: View {
 @available(macOS 14.0, *)
 struct RailDetailCard: View {
     enum Content {
+        case cpu(SystemCPUMonitor)
         case quota(QuotaSnapshot, others: [QuotaSnapshot], work: [LiveSessionWork], memoryBytes: UInt64)
         case liveWork(LiveWorkSummary, memory: SystemMemoryUsage? = nil)
         case storage(DiskSpace?, StorageBreakdown?)
@@ -530,10 +513,13 @@ struct RailDetailCard: View {
     let content: Content
     var arrowEdge: HorizontalEdge = .leading
     var arrowOffset: CGFloat = 0
-    var openBranches: (() -> Void)? = nil
+    var openDetails: (() -> Void)? = nil
 
     var body: some View {
         switch content {
+        case let .cpu(monitor):
+            CPUHoverCard(monitor: monitor, open: openDetails)
+                .railDetailCardChrome(width: 330, arrowEdge: arrowEdge, arrowOffset: arrowOffset)
         case let .quota(snapshot, others, work, memoryBytes):
             QuotaDetailCard(
                 snapshot: snapshot,
@@ -542,12 +528,12 @@ struct RailDetailCard: View {
                 memoryBytes: memoryBytes,
                 arrowEdge: arrowEdge,
                 arrowOffset: arrowOffset,
-                openBranches: openBranches
+                openBranches: openDetails
             )
         case let .liveWork(summary, memory):
-            LiveWorkCard(summary: summary, memory: memory, arrowEdge: arrowEdge, arrowOffset: arrowOffset, openBranches: openBranches)
+            LiveWorkCard(summary: summary, memory: memory, arrowEdge: arrowEdge, arrowOffset: arrowOffset, openBranches: openDetails)
         case let .storage(disk, breakdown):
-            StorageCard(disk: disk, breakdown: breakdown, arrowEdge: arrowEdge, arrowOffset: arrowOffset, openBranches: openBranches)
+            StorageCard(disk: disk, breakdown: breakdown, arrowEdge: arrowEdge, arrowOffset: arrowOffset, openBranches: openDetails)
         }
     }
 }

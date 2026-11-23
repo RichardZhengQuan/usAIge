@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// CPU detail for the This Mac sidebar section and the legacy settings sheet.
+/// CPU detail shared by the dashboard and the legacy settings sheet.
 struct ThisMacPage: View {
     let liveWork: LiveWorkMonitor?
 
@@ -63,34 +63,87 @@ private struct CPUReadings: View {
                 Text("\(ProcessInfo.processInfo.activeProcessorCount) logical cores", bundle: AppLanguage.resourceBundle)
                     .font(.callout).foregroundColor(.secondary)
             }
-            HStack(spacing: 12) {
-                Text("History", bundle: AppLanguage.resourceBundle).font(.headline)
-                Spacer(minLength: 4)
-                SystemTrendRangePicker()
-            }
+            Text("Last 10 minutes", bundle: AppLanguage.resourceBundle).font(.headline)
             CPUTrendChart(samples: monitor.samples, plotHeight: 180)
-            Divider()
-            HStack(alignment: .top, spacing: 16) {
-                timeShare("User", usage?.user)
-                timeShare("System", usage?.system)
-                timeShare("Idle", usage?.idle)
+            CPUTimeBreakdown(usage: usage)
+        }
+    }
+}
+
+struct CPUTimeBreakdown: View {
+    let usage: SystemCPUUsage?
+    var compact = false
+
+    private struct TimeShare: Identifiable {
+        let title: String
+        let color: Color
+        let fraction: Double?
+        var id: String { title }
+    }
+
+    var body: some View {
+        let shares = [
+            TimeShare(title: "User", color: Color(NSColor.systemBlue), fraction: usage?.user),
+            TimeShare(title: "System", color: Color(NSColor.systemPink), fraction: usage?.system),
+            TimeShare(title: "Idle", color: Color(NSColor.systemGray), fraction: usage?.idle)
+        ]
+        VStack(alignment: .leading, spacing: compact ? 6 : 10) {
+            ProportionalBar(segments: shares.map {
+                .init(id: $0.id, fraction: $0.fraction ?? 0, color: $0.color)
+            })
+            .accessibilityHidden(true)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: compact ? 80 : 110), alignment: .leading)], alignment: .leading) {
+                ForEach(shares) { share in
+                    HStack(spacing: 6) {
+                        Circle().fill(share.color).frame(width: 8, height: 8)
+                        Text(LocalizedStringKey(share.title), bundle: AppLanguage.resourceBundle)
+                            .foregroundColor(.secondary)
+                        Text(share.fraction.map(LiveWorkText.percent) ?? "–").monospacedDigit()
+                    }
+                    .font(.caption)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(Text(LocalizedStringKey(share.title), bundle: AppLanguage.resourceBundle))
+                    .accessibilityValue(accessiblePercent(share.fraction))
+                }
             }
         }
     }
+}
 
-    private func timeShare(_ title: String, _ value: Double?) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(LocalizedStringKey(title), bundle: AppLanguage.resourceBundle).font(.callout).foregroundColor(.secondary)
-            Text(value.map(LiveWorkText.percent) ?? "–")
-                .font(.title2.weight(.semibold).monospacedDigit())
+struct CPUHoverCard: View {
+    @ObservedObject var monitor: SystemCPUMonitor
+    let open: (() -> Void)?
+
+    var body: some View {
+        let usage = monitor.usage
+        let status = usage?.trendStatus ?? .unknown
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("CPU", bundle: AppLanguage.resourceBundle).font(.headline)
+                Spacer()
+                Text(usage.map { LiveWorkText.percent($0.busy) } ?? "–")
+                    .font(.headline.monospacedDigit())
+                Text("in use", bundle: AppLanguage.resourceBundle)
+            }
+            HStack(spacing: 5) {
+                Circle().fill(status.color).frame(width: 7, height: 7)
+                status.localizedTitle
+                Spacer()
+                Text("\(ProcessInfo.processInfo.activeProcessorCount) logical cores", bundle: AppLanguage.resourceBundle)
+            }
+            .foregroundColor(.secondary)
+            Text("Last 10 minutes", bundle: AppLanguage.resourceBundle).fontWeight(.semibold)
+            CPUTrendChart(samples: monitor.samples, plotHeight: 68)
+            CPUTimeBreakdown(usage: usage, compact: true)
+            if let open {
+                Button(action: open) { Text("Open CPU", bundle: AppLanguage.resourceBundle) }
+                    .buttonStyle(.link)
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(LocalizedStringKey(title), bundle: AppLanguage.resourceBundle))
-        .accessibilityValue(accessiblePercent(value))
+        .font(.caption)
     }
+}
 
-    private func accessiblePercent(_ value: Double?) -> Text {
-        value.map { Text(verbatim: LiveWorkText.percent($0)) } ?? Text("Unavailable", bundle: AppLanguage.resourceBundle)
-    }
+private func accessiblePercent(_ value: Double?) -> Text {
+    value.map { Text(verbatim: LiveWorkText.percent($0)) } ?? Text("Unavailable", bundle: AppLanguage.resourceBundle)
 }

@@ -5,12 +5,10 @@ struct ResourceTrendChart: View {
     @ObservedObject var history: ResourceTrendHistory
     let resource: PaperweightID
     var compact = false
-    @AppStorage(SystemTrendRange.defaultsKey) private var range = SystemTrendRange.standard
 
     var body: some View {
-        let end = max(Date(), history.samples.last?.date ?? .distantPast)
-        let domain = end.addingTimeInterval(-range.duration)...end
-        let points = history.samples.filter { domain.contains($0.date) }
+        let domain = history.domain
+        let points = history.samples
         let values = points.compactMap(\.value)
         let status = TrendPoint.currentStatus(in: points, domain: domain)
         let minimum = values.min() ?? 0, maximum = values.max() ?? 0

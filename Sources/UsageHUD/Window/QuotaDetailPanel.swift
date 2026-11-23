@@ -1,6 +1,50 @@
 import AppKit
 import SwiftUI
 
+/// Keeps hover tracking active while another app owns the key window.
+private struct RailHoverTracking: NSViewRepresentable {
+    var changed: (Bool) -> Void
+
+    func makeNSView(context: Context) -> TrackingView {
+        let view = TrackingView()
+        view.changed = changed
+        view.addTrackingArea(NSTrackingArea(rect: .zero,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: view, userInfo: nil))
+        view.setAccessibilityElement(false)
+        return view
+    }
+
+    func updateNSView(_ view: TrackingView, context: Context) { view.changed = changed }
+
+    final class TrackingView: NSView {
+        var changed: ((Bool) -> Void)?
+
+        // The SwiftUI button underneath continues to handle clicks and drags.
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func mouseEntered(with event: NSEvent) { changed?(true) }
+        override func mouseExited(with event: NSEvent) { changed?(false) }
+    }
+}
+
+@available(macOS 14.0, *)
+struct RailDetailHover: ViewModifier {
+    @Binding var isHovered: Bool
+    let changed: (Bool, CGRect) -> Void
+    @State private var rowFrame = CGRect.zero
+
+    func body(content: Content) -> some View {
+        content.onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
+            rowFrame = frame
+            if isHovered { changed(true, frame) }
+        }
+        .background(RailHoverTracking { inside in
+            isHovered = inside
+            changed(inside, rowFrame)
+        })
+        .onDisappear { changed(false, rowFrame) }
+    }
+}
+
 /// Where the hovered row's detail card sits: beside the rail on the right
 /// when it fits and on the left otherwise, centred on the row and on screen,
 /// with its arrow pointing back at the row.
@@ -61,6 +105,7 @@ final class QuotaDetailPanelController {
     var onVisibilityChanged: ((Bool) -> Void)?
     /// Opens the Branches window, with the given paperweight in front when set.
     var openBranches: (PaperweightID?) -> Void = { _ in }
+    var openCPU: () -> Void = {}
 
     init(
         rail: @escaping () -> NSWindow?,
@@ -84,6 +129,12 @@ final class QuotaDetailPanelController {
         presentOnHover(.liveWork(liveWork, memory: memory), rowFrame: rowFrame)
     }
 
+    func showCPU(rowFrame: CGRect, monitor: SystemCPUMonitor) {
+        shownRowID = .cpu
+        shownQuotaRow = nil
+        presentOnHover(.cpu(monitor), rowFrame: rowFrame)
+    }
+
     /// Shows the disk, and what the Branches window last measured on it,
     /// beside the rail's Storage paperweight.
     func showStorage(rowFrame: CGRect, disk: DiskSpace?, breakdown: StorageBreakdown?) {
@@ -101,7 +152,8 @@ final class QuotaDetailPanelController {
         cancelPendingHide()
         present(content)
         startWatchingPointer()
-        onVisibilityChanged?(true)
+        // CPU has its own sampler. Opening its card doesn't require a process scan.
+        onVisibilityChanged?(shownRowID != .cpu)
     }
 
     /// Keeps the open card current as the rail's rows change.
@@ -224,14 +276,15 @@ final class QuotaDetailPanelController {
 
     /// A paperweight's own card opens Branches with that paperweight in front;
     /// a usage card leaves whichever one is already there.
-    func closeAndOpenBranches() {
-        let front: PaperweightID? = switch shownRowID {
-        case .storage: .storage
-        case .liveWork: .memory
-        default: nil
+    func openShownDetails() {
+        guard let id = shownRowID else { return }
+        hide(rowID: id)
+        switch id {
+        case .cpu: openCPU()
+        case .storage: openBranches(.storage)
+        case .liveWork: openBranches(.memory)
+        case .limit, .tool: openBranches(nil)
         }
-        if let shownRowID { hide(rowID: shownRowID) }
-        openBranches(front)
     }
 
     private func present(_ content: RailDetailCard.Content) {
@@ -254,17 +307,20 @@ final class QuotaDetailPanelController {
             content: content,
             arrowEdge: placement.arrowEdge,
             arrowOffset: placement.arrowOffset,
-            openBranches: { [weak self] in self?.closeAndOpenBranches() }
+            openDetails: { [weak self] in self?.openShownDetails() }
         ).appLanguageEnvironment()
         arrowEdge = placement.arrowEdge
         panel.setFrame(placement.cardFrame.insetBy(dx: -inset, dy: -inset), display: true)
         panel.level = rail.level
         // As a child window the card follows the rail when it is dragged.
-        if panel.parent == nil { rail.addChildWindow(panel, ordered: .above) }
+        if panel.parent == nil {
+            rail.addChildWindow(panel, ordered: .above)
+            if rail.isVisible { panel.orderFrontRegardless() }
+        }
     }
 
     private func cardView(showing content: RailDetailCard.Content) -> NSHostingView<AppLanguageEnvironment<RailDetailCard>> {
-        let card = RailDetailCard(content: content, openBranches: { [weak self] in self?.closeAndOpenBranches() })
+        let card = RailDetailCard(content: content, openDetails: { [weak self] in self?.openShownDetails() })
         if let hostingView {
             hostingView.rootView = card.appLanguageEnvironment()
             return hostingView
@@ -285,13 +341,14 @@ final class QuotaDetailPanelController {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
+        panel.isFloatingPanel = true
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.animationBehavior = .none
         // Until the pointer is on the card itself, so its margin can't take
         // hover from the rail.
         panel.ignoresMouseEvents = true
-        panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
+        panel.collectionBehavior = HUDPanel.overlayCollectionBehavior
         return panel
     }
 }

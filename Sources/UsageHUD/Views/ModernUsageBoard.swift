@@ -36,9 +36,16 @@ struct ModernToolEntry: Identifiable {
     let id: AIToolID
     /// Its limits in display order; empty when it has no reading.
     let limits: [QuotaSnapshot]
-    /// What the tool needs, for a tool without a reading.
-    var status: LocalToolGuidance.Presentation? = nil
-    var connectionSummary: String? = nil
+    var connection: LocalToolStatus? = nil
+
+    var status: LocalToolGuidance.Presentation? {
+        connection.map { state in
+            LocalToolGuidance.supported.first { $0.id == id }?.presentation(for: state)
+                ?? .init(text: "No local usage reading is available for this tool.", isProblem: false)
+        }
+    }
+
+    var connectionSummary: String? { connection.map { UsageCardSummary.connection($0, tool: id) } }
 }
 
 enum UsageCardSummary {
@@ -136,16 +143,12 @@ enum ModernToolList {
                 withReadings.append(ModernToolEntry(id: id, limits: limits))
                 continue
             }
-            let guidance = LocalToolGuidance.supported.first { $0.id == id }
             let reported = status(id)
             // Some providers only detect their sign-in files. An installed app
             // or CLI that hasn't created those files yet still has a card.
             let state: LocalToolStatus = reported == .notInstalled || (id == .chatGPT && reported == .unknown)
                 ? .signedOut : reported
-            let detail = guidance?.presentation(for: state)
-                ?? .init(text: "No local usage reading is available for this tool.", isProblem: false)
-            notConnected.append(ModernToolEntry(id: id, limits: [], status: detail,
-                                               connectionSummary: UsageCardSummary.connection(state, tool: id)))
+            notConnected.append(ModernToolEntry(id: id, limits: [], connection: state))
         }
         return (withReadings, notConnected)
     }
@@ -228,23 +231,27 @@ struct ModernUsageBoard: View {
         let limits = editing ? entry.limits : entry.limits.filter { !settings.hiddenBucketIDs.contains($0.id) }
         let subtitle = limits.count == 1 ? limits.first?.displayName
             : entry.connectionSummary.map { AppLanguage.text($0, locale: locale) }
-        let expanded = detailsExpanded(for: entry.id)
+        let disclosure = Self.disclosure(for: entry.id, editing: editing, saved: $expandedTools)
+        let showsDetails = disclosure?.wrappedValue ?? false
         return ModernCard(padding: 16) {
             HStack(alignment: .top, spacing: 10) {
                 if editing {
-                    HStack(spacing: 10) {
-                        Image(systemName: "line.3.horizontal")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.tertiary)
-                            .help(AppLanguage.text("Drag to reorder", locale: locale))
-                            .accessibilityHidden(true)
-                        toolSwitch(entry.id, name: tool.name)
-                    }
-                    .frame(minHeight: 40)
+                    Image(systemName: "line.3.horizontal")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                        .frame(minHeight: 40)
+                        .help(AppLanguage.text("Drag to reorder", locale: locale))
+                        .accessibilityHidden(true)
                 }
                 VStack(alignment: .leading, spacing: 14) {
-                    cardHeader(tool: tool, subtitle: subtitle, expanded: expanded)
-                    if !expanded.wrappedValue {
+                    HStack(spacing: 8) {
+                        cardHeader(tool: tool, subtitle: subtitle, disclosure: disclosure)
+                        if editing {
+                            toolSwitch(entry.id, name: tool.name)
+                                .accessibilityIdentifier("usage.visibility.\(entry.id.rawValue)")
+                        }
+                    }
+                    if !showsDetails {
                         VStack(alignment: .leading, spacing: 5) {
                             if !limits.isEmpty {
                                 TimelineView(.periodic(from: .now, by: 60)) { context in
@@ -253,7 +260,7 @@ struct ModernUsageBoard: View {
                                     }
                                 }
                             }
-                            if let liveWork, !editing {
+                            if let liveWork {
                                 UsageCardWorkSummary(monitor: liveWork, tool: entry.id)
                             }
                         }
@@ -261,15 +268,16 @@ struct ModernUsageBoard: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                     }
-                    if !limits.isEmpty || expanded.wrappedValue {
+                    if !limits.isEmpty || showsDetails {
                         VStack(alignment: .leading, spacing: 12) {
                             ForEach(limits) { limit in
                                 limitRows(limit, showsName: limits.count > 1, toolShown: isShown)
                             }
-                            if expanded.wrappedValue {
+                            if showsDetails {
                                 Divider()
-                                if let status = entry.status {
-                                    ModernToolStatusText(status: status)
+                                if let status = entry.status, let connection = entry.connection {
+                                    UsageConnectionActions(tool: tool, connection: connection, status: status, store: store,
+                                                           enableReading: { optInBinding(for: entry.id).wrappedValue = true })
                                 } else if limits.isEmpty {
                                     Text("All limits are hidden. Choose Edit to show them.", bundle: AppLanguage.resourceBundle)
                                         .font(.callout).foregroundStyle(.secondary)
@@ -277,7 +285,7 @@ struct ModernUsageBoard: View {
                                 } else {
                                     resetDetails(limits)
                                 }
-                                if let liveWork, !editing {
+                                if let liveWork {
                                     ModernToolWork(monitor: liveWork, tool: entry.id, openBranches: openBranches)
                                 }
                             }
@@ -303,47 +311,54 @@ struct ModernUsageBoard: View {
         .accessibilityLabel(tool.name)
     }
 
-    private func detailsExpanded(for id: AIToolID) -> Binding<Bool> {
-        Binding(
-            get: { expandedTools.split(separator: ",").contains(Substring(id.rawValue)) },
+    static func disclosure(for id: AIToolID, editing: Bool, saved: Binding<String>) -> Binding<Bool>? {
+        guard !editing else { return nil }
+        return Binding(
+            get: { saved.wrappedValue.split(separator: ",").contains(Substring(id.rawValue)) },
             set: { show in
-                var ids = Set(expandedTools.split(separator: ",").map(String.init))
+                var ids = Set(saved.wrappedValue.split(separator: ",").map(String.init))
                 if show { ids.insert(id.rawValue) } else { ids.remove(id.rawValue) }
-                expandedTools = ids.sorted().joined(separator: ",")
+                saved.wrappedValue = ids.sorted().joined(separator: ",")
             }
         )
     }
 
-    private func cardHeader(tool: AIToolDescriptor, subtitle: String?, expanded: Binding<Bool>) -> some View {
-        Button {
-            expanded.wrappedValue.toggle()
-        } label: {
-            HStack(spacing: UsageCardColumns.standard.spacing) {
-                AIToolIcon(tool: tool, size: 18)
-                    .frame(width: 30, height: 30)
-                    .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .frame(width: UsageCardColumns.standard.markerWidth)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(tool.name).font(.headline).lineLimit(1)
-                    if let subtitle {
-                        Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                    }
+    @ViewBuilder
+    private func cardHeader(tool: AIToolDescriptor, subtitle: String?, disclosure: Binding<Bool>?) -> some View {
+        let header = HStack(spacing: UsageCardColumns.standard.spacing) {
+            AIToolIcon(tool: tool, size: 18)
+                .frame(width: 30, height: 30)
+                .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .frame(width: UsageCardColumns.standard.markerWidth)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(tool.name).font(.headline).lineLimit(1)
+                if let subtitle {
+                    Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
-                Spacer(minLength: 8)
-                Image(systemName: expanded.wrappedValue ? "chevron.down" : "chevron.forward")
+            }
+            Spacer(minLength: 8)
+            if let disclosure {
+                Image(systemName: disclosure.wrappedValue ? "chevron.down" : "chevron.forward")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.secondary)
                     .frame(width: 28, height: 28)
                     .background(Color.primary.opacity(0.07), in: Circle())
             }
-            .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(AppLanguage.format("%@ details", locale: locale, tool.name))
-        .accessibilityValue(AppLanguage.text(expanded.wrappedValue ? "Expanded" : "Collapsed", locale: locale))
-        .accessibilityIdentifier("usage.details.\(tool.id.rawValue)")
-        .help(AppLanguage.format(expanded.wrappedValue ? "Hide %@ details" : "Show %@ details", locale: locale, tool.name))
+        .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+
+        if let disclosure {
+            Button { disclosure.wrappedValue.toggle() } label: { header.contentShape(Rectangle()) }
+                .buttonStyle(.plain)
+                .accessibilityLabel(AppLanguage.format("%@ details", locale: locale, tool.name))
+                .accessibilityValue(AppLanguage.text(disclosure.wrappedValue ? "Expanded" : "Collapsed", locale: locale))
+                .accessibilityIdentifier("usage.details.\(tool.id.rawValue)")
+                .help(AppLanguage.format(disclosure.wrappedValue ? "Hide %@ details" : "Show %@ details", locale: locale, tool.name))
+        } else {
+            header.accessibilityElement(children: .combine)
+                .accessibilityAddTraits(.isHeader)
+        }
     }
 
     private func resetDetails(_ limits: [QuotaSnapshot]) -> some View {
@@ -478,27 +493,108 @@ private struct UsageCardWorkSummary: View {
     }
 }
 
-/// What a tool without a reading needs: a warning for a problem, such as an
-/// expired sign-in, and plain text for a tool that isn't connected yet.
+/// A local sign-in needs the installed app. Opening the provider's website
+/// would leave its local session unchanged.
+enum UsageConnectionAction: Equatable {
+    case openApp(URL)
+    case download(URL)
+    case enableReading
+
+    static func action(for tool: AIToolID, status: LocalToolStatus, installedApp: URL?) -> Self? {
+        switch status {
+        case .optInRequired:
+            return LocalToolOptIn.optInToolIDs.contains(tool) ? .enableReading : nil
+        case .waitingForClaudeUsage, .signedOut, .credentialExpired, .missingScope,
+             .apiKeyOnly, .apiKeyHelperSignInExpired, .keychainAccessDenied:
+            if let installedApp { return .openApp(installedApp) }
+            switch tool {
+            case .claude: return .download(URL(string: "https://claude.com/download")!)
+            case .cursor: return .download(URL(string: "https://cursor.com/download")!)
+            default: return nil
+            }
+        default:
+            return nil
+        }
+    }
+}
+
 @available(macOS 14.0, *)
-struct ModernToolStatusText: View {
+private struct UsageConnectionActions: View {
     @Environment(\.locale) private var locale
+    let tool: AIToolDescriptor
+    let connection: LocalToolStatus
     let status: LocalToolGuidance.Presentation
-    var font: Font = .callout
+    @ObservedObject var store: UsageStore
+    let enableReading: () -> Void
+    @State private var checkOnReturn = false
+    @State private var openFailed = false
 
     var body: some View {
+        let action = UsageConnectionAction.action(for: tool.id, status: connection,
+                                                  installedApp: AIToolLauncher.applicationURL(for: tool))
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                message.fixedSize()
+                Spacer(minLength: 8)
+                controls(action).fixedSize()
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                message
+                controls(action).padding(.leading, UsageCardColumns.standard.contentInset)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            guard checkOnReturn else { return }
+            checkOnReturn = false
+            Task { await store.refresh() }
+        }
+        .alert(AppLanguage.format("Couldn’t open %@.", locale: locale, tool.name), isPresented: $openFailed) {}
+    }
+
+    @ViewBuilder private var message: some View {
         if status.isProblem {
             Label(AppLanguage.text(status.text, locale: locale), systemImage: "exclamationmark.triangle.fill")
-                .font(font)
+                .font(.callout)
                 .foregroundStyle(Color.orange)
                 .fixedSize(horizontal: false, vertical: true)
         } else {
-            Text(AppLanguage.text(status.text, locale: locale))
-                .font(font)
+            let text = connection == .waitingForClaudeUsage
+                ? "In Claude, open Settings → Usage. usAIge picks up the new reading automatically."
+                : status.text
+            Text(AppLanguage.text(text, locale: locale))
+                .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.leading, UsageCardColumns.standard.contentInset)
         }
+    }
+
+    private func controls(_ action: UsageConnectionAction?) -> some View {
+        HStack(spacing: 8) {
+            switch action {
+            case let .openApp(url):
+                Button(AppLanguage.format("Open %@", locale: locale, tool.name)) { open(url) }
+            case let .download(url):
+                Button(AppLanguage.format("Get %@", locale: locale, tool.name)) { open(url) }
+            case .enableReading:
+                Button(AppLanguage.text("Enable Usage Reading", locale: locale), action: enableReading)
+            case nil:
+                EmptyView()
+            }
+            if connection != .optInRequired {
+                Button(AppLanguage.text(store.isManuallyRefreshing ? "Checking…" : "Check Again", locale: locale)) {
+                    Task { await store.refresh() }
+                }
+                .disabled(store.isManuallyRefreshing || connection == .rateLimited)
+                .accessibilityIdentifier("usage.recheck.\(tool.id.rawValue)")
+            }
+        }
+        .controlSize(.small)
+    }
+
+    private func open(_ url: URL) {
+        checkOnReturn = NSWorkspace.shared.open(url)
+        openFailed = !checkOnReturn
     }
 }
 

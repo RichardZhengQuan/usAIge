@@ -6,6 +6,16 @@ private let visible = CGRect(x: 0, y: 25, width: 1_440, height: 875)
 private let screen = CGRect(x: 0, y: 0, width: 1_440, height: 900)
 private let size = CGSize(width: 260, height: 220)
 
+@Test func fullHeightRailCoversTheLastWindowPointAtFractionalScales() {
+    let display = CGRect(x: -1440, y: 80, width: 1440, height: 900)
+    for edge in [MagnetEdge.left, .right] {
+        let frame = MagnetGeometry.edgeRailFrame(width: 166.0664, edge: edge, screenFrame: display, visibleFrame: display)
+        #expect(frame.width == 167)
+        #expect(frame.minY == display.minY && frame.maxY == display.maxY)
+        #expect(edge == .left ? frame.minX == display.minX : frame.maxX == display.maxX)
+    }
+}
+
 @Test func magnetSnapsOnlyDropsNearAnEdge() {
     #expect(MagnetGeometry.edge(toSnap: CGRect(x: 10, y: 100, width: 260, height: 220), in: visible) == .left)
     #expect(MagnetGeometry.edge(toSnap: CGRect(x: 1_160, y: 100, width: 260, height: 220), in: visible) == .right)

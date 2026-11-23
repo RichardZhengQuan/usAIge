@@ -886,7 +886,7 @@ private final class DiskPublications: @unchecked Sendable {
             opened.count += 1
             #expect(front == nil)
         }
-        controller.closeAndOpenBranches()
+        controller.openShownDetails()
         #expect(opened.count == 1)
         #expect(controller.shownRowID == nil)
     }
@@ -900,9 +900,9 @@ private final class DiskPublications: @unchecked Sendable {
         let controller = QuotaDetailPanelController(rail: { rail })
         controller.openBranches = { opened.fronts.append($0) }
         controller.showStorage(rowFrame: .zero, disk: nil, breakdown: nil)
-        controller.closeAndOpenBranches()
+        controller.openShownDetails()
         controller.showLiveWork(rowFrame: .zero)
-        controller.closeAndOpenBranches()
+        controller.openShownDetails()
         #expect(opened.fronts == [.storage, .memory])
         #expect(controller.shownRowID == nil)
     }

@@ -54,13 +54,20 @@ struct AppLanguagePicker: View {
     @AppStorage(AppLanguage.defaultsKey) private var language = AppLanguage.system
     @Environment(\.locale) private var locale
     var body: some View {
-        Picker(selection: $language) {
-            Text(verbatim: AppLanguage.text("System Default", locale: locale)).tag(AppLanguage.system)
-            Text(verbatim: "English").tag(AppLanguage.english)
-            Text(verbatim: "简体中文").tag(AppLanguage.simplifiedChinese)
-        } label: {
+        HStack(spacing: 12) {
             Text("Language", bundle: AppLanguage.resourceBundle)
+            Spacer(minLength: 4)
+            Picker(selection: $language) {
+                Text(verbatim: AppLanguage.text("System Default", locale: locale)).tag(AppLanguage.system)
+                Text(verbatim: "English").tag(AppLanguage.english)
+                Text(verbatim: "简体中文").tag(AppLanguage.simplifiedChinese)
+            } label: {
+                Text("Language", bundle: AppLanguage.resourceBundle)
+            }
+            .labelsHidden()
+            .pickerStyle(SegmentedPickerStyle())
+            .fixedSize()
+            .accessibilityIdentifier("settings.language")
         }
-        .accessibilityIdentifier("settings.language")
     }
 }

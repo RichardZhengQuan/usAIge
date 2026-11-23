@@ -6,6 +6,7 @@ import Network
 @MainActor
 final class UsageStore: ObservableObject {
     @Published private(set) var state: UsageState = .connecting
+    @Published private(set) var isManuallyRefreshing = false
     var onSnapshotsChanged: (([QuotaSnapshot]) -> Void)?
 
     private let provider: any CodexUsageProviding
@@ -88,6 +89,7 @@ final class UsageStore: ObservableObject {
     }
 
     func refresh() async {
+        if !isManuallyRefreshing { isManuallyRefreshing = true }
         await refresh(automatic: false)
     }
 
@@ -108,7 +110,10 @@ final class UsageStore: ObservableObject {
             return
         }
         isRefreshing = true
-        defer { isRefreshing = false }
+        defer {
+            isRefreshing = false
+            if isManuallyRefreshing { isManuallyRefreshing = false }
+        }
         var nextRefreshIsAutomatic = automatic
         repeat {
             refreshQueued = false

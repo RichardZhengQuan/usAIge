@@ -1,6 +1,14 @@
 import AppKit
 
 final class HUDPanel: NSPanel {
+    /// The rail and its detail card belong to the Space the user is working in,
+    /// including a full-screen Space owned by another application.
+    static var overlayCollectionBehavior: NSWindow.CollectionBehavior {
+        var behavior: NSWindow.CollectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        if #available(macOS 13.0, *) { behavior.insert(.canJoinAllApplications) }
+        return behavior
+    }
+
     private static let dragThreshold: CGFloat = 3
     private var dragStartPointerLocation: CGPoint?
     private var dragStartWindowOrigin: CGPoint?
@@ -26,9 +34,10 @@ final class HUDPanel: NSPanel {
         backgroundColor = .clear
         hasShadow = false
         hidesOnDeactivate = false
+        acceptsMouseMovedEvents = true
         isMovableByWindowBackground = false
         animationBehavior = .utilityWindow
-        collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
+        collectionBehavior = Self.overlayCollectionBehavior
     }
 
     override var canBecomeKey: Bool { false }

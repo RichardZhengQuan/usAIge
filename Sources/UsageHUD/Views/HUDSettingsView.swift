@@ -309,28 +309,6 @@ struct HUDSettingsView: View {
 
             Section(localized("Display")) {
                 AppLanguagePicker()
-                HStack(alignment: .center, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(localized("Style"))
-
-                        Text(localized(interfaceStyle == .modern
-                             ? "Clean gauges and lists. Classic brings back the liquid paperweights and ships."
-                             : "Liquid paperweights with ships, as in earlier versions."))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Picker(localized("Style"), selection: $interfaceStyle) {
-                        ForEach(InterfaceStyle.allCases) { style in
-                            Text(localized(style.title)).tag(style)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .fixedSize()
-                    .accessibilityLabel("Style")
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
                 LabeledContent {
                     HStack(spacing: 8) {
                         Slider(value: binding(for: \HUDSettings.opacity), in: HUDSettings.opacityRange)
@@ -391,7 +369,7 @@ struct HUDSettingsView: View {
             }
             }
 
-            Section(localized("More")) {
+            Section {
                 pageLink("Send Feedback", destination: .feedback)
 
                 HStack(alignment: .center, spacing: 12) {
@@ -434,6 +412,21 @@ struct HUDSettingsView: View {
                         NSApplication.shared.terminate(nil)
                     }
                 }
+            } header: {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(localized("More"))
+                    Spacer()
+                    let isModern = interfaceStyle == .modern
+                    Button(localized(isModern ? "Something I like" : "Something new")) {
+                        interfaceStyle = isModern ? .classic : .modern
+                    }
+                    .buttonStyle(.link)
+                    .font(.body)
+                    .help(localized(isModern ? "Switch to Classic" : "Switch to Modern"))
+                    .accessibilityHint(localized(isModern ? "Switch to Classic" : "Switch to Modern"))
+                    .accessibilityIdentifier("settings.switchStyle")
+                }
+                .textCase(nil)
             }
         }
         .task {

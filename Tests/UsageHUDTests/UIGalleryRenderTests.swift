@@ -341,6 +341,26 @@ struct UIGalleryRenderTests {
         return state
     }()
 
+    @Test func rendersUsageConnectionActions() async throws {
+        guard #available(macOS 14.0, *) else { return }
+        let (settings, defaults) = makeSettings()
+        defaults.set("claude,cursor", forKey: ModernUsageBoard.expandedDefaultsKey)
+        let store = UsageStore(provider: FixedUsageProvider(.success(.authenticated([]))), monitorsNetworkChanges: false)
+        await store.refresh()
+        let registry = LocalToolStatusRegistry(detectInstallations: { [.claude, .cursor] })
+        await registry.refreshInstallations()
+        registry.report(.waitingForClaudeUsage, for: .claude)
+        registry.report(.credentialExpired, for: .cursor)
+        for appearance in GalleryAppearance.allCases {
+            try render(
+                ModernUsageBoard(store: store, settings: settings, localToolStatus: registry, editing: false)
+                    .padding(24).background(ModernPalette.page).defaultAppStorage(defaults),
+                size: CGSize(width: 830, height: 290), appearance: appearance,
+                name: "usage-connection-actions-\(appearance.rawValue)"
+            )
+        }
+    }
+
     /// The Modern window: the same sidebar and sections as Classic, with a
     /// capacity bar and grouped lists instead of the ocean.
     @Test func rendersModernStyle() async throws {
@@ -407,6 +427,9 @@ struct UIGalleryRenderTests {
             try render(CPUTile(monitor: monitor.cpu, open: {}).defaultAppStorage(defaults),
                        size: CGSize(width: HUDMetrics.railWidth, height: 120),
                        appearance: appearance, name: "rail-cpu-trend-\(appearance.rawValue)")
+            try render(RailDetailCard(content: .cpu(monitor.cpu), openDetails: {}),
+                       size: CGSize(width: 400, height: 380), appearance: appearance,
+                       name: "rail-cpu-details-\(appearance.rawValue)")
             try render(
                 BranchesRootView(store: store, liveWork: monitor, initialFront: .memory).defaultAppStorage(defaults),
                 size: CGSize(width: 1000, height: 1_400), appearance: appearance,
@@ -741,7 +764,7 @@ struct UIGalleryRenderTests {
                                      46, 71, 83, 95, 92, 78, 54, 46, 48, 42, 38, 41, 44, 42, 40]
         var user: UInt32 = 0, system: UInt32 = 0, idle: UInt32 = 0
         var ticks = [SystemCPUUsage.Ticks(user: user, system: system, idle: idle, nice: 0)]
-        for index in 0..<(percentages.count * 5) {
+        for index in 0..<Int(SystemTrendWindow.duration / SystemCPUMonitor.sampleInterval) {
             let percent = percentages[index % percentages.count]
             system += percent / 3
             user += percent - percent / 3
@@ -761,18 +784,18 @@ struct UIGalleryRenderTests {
 
     private func fillResourceHistory(_ monitor: LiveWorkMonitor, memory: SystemMemoryUsage, disk: DiskSpace) {
         let end = Date()
-        let start = end.addingTimeInterval(-300)
+        let start = SystemTrendWindow.ending(at: end).lowerBound
         let offsets: [Int64] = [0, 200, 500, 700, 250, -350, -450, -300, 100, 0]
-        for index in 0...30 {
+        for index in 0...Int(SystemTrendWindow.duration / 10) {
             let bytes = memory.combinedUsedBytes + offsets[index % offsets.count] * 1_000_000
-            let pressure: SystemMemoryPressure = switch index {
+            let pressure: SystemMemoryPressure = switch index % 30 {
             case 7...10, 17...22: .warning
             case 11...16: .critical
             default: .normal
             }
             monitor.memoryHistory.record(bytes: bytes, status: pressure.trendStatus, at: start.addingTimeInterval(Double(index * 10)))
         }
-        for (index, factor) in [52, 38, 22, 21, 41, 100].enumerated() {
+        for (index, factor) in [100, 82, 70, 57, 55, 52, 38, 22, 21, 41, 100].enumerated() {
             let diskSample = DiskSpace(totalBytes: disk.totalBytes, availableBytes: disk.availableBytes / 100 * Int64(factor))
             monitor.storageHistory.record(bytes: diskSample.availableBytes, status: .storage(usedShare: diskSample.usedShare()),
                                           at: start.addingTimeInterval(Double(index * 60)))

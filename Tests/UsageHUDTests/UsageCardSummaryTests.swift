@@ -1,9 +1,39 @@
 import Foundation
+import SwiftUI
 import Testing
 @testable import UsageHUD
 
 @Suite struct UsageCardSummaryTests {
     let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+    @Test func disconnectedToolsOfferTheLocalAppOrItsMacDownload() {
+        let claude = URL(fileURLWithPath: "/Applications/Claude.app")
+        let cursor = URL(fileURLWithPath: "/Applications/Cursor.app")
+        #expect(UsageConnectionAction.action(for: .claude, status: .waitingForClaudeUsage, installedApp: claude) == .openApp(claude))
+        #expect(UsageConnectionAction.action(for: .cursor, status: .credentialExpired, installedApp: cursor) == .openApp(cursor))
+        #expect(UsageConnectionAction.action(for: .claude, status: .waitingForClaudeUsage, installedApp: nil)
+                == .download(URL(string: "https://claude.com/download")!))
+        #expect(UsageConnectionAction.action(for: .cursor, status: .credentialExpired, installedApp: nil)
+                == .download(URL(string: "https://cursor.com/download")!))
+        #expect(UsageConnectionAction.action(for: .copilot, status: .optInRequired, installedApp: nil) == .enableReading)
+        #expect(UsageConnectionAction.action(for: .cursor, status: .rateLimited, installedApp: cursor) == nil)
+    }
+
+    @MainActor @Test func editingFoldsEveryProviderAndRestoresItsSavedDisclosureOnDone() throws {
+        guard #available(macOS 14.0, *) else { return }
+        var selection = "chatGPT,cursor"
+        let saved = Binding(get: { selection }, set: { selection = $0 })
+        for id in [AIToolID.chatGPT, .claude, .cursor] {
+            #expect(ModernUsageBoard.disclosure(for: id, editing: true, saved: saved) == nil)
+        }
+        #expect(selection == "chatGPT,cursor")
+        let chat = try #require(ModernUsageBoard.disclosure(for: .chatGPT, editing: false, saved: saved))
+        let claude = try #require(ModernUsageBoard.disclosure(for: .claude, editing: false, saved: saved))
+        let cursor = try #require(ModernUsageBoard.disclosure(for: .cursor, editing: false, saved: saved))
+        #expect(chat.wrappedValue && cursor.wrappedValue && !claude.wrappedValue)
+        chat.wrappedValue = false
+        #expect(selection == "cursor")
+    }
 
     private func limit(_ name: String, minutes: Int, resetAfter: TimeInterval?,
                        weeklyAfter: TimeInterval? = nil) -> QuotaSnapshot {

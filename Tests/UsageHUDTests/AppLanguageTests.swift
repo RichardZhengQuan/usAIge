@@ -10,11 +10,14 @@ import Testing
         #expect(AppLanguage(rawValue: AppLanguage.simplifiedChinese.rawValue) == .simplifiedChinese)
         #expect(AppLanguage.resourceBundle.url(forResource: "zh-Hans-SG", withExtension: "lproj") != nil)
         for (english, translated) in [("Settings", "设置"), ("Show Floating Panel", "显示浮动面板"),
-                                      ("Device docks", "设备组合"), ("Memory", "内存"), ("CPU usage", "CPU 使用率")] {
+                                      ("Device docks", "设备组合"), ("Memory", "内存"), ("CPU usage", "CPU 使用率"),
+                                      ("Running", "运行中"), ("Clean", "清理"), ("Last 10 minutes", "过去 10 分钟")] {
             #expect(AppLanguage.text(english, locale: chinese) == translated)
             #expect(AppLanguage.text(english, locale: AppLanguage.english.locale) == english)
         }
         #expect(AppLanguage.text("My repository", locale: chinese) == "My repository")
+        #expect(AppLanguage.format("Open %@", locale: chinese, "Cursor") == "打开 Cursor")
+        #expect(AppLanguage.text("Check Again", locale: chinese) == "重新检查")
         #expect(AppLanguage.format("%@ resets %@", locale: chinese, "5H", "23:39") == "5H 重置时间：23:39")
         #expect(AppLanguage.format("%ld logical cores", locale: chinese, 12) == "12 个逻辑核心")
     }

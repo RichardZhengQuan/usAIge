@@ -17,7 +17,7 @@ enum MainPageDestination: String, CaseIterable, Identifiable {
         case .overview: "Overview"
         case .thisMac: "CPU"
         case .worktrees: "Branches"
-        case .cleanup: "Cleanup"
+        case .cleanup: "Clean"
         case .resources: "Overview"
         case .devices: "iPhone & Watch"
         case .settings: "Settings"
@@ -38,13 +38,13 @@ enum MainPageDestination: String, CaseIterable, Identifiable {
 }
 
 enum OverviewSection: String, Hashable {
-    case overview, thisMac, resources, branches, devices, settings
+    case overview, thisMac, resources, clean, branches, devices, settings
 }
 
 /// Modern gives each part of the window a page of its own; Classic scrolls
 /// one page through the `OverviewSection`s.
 enum ModernPage: String, CaseIterable, Identifiable, Hashable, Sendable {
-    case overview, usage, thisMac, memory, storage, branches, worktrees, devices
+    case overview, usage, thisMac, memory, storage, clean, branches, worktrees, devices
 
     var id: String { rawValue }
 
@@ -55,6 +55,7 @@ enum ModernPage: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .thisMac: "CPU"
         case .memory: "Memory"
         case .storage: "Storage"
+        case .clean: "Clean"
         case .branches: "Branches"
         case .worktrees: "Worktrees"
         case .devices: "iPhone & Watch"
@@ -68,6 +69,7 @@ enum ModernPage: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .thisMac: "cpu"
         case .memory: "memorychip.fill"
         case .storage: "internaldrive.fill"
+        case .clean: "sparkles"
         case .branches: "arrow.triangle.branch"
         case .worktrees: "folder.fill"
         case .devices: "applewatch"
@@ -80,6 +82,7 @@ enum ModernPage: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .overview, .usage: .overview
         case .thisMac: .thisMac
         case .memory, .storage: .resources
+        case .clean: .clean
         case .branches, .worktrees: .branches
         case .devices: .devices
         }
@@ -123,8 +126,7 @@ final class BranchesPaperweightPresentation: ObservableObject {
         case .overview: focus(.overview)
         case .thisMac: focus(.thisMac)
         case .worktrees: focus(.branches)
-        case .cleanup:
-            show(.storage)
+        case .cleanup: focus(.clean)
         case .resources: focus(.resources)
         case .devices: focus(.devices)
         case .settings: focus(.settings)
@@ -137,6 +139,7 @@ final class BranchesPaperweightPresentation: ObservableObject {
         switch section {
         case .overview: modernPage = .overview
         case .thisMac: modernPage = .thisMac
+        case .clean: modernPage = .clean
         case .resources: if modernPage != .memory { modernPage = .storage }
         case .branches: modernPage = .worktrees
         case .devices: modernPage = .devices

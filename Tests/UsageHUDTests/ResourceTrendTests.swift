@@ -25,10 +25,38 @@ struct ResourceTrendTests {
         for minute in 0...65 {
             history.record(bytes: Int64(minute), at: start.addingTimeInterval(Double(minute * 60)))
         }
-        #expect(history.samples.count == 61)
-        #expect(history.samples.first?.value == 5)
+        #expect(history.samples.count == 11)
+        #expect(history.samples.first?.value == 55)
+        let lastPoll = start.addingTimeInterval(65 * 60)
+        #expect(history.domain == lastPoll.addingTimeInterval(-600)...lastPoll)
         history.record(bytes: 9, at: start)
         #expect(history.samples == [TrendPoint(date: start, value: 9, status: .unknown)])
+    }
+
+    @Test func compactResourceCardsAnchorTheEntireTraceToTheLatestPoll() throws {
+        guard #available(macOS 14.0, *) else { return }
+        let history = ResourceTrendHistory(interval: 60)
+        for minute in 0...5 {
+            history.record(bytes: 8_000_000, status: .normal, at: start.addingTimeInterval(Double(minute * 60)))
+        }
+        for resource in [PaperweightID.memory, .storage] {
+            let chart = ResourceTrendChart(history: history, resource: resource, compact: true)
+                .frame(width: 200)
+            let renderer = ImageRenderer(content: chart)
+            renderer.scale = 2
+            let image = try #require(renderer.cgImage)
+            let bitmap = NSBitmapImageRep(cgImage: image)
+            // Only five minutes have been measured. They occupy the second
+            // half of the ten-minute history, between 30% and 60% of the plot.
+            let drawn = (0..<bitmap.pixelsWide).filter { x in
+                (0..<bitmap.pixelsHigh).contains { y in (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.9 }
+            }
+            let left = try #require(drawn.first), right = try #require(drawn.last)
+            let firstPoint = (CGFloat(left) + 0.5) / renderer.scale
+            let lastPoint = (CGFloat(right) + 0.5) / renderer.scale
+            #expect(abs(firstPoint - 60.6) <= 1)
+            #expect(abs(lastPoint - 119.7) <= 1.5)
+        }
     }
 
     @Test func respectsStorageAndNativeMemoryPressureBoundaries() {
@@ -80,7 +108,9 @@ struct ResourceTrendTests {
         let plotImage = try #require(ImageRenderer(content: plot).cgImage)
         let trace = NSBitmapImageRep(cgImage: plotImage)
         #expect((trace.colorAt(x: 3, y: height / 2)?.alphaComponent ?? 0) > 0.9)
-        #expect((trace.colorAt(x: width - 3, y: height / 2)?.alphaComponent ?? 0) > 0.9)
+        let latestX = Int(TrendTimeScale(domain: start...end, width: size.width).nowX.rounded())
+        #expect((trace.colorAt(x: latestX, y: height / 2)?.alphaComponent ?? 0) > 0.9)
+        #expect((trace.colorAt(x: width - 3, y: height / 2)?.alphaComponent ?? 1) == 0)
     }
 
     @Test func usesRAMAndSwapForMemoryAndAvailableBytesForDisk() async {

@@ -29,10 +29,11 @@ enum MagnetGeometry {
     /// height, behind the menu bar and a bottom Dock, and keeps its content
     /// clear of them inside. A Dock on that side still pushes it inward.
     static func edgeRailFrame(width: CGFloat, edge: MagnetEdge, screenFrame: CGRect, visibleFrame: CGRect) -> CGRect {
-        CGRect(
-            x: edge == .left ? visibleFrame.minX : visibleFrame.maxX - width,
+        let windowWidth = ceil(width)
+        return CGRect(
+            x: edge == .left ? visibleFrame.minX : visibleFrame.maxX - windowWidth,
             y: screenFrame.minY,
-            width: width,
+            width: windowWidth,
             height: screenFrame.height
         )
     }
