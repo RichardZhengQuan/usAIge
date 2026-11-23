@@ -7,6 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		94CCC5DCD320980D67369784 /* ResetCreditBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18951723002C249225D6C684 /* ResetCreditBadge.swift */; };
+		AA6C2E3C6E3F8CE9D1D1FCDA /* ResetCreditBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18951723002C249225D6C684 /* ResetCreditBadge.swift */; };
+		882281C5C7AF41E8FB408F85 /* ResetCreditBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18951723002C249225D6C684 /* ResetCreditBadge.swift */; };
+		17D74C17BAE305D9C47E18C3 /* ResetCreditBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18951723002C249225D6C684 /* ResetCreditBadge.swift */; };
 		31C42648715E40DE54F87692 /* DemoWidgetCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7CFD9CA3807FCCE5D4EA106 /* DemoWidgetCache.swift */; };
 		819F753B265F92C8CC7C1C8B /* ToolMarks.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7B2BB28DFC93BA486F1AF99C /* ToolMarks.xcassets */; };
 		01E37871C9FED67BDA34FC85 /* ToolMarks.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7B2BB28DFC93BA486F1AF99C /* ToolMarks.xcassets */; };
@@ -151,6 +155,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		18951723002C249225D6C684 /* ResetCreditBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResetCreditBadge.swift; sourceTree = "<group>"; };
 		E7CFD9CA3807FCCE5D4EA106 /* DemoWidgetCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoWidgetCache.swift; sourceTree = "<group>"; };
 		7B2BB28DFC93BA486F1AF99C /* ToolMarks.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = ToolMarks.xcassets; sourceTree = "<group>"; };
 		FE411BAA25A7BA0F30332D1F /* ComplicationGalleryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComplicationGalleryView.swift; sourceTree = "<group>"; };
@@ -205,6 +210,7 @@
 		80A02B77907249DAE7D1CEAD /* Modern */ = {
 			isa = PBXGroup;
 			children = (
+				18951723002C249225D6C684 /* ResetCreditBadge.swift */,
 				63F80B13EEFA0F262A495A64 /* ToolMark.swift */,
 				F23292C977AC81350FF95E09 /* ResetCountdown.swift */,
 				0BA0091D4F9B0B179A668075 /* ModernUsageStyle.swift */,
@@ -567,6 +573,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				94CCC5DCD320980D67369784 /* ResetCreditBadge.swift in Sources */,
 				23426469D95A9C61442155E5 /* WatchUsagePresentation.swift in Sources */,
 				AA556D319E94F6B358C3F983 /* ToolMark.swift in Sources */,
 				4057650E00FC498B6DE53E1B /* ResetCountdown.swift in Sources */,
@@ -584,6 +591,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				17D74C17BAE305D9C47E18C3 /* ResetCreditBadge.swift in Sources */,
 				31C42648715E40DE54F87692 /* DemoWidgetCache.swift in Sources */,
 				2E8445CF7702595522125E85 /* ReadableWidth.swift in Sources */,
 				F85A981403ACAE4A6698B98B /* ToolDetailView.swift in Sources */,
@@ -619,6 +627,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				882281C5C7AF41E8FB408F85 /* ResetCreditBadge.swift in Sources */,
 				F4A7EE714B344A55FF320086 /* WatchUsagePresentation.swift in Sources */,
 				4BBE50A8CBD4BF65340128A7 /* ToolUsageSummary.swift in Sources */,
 				531B6D03E910343331CA1181 /* ToolMark.swift in Sources */,
@@ -645,6 +654,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AA6C2E3C6E3F8CE9D1D1FCDA /* ResetCreditBadge.swift in Sources */,
 				9BBD9A8AD7EF7631AE18541A /* ComplicationGalleryView.swift in Sources */,
 				DAA71685142E040E5E053111 /* UsageComplication.swift in Sources */,
 				41AD1D61ABA21ABE6B5407D8 /* WatchUsagePresentation.swift in Sources */,
