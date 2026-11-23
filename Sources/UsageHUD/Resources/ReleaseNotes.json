@@ -1,24 +1,24 @@
 {
-  "version": "0.2.30",
-  "build": 52,
+  "version": "0.2.31",
+  "build": 53,
   "releaseNotes": {
-    "headline": "Clean up generated files",
-    "summary": "Scan main checkouts and linked worktrees for generated files. Review the paths and confirm permanent deletion. usAIge rechecks each folder before removing it.",
+    "headline": "A new Modern look",
+    "summary": "usAIge now looks and works like a Mac app by default. The rail runs the full height of your display, and the window has a page for each part of the app. Choose Classic in Settings to keep the ocean.",
     "highlights": [
       {
-        "title": "Storage cleanup",
-        "detail": "Find generated dependencies, Xcode build files, and selected tool caches. Largest Folders shows measured sizes for inspection.",
-        "systemImage": "internaldrive"
+        "title": "Full-height rail",
+        "detail": "One ring per AI tool, always on glass at the side of your display. Point at a ring to see every limit, free reset and what the tool is working on.",
+        "systemImage": "sidebar.right"
       },
       {
-        "title": "Safer worktree review",
-        "detail": "Ignored contents are checked before bulk review. If ignored files change after review, usAIge asks you to review the worktree again.",
-        "systemImage": "checkmark.shield"
+        "title": "A page for each part",
+        "detail": "Overview, Usage, Memory, Storage, Branches, Worktrees, and iPhone & Apple Watch each have their own page. Usage shows when each limit resets.",
+        "systemImage": "square.grid.2x2"
       },
       {
-        "title": "More reliable Claude usage refresh",
-        "detail": "The macOS app keeps a valid usage reading during brief rewrites of the Claude Desktop cache and checks freshness before reusing it.",
-        "systemImage": "arrow.clockwise"
+        "title": "Free resets",
+        "detail": "See the free resets ChatGPT and Claude offer, what each refills, and when it expires.",
+        "systemImage": "arrow.counterclockwise.circle"
       }
     ]
   }
