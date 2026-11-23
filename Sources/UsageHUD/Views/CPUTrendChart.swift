@@ -11,15 +11,10 @@ struct CPUTrendChart: View {
         let points = samples.window(for: range).map(TrendPoint.init(cpu:))
         let readings = points.compactMap(\.value)
         return HStack(alignment: .top, spacing: 6) {
-            VStack(spacing: 4) {
-                ZStack {
-                    TrendLinePlot(points: points, domain: domain, valueRange: 0...1)
-                    if readings.isEmpty {
-                        Text("Waiting for a CPU sample…", bundle: AppLanguage.resourceBundle).font(.caption)
-                    }
+            TrendHistoryPlot(points: points, domain: domain, valueRange: 0...1, plotHeight: plotHeight) {
+                if readings.isEmpty {
+                    Text("Waiting for a CPU sample…", bundle: AppLanguage.resourceBundle).font(.caption)
                 }
-                .frame(height: plotHeight)
-                TrendTimeAxis(domain: domain)
             }
             VStack(alignment: .trailing) {
                 Text("100%")
@@ -82,6 +77,46 @@ struct SystemTrendRangePicker: View {
     }
 }
 
+/// The measured timeline and its clock ticks share the same horizontal scale.
+/// The radar still covers the space to the right of the latest timestamp.
+struct TrendHistoryPlot<Overlay: View>: View {
+    let points: [TrendPoint]
+    let domain: ClosedRange<Date>
+    let valueRange: ClosedRange<Double>
+    let plotHeight: CGFloat
+    @ViewBuilder let overlay: Overlay
+
+    var body: some View {
+        VStack(spacing: 3) {
+            TrendLinePlot(points: points, domain: domain, valueRange: valueRange, reservesLiveMargin: true)
+                .overlay(overlay)
+                .frame(height: plotHeight)
+            TrendTimeAxis(domain: domain)
+        }
+    }
+}
+
+struct TrendTimeScale {
+    let domain: ClosedRange<Date>
+    let startX: CGFloat
+    let nowX: CGFloat
+    private let pointsPerSecond: CGFloat
+
+    init(domain: ClosedRange<Date>, width: CGFloat, inset: CGFloat = 3, reservesLiveMargin: Bool) {
+        self.domain = domain
+        let width = max(0, width)
+        startX = min(inset, width / 2)
+        let liveMargin = min(100, max(14, width * 0.12), width / 3)
+        nowX = width - (reservesLiveMargin ? max(startX, liveMargin) : startX)
+        let duration = domain.upperBound.timeIntervalSince(domain.lowerBound)
+        pointsPerSecond = duration > 0 ? (nowX - startX) / CGFloat(duration) : 0
+    }
+
+    func x(at date: Date) -> CGFloat {
+        nowX - CGFloat(domain.upperBound.timeIntervalSince(date)) * pointsPerSecond
+    }
+}
+
 struct TrendTimeAxis: View {
     let domain: ClosedRange<Date>
     @Environment(\.locale) private var locale
@@ -89,20 +124,61 @@ struct TrendTimeAxis: View {
     var body: some View {
         let formatter = Self.formatter(for: domain, locale: locale)
         let midpoint = domain.lowerBound.addingTimeInterval(domain.upperBound.timeIntervalSince(domain.lowerBound) / 2)
-        return HStack(spacing: 4) {
-            Text(formatter.string(from: domain.lowerBound))
-            Spacer(minLength: 2)
-            Text("Now · \(formatter.string(from: domain.upperBound))", bundle: AppLanguage.resourceBundle)
-        }
-        .overlay(GeometryReader { geometry in
-            if geometry.size.width >= 260 {
-                Text(formatter.string(from: midpoint))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+        let startText = formatter.string(from: domain.lowerBound)
+        let nowText = formatter.string(from: domain.upperBound)
+        let tickSpace: CGFloat = 5
+        return Text(verbatim: startText).hidden()
+            .padding(.top, tickSpace)
+            .frame(maxWidth: .infinity)
+            .overlay(GeometryReader { geometry in
+                let width = geometry.size.width
+                let scale = TrendTimeScale(domain: domain, width: width, reservesLiveMargin: true)
+                let middleX = scale.x(at: midpoint)
+                let showsStart = width >= 110
+                let showsMiddle = width >= 280
+                let labelY = (geometry.size.height + tickSpace) / 2
+                let nowRoom = max(0, 2 * (width - scale.nowX))
+                ZStack(alignment: .topLeading) {
+                    Path { path in
+                        let ticks = [scale.nowX] + (showsStart ? [scale.startX] : []) + (showsMiddle ? [middleX] : [])
+                        for x in ticks {
+                            path.move(to: CGPoint(x: x, y: 0))
+                            path.addLine(to: CGPoint(x: x, y: 3))
+                        }
+                    }
+                    .stroke(lineWidth: 1)
+                    if showsStart {
+                        Text(verbatim: startText)
+                            .frame(width: (showsMiddle ? middleX : scale.nowX) - scale.startX, alignment: .leading)
+                            .offset(x: scale.startX, y: tickSpace)
+                    }
+                    if showsMiddle {
+                        Text(verbatim: formatter.string(from: midpoint)).fixedSize()
+                            .position(x: middleX, y: labelY)
+                    }
+                    nowLabel(time: nowText, available: nowRoom)
+                        .frame(width: nowRoom)
+                        .position(x: scale.nowX, y: labelY)
+                }
+            })
+            .lineLimit(1)
+            .font(.caption2.monospacedDigit())
+            .foregroundColor(.secondary)
+    }
+
+    @ViewBuilder private func nowLabel(time: String, available: CGFloat) -> some View {
+        let full = Text("Now · \(time)", bundle: AppLanguage.resourceBundle)
+        let short = Text("Now", bundle: AppLanguage.resourceBundle)
+        if #available(macOS 13.0, *) {
+            ViewThatFits(in: .horizontal) {
+                full.fixedSize()
+                short
             }
-        })
-        .lineLimit(1)
-        .font(.caption2.monospacedDigit())
-        .foregroundColor(.secondary)
+        } else if available >= 100 {
+            full
+        } else {
+            short
+        }
     }
 
     static func formatter(for domain: ClosedRange<Date>, locale: Locale) -> DateFormatter {
@@ -197,6 +273,7 @@ struct TrendLinePlot: View {
     let domain: ClosedRange<Date>
     let valueRange: ClosedRange<Double>
     var compact = false
+    var reservesLiveMargin = false
 
     private struct Paths {
         var line = Path()
@@ -226,17 +303,16 @@ struct TrendLinePlot: View {
     /// readings creates at most four drawing layers for the sampled data.
     private func paths(in size: CGSize) -> [TrendStatus: Paths] {
         let inset: CGFloat = compact ? 1.5 : 3
-        let width = max(0, size.width - 2 * inset), height = max(0, size.height - 2 * inset)
-        let duration = max(0.001, domain.upperBound.timeIntervalSince(domain.lowerBound))
+        let timeScale = TrendTimeScale(domain: domain, width: size.width, inset: inset, reservesLiveMargin: reservesLiveMargin)
+        let height = max(0, size.height - 2 * inset)
         let span = valueRange.upperBound - valueRange.lowerBound
         let dot: CGFloat = compact ? 3 : 5
         var result: [TrendStatus: Paths] = [:]
         for segment in TrendSegment.make(from: points, in: domain) {
             let coordinates = segment.points.compactMap { point -> CGPoint? in
                 guard let value = point.value else { return nil }
-                let x = point.date.timeIntervalSince(domain.lowerBound) / duration
                 let level = span > 0 ? min(1, max(0, (value - valueRange.lowerBound) / span)) : 0.5
-                return CGPoint(x: inset + CGFloat(x) * width, y: inset + CGFloat(1 - level) * height)
+                return CGPoint(x: timeScale.x(at: point.date), y: inset + CGFloat(1 - level) * height)
             }
             guard let first = coordinates.first, let last = coordinates.last else { continue }
             let line = Path { $0.addLines(coordinates) }

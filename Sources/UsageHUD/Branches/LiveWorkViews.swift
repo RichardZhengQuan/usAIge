@@ -278,6 +278,7 @@ enum RailResourceText {
 /// mixes several.
 @available(macOS 14.0, *)
 struct LivePlaceRow: View {
+    @Environment(\.usageCardColumns) private var columns
     let place: LiveWorkPlace
     var showsTool = false
 
@@ -287,10 +288,11 @@ struct LivePlaceRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 5) {
+            HStack(spacing: columns?.spacing ?? 5) {
                 Image(systemName: heading == nil ? "folder" : "arrow.triangle.branch")
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(.secondary)
+                    .frame(width: columns?.markerWidth)
                     .accessibilityHidden(true)
                 Text(heading ?? place.lead.title)
                     .font(.system(.caption, design: .monospaced))
@@ -310,11 +312,13 @@ struct LivePlaceRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .padding(.leading, columns?.contentInset ?? 0)
             }
-            HStack(spacing: 5) {
+            HStack(spacing: columns?.spacing ?? 5) {
                 Circle()
                     .fill(place.lead.phase.statusColor ?? Color.secondary)
                     .frame(width: 7, height: 7)
+                    .frame(width: columns?.markerWidth)
                     .accessibilityHidden(true)
                 Text(sessionText)
                     .lineLimit(1)

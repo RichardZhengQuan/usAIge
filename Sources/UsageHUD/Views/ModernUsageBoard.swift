@@ -2,6 +2,34 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// Shared by the provider mark, status symbols, quota periods, and expanded detail rows.
+struct UsageCardColumns {
+    static let standard = Self(markerWidth: 32, spacing: 8)
+    let markerWidth: CGFloat
+    let spacing: CGFloat
+    var contentInset: CGFloat { markerWidth + spacing }
+}
+
+private struct UsageCardColumnsKey: EnvironmentKey {
+    static let defaultValue: UsageCardColumns? = nil
+}
+
+extension EnvironmentValues {
+    var usageCardColumns: UsageCardColumns? {
+        get { self[UsageCardColumnsKey.self] }
+        set { self[UsageCardColumnsKey.self] = newValue }
+    }
+}
+
+private struct UsageCardLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: UsageCardColumns.standard.spacing) {
+            configuration.icon.frame(width: UsageCardColumns.standard.markerWidth)
+            configuration.title
+        }
+    }
+}
+
 /// An AI tool as Modern shows it: its limits, or what it needs when it has
 /// no reading.
 struct ModernToolEntry: Identifiable {
@@ -198,11 +226,13 @@ struct ModernUsageBoard: View {
         let tool = AIToolDescriptor.descriptor(for: entry.id)
         let isShown = isToolShown(entry.id)
         let limits = editing ? entry.limits : entry.limits.filter { !settings.hiddenBucketIDs.contains($0.id) }
+        let subtitle = limits.count == 1 ? limits.first?.displayName
+            : entry.connectionSummary.map { AppLanguage.text($0, locale: locale) }
         let expanded = detailsExpanded(for: entry.id)
         return ModernCard(padding: 16) {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 10) {
-                    if editing {
+            HStack(alignment: .top, spacing: 10) {
+                if editing {
+                    HStack(spacing: 10) {
                         Image(systemName: "line.3.horizontal")
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(.tertiary)
@@ -210,51 +240,56 @@ struct ModernUsageBoard: View {
                             .accessibilityHidden(true)
                         toolSwitch(entry.id, name: tool.name)
                     }
-                    cardHeader(tool: tool, subtitle: limits.count == 1 ? limits.first?.displayName : entry.connectionSummary.map { AppLanguage.text($0, locale: locale) },
-                               expanded: expanded)
+                    .frame(minHeight: 40)
                 }
-                if !expanded.wrappedValue {
-                    VStack(alignment: .leading, spacing: 5) {
-                        if !limits.isEmpty {
-                            TimelineView(.periodic(from: .now, by: 60)) { context in
-                                if let text = UsageCardSummary.resets(limits, now: context.date, locale: locale) {
-                                    Label(text, systemImage: "clock")
+                VStack(alignment: .leading, spacing: 14) {
+                    cardHeader(tool: tool, subtitle: subtitle, expanded: expanded)
+                    if !expanded.wrappedValue {
+                        VStack(alignment: .leading, spacing: 5) {
+                            if !limits.isEmpty {
+                                TimelineView(.periodic(from: .now, by: 60)) { context in
+                                    if let text = UsageCardSummary.resets(limits, now: context.date, locale: locale) {
+                                        Label(text, systemImage: "clock")
+                                    }
+                                }
+                            }
+                            if let liveWork, !editing {
+                                UsageCardWorkSummary(monitor: liveWork, tool: entry.id)
+                            }
+                        }
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if !limits.isEmpty || expanded.wrappedValue {
+                        VStack(alignment: .leading, spacing: 12) {
+                            ForEach(limits) { limit in
+                                limitRows(limit, showsName: limits.count > 1, toolShown: isShown)
+                            }
+                            if expanded.wrappedValue {
+                                Divider()
+                                if let status = entry.status {
+                                    ModernToolStatusText(status: status)
+                                } else if limits.isEmpty {
+                                    Text("All limits are hidden. Choose Edit to show them.", bundle: AppLanguage.resourceBundle)
+                                        .font(.callout).foregroundStyle(.secondary)
+                                        .padding(.leading, UsageCardColumns.standard.contentInset)
+                                } else {
+                                    resetDetails(limits)
+                                }
+                                if let liveWork, !editing {
+                                    ModernToolWork(monitor: liveWork, tool: entry.id, openBranches: openBranches)
                                 }
                             }
                         }
-                        if let liveWork, !editing {
-                            UsageCardWorkSummary(monitor: liveWork, tool: entry.id)
-                        }
+                        .opacity(editing && !isShown ? 0.55 : 1)
                     }
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
                 }
-                if !limits.isEmpty || expanded.wrappedValue {
-                    VStack(alignment: .leading, spacing: 12) {
-                        ForEach(limits) { limit in
-                            limitRows(limit, showsName: limits.count > 1, toolShown: isShown)
-                        }
-                        if expanded.wrappedValue {
-                            Divider()
-                            if let status = entry.status {
-                                ModernToolStatusText(status: status)
-                            } else if limits.isEmpty {
-                                Text("All limits are hidden. Choose Edit to show them.", bundle: AppLanguage.resourceBundle)
-                                    .font(.callout).foregroundStyle(.secondary)
-                            } else {
-                                resetDetails(limits)
-                            }
-                            if let liveWork, !editing {
-                                ModernToolWork(monitor: liveWork, tool: entry.id, openBranches: openBranches)
-                            }
-                        }
-                    }
-                    .opacity(editing && !isShown ? 0.55 : 1)
-                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
+        .labelStyle(UsageCardLabelStyle())
+        .environment(\.usageCardColumns, .standard)
         .overlay {
             RoundedRectangle(cornerRadius: ModernMetrics.cardRadius, style: .continuous)
                 .strokeBorder(Color.accentColor, lineWidth: dropTarget == entry.id ? 2 : 0)
@@ -283,10 +318,11 @@ struct ModernUsageBoard: View {
         Button {
             expanded.wrappedValue.toggle()
         } label: {
-            HStack(spacing: 10) {
+            HStack(spacing: UsageCardColumns.standard.spacing) {
                 AIToolIcon(tool: tool, size: 18)
                     .frame(width: 30, height: 30)
                     .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .frame(width: UsageCardColumns.standard.markerWidth)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(tool.name).font(.headline).lineLimit(1)
                     if let subtitle {
@@ -312,12 +348,15 @@ struct ModernUsageBoard: View {
 
     private func resetDetails(_ limits: [QuotaSnapshot]) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Reset details", bundle: AppLanguage.resourceBundle)
+            Label { Text("Reset details", bundle: AppLanguage.resourceBundle) } icon: { Image(systemName: "clock") }
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .accessibilityAddTraits(.isHeader)
             ForEach(limits) { limit in
-                if limits.count > 1 { Text(limit.displayName).fontWeight(.medium) }
+                if limits.count > 1 {
+                    Text(limit.displayName).fontWeight(.medium)
+                        .padding(.leading, UsageCardColumns.standard.contentInset)
+                }
                 resetRow(limit.primaryWindow)
                 if let secondary = limit.secondaryWindow { resetRow(secondary) }
             }
@@ -328,8 +367,9 @@ struct ModernUsageBoard: View {
     }
 
     private func resetRow(_ window: QuotaWindowSnapshot) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
+        HStack(alignment: .firstTextBaseline, spacing: UsageCardColumns.standard.spacing) {
             Text(window.typeTag).font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                .frame(width: UsageCardColumns.standard.markerWidth)
             if let reset = window.resetAt {
                 Text(reset.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened).locale(locale)))
             } else {
@@ -365,6 +405,7 @@ struct ModernUsageBoard: View {
                         .help(AppLanguage.text("Show this limit on the floating panel and dashboard", locale: locale))
                     }
                 }
+                .padding(.leading, UsageCardColumns.standard.contentInset)
             }
             Group {
                 ModernQuotaBar(window: limit.primaryWindow, showsReset: false)
@@ -456,6 +497,7 @@ struct ModernToolStatusText: View {
                 .font(font)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+                .padding(.leading, UsageCardColumns.standard.contentInset)
         }
     }
 }
@@ -500,10 +542,14 @@ private struct ModernToolWork: View {
             Divider().padding(.vertical, 2)
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(LocalizedStringKey(sessions.isEmpty ? "Memory" : "Working now"), bundle: AppLanguage.resourceBundle)
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-                        .accessibilityAddTraits(.isHeader)
+                    Label {
+                        Text(LocalizedStringKey(sessions.isEmpty ? "Memory" : "Working now"), bundle: AppLanguage.resourceBundle)
+                    } icon: {
+                        Image(systemName: sessions.isEmpty ? "memorychip" : "laptopcomputer")
+                    }
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .accessibilityAddTraits(.isHeader)
                     Spacer(minLength: 8)
                     if memory > 0 {
                         Text(LiveWorkText.memory(memory))
@@ -518,6 +564,7 @@ private struct ModernToolWork: View {
                         Button(action: openBranches) { Text("All branches and worktrees…", bundle: AppLanguage.resourceBundle) }
                             .buttonStyle(.link)
                             .font(.caption)
+                            .padding(.leading, UsageCardColumns.standard.contentInset)
                     }
                 }
             }

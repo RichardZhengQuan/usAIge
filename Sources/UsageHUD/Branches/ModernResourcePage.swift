@@ -20,6 +20,7 @@ struct ModernResourcePage: View {
     private static let scrollSpace = "modernResourcePage"
     @State private var showsStorageReview = false
     @State private var storageCleanupStarted = false
+    @AppStorage(SystemTrendRange.defaultsKey) private var trendRange = SystemTrendRange.standard
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.locale) private var locale
 
@@ -363,18 +364,25 @@ struct ModernResourcePage: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    figure.frame(maxWidth: .infinity, alignment: .leading)
+                    if liveWork != nil {
+                        Picker(selection: $trendRange) {
+                            ForEach(SystemTrendRange.allCases, id: \.self) { choice in
+                                Text(LocalizedStringKey(choice.title), bundle: AppLanguage.resourceBundle).tag(choice)
+                            }
+                        } label: {
+                            Text("Time range", bundle: AppLanguage.resourceBundle)
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .controlSize(.small)
+                        .fixedSize()
+                    }
+                }
                 if let liveWork {
                     let source = resource == .memory ? liveWork.memoryHistory : liveWork.storageHistory
-                    let chart = ResourceTrendChart(history: source, resource: resource)
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 24) {
-                            figure.frame(minWidth: 235, maxWidth: .infinity, alignment: .leading)
-                            chart.frame(minWidth: 250, idealWidth: 400, maxWidth: 520)
-                        }
-                        VStack(alignment: .leading, spacing: 16) { figure; chart }
-                    }
-                } else {
-                    figure
+                    ResourceTrendChart(history: source, resource: resource)
                 }
                 CapacityBar(segments: segments, capacity: configuration.capacityBytes)
                 CapacityLegend(segments: segments.filter { $0.bytes > 0 || $0.isMeasuring } + [

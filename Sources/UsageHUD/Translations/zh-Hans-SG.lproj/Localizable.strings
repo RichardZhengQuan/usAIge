@@ -155,6 +155,7 @@
 "15 min" = "15 分钟";
 "1 hr" = "1 小时";
 "Waiting for a CPU sample…" = "正在等候 CPU 采样…";
+"Now" = "当前";
 "Now · %@" = "当前 · %@";
 "CPU usage" = "CPU 使用率";
 "CPU in use" = "CPU 使用率";

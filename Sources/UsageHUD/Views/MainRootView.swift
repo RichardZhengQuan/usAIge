@@ -500,6 +500,7 @@ private struct ModernUsagePage: View {
 @available(macOS 14.0, *)
 private struct ModernOverviewPage: View {
     @Environment(\.locale) private var locale
+    @ScaledMetric(relativeTo: .headline) private var minimumResourceCardWidth: CGFloat = 196
     @ObservedObject var store: BranchesStore
     var liveWork: LiveWorkMonitor?
     var usageStore: UsageStore?
@@ -523,13 +524,17 @@ private struct ModernOverviewPage: View {
                 if let liveWork {
                     CPUOverviewSummary(monitor: liveWork.cpu) { presentation.open(.thisMac) }
                 }
-                Grid(horizontalSpacing: 14, verticalSpacing: 14) {
-                    GridRow {
-                        if let liveWork {
-                            ModernMemorySummary(monitor: liveWork, store: store) { presentation.open(.memory) }
+                ViewThatFits(in: .horizontal) {
+                    Grid(horizontalSpacing: 14) {
+                        GridRow(alignment: .top) {
+                            resourceCards
                         }
-                        ModernStorageSummary(store: store, history: liveWork?.storageHistory) { presentation.open(.storage) }
                     }
+                    .frame(minWidth: minimumResourceCardWidth * 2 + 14,
+                           idealWidth: minimumResourceCardWidth * 2 + 14, maxWidth: .infinity)
+                    VStack(alignment: .leading, spacing: 14) { resourceCards }
+                }
+                Grid(horizontalSpacing: 14) {
                     GridRow {
                         workCard(.branches, board: board.only(.branches))
                         workCard(.worktrees, board: board.only(.worktrees))
@@ -543,6 +548,13 @@ private struct ModernOverviewPage: View {
         }
         .background(ModernPalette.page)
         .environment(\.interfaceStyle, .modern)
+    }
+
+    @ViewBuilder private var resourceCards: some View {
+        if let liveWork {
+            ModernMemorySummary(monitor: liveWork, store: store) { presentation.open(.memory) }
+        }
+        ModernStorageSummary(store: store, history: liveWork?.storageHistory) { presentation.open(.storage) }
     }
 
     private func sectionTitle(_ title: String) -> some View {
@@ -710,6 +722,7 @@ private struct ModernToolCards: View {
 /// A dashboard card with one reading and its supporting chart or summary.
 @available(macOS 14.0, *)
 private struct ModernSummaryCard<Detail: View>: View {
+    @AppStorage(SystemTrendRange.defaultsKey) private var range = SystemTrendRange.standard
     let page: ModernPage
     var title: String? = nil
     let value: String
@@ -724,32 +737,31 @@ private struct ModernSummaryCard<Detail: View>: View {
         Button(action: open) {
             ModernCard {
                 if placesDetailOnRight {
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 18) {
-                            VStack(alignment: .leading, spacing: 12) {
-                                heading
-                                reading
+                    VStack(alignment: .leading, spacing: 10) {
+                        header
+                        ViewThatFits(in: .horizontal) {
+                            HStack(spacing: 16) {
+                                reading.fixedSize(horizontal: true, vertical: false)
+                                detail().frame(minWidth: 210, maxWidth: .infinity)
                             }
-                            .frame(minWidth: 140, maxWidth: 340, alignment: .leading)
-                            detail().frame(minWidth: 210, maxWidth: .infinity)
-                            chevron
+                            VStack(alignment: .leading, spacing: 10) {
+                                reading
+                                detail()
+                            }
                         }
-                        stacked
                     }
                 } else if let resourceHistory {
                     let trend = ResourceTrendChart(history: resourceHistory, resource: page == .memory ? .memory : .storage,
                                                    compact: true)
                     VStack(alignment: .leading, spacing: 10) {
+                        header
                         ViewThatFits(in: .horizontal) {
                             HStack(spacing: 8) {
-                                VStack(alignment: .leading, spacing: 10) { heading; amount }
-                                    .fixedSize(horizontal: true, vertical: false)
+                                amount.fixedSize(horizontal: true, vertical: false)
                                 Spacer(minLength: 2)
                                 trend.frame(minWidth: 100, idealWidth: 165, maxWidth: 210)
-                                chevron
                             }
                             VStack(alignment: .leading, spacing: 6) {
-                                HStack { heading; Spacer(); chevron }
                                 amount
                                 trend
                             }
@@ -771,11 +783,7 @@ private struct ModernSummaryCard<Detail: View>: View {
 
     private var stacked: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                heading
-                Spacer(minLength: 4)
-                chevron
-            }
+            header
             reading
             detail()
             Spacer(minLength: 0)
@@ -783,10 +791,17 @@ private struct ModernSummaryCard<Detail: View>: View {
         .frame(maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private var heading: some View {
+    private var header: some View {
         HStack(spacing: 8) {
             ModernIcon(symbol: page.symbol, color: MainRootView.color(for: page), size: 22)
             Text(LocalizedStringKey(title ?? page.title), bundle: AppLanguage.resourceBundle).font(.headline)
+            Spacer(minLength: 4)
+            if resourceHistory != nil {
+                Text(LocalizedStringKey(range.title), bundle: AppLanguage.resourceBundle)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            chevron
         }
     }
 
@@ -892,6 +907,7 @@ private struct ModernStorageSummary: View {
 /// percentage and when it resets.
 @available(macOS 14.0, *)
 struct ModernQuotaBar: View {
+    @Environment(\.usageCardColumns) private var columns
     let window: QuotaWindowSnapshot
     /// Off where the reset is spelled out on a line of its own.
     var showsReset = true
@@ -901,11 +917,11 @@ struct ModernQuotaBar: View {
         // Classic's critical red is too dark to read as text on a dark card.
         let tint = severity == .critical ? Color(nsColor: .systemRed) : severity.color
         TimelineView(.periodic(from: .now, by: 60)) { context in
-            HStack(spacing: 8) {
+            HStack(spacing: columns?.spacing ?? 8) {
                 Text(window.typeTag)
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
-                    .frame(width: 28, alignment: .leading)
+                    .frame(width: columns?.markerWidth ?? 28, alignment: columns == nil ? .leading : .center)
                 GeometryReader { geometry in
                     Capsule().fill(tint.opacity(0.16))
                         .overlay(alignment: .leading) {
