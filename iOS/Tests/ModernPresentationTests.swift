@@ -44,6 +44,14 @@ final class ModernPresentationTests: XCTestCase {
         )
     }
 
+    func testResetCreditAccessibilityLabelUsesSingularAndPlural() {
+        XCTAssertNil(ResetCreditText.accessibilityLabel(count: nil))
+        XCTAssertNil(ResetCreditText.accessibilityLabel(count: 0))
+        XCTAssertNil(ResetCreditText.accessibilityLabel(count: -1))
+        XCTAssertEqual(ResetCreditText.accessibilityLabel(count: 1), "1 full reset available")
+        XCTAssertEqual(ResetCreditText.accessibilityLabel(count: 2), "2 full resets available")
+    }
+
     func testUsageFillFractionDrawsEmptyWindowsFullAndBoundsPositiveValues() {
         let cases: [(Double, Double)] = [
             (0, 1),
@@ -138,6 +146,31 @@ final class ModernPresentationTests: XCTestCase {
         XCTAssertEqual(summaries.map(\.symbolName), ["g.circle", nil])
         XCTAssertEqual(summaries.map(\.otherLimitCount), [3, 0])
         XCTAssertTrue(ToolUsageSummary.group([]).isEmpty)
+    }
+
+    func testToolUsageSummaryUsesFirstLimitWithAvailableResetCredit() throws {
+        let toolID = UUID()
+        let expiration = now.addingTimeInterval(86_400)
+        let unavailable = snapshot(
+            "unavailable", toolID: toolID, remainingPercent: 70,
+            availableResetCount: 0, resetCreditExpiresAt: now
+        )
+        let available = snapshot(
+            "available", toolID: toolID, remainingPercent: 60,
+            availableResetCount: 2, resetCreditExpiresAt: expiration
+        )
+        let tightest = snapshot(
+            "tightest", toolID: toolID, remainingPercent: 10, availableResetCount: 3
+        )
+
+        let summary = try XCTUnwrap(ToolUsageSummary.group([unavailable, available, tightest]).first)
+        XCTAssertEqual(summary.tightest, tightest)
+        XCTAssertEqual(summary.availableResetCount, 2)
+        XCTAssertEqual(summary.resetCreditExpiresAt, expiration)
+
+        let noCredit = try XCTUnwrap(ToolUsageSummary.group([unavailable]).first)
+        XCTAssertNil(noCredit.availableResetCount)
+        XCTAssertNil(noCredit.resetCreditExpiresAt)
     }
 
     func testToolMarkKindMatchesVendorNamesToAssets() {
@@ -254,6 +287,15 @@ final class ModernPresentationTests: XCTestCase {
         XCTAssertEqual(try WatchUsageSnapshotCodec.decode(data), envelope)
     }
 
+    func testDemoEnvelopesIncludeChatGPTResetCredit() throws {
+        for scenario: UsageDemoData.Scenario in [.standard, .edge] {
+            let envelope = UsageDemoData.envelope(scenario, now: now)
+            let chatGPT = try XCTUnwrap(envelope.tools.first { $0.displayName == "ChatGPT" })
+            XCTAssertEqual(chatGPT.availableResetCount, 1)
+            XCTAssertEqual(chatGPT.resetCreditExpiresAt, now.addingTimeInterval(5 * 86_400))
+        }
+    }
+
     func testDemoSnapshotsMatchWatchToolsAndLimits() throws {
         let envelope = UsageDemoData.envelope(now: now)
         let snapshots = UsageDemoData.snapshots(now: now)
@@ -263,6 +305,8 @@ final class ModernPresentationTests: XCTestCase {
         XCTAssertEqual(summaries.count, 4)
         XCTAssertEqual(summaries.map(\.name), envelope.tools.map(\.displayName))
         XCTAssertEqual(summaries.map(\.symbolName), envelope.tools.map(\.symbolName))
+        XCTAssertEqual(summaries.map(\.availableResetCount), envelope.tools.map(\.availableResetCount))
+        XCTAssertEqual(summaries.map(\.resetCreditExpiresAt), envelope.tools.map(\.resetCreditExpiresAt))
         XCTAssertEqual(
             summaries.map { $0.limits.map(\.limitID) },
             envelope.tools.map { $0.limits.map(\.id) }
@@ -292,7 +336,9 @@ final class ModernPresentationTests: XCTestCase {
         toolName: String = "Tool",
         remainingPercent: Double,
         secondaryPercent: Double? = nil,
-        symbolName: String? = nil
+        symbolName: String? = nil,
+        availableResetCount: Int? = nil,
+        resetCreditExpiresAt: Date? = nil
     ) -> QuotaSnapshot {
         QuotaSnapshot(
             id: QuotaSnapshot.stableID(toolID: toolID, limitID: limitID),
@@ -303,6 +349,8 @@ final class ModernPresentationTests: XCTestCase {
             remainingPercent: remainingPercent,
             resetAt: nil,
             updatedAt: now,
+            availableResetCount: availableResetCount,
+            resetCreditExpiresAt: resetCreditExpiresAt,
             secondaryWindow: secondaryPercent.map {
                 QuotaWindowSnapshot(remainingPercent: $0, resetAt: nil, windowDurationMinutes: nil)
             },

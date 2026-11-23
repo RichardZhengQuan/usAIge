@@ -99,12 +99,14 @@ struct UsageComplicationView: View {
         familyOverride = family
     }
 
+    private var family: WidgetFamily { familyOverride ?? widgetFamily }
+
     var body: some View {
         let selected = entry.selectedLimit
         let phase = selected?.tool.visibleSessionPhase(isStale: entry.selectedLimitIsStale)
 
         Group {
-            switch familyOverride ?? widgetFamily {
+            switch family {
             case .accessoryCircular:
                 circular(selected)
             case .accessoryCorner:
@@ -138,15 +140,20 @@ struct UsageComplicationView: View {
                 quotaRing(selected, size: 40)
 
                 let summary = rectangularSummary(selected, phase: phase)
-                ViewThatFits {
+                ViewThatFits(in: .vertical) {
                     if selected.tool.otherLimitCount > 0 {
-                        VStack(alignment: .leading, spacing: 1) {
+                        VStack(alignment: .leading, spacing: 0) {
                             summary
-                            Text("\(selected.limit.displayName) · +\(selected.tool.otherLimitCount) more")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .fixedSize(horizontal: true, vertical: false)
+                            ViewThatFits(in: .horizontal) {
+                                Text("\(selected.limit.displayName) · +\(selected.tool.otherLimitCount) more")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .fixedSize(horizontal: true, vertical: false)
+                                    .padding(.top, 1)
+
+                                Color.clear.frame(width: 0, height: 0)
+                            }
                         }
                     }
                     summary
@@ -163,26 +170,40 @@ struct UsageComplicationView: View {
     }
 
     private func rectangularSummary(_ selected: SelectedLimit, phase: WatchSessionPhase?) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
+        let reading = HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(selected.percent)
+                .font(.callout.weight(.bold))
+                .monospacedDigit()
+                .foregroundStyle(selected.color)
+                .lineLimit(1)
+                .layoutPriority(1)
+
+            if let reset = ResetCountdown.phrase(until: selected.resetAt, now: entry.date) {
+                Text(reset)
+                    .font(.caption2)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+        }
+
+        return VStack(alignment: .leading, spacing: 1) {
             WatchToolTitle(name: selected.tool.displayName, phase: phase)
                 .font(.caption.weight(.semibold))
 
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(selected.percent)
-                    .font(.callout.weight(.bold))
-                    .monospacedDigit()
-                    .foregroundStyle(selected.color)
-                    .lineLimit(1)
-                    .layoutPriority(1)
+            if family == .accessoryRectangular, let count = selected.tool.availableResetCount, count > 0 {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        reading
+                        ResetCreditBadge(count: count)
+                    }
+                    .fixedSize(horizontal: true, vertical: false)
 
-                if let reset = ResetCountdown.phrase(until: selected.resetAt, now: entry.date) {
-                    Text(reset)
-                        .font(.caption2)
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
+                    reading
                 }
+            } else {
+                reading
             }
         }
     }
@@ -252,6 +273,10 @@ struct UsageComplicationView: View {
         var text = selected.tool.displayName
         if let phase { text += ", \(phase.label.lowercased())" }
         text += ", \(selected.limit.displayName), \(summary)"
+        if family == .accessoryRectangular,
+           let credit = ResetCreditText.accessibilityLabel(count: selected.tool.availableResetCount) {
+            text += ", \(credit)"
+        }
         if let sourceName = selected.tool.sourceName { text += ", \(sourceName)" }
         if entry.selectedLimitIsStale { text += ", data may be stale" }
         return text

@@ -206,8 +206,9 @@ final class QuotaModelTests: XCTestCase {
         )
     }
 
-    func testWatchSnapshotPreservesMacSourceMetadata() throws {
+    func testWatchSnapshotPreservesMacSourceMetadataAndResetCredit() throws {
         let updatedAt = Date(timeIntervalSince1970: 1_784_400_000)
+        let expiresAt = updatedAt.addingTimeInterval(5 * 86_400)
         let tool = WatchToolQuotaSnapshot(
             id: "mac:tool",
             displayName: "Codex",
@@ -227,7 +228,9 @@ final class QuotaModelTests: XCTestCase {
                     )
                 )
             ],
-            sessionStatus: WatchSessionStatus(phase: .needsInput, updatedAt: updatedAt)
+            sessionStatus: WatchSessionStatus(phase: .needsInput, updatedAt: updatedAt),
+            availableResetCount: 2,
+            resetCreditExpiresAt: expiresAt
         )
 
         let encoded = try WatchUsageSnapshotCodec.encode(
@@ -240,6 +243,9 @@ final class QuotaModelTests: XCTestCase {
         XCTAssertEqual(decoded.tools.first?.serverUpdatedAt, updatedAt)
         XCTAssertEqual(decoded.tools.first?.sessionStatus?.phase, .needsInput)
         XCTAssertEqual(decoded.tools.first?.sessionStatus?.updatedAt, updatedAt)
+        XCTAssertEqual(decoded.tools.first?.availableResetCount, 2)
+        XCTAssertEqual(decoded.tools.first?.resetCreditExpiresAt, expiresAt)
+        XCTAssertEqual(decoded.schemaVersion, 1)
     }
 
     func testWatchSnapshotStillDecodesPayloadsWithoutMacMetadata() throws {
@@ -248,11 +254,14 @@ final class QuotaModelTests: XCTestCase {
         )
 
         let decoded = try WatchUsageSnapshotCodec.decode(data)
+        let tool = try XCTUnwrap(decoded.tools.first)
 
-        XCTAssertNil(decoded.tools.first?.sourceID)
-        XCTAssertNil(decoded.tools.first?.sourceName)
-        XCTAssertNil(decoded.tools.first?.serverUpdatedAt)
-        XCTAssertNil(decoded.tools.first?.sessionStatus)
+        XCTAssertNil(tool.sourceID)
+        XCTAssertNil(tool.sourceName)
+        XCTAssertNil(tool.serverUpdatedAt)
+        XCTAssertNil(tool.sessionStatus)
+        XCTAssertNil(tool.availableResetCount)
+        XCTAssertNil(tool.resetCreditExpiresAt)
     }
 
     func testWatchSnapshotTreatsFutureSessionPhasesAsUnknown() throws {

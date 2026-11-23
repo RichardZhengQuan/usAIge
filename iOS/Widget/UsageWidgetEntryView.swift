@@ -47,7 +47,7 @@ struct UsageWidgetEntryView: View {
                     HStack(alignment: .top, spacing: 0) {
                         ForEach(snapshots.prefix(4)) { snapshot in
                             quotaColumn(for: snapshot, ringSize: 64, isStale: isStale)
-                                .frame(maxWidth: .infinity)
+                                .frame(minWidth: 0, maxWidth: .infinity)
                         }
                     }
                 }
@@ -133,20 +133,42 @@ private struct WidgetQuotaColumn: View {
                         : Color.primary
                 )
                 .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                .minimumScaleFactor(0.5)
 
-            if let reset = ResetCountdown.phrase(until: window.resetAt, now: now) {
-                Text(reset)
-                    .font(isSmall ? .caption : .caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-            }
+            resetLine(until: window.resetAt)
         }
         .privacySensitive()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("\(snapshot.toolName), \(snapshot.displayName)"))
         .accessibilityValue(Text(accessibilityValue(percent: percent, resetAt: window.resetAt, phase: phase)))
+    }
+
+    @ViewBuilder
+    private func resetLine(until resetAt: Date?) -> some View {
+        let reset = ResetCountdown.phrase(until: resetAt, now: now)
+        let caption = Text(reset ?? "")
+            .font(isSmall ? .caption : .caption2)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+
+        if let count = snapshot.availableResetCount, count > 0 {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    if reset != nil { caption }
+                    ResetCreditBadge(count: count)
+                }
+                .fixedSize(horizontal: true, vertical: false)
+
+                if reset != nil {
+                    caption
+                } else {
+                    Color.clear.frame(width: 0, height: 0)
+                }
+            }
+        } else if reset != nil {
+            caption
+        }
     }
 
     private var tightestWindow: QuotaWindowSnapshot {
@@ -219,6 +241,9 @@ private struct WidgetQuotaColumn: View {
 
     private func accessibilityValue(percent: String, resetAt: Date?, phase: CodexSessionPhase?) -> String {
         var value = "\(percent.dropLast()) percent left, \(ResetCountdown.accessibilityLabel(until: resetAt, now: now))"
+        if let credit = ResetCreditText.accessibilityLabel(count: snapshot.availableResetCount) {
+            value += ", \(credit)"
+        }
         if let phase { value += ", \(phase.label.lowercased())" }
         if isStale { value += ", saved data" }
         return value

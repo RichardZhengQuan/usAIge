@@ -17,6 +17,8 @@ public struct ToolUsageSummary: Identifiable, Equatable, Sendable {
     /// The limit closest to running out. A row names it when the tool has
     /// others, so a nearly used-up limit is never hidden behind a healthy one.
     public let tightest: QuotaSnapshot
+    public let availableResetCount: Int?
+    public let resetCreditExpiresAt: Date?
 
     public var otherLimitCount: Int { limits.count - 1 }
 
@@ -30,14 +32,23 @@ public struct ToolUsageSummary: Identifiable, Equatable, Sendable {
             let limits = snapshots.filter { $0.toolID == toolID }
             guard let first = limits.first,
                   let tightest = limits.min(by: { $0.tightness < $1.tightness }) else { return nil }
+            let credit = limits.firstWithResetCredit
             return ToolUsageSummary(
                 id: toolID,
                 name: first.toolName,
                 symbolName: limits.lazy.compactMap(\.toolSymbolName).first,
                 limits: limits,
-                tightest: tightest
+                tightest: tightest,
+                availableResetCount: credit?.availableResetCount,
+                resetCreditExpiresAt: credit?.resetCreditExpiresAt
             )
         }
+    }
+}
+
+extension Array where Element == QuotaSnapshot {
+    var firstWithResetCredit: QuotaSnapshot? {
+        first { ($0.availableResetCount ?? 0) > 0 }
     }
 }
 
@@ -58,7 +69,6 @@ public extension UsageDemoData {
             let snapshots = macTools.flatMap { tool -> [QuotaSnapshot] in
                 let index = tools.firstIndex(of: tool) ?? 0
                 let toolID = demoUUID(index + 1)
-                let hasResetCredit = scenario != .standard && tool.id.hasSuffix(":chatgpt")
                 return tool.limits.map { limit in
                     QuotaSnapshot(
                         id: QuotaSnapshot.stableID(toolID: toolID, limitID: limit.id),
@@ -71,8 +81,8 @@ public extension UsageDemoData {
                         updatedAt: tool.sourceUpdatedAt,
                         planType: limit.planType,
                         windowDurationMinutes: limit.primary.windowDurationSeconds.map { $0 / 60 },
-                        availableResetCount: hasResetCredit ? 1 : nil,
-                        resetCreditExpiresAt: hasResetCredit ? now.addingTimeInterval(5 * 86_400) : nil,
+                        availableResetCount: tool.availableResetCount,
+                        resetCreditExpiresAt: tool.resetCreditExpiresAt,
                         secondaryWindow: limit.secondary.map {
                             QuotaWindowSnapshot(
                                 remainingPercent: $0.remainingPercent,

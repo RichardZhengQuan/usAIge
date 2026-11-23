@@ -5,9 +5,9 @@ struct ToolDetailView: View {
     let tool: ToolUsageSummary
 
     var body: some View {
-        let credit = tool.limits.first { ($0.availableResetCount ?? 0) > 0 }
+        let resetCount = tool.availableResetCount
         let session = tool.activeSession
-        let hasToolInfo = credit != nil || session != nil
+        let hasToolInfo = resetCount != nil || session != nil
         let lastLimitID = tool.limits.last?.id
         let updatedAt = tool.limits.lazy.map(\.updatedAt).max()
 
@@ -32,8 +32,8 @@ struct ToolDetailView: View {
 
             if hasToolInfo {
                 Section {
-                    if let credit, let count = credit.availableResetCount {
-                        fullResetsRow(count: count, expiresAt: credit.resetCreditExpiresAt)
+                    if let resetCount {
+                        fullResetsRow(count: resetCount, expiresAt: tool.resetCreditExpiresAt)
                     }
                     if let session {
                         sessionRow(session)

@@ -62,6 +62,12 @@ struct QuotaRow: View {
             } else {
                 title
             }
+
+            if let count = tool.availableResetCount, count > 0 {
+                Spacer(minLength: 0)
+                ResetCreditBadge(count: count)
+                    .accessibilityHidden(true)
+            }
         }
         .foregroundStyle(.primary)
     }
@@ -72,9 +78,12 @@ struct QuotaRow: View {
 
     private func accessibilityTitle(phase: CodexSessionPhase?) -> Text {
         let name = Text(tool.name)
-        let title = tool.otherLimitCount > 0 ? Text("\(name), \(limitCaption)") : name
+        var title = tool.otherLimitCount > 0 ? Text("\(name), \(limitCaption)") : name
         if let phase {
-            return Text("\(title), \(phase.label)")
+            title = Text("\(title), \(phase.label)")
+        }
+        if let credit = ResetCreditText.accessibilityLabel(count: tool.availableResetCount) {
+            title = Text("\(title), \(credit)")
         }
         return title
     }

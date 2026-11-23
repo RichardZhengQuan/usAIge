@@ -91,6 +91,8 @@ public struct WatchToolQuotaSnapshot: Codable, Hashable, Identifiable, Sendable 
     public let limits: [WatchQuotaSnapshot]
     public let sessionStatus: WatchSessionStatus?
     public let symbolName: String?
+    public let availableResetCount: Int?
+    public let resetCreditExpiresAt: Date?
 
     public init(
         id: String,
@@ -102,7 +104,9 @@ public struct WatchToolQuotaSnapshot: Codable, Hashable, Identifiable, Sendable 
         receivedAt: Date,
         limits: [WatchQuotaSnapshot],
         sessionStatus: WatchSessionStatus? = nil,
-        symbolName: String? = nil
+        symbolName: String? = nil,
+        availableResetCount: Int? = nil,
+        resetCreditExpiresAt: Date? = nil
     ) {
         self.id = id
         self.displayName = displayName
@@ -114,6 +118,8 @@ public struct WatchToolQuotaSnapshot: Codable, Hashable, Identifiable, Sendable 
         self.limits = limits
         self.sessionStatus = sessionStatus
         self.symbolName = symbolName
+        self.availableResetCount = availableResetCount
+        self.resetCreditExpiresAt = resetCreditExpiresAt
     }
 }
 

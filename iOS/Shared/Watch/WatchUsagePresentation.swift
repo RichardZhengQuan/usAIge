@@ -85,7 +85,9 @@ public enum UsageDemoData {
             _ id: String, _ name: String, _ symbol: String, _ limits: [WatchQuotaSnapshot],
             mac: (id: String, name: String) = ("demo-mac", "MacBook Pro"),
             updatedAgo: TimeInterval = 60,
-            session: WatchSessionPhase? = nil
+            session: WatchSessionPhase? = nil,
+            availableResetCount: Int? = nil,
+            resetCreditExpiresAt: Date? = nil
         ) -> WatchToolQuotaSnapshot {
             let updated = now.addingTimeInterval(-updatedAgo)
             return WatchToolQuotaSnapshot(
@@ -98,16 +100,23 @@ public enum UsageDemoData {
                 receivedAt: now,
                 limits: limits,
                 sessionStatus: session.map { WatchSessionStatus(phase: $0, updatedAt: now.addingTimeInterval(-90)) },
-                symbolName: symbol
+                symbolName: symbol,
+                availableResetCount: availableResetCount,
+                resetCreditExpiresAt: resetCreditExpiresAt
             )
         }
-        let chatGPT = tool("chatgpt", "ChatGPT", "sparkle", [
-            WatchQuotaSnapshot(id: "codex", displayName: "Codex",
-                               primary: window(62, 5, resetsIn: soon),
-                               secondary: window(81, 168, resetsIn: week), planType: "Pro"),
-            WatchQuotaSnapshot(id: "codex-spark", displayName: "GPT-5.3-Codex-Spark",
-                               primary: window(90, 5, resetsIn: soon), planType: "Pro"),
-        ], session: scenario == .edge ? .thinking : nil)
+        let chatGPT = tool(
+            "chatgpt", "ChatGPT", "sparkle", [
+                WatchQuotaSnapshot(id: "codex", displayName: "Codex",
+                                   primary: window(62, 5, resetsIn: soon),
+                                   secondary: window(81, 168, resetsIn: week), planType: "Pro"),
+                WatchQuotaSnapshot(id: "codex-spark", displayName: "GPT-5.3-Codex-Spark",
+                                   primary: window(90, 5, resetsIn: soon), planType: "Pro"),
+            ],
+            session: scenario == .edge ? .thinking : nil,
+            availableResetCount: 1,
+            resetCreditExpiresAt: now.addingTimeInterval(5 * 86_400)
+        )
         let claude = tool("claude", "Claude", "asterisk", [
             WatchQuotaSnapshot(id: "all-models", displayName: "All models",
                                primary: window(45, 5, resetsIn: soon),

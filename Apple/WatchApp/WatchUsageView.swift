@@ -201,23 +201,32 @@ private struct WatchQuotaRow: View {
         return ViewThatFits(in: .horizontal) {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 percent
-                resetCaption
+                resetLine
             }
+            .fixedSize(horizontal: true, vertical: false)
+
             VStack(alignment: .leading, spacing: 1) {
                 percent
-                resetCaption
+                resetLine
             }
         }
     }
 
     @ViewBuilder
-    private var resetCaption: some View {
-        if let reset = ResetCountdown.phrase(until: limit.tightestWindow.resetAt, now: now) {
-            Text(reset)
-                .font(.caption2)
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+    private var resetLine: some View {
+        let reset = ResetCountdown.phrase(until: limit.tightestWindow.resetAt, now: now)
+        if reset != nil || (tool.availableResetCount ?? 0) > 0 {
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                if let reset {
+                    Text(reset)
+                        .font(.caption2)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+                ResetCreditBadge(count: tool.availableResetCount)
+            }
         }
     }
 
@@ -231,6 +240,9 @@ private struct WatchQuotaRow: View {
 
     private var accessibilitySummary: String {
         var summary = limit.tightestWindow.accessibilitySummary(now: now)
+        if let credit = ResetCreditText.accessibilityLabel(count: tool.availableResetCount) {
+            summary += ", \(credit)"
+        }
         if isStale { summary += ", showing saved limits" }
         return summary
     }

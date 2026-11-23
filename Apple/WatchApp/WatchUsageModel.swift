@@ -463,7 +463,9 @@ private struct WatchRelayClient: Sendable {
                 sessionStatus: tool.sessionStatus.map {
                     WatchSessionStatus(phase: $0.phase, updatedAt: $0.updatedAt)
                 },
-                symbolName: tool.symbolName
+                symbolName: tool.symbolName,
+                availableResetCount: tool.resetCredits?.availableCount,
+                resetCreditExpiresAt: tool.resetCredits?.expiresAt
             )
         }
     }
@@ -511,6 +513,12 @@ private struct WatchRelayToolDocument: Decodable {
     let symbolName: String
     let limits: [WatchRelayLimitDocument]
     let sessionStatus: WatchRelaySessionStatusDocument?
+    let resetCredits: WatchRelayResetCreditsDocument?
+}
+
+private struct WatchRelayResetCreditsDocument: Decodable {
+    let availableCount: Int
+    let expiresAt: Date?
 }
 
 private struct WatchRelaySessionStatusDocument: Decodable {
