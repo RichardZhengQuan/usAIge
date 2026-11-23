@@ -110,19 +110,19 @@ import Testing
         )
     }
 
-    @Test func reusesOnePanelForEveryHover() {
+    @Test func reusesOnePanelForEveryHover() throws {
         let rail = makeRail()
         let controller = QuotaDetailPanelController(rail: { rail })
 
-        controller.show(snapshot(id: "a"), rowFrame: CGRect(x: 4, y: 10, width: 76, height: 80))
+        controller.show(RailQuotaRow(snapshot: snapshot(id: "a")), rowFrame: CGRect(x: 4, y: 10, width: 76, height: 80))
         let first = controller.panel
         #expect(first != nil)
         #expect(first?.parent === rail)
 
         for id in ["b", "c", "a"] {
-            controller.hide(snapshotID: controller.shownSnapshotID ?? "")
+            controller.hide(rowID: try #require(controller.shownRowID))
             #expect(first?.parent == nil)
-            controller.show(snapshot(id: id), rowFrame: CGRect(x: 4, y: 10, width: 76, height: 80))
+            controller.show(RailQuotaRow(snapshot: snapshot(id: id)), rowFrame: CGRect(x: 4, y: 10, width: 76, height: 80))
             #expect(controller.panel === first)
         }
     }
@@ -131,24 +131,47 @@ import Testing
         let rail = makeRail()
         let controller = QuotaDetailPanelController(rail: { rail })
 
-        controller.show(snapshot(id: "a"), rowFrame: .zero)
-        controller.show(snapshot(id: "b"), rowFrame: .zero)
-        controller.hide(snapshotID: "a")
+        controller.show(RailQuotaRow(snapshot: snapshot(id: "a")), rowFrame: .zero)
+        controller.show(RailQuotaRow(snapshot: snapshot(id: "b")), rowFrame: .zero)
+        controller.hide(rowID: .limit("a"))
 
-        #expect(controller.shownSnapshotID == "b")
+        #expect(controller.shownRowID == .limit("b"))
         #expect(controller.panel?.parent === rail)
+    }
+
+    @Test func removingOneLimitKeepsTheToolsCardOpen() throws {
+        let rail = makeRail()
+        let controller = QuotaDetailPanelController(rail: { rail })
+        let primary = snapshot(id: "a")
+        let other = snapshot(id: "b")
+        let rows = RailQuotaRow.rows(for: [primary, other], style: .modern)
+        let row = try #require(rows.first)
+        controller.show(row, rowFrame: .zero)
+        defer { controller.hide(rowID: row.id) }
+        let panel = try #require(controller.panel)
+
+        controller.update(RailQuotaRow.rows(for: [other], style: .modern))
+
+        #expect(controller.shownRowID == row.id)
+        #expect(panel.parent === rail)
+        let hosting = try #require(panel.contentView as? NSHostingView<RailDetailCard>)
+        guard case let .quota(current, _, _, _) = hosting.rootView.content else {
+            Issue.record("The panel should still show quota details")
+            return
+        }
+        #expect(current.id == other.id)
     }
 
     @Test func hidesWhenTheShownRowLeavesTheRail() {
         let rail = makeRail()
         let controller = QuotaDetailPanelController(rail: { rail })
 
-        controller.show(snapshot(id: "a"), rowFrame: .zero)
-        controller.update([snapshot(id: "a"), snapshot(id: "b")])
-        #expect(controller.shownSnapshotID == "a")
+        controller.show(RailQuotaRow(snapshot: snapshot(id: "a")), rowFrame: .zero)
+        controller.update([RailQuotaRow(snapshot: snapshot(id: "a")), RailQuotaRow(snapshot: snapshot(id: "b"))])
+        #expect(controller.shownRowID == .limit("a"))
 
-        controller.update([snapshot(id: "b")])
-        #expect(controller.shownSnapshotID == nil)
+        controller.update([RailQuotaRow(snapshot: snapshot(id: "b"))])
+        #expect(controller.shownRowID == nil)
         #expect(controller.panel?.parent == nil)
     }
 }

@@ -1,6 +1,44 @@
 import AppKit
 import SwiftUI
 
+enum RailDetailID: Hashable {
+    case limit(String)
+    case tool(AIToolID)
+    case liveWork
+    case storage
+}
+
+struct RailQuotaRow: Identifiable, Equatable {
+    let id: RailDetailID
+    let snapshot: QuotaSnapshot
+    let otherLimits: [QuotaSnapshot]
+
+    init(snapshot: QuotaSnapshot, id: RailDetailID? = nil, otherLimits: [QuotaSnapshot] = []) {
+        self.id = id ?? .limit(snapshot.id)
+        self.snapshot = snapshot
+        self.otherLimits = otherLimits
+    }
+
+    /// Modern keeps a row for the tool even when its tightest limit changes.
+    static func rows(for snapshots: [QuotaSnapshot], style: InterfaceStyle) -> [Self] {
+        guard style == .modern else { return snapshots.map { Self(snapshot: $0) } }
+        var order: [AIToolID] = []
+        var byTool: [AIToolID: [QuotaSnapshot]] = [:]
+        for snapshot in snapshots {
+            if byTool[snapshot.toolID] == nil { order.append(snapshot.toolID) }
+            byTool[snapshot.toolID, default: []].append(snapshot)
+        }
+        func tightness(_ snapshot: QuotaSnapshot) -> Double {
+            min(snapshot.remainingPercent, snapshot.secondaryWindow?.remainingPercent ?? 100)
+        }
+        return order.compactMap { tool in
+            guard let limits = byTool[tool],
+                  let tightest = limits.min(by: { tightness($0) < tightness($1) }) else { return nil }
+            return Self(snapshot: tightest, id: .tool(tool), otherLimits: limits.filter { $0.id != tightest.id })
+        }
+    }
+}
+
 @available(macOS 14.0, *)
 struct HUDView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -23,7 +61,7 @@ struct HUDView: View {
     @AppStorage(InterfaceStyle.defaultsKey) private var interfaceStyle = InterfaceStyle.standard
     @State private var isPanelHovered = false
     @State private var labelWidth: CGFloat = 0
-    @State private var detailHoveredSnapshotIDs: Set<String> = []
+    @State private var detailHoveredRowIDs: Set<RailDetailID> = []
     @State private var isRefreshing = false
     @State private var sailingShakeID = 0
     @AppStorage(CruiseWeather.defaultsKey) private var sailingWeatherRaw = CruiseWeather.automatic.rawValue
@@ -118,7 +156,7 @@ struct HUDView: View {
             .overlay {
                 ZStack {
                     edgeLine
-                        .opacity(isEdgeRail || isPanelHovered || !detailHoveredSnapshotIDs.isEmpty ? 1 : 0)
+                        .opacity(isEdgeRail || isPanelHovered || !detailHoveredRowIDs.isEmpty ? 1 : 0)
                     if hasCriticalQuota && isPanelHovered {
                         // The window ends at the rail's edge, so anything drawn
                         // past its rounded corners shows as a square pocket.
@@ -180,7 +218,7 @@ struct HUDView: View {
             .accessibilityAction(named: "Open Settings") { openSettings() }
             .accessibilityAction(named: "Open Branches and Worktrees") { openBranches() }
             .onChange(of: scaledSize) { _, size in resizePanel(size) }
-            .onChange(of: snapshots) { _, values in quotaDetail?.update(values) }
+            .onChange(of: railRows) { _, rows in quotaDetail?.update(rows) }
     }
 
     /// Unscaled room for a bar the system draws over the rail, plus a margin.
@@ -328,31 +366,16 @@ struct HUDView: View {
         }
     }
 
-    /// The rail's rows. Modern gives each tool one ring, for its tightest
-    /// limit, and its hover card lists the rest; Classic has a ring per limit.
-    private var railRows: [(id: String, snapshot: QuotaSnapshot, others: [QuotaSnapshot])] {
-        guard isEdgeRail else { return snapshots.map { ($0.id, $0, []) } }
-        var order: [AIToolID] = []
-        var byTool: [AIToolID: [QuotaSnapshot]] = [:]
-        for snapshot in snapshots {
-            if byTool[snapshot.toolID] == nil { order.append(snapshot.toolID) }
-            byTool[snapshot.toolID, default: []].append(snapshot)
-        }
-        func tightness(_ snapshot: QuotaSnapshot) -> Double {
-            min(snapshot.remainingPercent, snapshot.secondaryWindow?.remainingPercent ?? 100)
-        }
-        return order.compactMap { tool in
-            guard let all = byTool[tool], let tightest = all.min(by: { tightness($0) < tightness($1) }) else { return nil }
-            return (tool.rawValue, tightest, all.filter { $0.id != tightest.id })
-        }
+    private var railRows: [RailQuotaRow] {
+        RailQuotaRow.rows(for: snapshots, style: interfaceStyle)
     }
 
     private var quotaRows: some View {
-        ForEach(railRows, id: \.id) { row in
+        ForEach(railRows) { row in
             let snapshot = row.snapshot
             QuotaRowView(
                 snapshot: snapshot,
-                otherLimits: row.others,
+                otherLimits: row.otherLimits,
                 agentPhase: agentStore.phase(for: snapshot.toolID),
                 agentTaskID: agentStore.targetTask(for: snapshot.toolID)?.id,
                 openTool: openTool,
@@ -368,11 +391,11 @@ struct HUDView: View {
                 },
                 onDetailHoverChanged: { isHovered, rowFrame in
                     if isHovered {
-                        detailHoveredSnapshotIDs.insert(snapshot.id)
-                        quotaDetail?.show(snapshot, others: row.others, rowFrame: rowFrame)
+                        detailHoveredRowIDs.insert(row.id)
+                        quotaDetail?.show(row, rowFrame: rowFrame)
                     } else {
-                        detailHoveredSnapshotIDs.remove(snapshot.id)
-                        quotaDetail?.pointerLeft(snapshotID: snapshot.id)
+                        detailHoveredRowIDs.remove(row.id)
+                        quotaDetail?.pointerLeft(rowID: row.id)
                     }
                 }
             )
@@ -385,24 +408,24 @@ struct HUDView: View {
             VStack(spacing: isEdgeRail ? HUDMetrics.itemSpacing : HUDMetrics.resourcePaperweightGap) {
                 CPUTile(monitor: liveWork.cpu, open: openThisMac)
                 LiveWorkTile(monitor: liveWork, open: { openPaperweight(.memory) }) { isHovered, frame in
-                    let id = QuotaDetailPanelController.liveWorkID
+                    let id = RailDetailID.liveWork
                     if isHovered {
-                        detailHoveredSnapshotIDs.insert(id)
+                        detailHoveredRowIDs.insert(id)
                         quotaDetail?.showLiveWork(rowFrame: frame)
                     } else {
-                        detailHoveredSnapshotIDs.remove(id)
-                        quotaDetail?.pointerLeft(snapshotID: id)
+                        detailHoveredRowIDs.remove(id)
+                        quotaDetail?.pointerLeft(rowID: id)
                     }
                 }
                 StorageTile(monitor: liveWork, open: { openPaperweight(.storage) }) { isHovered, frame in
-                    let id = QuotaDetailPanelController.storageID
+                    let id = RailDetailID.storage
                     if isHovered {
-                        detailHoveredSnapshotIDs.insert(id)
+                        detailHoveredRowIDs.insert(id)
                         quotaDetail?.showStorage(rowFrame: frame, disk: liveWork.diskSpace,
                                                  breakdown: StorageBreakdown.load(from: .standard))
                     } else {
-                        detailHoveredSnapshotIDs.remove(id)
-                        quotaDetail?.pointerLeft(snapshotID: id)
+                        detailHoveredRowIDs.remove(id)
+                        quotaDetail?.pointerLeft(rowID: id)
                     }
                 }
             }
