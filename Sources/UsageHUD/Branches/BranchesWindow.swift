@@ -8,17 +8,18 @@ enum AppWindowIdentifiers {
 }
 
 enum MainPageDestination: String, CaseIterable, Identifiable {
-    case overview, thisMac, worktrees, cleanup, resources, settings
+    case overview, thisMac, worktrees, cleanup, resources, devices, settings
 
     var id: Self { self }
 
     var title: String {
         switch self {
         case .overview: "Overview"
-        case .thisMac: "This Mac"
+        case .thisMac: "CPU"
         case .worktrees: "Branches"
         case .cleanup: "Cleanup"
         case .resources: "Overview"
+        case .devices: "iPhone & Watch"
         case .settings: "Settings"
         }
     }
@@ -26,17 +27,18 @@ enum MainPageDestination: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .overview: "square.grid.2x2"
-        case .thisMac: "desktopcomputer"
+        case .thisMac: "cpu"
         case .worktrees: "point.3.connected.trianglepath.dotted"
         case .cleanup: "sparkles"
         case .resources: "chart.pie"
+        case .devices: "applewatch"
         case .settings: "gearshape"
         }
     }
 }
 
 enum OverviewSection: String, Hashable {
-    case overview, thisMac, resources, branches, settings
+    case overview, thisMac, resources, branches, devices, settings
 }
 
 /// Modern gives each part of the window a page of its own; Classic scrolls
@@ -50,7 +52,7 @@ enum ModernPage: String, CaseIterable, Identifiable, Hashable, Sendable {
         switch self {
         case .overview: "Overview"
         case .usage: "Usage"
-        case .thisMac: "This Mac"
+        case .thisMac: "CPU"
         case .memory: "Memory"
         case .storage: "Storage"
         case .branches: "Branches"
@@ -63,7 +65,7 @@ enum ModernPage: String, CaseIterable, Identifiable, Hashable, Sendable {
         switch self {
         case .overview: "square.grid.2x2.fill"
         case .usage: "gauge.with.dots.needle.67percent"
-        case .thisMac: "desktopcomputer"
+        case .thisMac: "cpu"
         case .memory: "memorychip.fill"
         case .storage: "internaldrive.fill"
         case .branches: "arrow.triangle.branch"
@@ -79,7 +81,7 @@ enum ModernPage: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .thisMac: .thisMac
         case .memory, .storage: .resources
         case .branches, .worktrees: .branches
-        case .devices: .overview
+        case .devices: .devices
         }
     }
 }
@@ -124,6 +126,7 @@ final class BranchesPaperweightPresentation: ObservableObject {
         case .cleanup:
             show(.storage)
         case .resources: focus(.resources)
+        case .devices: focus(.devices)
         case .settings: focus(.settings)
         }
     }
@@ -136,6 +139,7 @@ final class BranchesPaperweightPresentation: ObservableObject {
         case .thisMac: modernPage = .thisMac
         case .resources: if modernPage != .memory { modernPage = .storage }
         case .branches: modernPage = .worktrees
+        case .devices: modernPage = .devices
         case .settings: break
         }
     }
@@ -247,7 +251,7 @@ final class BranchesWindowController: NSWindowController, NSWindowDelegate {
             syncContent: syncContent,
             localToolStatus: localToolStatus,
             updateController: updateController, openSettings: openSettings
-        ))
+        ).appLanguageEnvironment())
         window.titlebarSeparatorStyle = .none
         window.toolbar?.showsBaselineSeparator = false
     }

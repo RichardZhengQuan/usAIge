@@ -54,10 +54,10 @@ struct LiveWorkTile: View {
         Button(action: open) {
             if style == .modern {
                 ModernRailGauge(
-                    share: share ?? 0, color: ModernPalette.memory, symbol: "memorychip",
+                    share: share ?? 0, color: ModernPalette.memory,
                     value: value, detail: detail,
                     isHovered: isHovered || previewsHover
-                )
+                ) { Image(systemName: "memorychip") }
             } else {
                 RailResourcePaperweight(
                     configuration: PaperweightData.memory(summary: monitor.summary, running: [], systemUsage: memory),
@@ -70,7 +70,7 @@ struct LiveWorkTile: View {
             }
         }
         .buttonStyle(.plain)
-        .help(memory.map { "RAM \($0.ramDescription) · Swap \($0.swapDescription)" } ?? "Memory unavailable")
+        .help(memory?.breakdown() ?? AppLanguage.text("Memory unavailable"))
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { value in
             frame = value
             if isHovered { onHoverChanged(true, value) }
@@ -81,7 +81,7 @@ struct LiveWorkTile: View {
         }
         .onDisappear { onHoverChanged(false, frame) }
         .accessibilityLabel("Memory")
-        .accessibilityValue(memory.map { "RAM \($0.ramDescription), swap \($0.swapDescription)" } ?? "Unavailable")
+        .accessibilityValue(memory?.breakdown() ?? AppLanguage.text("Unavailable"))
         .accessibilityHint("Opens Memory")
     }
 }
@@ -96,15 +96,18 @@ struct CPUTile: View {
 
     var body: some View {
         let value = monitor.usage.map { LiveWorkText.percent($0.busy) } ?? "–"
+        let status = monitor.usage?.trendStatus ?? .unknown
         Button(action: open) {
             if style == .modern {
-                ModernRailGauge(share: monitor.usage?.busy ?? 0, color: ModernPalette.cpu, symbol: "cpu",
-                                value: value, detail: "CPU", isHovered: hovered)
+                ModernRailGauge(share: monitor.usage?.busy ?? 0, color: status.color,
+                                value: value, detail: "CPU", isHovered: hovered) {
+                    CPUTrendPlot(samples: monitor.samples, compact: true).frame(width: 39, height: 26)
+                }
             } else {
                 VStack(spacing: HUDMetrics.resourceReadoutGap) {
-                    ModernRingGauge(share: monitor.usage?.busy ?? 0, color: ModernPalette.cpu,
-                                    lineWidth: 3, symbol: "cpu", symbolSize: 14)
+                    ModernRingGauge(share: monitor.usage?.busy ?? 0, color: status.color, lineWidth: 3)
                         .frame(width: HUDMetrics.resourcePaperweightHeight, height: HUDMetrics.resourcePaperweightHeight)
+                        .overlay { CPUTrendPlot(samples: monitor.samples, compact: true).frame(width: 22, height: 15) }
                     Text("CPU \(value)")
                         .font(.system(size: 11 * textSize.factor, weight: .semibold, design: .rounded))
                         .monospacedDigit()
@@ -115,9 +118,10 @@ struct CPUTile: View {
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
-        .help("Open CPU usage on This Mac")
-        .accessibilityLabel("CPU usage")
-        .accessibilityValue(monitor.usage == nil ? "Unavailable" : value)
+        .help("CPU usage over the last minute. Click to open CPU on This Mac.")
+        .accessibilityLabel(Text("CPU usage", bundle: AppLanguage.resourceBundle))
+        .accessibilityValue(monitor.usage == nil ? status.localizedTitle : Text("\(value) · \(status.localizedTitle)",
+                                                                              bundle: AppLanguage.resourceBundle))
         .accessibilityHint("Opens This Mac")
     }
 }
@@ -147,11 +151,11 @@ struct StorageTile: View {
             if style == .modern {
                 let used = disk?.usedShare() ?? 0
                 ModernRailGauge(
-                    share: used, color: ModernPalette.storageColor(usedShare: used), symbol: "internaldrive",
+                    share: used, color: ModernPalette.storageColor(usedShare: used),
                     value: disk.map { LiveWorkText.percent($0.usedShare()) } ?? "–",
                     detail: disk.map { RailResourceText.freeSpace($0.availableBytes) + " free" } ?? "–",
                     isHovered: isHovered || previewsHover
-                )
+                ) { Image(systemName: "internaldrive") }
             } else {
                 RailResourcePaperweight(
                     configuration: RailPaperweightData.storage(disk),
@@ -182,14 +186,14 @@ struct StorageTile: View {
 /// The Modern rail's resource tile: a ring gauge with its symbol, and the
 /// figure under it. Nothing moves, so the rail costs nothing while idle.
 @available(macOS 14.0, *)
-private struct ModernRailGauge: View {
+private struct ModernRailGauge<Face: View>: View {
     @Environment(\.hudTextSize) private var textSize
     let share: Double
     let color: Color
-    let symbol: String
     let value: String
     let detail: String
     let isHovered: Bool
+    @ViewBuilder let face: () -> Face
 
     var body: some View {
         // The same ring as a tool's, with its figure under it in place of
@@ -197,8 +201,14 @@ private struct ModernRailGauge: View {
         VStack(spacing: 1) {
             // 63 points less the stroke's half on each side puts the ring's
             // centre line at 58, exactly where a tool's outer ring sits.
-            ModernRingGauge(share: share, color: color, lineWidth: 5, symbol: symbol, symbolSize: 17)
+            ModernRingGauge(share: share, color: color, lineWidth: 5)
                 .frame(width: 63, height: 63)
+                .overlay {
+                    face()
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(color)
+                        .accessibilityHidden(true)
+                }
                 .scaleEffect(isHovered ? 1.04 : 1)
                 .animation(.snappy(duration: 0.18), value: isHovered)
             VStack(spacing: 0) {
@@ -377,7 +387,7 @@ struct LiveWorkCard: View {
                 Text(memory?.compactTotal ?? "Unavailable").monospacedDigit()
             }
             if let memory {
-                Text("RAM \(memory.ramDescription)  ·  Swap \(memory.swapDescription)")
+                Text(memory.breakdown())
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

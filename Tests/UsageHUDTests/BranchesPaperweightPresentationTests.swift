@@ -9,6 +9,9 @@ struct BranchesPaperweightPresentationTests {
     @Test func thisMacIsASeparateDestinationInBothNavigationStyles() {
         guard #available(macOS 14.0, *) else { return }
         let presentation = BranchesPaperweightPresentation()
+        #expect(ModernPage.thisMac.title == "CPU")
+        #expect(MainPageDestination.thisMac.title == "CPU")
+        #expect(MainRootView.modernGroups.first(where: { $0.pages.contains(.thisMac) })?.title == "This Mac")
         presentation.navigate(to: .thisMac)
         #expect(presentation.modernPage == .thisMac)
         #expect(presentation.selectedSection == .thisMac)
@@ -16,6 +19,10 @@ struct BranchesPaperweightPresentationTests {
         #expect(presentation.selectedSection == .resources)
         presentation.open(.thisMac)
         #expect(presentation.selectedSection == .thisMac)
+        presentation.focus(.devices)
+        #expect(presentation.modernPage == .devices)
+        presentation.open(.devices)
+        #expect(presentation.selectedSection == .devices)
     }
 
     @Test func aRailClickBringsStorageForwardWithWorktreesSelected() {

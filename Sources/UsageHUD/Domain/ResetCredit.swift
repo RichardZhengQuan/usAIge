@@ -22,17 +22,6 @@ extension QuotaSnapshot {
     }
 }
 
-extension QuotaSnapshot {
-    /// The same limit with its free resets left out.
-    var withoutResetCredits: QuotaSnapshot {
-        var copy = self
-        copy.resetCredits = []
-        copy.availableResetCount = nil
-        copy.resetCreditExpiresAt = nil
-        return copy
-    }
-}
-
 extension Array where Element == QuotaSnapshot {
     /// A tool's free resets that haven't expired, from whichever of its
     /// limits carries them, soonest to expire first.

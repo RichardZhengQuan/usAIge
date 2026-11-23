@@ -21,6 +21,7 @@ struct ModernResourcePage: View {
     @State private var showsStorageReview = false
     @State private var storageCleanupStarted = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.locale) private var locale
 
     init(resource: PaperweightID, store: BranchesStore, liveWork: LiveWorkMonitor?,
          presentation: BranchesPaperweightPresentation) {
@@ -112,8 +113,8 @@ struct ModernResourcePage: View {
             heading("Memory")
             figureCard(
                 value: memory.freeBytes == nil ? "–" : memory.id.formatBytes(memory.usedBytes),
-                unit: memoryUsage == nil ? "" : "of \(memory.id.formatBytes(memory.capacityBytes)) in use",
-                caption: memoryUsage.map { "RAM \($0.ramDescription)  ·  Swap \($0.swapDescription)" },
+                unit: memoryUsage == nil ? "" : AppLanguage.format("of %@ in use", locale: locale, memory.id.formatBytes(memory.capacityBytes)),
+                caption: memoryUsage?.breakdown(locale: locale),
                 configuration: memory
             )
             if memoryUsage == nil {
@@ -183,10 +184,12 @@ struct ModernResourcePage: View {
         }
         figureCard(
             value: disk.map { BoardText.bytes($0.availableBytes) } ?? "–",
-            unit: disk.map { "free of \(BoardText.bytes($0.totalBytes))" } ?? "",
+            unit: disk.map { AppLanguage.format("free of %@", locale: locale, BoardText.bytes($0.totalBytes)) } ?? "",
             caption: freeable > 0
-                ? "About \(BoardText.bytes(freeable)) can be cleared from \(board.safeToClear.count) finished worktrees"
-                    + (disk.map { ", leaving \(BoardText.bytes($0.availableBytes + freeable)) free." } ?? ".")
+                ? AppLanguage.format("About %@ can be cleared from %ld finished worktrees", locale: locale,
+                                     BoardText.bytes(freeable), board.safeToClear.count)
+                    + (disk.map { AppLanguage.format(", leaving %@ free.", locale: locale, BoardText.bytes($0.availableBytes + freeable)) }
+                       ?? AppLanguage.text(".", locale: locale))
                 : nil,
             configuration: storage
         )
@@ -334,7 +337,7 @@ struct ModernResourcePage: View {
     // MARK: Shared pieces
 
     private func heading(_ title: String) -> some View {
-        Text(title)
+        Text(LocalizedStringKey(title), bundle: AppLanguage.resourceBundle)
             .font(.largeTitle.weight(.bold))
             .accessibilityAddTraits(.isHeader)
             .padding(.horizontal, 4)
@@ -347,16 +350,31 @@ struct ModernResourcePage: View {
         let free = configuration.freeLayer
         return ModernCard(padding: 18) {
             VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(value)
-                        .font(.system(size: 30, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
-                        .contentTransition(.numericText())
-                    Text(unit).font(.title3).foregroundStyle(.secondary)
+                let figure = VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(value)
+                            .font(.system(size: 30, weight: .semibold, design: .rounded))
+                            .monospacedDigit()
+                            .contentTransition(.numericText())
+                        Text(LocalizedStringKey(unit), bundle: AppLanguage.resourceBundle).font(.title3).foregroundStyle(.secondary)
+                    }
+                    if let caption {
+                        Text(caption).font(.callout).foregroundStyle(.secondary).monospacedDigit()
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
-                if let caption {
-                    Text(caption).font(.callout).foregroundStyle(.secondary).monospacedDigit()
-                        .padding(.top, -8)
+                if let liveWork {
+                    let source = resource == .memory ? liveWork.memoryHistory : liveWork.storageHistory
+                    let chart = ResourceTrendChart(history: source, resource: resource)
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 18) {
+                            figure.frame(minWidth: 245, maxWidth: .infinity, alignment: .leading)
+                            chart.frame(minWidth: 160, idealWidth: 245, maxWidth: 300)
+                        }
+                        VStack(alignment: .leading, spacing: 12) { figure; chart }
+                    }
+                } else {
+                    figure
                 }
                 CapacityBar(segments: segments, capacity: configuration.capacityBytes)
                 CapacityLegend(segments: segments.filter { $0.bytes > 0 || $0.isMeasuring } + [

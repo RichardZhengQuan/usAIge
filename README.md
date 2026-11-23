@@ -114,9 +114,9 @@ families, sync behavior, and device signing are documented in
 
 usAIge is a native macOS floating AI usage rail. It shows real usage limits from the local Codex app-server, from local Claude desktop usage data and the Cursor and Grok Build sign-ins already on this Mac, and from remote AI tools you explicitly configure. When a limit has two windows, the inner ring shows its primary window and the outer ring shows its secondary window.
 
-In the Modern interface, **Usage** shows the supported AI tools installed on this Mac, including tools that still need a sign-in or access to their limits. Expand **Reset details** on any card to see the reset times and credits its provider reports.
+In the Modern interface, **Usage** lists installed AI tools with quota readings first. Installed tools that still need a sign-in or access to their limits appear under **Not connected**. Each tool’s summary shows upcoming resets and current work. Click its header for the full reset schedule, credits, and active sessions. Each card remembers its own choice.
 
-**iPhone & Watch** puts pairing instructions above the device docks. Each dock has a slot for an iPhone and its Apple Watch. If an older connection has no recorded phone, **Choose iPhone…** groups the devices on this Mac.
+Open **Devices → iPhone & Watch**. The pairing card under **How it works** lets you enable sync, then shows a one-time code you can copy to pair an iPhone. Each dock below has an iPhone slot and an Apple Watch slot, visible even before the first pairing. If an older connection has no recorded phone, **Choose iPhone…** groups the devices on this Mac.
 
 macOS can notify you whenever a primary or secondary usage window crosses a new 5% used boundary. Selecting the notification brings the live limits rail forward.
 
@@ -439,7 +439,8 @@ Open **Settings** at the bottom of the main window’s sidebar, use Command-comm
 - Quota visibility and vertical ordering within a tool.
 - Connecting remote AI tools with one-time pairing codes and per-tool revocation.
 - Floating panel text size, opacity (0–100%), and scale (0.5×–1.5×). The panel fits its width to the text.
-- Independent menu bar and Dock icon switches. Hover over the menu bar gauge to reveal the panel, or click it to open the main window.
+- The app language under **Display → Language**. Choose **System Default**, **English**, or **简体中文**.
+- Independent menu bar and Dock icon switches. Hover over the menu bar gauge to reveal the panel. Click it for **Open usAIge**, **Settings…**, and **Quit usAIge**.
 - Optional automatic launch when you log in to your Mac.
 - Automatic update checks, local new-version notifications, and one-click in-app updates.
 - A native, account-free feedback form that records the message and basic app/system context on the usAIge server.
@@ -454,9 +455,11 @@ The built-in Codex, Cursor, Grok Build, Copilot, Command Code, Cline, and OpenCo
 
 The rail shows what your AI tools are working on, without opening anything:
 
-- **CPU** shows the percentage of time all cores spent running work, sampled every two seconds. Click it or the CPU card in **Overview** to open **This Mac**, where you can see user, system and idle time.
+- **CPU** shows the percentage of time all cores spent running work, sampled every two seconds. A miniature trend inside the floating panel’s CPU ring shows the last minute. **Overview** and **This Mac → CPU** show five minutes by default, with options for one minute, 15 minutes, or an hour. The CPU page also shows the user, system, and idle breakdown.
 - **Memory** shows used physical RAM and swap as a share of installed RAM plus allocated swap. Hover to see RAM and swap separately, along with the AI sessions and processes usAIge can measure.
 - **Storage** shows disk fullness and free space. Hover to see the breakdown last measured in Branches and when it was measured.
+- The Memory and Storage cards in **Overview** and the corresponding detail pages chart memory in use (RAM plus swap) and free disk space. Disk space is sampled once a minute.
+- Each part of a trend uses the status recorded at that time. Green, amber, and red represent normal, warning, and critical. CPU changes at 70% and 90% busy, storage at 90% and 95% full, and memory follows macOS memory pressure. Gray indicates an unknown status.
 - Hovering a tool's row adds the same work list for that tool to its limits card, with that tool's memory.
 - A card stays open while the pointer is on it, so a long list can be scrolled.
 - Clicking Memory or Storage opens its resource details.

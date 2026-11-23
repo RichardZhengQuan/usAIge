@@ -1,10 +1,105 @@
 import AppKit
+import Combine
 import SwiftUI
+
+struct PhonePairingVisibility: ViewModifier {
+    let relaySync: RelaySyncController
+    @State private var viewID = UUID()
+
+    func body(content: Content) -> some View {
+        content
+            .background(RailPaperweightVisibility { visible in
+                relaySync.setPhonePairingVisible(visible, for: viewID)
+            })
+            .onDisappear { relaySync.setPhonePairingVisible(false, for: viewID) }
+    }
+}
+
+struct PhonePairingCard: View {
+    @ObservedObject var relaySync: RelaySyncController
+    @Environment(\.interfaceStyle) private var interfaceStyle
+    @State private var copiedCode: String?
+    @State private var now = Date()
+    private let clock = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        Group {
+            if #available(macOS 14.0, *), interfaceStyle == .modern {
+                ModernCard { contents }
+            } else {
+                GroupBox { contents.padding(6) }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("devices.phone-pairing")
+        .onAppear { now = Date() }
+        .onChange(of: relaySync.pairingCode) { _ in copiedCode = nil; now = Date() }
+        .onReceive(clock) { date in
+            if let expiry = relaySync.pairingExpiresAt, now < expiry, date >= expiry { now = date }
+        }
+    }
+
+    private var contents: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Pairing code").font(.headline).accessibilityAddTraits(.isHeader)
+            if case let .failed(message) = relaySync.phonePairingState {
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout).foregroundColor(.orange).fixedSize(horizontal: false, vertical: true)
+                Button("Try Again", action: connectOrRetry)
+            } else if relaySync.phonePairingState == .connecting || relaySync.status == .connecting {
+                ProgressView("Getting a pairing code…").controlSize(.small)
+            } else if !relaySync.isLinked {
+                Text("Enable sync to share this Mac’s usage and session status through the usAIge relay.")
+                    .font(.callout).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+                Button("Enable Device Sync", action: connectOrRetry)
+                    .accessibilityIdentifier("devices.pair-iphone")
+            } else if relaySync.needsPhonePairingCheck {
+                ProgressView("Checking pairing code…").controlSize(.small)
+            } else if let invitation = relaySync.validPhonePairing(at: now) {
+                HStack(spacing: 12) {
+                    Text(verbatim: invitation.code)
+                        .font(.system(size: 28, weight: .semibold, design: .monospaced))
+                        .kerning(3)
+                        .accessibilityLabel("Pairing code \(invitation.code.map(String.init).joined(separator: " "))")
+                    Spacer(minLength: 6)
+                    Button {
+                        guard relaySync.phonePairingState == .idle, !relaySync.needsPhonePairingCheck,
+                              relaySync.validPhonePairing(at: Date())?.code == invitation.code else { return }
+                        let pasteboard = NSPasteboard.general
+                        pasteboard.clearContents()
+                        if pasteboard.setString(invitation.code, forType: .string) { copiedCode = invitation.code }
+                    } label: {
+                        let copied = copiedCode == invitation.code
+                        Label(LocalizedStringKey(copied ? "Copied" : "Copy"), systemImage: copied ? "checkmark" : "doc.on.doc")
+                    }
+                }
+                Text("One-time code · Expires at \(invitation.expiry, style: .time)")
+                    .font(.caption).foregroundColor(.secondary)
+            } else {
+                ProgressView(relaySync.pairingExpiresAt == nil ? "Getting a pairing code…" : "Renewing expired code…")
+                    .controlSize(.small)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func connectOrRetry() {
+        if relaySync.isLinked { relaySync.startVisiblePhonePairing() }
+        else { Task { await relaySync.createPairingCode() } }
+    }
+}
 
 struct RelayDeviceDock: Identifiable, Equatable {
     let phone: RelayPhoneDevice?
     let watch: RelayPhoneDevice?
-    var id: String { watch.map { "watch-" + $0.id } ?? "phone-" + (phone?.id ?? "") }
+    static let empty = Self(phone: nil, watch: nil)
+
+    var id: String { watch.map { "watch-" + $0.id } ?? phone.map { "phone-" + $0.id } ?? "empty" }
+
+    func missingPhoneText(isLinked: Bool) -> String {
+        guard let watch else { return isLinked ? "No iPhone reported" : "No iPhone paired" }
+        return watch.parentPhoneID == nil ? "Paired iPhone unknown" : "Paired iPhone no longer linked"
+    }
 
     static func list(_ devices: [RelayPhoneDevice], localPhones: [String: String] = [:]) -> [Self] {
         let phones = devices.filter { !$0.isWatch }
@@ -29,9 +124,9 @@ struct RelayDeviceDock: Identifiable, Equatable {
 
 @available(macOS 14.0, *)
 struct ModernDevicesPage: View {
+    @Environment(\.locale) private var locale
     @ObservedObject var relaySync: RelaySyncController
     var showsHeading = true
-    @State private var copied = false
     @State private var confirmsDisconnect = false
 
     var body: some View {
@@ -39,14 +134,6 @@ struct ModernDevicesPage: View {
             VStack(alignment: .leading, spacing: 24) {
                 header
                 steps
-                if case let .failed(message) = relaySync.status {
-                    Label(message, systemImage: "exclamationmark.triangle.fill")
-                        .font(.callout).foregroundStyle(.orange)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                if let code = relaySync.pairingCode, let expiry = relaySync.pairingExpiresAt, expiry > Date() {
-                    pairingCode(code, expiry: expiry)
-                }
                 deviceDocks
                 if relaySync.isLinked { disconnect }
             }
@@ -64,15 +151,7 @@ struct ModernDevicesPage: View {
         }
         .background(ModernPalette.page)
         .environment(\.interfaceStyle, .modern)
-        .task(id: relaySync.pairingCode ?? relaySync.channelID) {
-            guard relaySync.isLinked else { return }
-            repeat {
-                await relaySync.refreshDevices()
-                guard let expiry = relaySync.pairingExpiresAt, expiry > Date(),
-                      !Task.isCancelled else { return }
-                do { try await Task.sleep(for: .seconds(5)) } catch { return }
-            } while !Task.isCancelled
-        }
+        .modifier(PhonePairingVisibility(relaySync: relaySync))
         .confirmationDialog("Disconnect all devices?", isPresented: $confirmsDisconnect) {
             Button("Disconnect All", role: .destructive) { Task { await relaySync.disconnectAll() } }
         } message: {
@@ -81,7 +160,7 @@ struct ModernDevicesPage: View {
     }
 
     private var header: some View {
-        HStack(alignment: .firstTextBaseline) {
+        Group {
             if showsHeading {
                 Text("iPhone & Apple Watch")
                     .font(.largeTitle.weight(.bold))
@@ -89,76 +168,20 @@ struct ModernDevicesPage: View {
             } else {
                 Text(relaySync.macName).font(.headline)
             }
-            Spacer(minLength: 12)
-            if relaySync.isLinked {
-                Button("Add iPhone…") { Task { await relaySync.createPairingCode() } }
-                    .controlSize(.large)
-                    .disabled(isBusy)
-            } else {
-                Button("Connect iPhone…") { Task { await relaySync.createChannel() } }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .disabled(isBusy)
-            }
         }
         .padding(.horizontal, 4)
     }
 
-    private var isBusy: Bool {
-        if case .connecting = relaySync.status { true } else { false }
-    }
-
-    // MARK: Pairing
-
-    private func pairingCode(_ code: String, expiry: Date) -> some View {
-        ModernSection(title: "Pairing code",
-                      footer: "Enter it in usAIge on your iPhone. It works once and expires at \(expiry.formatted(date: .omitted, time: .shortened)).") {
-            HStack(spacing: 12) {
-                Text(code)
-                    .font(.system(size: 30, weight: .semibold, design: .monospaced))
-                    .kerning(4)
-                    .textSelection(.enabled)
-                    .accessibilityLabel("Pairing code \(code.map(String.init).joined(separator: " "))")
-                Spacer(minLength: 12)
-                Button {
-                    NSPasteboard.general.clearContents()
-                    copied = NSPasteboard.general.setString(code, forType: .string)
-                } label: {
-                    Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
-                }
-            }
-            .padding(.horizontal, ModernMetrics.rowPadding)
-            .padding(.vertical, 14)
-        }
-        .onChange(of: code) { _, _ in copied = false }
-    }
-
     private var steps: some View {
-        ModernSection(title: "How it works") {
-            stepRow(1, "Choose \(relaySync.isLinked ? "Add iPhone" : "Connect iPhone") to create a one-time code.")
-            stepRow(2, "Enter the code in usAIge on your iPhone to receive this Mac’s usage.")
-            stepRow(3, "Open usAIge on your paired Apple Watch to sync through that iPhone.")
-        }
-    }
-
-    private func stepRow(_ number: Int, _ text: String) -> some View {
-        HStack(spacing: 12) {
-            Text("\(number)")
-                .font(.callout.weight(.semibold))
-                .monospacedDigit()
-                .foregroundStyle(Color(nsColor: .systemIndigo))
-                .frame(width: ModernMetrics.iconSize, height: ModernMetrics.iconSize)
-                .background(Color(nsColor: .systemIndigo).opacity(0.12), in: Circle())
-            Text(text).font(.callout)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, ModernMetrics.rowPadding)
-        .padding(.vertical, 10)
-        .overlay(alignment: .top) {
-            if number > 1 {
-                Rectangle().fill(Color.primary.opacity(0.1)).frame(height: 0.5)
-                    .padding(.leading, ModernMetrics.separatorInset)
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("How it works").font(.headline).accessibilityAddTraits(.isHeader)
+                Text("Enter the code below in usAIge on your iPhone. Open usAIge on its paired Apple Watch to sync through that iPhone.")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            .padding(.horizontal, 4)
+            PhonePairingCard(relaySync: relaySync)
         }
     }
 
@@ -171,7 +194,7 @@ struct ModernDevicesPage: View {
                 if case .uploading = relaySync.status {
                     Text("Sending…").font(.caption).foregroundStyle(.secondary)
                 } else if let sent = relaySync.lastUploadAt {
-                    Text("Last sent \(sent.formatted(date: .omitted, time: .shortened))")
+                    Text("Last sent \(sent.formatted(Date.FormatStyle(date: .omitted, time: .shortened).locale(locale)))")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 if relaySync.isLinked {
@@ -180,16 +203,15 @@ struct ModernDevicesPage: View {
                 }
             }
             .padding(.horizontal, 4)
-            if docks.isEmpty {
-                ModernCard(padding: 16) {
-                    Text(relaySync.isLinked ? "Waiting for an iPhone to pair." : "Connect an iPhone to add your first dock.")
-                        .font(.callout).foregroundStyle(.secondary)
-                }
+            if case let .failed(message) = relaySync.status, relaySync.phonePairingState != .failed(message) {
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout).foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            ForEach(docks) { dock in
+            ForEach(docks.isEmpty ? [.empty] : docks) { dock in
                 ModernCard(padding: 16) {
                     ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 18) {
+                        HStack(alignment: .top, spacing: 18) {
                             phoneSlot(dock).frame(minWidth: 190)
                             Divider()
                             deviceSlot(dock.watch, isWatch: true).frame(minWidth: 190)
@@ -216,8 +238,7 @@ struct ModernDevicesPage: View {
 
     private func phoneSlot(_ dock: RelayDeviceDock) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            deviceSlot(dock.phone, isWatch: false, missingPhone: dock.watch?.parentPhoneID == nil
-                       ? "Paired iPhone unknown" : "Paired iPhone no longer linked")
+            deviceSlot(dock.phone, isWatch: false, missingPhone: dock.missingPhoneText(isLinked: relaySync.isLinked))
             if let watch = dock.watch, watch.parentPhoneID == nil, let channel = relaySync.channelID {
                 VStack(alignment: .leading, spacing: 5) {
                     if dock.phone != nil {
@@ -227,7 +248,7 @@ struct ModernDevicesPage: View {
                         Text("Connect an iPhone to choose it for this dock.")
                             .font(.caption).foregroundStyle(.secondary)
                     } else {
-                        Menu(dock.phone == nil ? "Choose iPhone…" : "Change iPhone…") {
+                        Menu(LocalizedStringKey(dock.phone == nil ? "Choose iPhone…" : "Change iPhone…")) {
                             ForEach(linkedPhones) { phone in
                                 Button(phoneLabel(phone)) {
                                     relaySync.chooseDockPhone(phone.id, for: watch.id, in: channel)
@@ -259,13 +280,14 @@ struct ModernDevicesPage: View {
                 Text(isWatch ? "Apple Watch" : "iPhone").font(.caption).foregroundStyle(.secondary)
                 if let device {
                     Text(isWatch ? device.name : phoneLabel(device)).font(.headline).fixedSize(horizontal: false, vertical: true)
-                    Text("Last seen \(device.lastSeenAt.formatted(date: .abbreviated, time: .shortened))")
+                    Text("Last seen \(device.lastSeenAt.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened).locale(locale)))")
                         .font(.caption).foregroundStyle(.secondary)
                     Button("Revoke", role: .destructive) { Task { await relaySync.revoke(device) } }
                         .controlSize(.small)
                         .accessibilityLabel("Revoke \(device.name)")
                 } else {
-                    Text(isWatch ? "No watch reported" : missingPhone)
+                    Text(LocalizedStringKey(isWatch ? (relaySync.isLinked ? "No Apple Watch reported" : "No Apple Watch paired") : missingPhone),
+                         bundle: AppLanguage.resourceBundle)
                         .font(.callout).foregroundStyle(.secondary)
                 }
             }

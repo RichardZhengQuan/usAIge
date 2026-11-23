@@ -59,7 +59,6 @@ final class HUDSettings: ObservableObject {
         var textSize: HUDTextSize = .standard
         var showsMenuBarIcon = true
         var showsDockIcon = true
-        var showsResetCredits = true
         var usageAlertIntervalPercent = HUDSettings.defaultUsageAlertIntervalPercent
         var didApplyLatestBucketDefault = false
         var didApplyPrimaryBucketDefault = false
@@ -71,7 +70,6 @@ final class HUDSettings: ObservableObject {
         enum CodingKeys: String, CodingKey {
             case version, bucketOrder, hiddenBucketIDs, toolOrder, hiddenToolIDs
             case scale, opacity, textSize, showsMenuBarIcon, showsDockIcon, positions, lastDisplayKey
-            case showsResetCredits
             case usageAlertIntervalPercent
             case didApplyLatestBucketDefault
             case didApplyPrimaryBucketDefault
@@ -94,10 +92,6 @@ final class HUDSettings: ObservableObject {
                 .flatMap(HUDTextSize.init(rawValue:)) ?? .standard
             showsMenuBarIcon = try values.decodeIfPresent(Bool.self, forKey: .showsMenuBarIcon) ?? true
             showsDockIcon = try values.decodeIfPresent(Bool.self, forKey: .showsDockIcon) ?? true
-            showsResetCredits = try values.decodeIfPresent(
-                Bool.self,
-                forKey: .showsResetCredits
-            ) ?? true
             usageAlertIntervalPercent = try values.decodeIfPresent(
                 Int.self,
                 forKey: .usageAlertIntervalPercent
@@ -218,11 +212,6 @@ final class HUDSettings: ObservableObject {
     var showsDockIcon: Bool {
         get { payload.showsDockIcon }
         set { update { payload.showsDockIcon = newValue } }
-    }
-
-    var showsResetCredits: Bool {
-        get { payload.showsResetCredits }
-        set { update { payload.showsResetCredits = newValue } }
     }
 
     var usageAlertIntervalPercent: Int {

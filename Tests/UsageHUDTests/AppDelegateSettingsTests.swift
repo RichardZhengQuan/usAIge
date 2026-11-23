@@ -284,16 +284,19 @@ import Testing
 }
 
 @MainActor
-@Test func menuBarHoverRevealsAndClickOpensTheWindowIndependently() throws {
+@Test func menuBarHoverRevealsAndTheNativeMenuOpensTheSelectedDestination() throws {
     _ = NSApplication.shared
     var hover: [Bool] = []
-    var opens = 0
+    var actions: [String] = []
     var installs = 0
     var removals = 0
+    var attachedMenu: NSMenu?
     let button = NSButton()
-    let icon = MenuBarIconController(hoverChanged: { hover.append($0) }, openWindow: { opens += 1 }) {
+    let icon = MenuBarIconController(hoverChanged: { hover.append($0) },
+                                     openWindow: { actions.append("window") }, showPanel: { actions.append("panel") },
+                                     openSettings: { actions.append("settings") }) {
         installs += 1
-        return MenuBarIconController.Item(button: button, remove: { removals += 1 })
+        return MenuBarIconController.Item(button: button, setMenu: { attachedMenu = $0 }, remove: { removals += 1 })
     }
     icon.setVisible(true)
     defer { icon.setVisible(false) }
@@ -307,9 +310,20 @@ import Testing
     icon.mouseEntered(with: event)
     icon.mouseEntered(with: event)
     #expect(hover == [true])
-    #expect(opens == 0)
-    button.performClick(nil)
-    #expect(opens == 1)
+    #expect(actions.isEmpty)
+    let menu = try #require(attachedMenu)
+    #expect(menu.items.filter { !$0.isSeparatorItem }.map(\.title) == [
+        "Open usAIge", "Show Floating Panel", "Settings…", "Quit usAIge"
+    ])
+    #expect(menu.item(withTitle: "Settings…")?.keyEquivalent == ",")
+    let quit = try #require(menu.item(withTitle: "Quit usAIge"))
+    #expect(quit.action == #selector(NSApplication.terminate(_:)))
+    #expect(quit.target === NSApplication.shared)
+    #expect(quit.keyEquivalent == "q")
+    for title in ["Open usAIge", "Show Floating Panel", "Settings…"] {
+        menu.performActionForItem(at: menu.indexOfItem(withTitle: title))
+    }
+    #expect(actions == ["window", "panel", "settings"])
     icon.mouseExited(with: event)
     #expect(hover == [true, false])
     icon.mouseEntered(with: event)
@@ -317,6 +331,7 @@ import Testing
     icon.mouseEntered(with: event)
     icon.setVisible(false)
     #expect(removals == 1)
+    #expect(attachedMenu == nil)
     #expect(!button.trackingAreas.contains(tracking))
     #expect(!icon.containsPointer)
     #expect(hover == [true, false, true, false])

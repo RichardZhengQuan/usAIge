@@ -154,8 +154,9 @@ import Testing
 
         #expect(controller.shownRowID == row.id)
         #expect(panel.parent === rail)
-        let hosting = try #require(panel.contentView as? NSHostingView<RailDetailCard>)
-        guard case let .quota(current, _, _, _) = hosting.rootView.content else {
+        let hosting = try #require(panel.contentView as? NSHostingView<AppLanguageEnvironment<RailDetailCard>>)
+        let card = hosting.rootView.content
+        guard case let .quota(current, _, _, _) = card.content else {
             Issue.record("The panel should still show quota details")
             return
         }

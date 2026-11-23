@@ -13,7 +13,7 @@ enum AppLanguage: String, CaseIterable, Identifiable {
     var locale: Locale {
         switch self {
         case .system: .autoupdatingCurrent
-        case .english: Locale(identifier: "en")
+        case .english: Locale(identifier: Locale.autoupdatingCurrent.regionCode.map { "en_" + $0 } ?? "en")
         case .simplifiedChinese: Locale(identifier: "zh-Hans-SG")
         }
     }

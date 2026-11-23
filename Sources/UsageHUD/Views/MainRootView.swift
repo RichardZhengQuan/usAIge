@@ -32,7 +32,7 @@ struct MainRootView: View {
     static let modernGroups: [(title: String?, pages: [ModernPage])] = [
         ("usAIge", [.overview]),
         ("AI tools", [.usage]),
-        ("System", [.thisMac, .memory, .storage, .branches, .worktrees]),
+        ("This Mac", [.thisMac, .memory, .storage, .branches, .worktrees]),
         ("Devices", [.devices]),
     ]
 
@@ -67,7 +67,7 @@ struct MainRootView: View {
                         // clicked, so titles are plain rows that can't.
                         ForEach(Self.modernGroups, id: \.pages) { group in
                             if let title = group.title {
-                                Text(title)
+                                Text(LocalizedStringKey(title), bundle: AppLanguage.resourceBundle)
                                     .font(.subheadline.weight(.semibold))
                                     .foregroundStyle(.secondary)
                                     .padding(.top, 14)
@@ -77,7 +77,7 @@ struct MainRootView: View {
                             }
                             ForEach(group.pages) { page in
                                 Label {
-                                    Text(page.title)
+                                    Text(LocalizedStringKey(page.title), bundle: AppLanguage.resourceBundle)
                                 } icon: {
                                     ModernIcon(symbol: page.symbol, color: Self.color(for: page), size: 20)
                                 }
@@ -94,12 +94,20 @@ struct MainRootView: View {
                         Section("usAIge") {
                             navigationItem("Overview", symbol: "square.grid.2x2", section: .overview)
                                 .tag(OverviewSection.overview)
-                            navigationItem("This Mac", symbol: "desktopcomputer", section: .thisMac)
+                        }
+                        Section("This Mac") {
+                            navigationItem(ModernPage.thisMac.title, symbol: ModernPage.thisMac.symbol, section: .thisMac)
                                 .tag(OverviewSection.thisMac)
                             navigationItem("Resources", symbol: "chart.pie", section: .resources)
                                 .tag(OverviewSection.resources)
                             navigationItem("Branches & Worktrees", symbol: "arrow.triangle.branch", section: .branches)
                                 .tag(OverviewSection.branches)
+                        }
+                        if syncContent != nil {
+                            Section("Devices") {
+                                navigationItem(ModernPage.devices.title, symbol: ModernPage.devices.symbol, section: .devices)
+                                    .tag(OverviewSection.devices)
+                            }
                         }
                     }
                 }
@@ -128,7 +136,9 @@ struct MainRootView: View {
             } else if interfaceStyle == .modern {
                 modernPage
             } else if presentation.selectedSection == .thisMac {
-                ThisMacPage(liveWork: liveWork).navigationTitle("This Mac")
+                ThisMacPage(liveWork: liveWork).navigationTitle(ModernPage.thisMac.title)
+            } else if presentation.selectedSection == .devices, let syncContent {
+                syncContent.navigationTitle(ModernPage.devices.title)
             } else {
                 overviewContent
             }
@@ -154,12 +164,12 @@ struct MainRootView: View {
             if interfaceStyle == .modern {
                 // Coloured squares, as in System Settings.
                 Label {
-                    Text(title)
+                    Text(LocalizedStringKey(title), bundle: AppLanguage.resourceBundle)
                 } icon: {
                     ModernIcon(symbol: Self.modernSymbol(for: section), color: Self.modernColor(for: section), size: 20)
                 }
             } else {
-                Label(title, systemImage: symbol)
+                Label(LocalizedStringKey(title), systemImage: symbol)
             }
         }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -171,7 +181,8 @@ struct MainRootView: View {
     private static func modernSymbol(for section: OverviewSection) -> String {
         switch section {
         case .overview: "square.grid.2x2.fill"
-        case .thisMac: "desktopcomputer"
+        case .thisMac: ModernPage.thisMac.symbol
+        case .devices: ModernPage.devices.symbol
         case .resources: "chart.pie.fill"
         case .branches: "arrow.triangle.branch"
         case .settings: "gearshape.fill"
@@ -182,6 +193,7 @@ struct MainRootView: View {
         switch section {
         case .overview: Color(nsColor: .systemBlue)
         case .thisMac: ModernPalette.cpu
+        case .devices: Self.color(for: .devices)
         case .resources: Color(nsColor: .systemPurple)
         case .branches: Color(nsColor: .systemGreen)
         case .settings: Color(nsColor: .systemGray)
@@ -210,7 +222,8 @@ struct MainRootView: View {
         case .thisMac:
             ThisMacPage(liveWork: liveWork)
                 .background(ModernPalette.page)
-                .navigationTitle("This Mac")
+                .environment(\.interfaceStyle, .modern)
+                .navigationTitle(ModernPage.thisMac.title)
         case .memory, .storage:
             ModernResourcePage(resource: presentation.modernPage == .memory ? .memory : .storage,
                                store: store, liveWork: liveWork, presentation: presentation)
@@ -441,7 +454,7 @@ private struct ModernUsagePage: View {
                     .font(.largeTitle.weight(.bold))
                     .accessibilityAddTraits(.isHeader)
                 if editing {
-                    Text("Choose tools for the floating panel and overview, or drag cards to reorder.")
+                    Text("Show or hide installed tools and their limits, or drag cards to reorder.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -486,6 +499,7 @@ private struct ModernUsagePage: View {
 /// same size, each with one figure. The detail is a click away.
 @available(macOS 14.0, *)
 private struct ModernOverviewPage: View {
+    @Environment(\.locale) private var locale
     @ObservedObject var store: BranchesStore
     var liveWork: LiveWorkMonitor?
     var usageStore: UsageStore?
@@ -514,7 +528,7 @@ private struct ModernOverviewPage: View {
                         if let liveWork {
                             ModernMemorySummary(monitor: liveWork, store: store) { presentation.open(.memory) }
                         }
-                        ModernStorageSummary(store: store) { presentation.open(.storage) }
+                        ModernStorageSummary(store: store, history: liveWork?.storageHistory) { presentation.open(.storage) }
                     }
                     GridRow {
                         workCard(.branches, board: board.only(.branches))
@@ -532,7 +546,7 @@ private struct ModernOverviewPage: View {
     }
 
     private func sectionTitle(_ title: String) -> some View {
-        Text(title)
+        Text(LocalizedStringKey(title), bundle: AppLanguage.resourceBundle)
             .font(.title3.weight(.semibold))
             .accessibilityAddTraits(.isHeader)
             .padding(.horizontal, 4)
@@ -543,13 +557,13 @@ private struct ModernOverviewPage: View {
     private func workCard(_ page: ModernPage, board: BranchesBoard) -> some View {
         let needsLook = board.needsLookCount
         var caption: [String] = []
-        if !board.running.isEmpty { caption.append("\(board.running.count) running") }
-        if !board.safeToClear.isEmpty { caption.append("\(board.safeToClear.count) safe to clear") }
+        if !board.running.isEmpty { caption.append(AppLanguage.format("%ld running", locale: locale, board.running.count)) }
+        if !board.safeToClear.isEmpty { caption.append(AppLanguage.format("%ld safe to clear", locale: locale, board.safeToClear.count)) }
         return ModernSummaryCard(
             page: page,
             value: "\(needsLook)",
             unit: needsLook == 1 ? "needs a look" : "need a look",
-            caption: caption.isEmpty ? "Nothing else to do" : caption.joined(separator: " · "),
+            caption: caption.isEmpty ? AppLanguage.text("Nothing else to do", locale: locale) : caption.joined(separator: " · "),
             open: { presentation.open(page) }
         ) { EmptyView() }
     }
@@ -579,7 +593,7 @@ private struct ModernToolCards: View {
             .compactMap { entry in
                 guard let tightest = entry.limits.min(by: { tightness($0) < tightness($1) }) else { return nil }
                 return ToolEntry(tool: entry.id, snapshot: tightest, others: entry.limits.count - 1,
-                                 credits: settings.showsResetCredits ? entry.limits.availableResets() : [])
+                                 credits: entry.limits.availableResets())
             }
         VStack(alignment: .leading, spacing: 14) {
             Text("AI tools")
@@ -592,7 +606,7 @@ private struct ModernToolCards: View {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 8) {
                             ModernIcon(symbol: ModernPage.usage.symbol, color: MainRootView.color(for: .usage), size: 22)
-                            Text(ModernPage.usage.title).font(.headline)
+                            Text(LocalizedStringKey(ModernPage.usage.title), bundle: AppLanguage.resourceBundle).font(.headline)
                             Spacer(minLength: 4)
                             Image(systemName: "chevron.right")
                                 .font(.system(size: 11, weight: .semibold))
@@ -693,8 +707,7 @@ private struct ModernToolCards: View {
     }
 }
 
-/// A card that opens a page: its icon and title, one large figure, one
-/// line under it, and at most one bar.
+/// A dashboard card with one reading and its supporting chart or summary.
 @available(macOS 14.0, *)
 private struct ModernSummaryCard<Detail: View>: View {
     let page: ModernPage
@@ -702,37 +715,52 @@ private struct ModernSummaryCard<Detail: View>: View {
     let value: String
     var unit: String? = nil
     let caption: String
+    var placesDetailOnRight = false
+    var resourceHistory: ResourceTrendHistory? = nil
     let open: () -> Void
     @ViewBuilder let detail: () -> Detail
 
     var body: some View {
         Button(action: open) {
             ModernCard {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 8) {
-                        ModernIcon(symbol: page.symbol, color: MainRootView.color(for: page), size: 22)
-                        Text(title ?? page.title).font(.headline)
-                        Spacer(minLength: 4)
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(.tertiary)
+                if placesDetailOnRight {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 18) {
+                            VStack(alignment: .leading, spacing: 12) {
+                                heading
+                                reading
+                            }
+                            .frame(minWidth: 140, maxWidth: 340, alignment: .leading)
+                            detail().frame(minWidth: 210, maxWidth: .infinity)
+                            chevron
+                        }
+                        stacked
                     }
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(alignment: .firstTextBaseline, spacing: 5) {
-                            Text(value)
-                                .font(.system(size: 28, weight: .semibold, design: .rounded))
-                                .monospacedDigit()
-                                .contentTransition(.numericText())
-                            if let unit {
-                                Text(unit).font(.title3.weight(.medium)).foregroundStyle(.secondary)
+                } else if let resourceHistory {
+                    let trend = ResourceTrendChart(history: resourceHistory, resource: page == .memory ? .memory : .storage,
+                                                   compact: true)
+                    VStack(alignment: .leading, spacing: 10) {
+                        ViewThatFits(in: .horizontal) {
+                            HStack(spacing: 8) {
+                                VStack(alignment: .leading, spacing: 10) { heading; amount }
+                                    .fixedSize(horizontal: true, vertical: false)
+                                Spacer(minLength: 2)
+                                trend.frame(minWidth: 70, idealWidth: 115, maxWidth: 150)
+                                chevron
+                            }
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack { heading; Spacer(); chevron }
+                                amount
+                                trend
                             }
                         }
-                        Text(caption).font(.callout).foregroundStyle(.secondary).lineLimit(1)
+                        Text(caption).font(.callout).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        detail()
                     }
-                    detail()
-                    Spacer(minLength: 0)
+                } else {
+                    stacked
                 }
-                .frame(maxHeight: .infinity, alignment: .topLeading)
             }
             .contentShape(RoundedRectangle(cornerRadius: ModernMetrics.cardRadius, style: .continuous))
         }
@@ -740,28 +768,75 @@ private struct ModernSummaryCard<Detail: View>: View {
         .accessibilityElement(children: .combine)
         .accessibilityHint("Opens \(page.title)")
     }
+
+    private var stacked: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                heading
+                Spacer(minLength: 4)
+                chevron
+            }
+            reading
+            detail()
+            Spacer(minLength: 0)
+        }
+        .frame(maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var heading: some View {
+        HStack(spacing: 8) {
+            ModernIcon(symbol: page.symbol, color: MainRootView.color(for: page), size: 22)
+            Text(LocalizedStringKey(title ?? page.title), bundle: AppLanguage.resourceBundle).font(.headline)
+        }
+    }
+
+    private var reading: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            amount
+            Text(caption).font(.callout).foregroundStyle(.secondary).lineLimit(1)
+        }
+    }
+
+    private var amount: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+            Text(value)
+                .font(.system(size: 28, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .contentTransition(.numericText())
+            if let unit {
+                Text(LocalizedStringKey(unit), bundle: AppLanguage.resourceBundle).font(.title3.weight(.medium)).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var chevron: some View {
+        Image(systemName: "chevron.right")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.tertiary)
+    }
 }
 
 @available(macOS 14.0, *)
 private struct CPUOverviewSummary: View {
+    @Environment(\.locale) private var locale
     @ObservedObject var monitor: SystemCPUMonitor
     let open: () -> Void
 
     var body: some View {
-        ModernSummaryCard(page: .thisMac, title: "CPU",
+        ModernSummaryCard(page: .thisMac,
                           value: monitor.usage.map { LiveWorkText.percent($0.busy) } ?? "–",
                           unit: "in use",
-                          caption: "\(ProcessInfo.processInfo.activeProcessorCount) logical cores",
+                          caption: AppLanguage.format("%ld logical cores", locale: locale, ProcessInfo.processInfo.activeProcessorCount),
+                          placesDetailOnRight: true,
                           open: open) {
-            if let usage = monitor.usage {
-                ProgressView(value: usage.busy).tint(ModernPalette.cpu).accessibilityHidden(true)
-            }
+            CPUTrendChart(samples: monitor.samples, plotHeight: 72)
         }
     }
 }
 
 @available(macOS 14.0, *)
 private struct ModernMemorySummary: View {
+    @Environment(\.locale) private var locale
     @ObservedObject var monitor: LiveWorkMonitor
     @ObservedObject var store: BranchesStore
     let open: () -> Void
@@ -774,7 +849,9 @@ private struct ModernMemorySummary: View {
             page: .memory,
             value: memory.freeBytes == nil ? "–" : memory.id.formatBytes(memory.usedBytes),
             unit: memory.freeBytes == nil ? nil : "in use",
-            caption: monitor.memoryUsage.map { "RAM \($0.ramDescription) · Swap \($0.swapDescription)" } ?? "Memory unavailable",
+            caption: monitor.memoryUsage?.breakdown(locale: locale)
+                ?? AppLanguage.text("Memory unavailable", locale: locale),
+            resourceHistory: monitor.memoryHistory,
             open: open
         ) {
             CapacityBar(segments: ModernResourceCard.segments(memory), capacity: memory.capacityBytes, height: 8, gap: 0)
@@ -784,7 +861,9 @@ private struct ModernMemorySummary: View {
 
 @available(macOS 14.0, *)
 private struct ModernStorageSummary: View {
+    @Environment(\.locale) private var locale
     @ObservedObject var store: BranchesStore
+    let history: ResourceTrendHistory?
     let open: () -> Void
 
     var body: some View {
@@ -798,8 +877,10 @@ private struct ModernStorageSummary: View {
             page: .storage,
             value: disk.map { RailResourceText.freeSpace($0.availableBytes) } ?? "–",
             unit: disk == nil ? nil : "free",
-            caption: freeable > 0 ? "About \(BoardText.bytes(freeable)) can be cleared"
-                : disk.map { "\(LiveWorkText.percent($0.usedShare())) of \(BoardText.bytes($0.totalBytes)) used" } ?? "Disk space unavailable",
+            caption: freeable > 0 ? AppLanguage.format("About %@ can be cleared", locale: locale, BoardText.bytes(freeable))
+                : disk.map { AppLanguage.format("%@ of %@ used", locale: locale, LiveWorkText.percent($0.usedShare()), BoardText.bytes($0.totalBytes)) }
+                    ?? AppLanguage.text("Disk space unavailable", locale: locale),
+            resourceHistory: history,
             open: open
         ) {
             CapacityBar(segments: ModernResourceCard.segments(storage), capacity: storage.capacityBytes, height: 8, gap: 0)

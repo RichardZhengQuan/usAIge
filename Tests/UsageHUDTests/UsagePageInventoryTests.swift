@@ -38,23 +38,62 @@ import Testing
     #expect(installed() == [.chatGPT, .claude, .gemini, .openCodeGo, .cline, .cursor])
 }
 
-@MainActor @Test func usageShowsEveryInstalledToolInOrderAndExcludesOtherReadings() {
-    let oldReading = QuotaSnapshot(id: "weekly", displayName: "Weekly", usedPercent: 15,
-                                   remainingPercent: 85, resetAt: nil, windowDurationMinutes: 10080,
-                                   planType: nil, updatedAt: Date())
-    var remote = oldReading
-    remote.toolID = AIToolID(rawValue: "paired-tool")
-    var cursor = oldReading
-    cursor.toolID = .cursor
-    let entries = ModernToolList.installedEntries(
-        installed: [.cursor, .copilot, .grok], snapshots: [oldReading, remote, cursor],
-        order: [.grok, .cursor],
-        status: { $0 == .copilot ? .optInRequired : .notInstalled }
-    )
-    #expect(entries.map(\.id) == [.grok, .cursor, .copilot])
-    #expect(entries[0].status?.text.contains("grok login") == true)
-    #expect(entries[1].limits == [cursor])
-    #expect(entries[2].status?.text.contains("Off") == true)
+@MainActor @Test func usageGroupsOnlyInstalledToolsByReadingsInTheirSavedOrder() throws {
+    let suite = "usage.groups.\(UUID())"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let settings = HUDSettings(defaults: defaults)
+    settings.toolOrder = [.grok, .cursor, .claude, .cursor]
+    settings.bucketOrder = ["claude-weekly", "claude-session"]
+    let weekly = inventoryReading(.claude, id: "claude-weekly")
+    let session = inventoryReading(.claude, id: "claude-session")
+    var snapshots = [session, weekly, inventoryReading(.grok), inventoryReading(.chatGPT),
+                     inventoryReading(AIToolID(rawValue: "paired-tool"))]
+    func sections() -> (withReadings: [ModernToolEntry], notConnected: [ModernToolEntry]) {
+        ModernToolList.installedSections(installed: [.cursor, .copilot, .grok, .claude], snapshots: snapshots,
+                                         settings: settings, editing: false,
+                                         status: { $0 == .cursor ? .credentialExpired : .optInRequired })
+    }
+    let first = sections()
+    #expect(first.withReadings.map(\.id) == [.grok, .claude])
+    #expect(first.withReadings.last?.limits == [weekly, session])
+    #expect(first.notConnected.map(\.id) == [.cursor, .copilot])
+    #expect(first.notConnected.first?.status?.isProblem == true)
+    #expect(first.notConnected.last?.status?.text.contains("Off") == true)
+
+    snapshots.append(inventoryReading(.cursor))
+    let signedIn = sections()
+    #expect(signedIn.withReadings.map(\.id) == [.grok, .cursor, .claude])
+    #expect(signedIn.notConnected.map(\.id) == [.copilot])
+}
+
+@MainActor @Test func usageEditIncludesHiddenInstalledToolsInTheirOriginalSection() throws {
+    let suite = "usage.edit.groups.\(UUID())"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let settings = HUDSettings(defaults: defaults)
+    settings.toolOrder = [.grok, .chatGPT, .cursor, .claude]
+    settings.hiddenToolIDs = [.grok, .cursor]
+    let claude = inventoryReading(.claude)
+    settings.hiddenBucketIDs = [claude.id]
+    let snapshots = [inventoryReading(.grok), claude, inventoryReading(.gemini)]
+    func sections(editing: Bool) -> (withReadings: [ModernToolEntry], notConnected: [ModernToolEntry]) {
+        ModernToolList.installedSections(installed: [.grok, .chatGPT, .cursor, .claude], snapshots: snapshots,
+                                         settings: settings, editing: editing, status: { _ in .notInstalled })
+    }
+    let normal = sections(editing: false)
+    #expect(normal.withReadings.map(\.id) == [.claude])
+    #expect(normal.notConnected.map(\.id) == [.chatGPT])
+    let editor = sections(editing: true)
+    #expect(editor.withReadings.map(\.id) == [.grok, .claude])
+    #expect(editor.notConnected.map(\.id) == [.chatGPT, .cursor])
+    #expect(editor.notConnected.last?.status?.text.contains("Not connected") == true)
+}
+
+private func inventoryReading(_ tool: AIToolID, id: String? = nil) -> QuotaSnapshot {
+    QuotaSnapshot(id: id ?? tool.rawValue, toolID: tool, displayName: "Weekly", usedPercent: 15,
+                  remainingPercent: 85, resetAt: nil, windowDurationMinutes: 10080,
+                  planType: nil, updatedAt: Date())
 }
 
 @Test func deviceDocksUseThePhonesReportedByTheRelayEvenForIdenticalNames() throws {
@@ -72,6 +111,11 @@ import Testing
     let secondWatch = try device("bd21296d-77ee-55a6-ab7f-2dffbddc4eeb", parent: phoneA.id)
     let legacyWatch = try device("7c2df876-8402-5c7d-a909-d6ac13135945")
     let orphan = try device("1277d3a9-da64-56bf-a863-5e56f4141aaa", parent: "revoked-phone")
+    #expect(RelayDeviceDock.list([]).isEmpty)
+    #expect(RelayDeviceDock.empty.missingPhoneText(isLinked: false) == "No iPhone paired")
+    #expect(RelayDeviceDock.empty.missingPhoneText(isLinked: true) == "No iPhone reported")
+    #expect(RelayDeviceDock(phone: nil, watch: legacyWatch).missingPhoneText(isLinked: true) == "Paired iPhone unknown")
+    #expect(RelayDeviceDock(phone: nil, watch: orphan).missingPhoneText(isLinked: true) == "Paired iPhone no longer linked")
     let docks = RelayDeviceDock.list([watchA, legacyWatch, phoneB, phoneA, secondWatch, orphan])
     #expect(docks == [
         RelayDeviceDock(phone: phoneB, watch: nil),

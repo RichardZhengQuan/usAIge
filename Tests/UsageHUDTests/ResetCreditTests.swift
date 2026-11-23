@@ -49,5 +49,4 @@ import Testing
     #expect(snapshot.availableResets.map(\.title) == ["Reset credits"])
     #expect(snapshot.availableResets.first?.remaining == 2)
     #expect(ResetCreditText.count(snapshot.availableResets) == "2 free resets")
-    #expect(snapshot.withoutResetCredits.availableResets.isEmpty)
 }

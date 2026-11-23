@@ -107,16 +107,18 @@ import Testing
 }
 
 @MainActor
-@Test func resetCreditVisibilityDefaultsOnAndPersistsUserChoice() {
+@Test func retiredResetCreditPreferencePreservesOtherSettings() throws {
     let defaults = isolatedDefaults()
-    var settings: HUDSettings? = HUDSettings(defaults: defaults)
-
-    #expect(settings?.showsResetCredits == true)
-    settings?.showsResetCredits = false
-    settings = nil
-
+    let key = "usageHUD.settings.v1"
+    let legacy: [String: Any] = ["version": 10, "showsResetCredits": false, "scale": 1.3]
+    defaults.set(try JSONSerialization.data(withJSONObject: legacy), forKey: key)
     let restored = HUDSettings(defaults: defaults)
-    #expect(restored.showsResetCredits == false)
+    #expect(restored.scale == 1.3)
+    restored.opacity = 0.64
+    let data = try #require(defaults.data(forKey: key))
+    let saved = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    #expect(saved["showsResetCredits"] == nil)
+    #expect(HUDSettings(defaults: defaults).opacity == 0.64)
 }
 
 @MainActor

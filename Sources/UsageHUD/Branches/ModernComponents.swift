@@ -80,9 +80,8 @@ enum ModernPalette {
 
     /// How full a disk looks: calm until it is nearly full.
     static func storageColor(usedShare: Double) -> Color {
-        if usedShare >= 0.95 { return Color(nsColor: .systemRed) }
-        if usedShare >= 0.9 { return Color(nsColor: .systemOrange) }
-        return storage
+        let status = TrendStatus.storage(usedShare: usedShare)
+        return status == .normal ? storage : status.color
     }
 }
 
@@ -188,7 +187,7 @@ struct CapacityLegend: View {
                 HStack(spacing: 6) {
                     Circle().fill(segment.color).frame(width: 8, height: 8)
                         .overlay { Circle().stroke(Color.primary.opacity(0.12), lineWidth: 0.5) }
-                    Text(segment.title).foregroundStyle(.secondary)
+                    Text(LocalizedStringKey(segment.title), bundle: AppLanguage.resourceBundle).foregroundStyle(.secondary)
                     Text(segment.isMeasuring ? "Measuring…" : segment.detail ?? BoardText.bytes(segment.bytes))
                         .monospacedDigit()
                 }
@@ -235,7 +234,7 @@ struct ModernSection<Content: View, Accessory: View>: View {
                 if let tint {
                     Circle().fill(tint).frame(width: 9, height: 9).alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
                 }
-                Text(title).font(.headline)
+                Text(LocalizedStringKey(title), bundle: AppLanguage.resourceBundle).font(.headline)
                 if let detail {
                     Text(detail).font(.subheadline).foregroundStyle(.secondary).monospacedDigit()
                 }
@@ -290,7 +289,7 @@ struct ModernNoteRow: View {
                     .foregroundStyle(.tertiary)
                     .frame(width: ModernMetrics.iconSize)
             }
-            Text(text)
+            Text(LocalizedStringKey(text), bundle: AppLanguage.resourceBundle)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -334,9 +333,10 @@ struct ModernNavigationRow: View {
         HStack(spacing: 10) {
             ModernIcon(symbol: symbol, color: color)
             VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.system(size: 13, weight: .medium))
+                Text(LocalizedStringKey(title), bundle: AppLanguage.resourceBundle).font(.system(size: 13, weight: .medium))
                 if let subtitle {
-                    Text(subtitle).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Text(LocalizedStringKey(subtitle), bundle: AppLanguage.resourceBundle)
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
             Spacer(minLength: 8)
@@ -364,8 +364,6 @@ struct ModernRingGauge: View {
     let share: Double
     let color: Color
     var lineWidth: CGFloat = 4
-    var symbol: String? = nil
-    var symbolSize: CGFloat = 11
 
     var body: some View {
         ZStack {
@@ -374,11 +372,6 @@ struct ModernRingGauge: View {
                 .trim(from: 0, to: min(max(share, share > 0 ? 0.015 : 0), 1))
                 .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-            if let symbol {
-                Image(systemName: symbol)
-                    .font(.system(size: symbolSize, weight: .semibold))
-                    .foregroundStyle(color)
-            }
         }
         .padding(lineWidth / 2)
         .accessibilityHidden(true)
@@ -512,7 +505,7 @@ struct ModernTabBar: View {
                     Button { withAnimation(.snappy(duration: 0.18)) { selection = tab.id } } label: {
                         HStack(spacing: 8) {
                             tab.icon.frame(width: 18, height: 18)
-                            Text(tab.title).font(.callout.weight(.semibold)).lineLimit(1)
+                            Text(LocalizedStringKey(tab.title), bundle: AppLanguage.resourceBundle).font(.callout.weight(.semibold)).lineLimit(1)
                             if let detail = tab.detail {
                                 Text(detail).font(.callout).foregroundStyle(.secondary).monospacedDigit().lineLimit(1)
                             }

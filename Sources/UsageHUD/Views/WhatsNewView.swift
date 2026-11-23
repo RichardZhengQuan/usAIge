@@ -117,7 +117,7 @@ final class WhatsNewWindowController: NSWindowController, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "What’s New in usAIge"
+        window.title = AppLanguage.text("What’s New in usAIge")
         window.identifier = Self.windowIdentifier
         window.minSize = NSSize(width: 520, height: 520)
         window.setFrameAutosaveName("WhatsNewWindow")
@@ -126,7 +126,7 @@ final class WhatsNewWindowController: NSWindowController, NSWindowDelegate {
         window.contentView = NSHostingView(rootView: WhatsNewView(
             updateController: updateController,
             close: { [weak window] in window?.close() }
-        ))
+        ).appLanguageEnvironment())
     }
 
     @available(*, unavailable)

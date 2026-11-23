@@ -72,6 +72,12 @@ extension SystemMemoryUsage {
     }
 
     var compactTotal: String { "\(amount(combinedUsedBytes)) / \(amount(combinedCapacityBytes))" }
-    var ramDescription: String { "\(amount(usedBytes)) of \(amount(capacityBytes))" }
-    var swapDescription: String { "\(amount(swapUsedBytes)) of \(amount(swapTotalBytes))" }
+    var swapDescription: String {
+        AppLanguage.format("%@ of %@", amount(swapUsedBytes), amount(swapTotalBytes))
+    }
+
+    func breakdown(locale: Locale = AppLanguage.current.locale) -> String {
+        AppLanguage.format("RAM %@ of %@ · Swap %@ of %@", locale: locale,
+                           amount(usedBytes), amount(capacityBytes), amount(swapUsedBytes), amount(swapTotalBytes))
+    }
 }

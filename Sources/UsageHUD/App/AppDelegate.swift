@@ -34,7 +34,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
                 self.magnet.showBriefly(for: 0.65)
             }
         },
-        openWindow: { [weak self] in self?.showMainWindow() }
+        openWindow: { [weak self] in self?.showMainWindow() },
+        showPanel: { [weak self] in self?.showLimits() },
+        openSettings: { [weak self] in self?.showSettings() }
     )
     private var screenObserver: NSObjectProtocol?
     private var whatsNewWindowController: WhatsNewWindowController?
@@ -171,7 +173,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
                 resizePanel: { [weak self] size in self?.resizePanel(to: size) }
             ))
         }
-        let panel = HUDPanel(contentView: NSHostingView(rootView: content))
+        let panel = HUDPanel(contentView: NSHostingView(rootView: content.appLanguageEnvironment()))
         panel.delegate = self
         self.panel = panel
         magnet.attach(to: panel)
@@ -437,7 +439,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
             return
         }
         let item = NSMenuItem(
-            title: "What’s New in usAIge",
+            title: AppLanguage.text("What’s New in usAIge"),
             action: #selector(showWhatsNewWindow(_:)),
             keyEquivalent: ""
         )
@@ -582,7 +584,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         }
         NSApp.activate(ignoringOtherApps: true)
         panel.orderFrontRegardless()
-        magnet.reveal()
+        magnet.showBriefly()
     }
 
     /// Modern's rail runs the full height of the display at one side.

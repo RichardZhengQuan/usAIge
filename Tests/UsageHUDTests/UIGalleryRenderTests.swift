@@ -86,7 +86,8 @@ private func bucket(
     remaining: Double,
     minutes: Int,
     secondaryRemaining: Double? = nil,
-    plan: String = "pro"
+    plan: String = "pro",
+    resetCredits: Int? = nil
 ) -> QuotaSnapshot {
     let now = Date().timeIntervalSince1970
     var snapshot = QuotaSnapshot.make(
@@ -104,6 +105,7 @@ private func bucket(
         updatedAt: Date()
     )
     snapshot.toolID = tool
+    snapshot.availableResetCount = resetCredits
     return snapshot
 }
 
@@ -364,8 +366,8 @@ struct UIGalleryRenderTests {
             readCPUTicks: { cpuSamples.next() }
         )
         await monitor.refresh()
-        monitor.cpu.sample()
-        monitor.cpu.sample()
+        fillCPUHistory(monitor.cpu)
+        fillResourceHistory(monitor, memory: memory, disk: disk)
         let (settings, _) = makeSettings()
         let usageStore = UsageStore(provider: FixedUsageProvider(.success(.authenticated(mixedSnapshots))),
                                     monitorsNetworkChanges: false)
@@ -381,9 +383,10 @@ struct UIGalleryRenderTests {
         status.report(.credentialExpired, for: .jetBrainsAI)
         status.report(.signedOut, for: .windsurf)
         status.report(.optInRequired, for: .copilot)
-        func window(_ presentation: BranchesPaperweightPresentation) -> some View {
+        let unpaired = RelaySyncController(defaults: defaults)
+        func window(_ presentation: BranchesPaperweightPresentation, devices: RelaySyncController) -> some View {
             MainRootView(store: store, liveWork: monitor, usageStore: usageStore, settings: settings,
-                         presentation: presentation, syncContent: AnyView(ModernDevicesPage(relaySync: devices.controller)),
+                         presentation: presentation, syncContent: AnyView(ModernDevicesPage(relaySync: devices)),
                          localToolStatus: status, openSettings: {})
                 .defaultAppStorage(defaults)
         }
@@ -394,9 +397,16 @@ struct UIGalleryRenderTests {
         }
         for appearance in GalleryAppearance.allCases {
             for modernPage in ModernPage.allCases {
-                try render(window(page(modernPage)), size: CGSize(width: 1180, height: 780),
+                try render(window(page(modernPage), devices: devices.controller), size: CGSize(width: 1180, height: 780),
                            appearance: appearance, name: "modern-page-\(modernPage.rawValue)-\(appearance.rawValue)")
             }
+            try render(window(page(.overview), devices: devices.controller), size: CGSize(width: 1180, height: 1140),
+                       appearance: appearance, name: "modern-system-trends-\(appearance.rawValue)")
+            try render(window(page(.devices), devices: unpaired), size: CGSize(width: 1180, height: 780),
+                       appearance: appearance, name: "modern-devices-empty-\(appearance.rawValue)")
+            try render(CPUTile(monitor: monitor.cpu, open: {}).defaultAppStorage(defaults),
+                       size: CGSize(width: HUDMetrics.railWidth, height: 120),
+                       appearance: appearance, name: "rail-cpu-trend-\(appearance.rawValue)")
             try render(
                 BranchesRootView(store: store, liveWork: monitor, initialFront: .memory).defaultAppStorage(defaults),
                 size: CGSize(width: 1000, height: 1_400), appearance: appearance,
@@ -516,8 +526,9 @@ struct UIGalleryRenderTests {
     @Test func rendersTwelveToolsOnASmallMacBook() async throws {
         guard #available(macOS 14.0, *) else { return }
         let twelve = [
-            bucket("codex", "Codex", .chatGPT, remaining: 62, minutes: 300, secondaryRemaining: 81),
-            bucket("claude", "All models", .claude, remaining: 45, minutes: 300, secondaryRemaining: 70, plan: "max"),
+            bucket("codex", "Codex", .chatGPT, remaining: 62, minutes: 10_080, resetCredits: 3),
+            bucket("claude", "All models", .claude, remaining: 45, minutes: 300, secondaryRemaining: 70,
+                   plan: "max", resetCredits: 2),
             bucket("cursor", "Cursor models", .cursor, remaining: 33, minutes: 44_640),
             bucket("grok", "Weekly credits", .grok, remaining: 100, minutes: 10_080),
             bucket("gemini", "Gemini Pro", .gemini, remaining: 74, minutes: 1_440),
@@ -546,8 +557,7 @@ struct UIGalleryRenderTests {
             readCPUTicks: { cpuSamples.next() }
         )
         await monitor.refresh()
-        monitor.cpu.sample()
-        monitor.cpu.sample()
+        fillCPUHistory(monitor.cpu)
         // 13-inch MacBook Air (notch, 1470 x 956) and 13-inch MacBook Pro
         // (1440 x 900), each with the Dock at the bottom.
         let screens: [(String, PanelScreenState)] = [
@@ -592,6 +602,31 @@ struct UIGalleryRenderTests {
                     name: "tuned-rail-\(Int(opacity * 100))-\(scale)-\(textSize.rawValue)-\(appearance.rawValue)"
                 )
             }
+        }
+    }
+
+    @Test func rendersChineseLanguageSettings() throws {
+        guard #available(macOS 14.0, *) else { return }
+        let domain = "usaige.render.language.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        defaults.set(AppLanguage.simplifiedChinese.rawValue, forKey: AppLanguage.defaultsKey)
+        let settings = HUDSettings(defaults: defaults)
+        let status = LocalToolStatusRegistry(detectInstallations: { [] })
+        let usage = UsageStore(provider: FixedUsageProvider(.success(.authenticated([]))), monitorsNetworkChanges: false)
+        let preferences = HUDSettingsRootView(
+            settings: settings, store: usage, launchAtLogin: inertLaunchAtLogin(), updateController: UpdateController(),
+            relaySync: RelaySyncController(defaults: defaults), localToolStatus: status,
+            navigation: SettingsNavigation(), layout: .page)
+        let navigation = BranchesPaperweightPresentation()
+        navigation.focus(.settings)
+        let window = MainRootView(store: BranchesStore(defaults: defaults), usageStore: usage, settings: settings,
+                                  presentation: navigation, settingsContent: AnyView(preferences), openSettings: {})
+            .appLanguageEnvironment()
+            .defaultAppStorage(defaults)
+        for appearance in GalleryAppearance.allCases {
+            try render(window, size: CGSize(width: 1180, height: 820), appearance: appearance,
+                       name: "modern-settings-chinese-\(appearance.rawValue)")
         }
     }
 
@@ -702,8 +737,46 @@ struct UIGalleryRenderTests {
     }
 
     private var sampleCPUTicks: [SystemCPUUsage.Ticks] {
-        [.init(user: 0, system: 0, idle: 0, nice: 0),
-         .init(user: 24, system: 15, idle: 60, nice: 1)]
+        let percentages: [UInt32] = [23, 25, 30, 28, 47, 58, 49, 36, 32, 30, 27, 26, 34, 39, 38,
+                                     46, 71, 83, 95, 92, 78, 54, 46, 48, 42, 38, 41, 44, 42, 40]
+        var user: UInt32 = 0, system: UInt32 = 0, idle: UInt32 = 0
+        var ticks = [SystemCPUUsage.Ticks(user: user, system: system, idle: idle, nice: 0)]
+        for index in 0..<(percentages.count * 5) {
+            let percent = percentages[index % percentages.count]
+            system += percent / 3
+            user += percent - percent / 3
+            idle += 100 - percent
+            ticks.append(.init(user: user, system: system, idle: idle, nice: 0))
+        }
+        return ticks
+    }
+
+    private func fillCPUHistory(_ monitor: SystemCPUMonitor) {
+        let count = sampleCPUTicks.count
+        let start = Date().addingTimeInterval(-Double(count - 1) * SystemCPUMonitor.sampleInterval)
+        for index in 0..<count {
+            monitor.sample(at: start.addingTimeInterval(Double(index) * SystemCPUMonitor.sampleInterval))
+        }
+    }
+
+    private func fillResourceHistory(_ monitor: LiveWorkMonitor, memory: SystemMemoryUsage, disk: DiskSpace) {
+        let end = Date()
+        let start = end.addingTimeInterval(-300)
+        let offsets: [Int64] = [0, 200, 500, 700, 250, -350, -450, -300, 100, 0]
+        for index in 0...30 {
+            let bytes = memory.combinedUsedBytes + offsets[index % offsets.count] * 1_000_000
+            let pressure: SystemMemoryPressure = switch index {
+            case 7...10, 17...22: .warning
+            case 11...16: .critical
+            default: .normal
+            }
+            monitor.memoryHistory.record(bytes: bytes, status: pressure.trendStatus, at: start.addingTimeInterval(Double(index * 10)))
+        }
+        for (index, factor) in [52, 38, 22, 21, 41, 100].enumerated() {
+            let diskSample = DiskSpace(totalBytes: disk.totalBytes, availableBytes: disk.availableBytes / 100 * Int64(factor))
+            monitor.storageHistory.record(bytes: diskSample.availableBytes, status: .storage(usedShare: diskSample.usedShare()),
+                                          at: start.addingTimeInterval(Double(index * 60)))
+        }
     }
 
     private var sampleMemoryUsage: SystemMemoryUsage {

@@ -1,11 +1,12 @@
 import AppKit
 
-/// The status button keeps its native click and accessibility behavior while
-/// the tracking area can reveal the rail without taking focus from another app.
+/// AppKit presents the status item's menu. Tracking the button separately
+/// reveals the rail on hover without taking focus from another app.
 @MainActor
-final class MenuBarIconController: NSResponder {
+final class MenuBarIconController: NSResponder, NSMenuDelegate {
     struct Item {
         let button: NSButton
+        let setMenu: @MainActor (NSMenu?) -> Void
         let remove: @MainActor () -> Void
     }
     private var item: Item?
@@ -13,12 +14,17 @@ final class MenuBarIconController: NSResponder {
     private(set) var containsPointer = false
     private let hoverChanged: (Bool) -> Void
     private let openWindow: () -> Void
+    private let showPanel: () -> Void
+    private let openSettings: () -> Void
     private let makeItem: @MainActor () -> Item?
 
     init(hoverChanged: @escaping (Bool) -> Void, openWindow: @escaping () -> Void,
+         showPanel: @escaping () -> Void, openSettings: @escaping () -> Void,
          makeItem: @escaping @MainActor () -> Item? = MenuBarIconController.systemItem) {
         self.hoverChanged = hoverChanged
         self.openWindow = openWindow
+        self.showPanel = showPanel
+        self.openSettings = openSettings
         self.makeItem = makeItem
         super.init()
     }
@@ -33,7 +39,8 @@ final class MenuBarIconController: NSResponder {
             bar.removeStatusItem(statusItem)
             return nil
         }
-        return Item(button: button, remove: { bar.removeStatusItem(statusItem) })
+        return Item(button: button, setMenu: { statusItem.menu = $0 },
+                    remove: { bar.removeStatusItem(statusItem) })
     }
 
     func setVisible(_ visible: Bool) {
@@ -41,8 +48,7 @@ final class MenuBarIconController: NSResponder {
         if !visible {
             if let trackingArea { item?.button.removeTrackingArea(trackingArea) }
             trackingArea = nil
-            item?.button.target = nil
-            item?.button.action = nil
+            item?.setMenu(nil)
             item?.remove()
             item = nil
             setHover(false)
@@ -54,11 +60,10 @@ final class MenuBarIconController: NSResponder {
         let button = item.button
         button.image = Self.gaugeImage
         button.imagePosition = .imageOnly
-        button.toolTip = "Hover to show usage. Click to open usAIge."
+        button.toolTip = AppLanguage.text("Hover to show usage. Click for the usAIge menu.")
         button.setAccessibilityLabel("usAIge")
         button.setAccessibilityHelp(button.toolTip)
-        button.target = self
-        button.action = #selector(openMainWindow)
+        item.setMenu(makeMenu())
         let area = NSTrackingArea(
             rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
             owner: self, userInfo: nil
@@ -67,7 +72,36 @@ final class MenuBarIconController: NSResponder {
         button.addTrackingArea(area)
     }
 
+    private func makeMenu() -> NSMenu {
+        let menu = NSMenu(title: "usAIge")
+        menu.addItem(withTitle: "Open usAIge", action: #selector(openMainWindow),
+                     keyEquivalent: "0").target = self
+        menu.addItem(withTitle: "Show Floating Panel", action: #selector(showFloatingPanel),
+                     keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Settings…", action: #selector(openSettingsWindow),
+                     keyEquivalent: ",").target = self
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Quit usAIge", action: #selector(NSApplication.terminate(_:)),
+                     keyEquivalent: "q").target = NSApplication.shared
+        for item in menu.items where !item.isSeparatorItem { item.representedObject = item.title }
+        menu.delegate = self
+        menuNeedsUpdate(menu)
+        return menu
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        for item in menu.items {
+            if let key = item.representedObject as? String { item.title = AppLanguage.text(key) }
+        }
+        if let button = item?.button {
+            button.toolTip = AppLanguage.text("Hover to show usage. Click for the usAIge menu.")
+            button.setAccessibilityHelp(button.toolTip)
+        }
+    }
+
     @objc private func openMainWindow() { openWindow() }
+    @objc private func showFloatingPanel() { showPanel() }
+    @objc private func openSettingsWindow() { openSettings() }
 
     override func mouseEntered(with event: NSEvent) {
         if item != nil { setHover(true) }

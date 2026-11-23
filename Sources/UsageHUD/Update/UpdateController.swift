@@ -168,7 +168,7 @@ enum UpdateStatus: Equatable {
     var primaryButtonTitle: String {
         switch self {
         case let .available(manifest):
-            "Update to \(manifest.version)"
+            AppLanguage.format("Update to %@", manifest.version)
         case .installationFailed:
             "Retry update"
         case .checking:
@@ -289,7 +289,7 @@ final class UpdateController: ObservableObject {
         case .upToDate:
             "You’re up to date!"
         case let .available(manifest):
-            "Version \(manifest.version) is ready"
+            AppLanguage.format("Version %@ is ready", manifest.version)
         case .downloading:
             "Downloading update…"
         case .preparing:

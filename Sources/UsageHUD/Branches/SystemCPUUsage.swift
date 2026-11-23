@@ -10,6 +10,14 @@ struct SystemCPUUsage: Equatable, Sendable {
 
     var busy: Double { user + system }
 
+    /// Whole-Mac CPU occupancy, expressed as a fraction across all cores.
+    var trendStatus: TrendStatus {
+        guard busy.isFinite, busy >= 0 else { return .unknown }
+        if busy >= 0.9 { return .critical }
+        if busy >= 0.7 { return .warning }
+        return .normal
+    }
+
     struct Ticks: Sendable {
         let user: UInt32
         let system: UInt32
@@ -48,11 +56,81 @@ struct SystemCPUUsage: Equatable, Sendable {
     }
 }
 
+enum SystemTrendRange: String, CaseIterable, Sendable {
+    case oneMinute, fiveMinutes, fifteenMinutes, oneHour
+
+    static let defaultsKey = "usageHUD.systemTrendRange"
+    static let standard = Self.fiveMinutes
+
+    var minutes: Int {
+        switch self {
+        case .oneMinute: 1
+        case .fiveMinutes: 5
+        case .fifteenMinutes: 15
+        case .oneHour: 60
+        }
+    }
+
+    var duration: TimeInterval { TimeInterval(minutes * 60) }
+    var title: String { self == .oneHour ? "1 hr" : "\(minutes) min" }
+}
+
 /// CPU has its own lightweight clock so displaying a fresh reading never
 /// triggers a process scan or redraws the rest of the dashboard.
 @MainActor
 final class SystemCPUMonitor: ObservableObject {
+    struct Sample {
+        let date: Date
+        let usage: SystemCPUUsage?
+    }
+
+    nonisolated static let historyDuration = SystemTrendRange.oneHour.duration
+    nonisolated static let sampleInterval: TimeInterval = 2
+
+    /// Chronological access to a bounded ring, including explicit gaps.
+    struct History: RandomAccessCollection {
+        private static let capacity = Int(SystemCPUMonitor.historyDuration / SystemCPUMonitor.sampleInterval) + 1
+        private var storage: [Sample] = []
+        private var head = 0
+        private(set) var count = 0
+
+        var startIndex: Int { 0 }
+        var endIndex: Int { count }
+        subscript(index: Int) -> Sample { storage[(head + index) % Self.capacity] }
+
+        fileprivate mutating func append(_ sample: Sample) {
+            if let last, sample.date <= last.date { self = Self() }
+            let cutoff = sample.date.addingTimeInterval(-SystemCPUMonitor.historyDuration)
+            while let first, count == Self.capacity || first.date < cutoff {
+                head = (head + 1) % Self.capacity
+                count -= 1
+            }
+            let slot = (head + count) % Self.capacity
+            if slot < storage.count { storage[slot] = sample } else { storage.append(sample) }
+            count += 1
+        }
+
+        func domain(for range: SystemTrendRange) -> ClosedRange<Date> {
+            let end = last?.date ?? Date()
+            let cutoff = end.addingTimeInterval(-range.duration)
+            let start = Swift.max(cutoff, first?.date ?? cutoff)
+            return Swift.min(start, end.addingTimeInterval(-SystemCPUMonitor.sampleInterval))...end
+        }
+
+        func window(for range: SystemTrendRange) -> Slice<Self> {
+            guard let last else { return self[...] }
+            let cutoff = last.date.addingTimeInterval(-range.duration)
+            var lower = startIndex, upper = endIndex
+            while lower < upper {
+                let middle = lower + (upper - lower) / 2
+                if self[middle].date < cutoff { lower = middle + 1 } else { upper = middle }
+            }
+            return self[lower...]
+        }
+    }
+
     @Published private(set) var usage: SystemCPUUsage?
+    private(set) var samples = History()
     private var previous: SystemCPUUsage.Ticks?
     private var loop: Task<Void, Never>?
     private let read: () -> SystemCPUUsage.Ticks?
@@ -66,7 +144,7 @@ final class SystemCPUMonitor: ObservableObject {
         sample()
         loop = Task { [weak self] in
             while !Task.isCancelled {
-                do { try await Task.sleep(nanoseconds: 2_000_000_000) } catch { return }
+                do { try await Task.sleep(nanoseconds: UInt64(Self.sampleInterval * 1_000_000_000)) } catch { return }
                 guard let self else { return }
                 self.sample()
             }
@@ -77,13 +155,19 @@ final class SystemCPUMonitor: ObservableObject {
         loop?.cancel()
         loop = nil
         previous = nil
-        if usage != nil { usage = nil }
+        samples = History()
+        usage = nil
     }
 
-    func sample() {
+    func sample(at date: Date = Date()) {
         let current = read()
-        let reading = previous.flatMap { previous in current?.usage(since: previous) }
+        let elapsed = samples.last.map { date.timeIntervalSince($0.date) } ?? 0
+        // A late tick after sleep or a changed clock starts a fresh interval.
+        let consecutive = elapsed > 0 && elapsed <= Self.sampleInterval * 2
+        let reading = consecutive ? previous.flatMap { current?.usage(since: $0) } : nil
         previous = current
-        if reading != usage { usage = reading }
+        samples.append(Sample(date: date, usage: reading))
+        // Publish every interval, including a repeated value on a flat chart.
+        usage = reading
     }
 }

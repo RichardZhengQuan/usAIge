@@ -1,86 +1,96 @@
 import SwiftUI
 
-/// Available in the main window and the compact interface on older Macs.
+/// CPU detail for the This Mac sidebar section and the legacy settings sheet.
 struct ThisMacPage: View {
     let liveWork: LiveWorkMonitor?
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("This Mac")
+                Text("CPU", bundle: AppLanguage.resourceBundle)
                     .font(.largeTitle.weight(.bold))
                     .accessibilityAddTraits(.isHeader)
+                    .padding(.horizontal, 4)
                 if let liveWork {
-                    ThisMacCPUSection(monitor: liveWork.cpu)
-                    ThisMacMemorySection(monitor: liveWork)
+                    CPUReadings(monitor: liveWork.cpu)
                 } else {
-                    Text("System readings are unavailable.").foregroundColor(.secondary)
+                    Text("CPU readings are unavailable.", bundle: AppLanguage.resourceBundle).foregroundColor(.secondary)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(24)
+            .padding(.horizontal, 24)
+            .padding(.top, 8)
+            .padding(.bottom, 24)
         }
     }
 }
 
-private struct ThisMacCPUSection: View {
+private struct CPUReadings: View {
     @ObservedObject var monitor: SystemCPUMonitor
+    @Environment(\.interfaceStyle) private var interfaceStyle
 
     var body: some View {
-        GroupBox(label: Label("CPU", systemImage: "cpu")) {
-            VStack(alignment: .leading, spacing: 10) {
-                if let usage = monitor.usage {
-                    Text("\(LiveWorkText.percent(usage.busy)) in use")
-                        .font(.title2.weight(.semibold).monospacedDigit())
-                    ProgressView(value: usage.busy)
-                        .accessibilityLabel("CPU usage")
-                        .accessibilityValue(LiveWorkText.percent(usage.busy))
-                    Divider()
-                    SystemReadingRow(title: "User", value: LiveWorkText.percent(usage.user))
-                    SystemReadingRow(title: "System", value: LiveWorkText.percent(usage.system))
-                    SystemReadingRow(title: "Idle", value: LiveWorkText.percent(usage.idle))
-                } else {
-                    Text("Waiting for a CPU sample…").foregroundColor(.secondary)
-                }
-                Text("\(ProcessInfo.processInfo.activeProcessorCount) logical cores")
-                    .font(.caption).foregroundColor(.secondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(8)
+        if #available(macOS 14.0, *), interfaceStyle == .modern {
+            ModernCard(padding: 20) { readings }
+        } else {
+            GroupBox { readings.padding(12) }
         }
     }
-}
 
-private struct ThisMacMemorySection: View {
-    @ObservedObject var monitor: LiveWorkMonitor
-
-    var body: some View {
-        GroupBox(label: Label("Memory", systemImage: "memorychip")) {
-            VStack(alignment: .leading, spacing: 10) {
-                if let memory = monitor.memoryUsage {
-                    SystemReadingRow(title: "Total in use", value: memory.compactTotal)
-                    SystemReadingRow(title: "Physical RAM", value: memory.ramDescription)
-                    SystemReadingRow(title: "Swap", value: memory.swapDescription)
-                } else {
-                    Text("Memory reading unavailable.").foregroundColor(.secondary)
+    private var readings: some View {
+        let usage = monitor.usage
+        let status = usage?.trendStatus ?? .unknown
+        return VStack(alignment: .leading, spacing: 20) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(usage.map { LiveWorkText.percent($0.busy) } ?? "–")
+                        .font(.system(size: 34, weight: .semibold, design: .rounded).monospacedDigit())
+                    Text("in use", bundle: AppLanguage.resourceBundle).font(.title3).foregroundColor(.secondary)
                 }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text("CPU in use", bundle: AppLanguage.resourceBundle))
+                .accessibilityValue(accessiblePercent(usage?.busy))
+                HStack(spacing: 5) {
+                    Circle().fill(status.color).frame(width: 7, height: 7)
+                    status.localizedTitle
+                }
+                .font(.callout.weight(.medium))
+                .foregroundColor(.secondary)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text("CPU status", bundle: AppLanguage.resourceBundle))
+                .accessibilityValue(status.localizedTitle)
+                Spacer(minLength: 8)
+                Text("\(ProcessInfo.processInfo.activeProcessorCount) logical cores", bundle: AppLanguage.resourceBundle)
+                    .font(.callout).foregroundColor(.secondary)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(8)
+            HStack(spacing: 12) {
+                Text("History", bundle: AppLanguage.resourceBundle).font(.headline)
+                Spacer(minLength: 4)
+                SystemTrendRangePicker()
+            }
+            CPUTrendChart(samples: monitor.samples, plotHeight: 145)
+            Divider()
+            HStack(alignment: .top, spacing: 16) {
+                timeShare("User", usage?.user)
+                timeShare("System", usage?.system)
+                timeShare("Idle", usage?.idle)
+            }
         }
     }
-}
 
-private struct SystemReadingRow: View {
-    let title: String
-    let value: String
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(title)
-            Spacer(minLength: 12)
-            Text(value).font(.body.monospacedDigit()).foregroundColor(.secondary)
+    private func timeShare(_ title: String, _ value: Double?) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(LocalizedStringKey(title), bundle: AppLanguage.resourceBundle).font(.callout).foregroundColor(.secondary)
+            Text(value.map(LiveWorkText.percent) ?? "–")
+                .font(.title2.weight(.semibold).monospacedDigit())
         }
-        .accessibilityElement(children: .combine)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(LocalizedStringKey(title), bundle: AppLanguage.resourceBundle))
+        .accessibilityValue(accessiblePercent(value))
+    }
+
+    private func accessiblePercent(_ value: Double?) -> Text {
+        value.map { Text(verbatim: LiveWorkText.percent($0)) } ?? Text("Unavailable", bundle: AppLanguage.resourceBundle)
     }
 }
