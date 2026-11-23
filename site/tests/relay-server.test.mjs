@@ -82,9 +82,22 @@ test("real HTTP relay persists pairing, snapshots, authorization, and revocation
 
   const macSnapshot = {
     schemaVersion: 1, generatedAt: "2026-10-10T08:00:00Z",
-    tools: [{ id: "chatgpt", name: "ChatGPT", symbolName: "sparkles", limits: [
-      { id: "weekly", name: "Weekly", primary: { remainingPercent: 64, windowDurationMinutes: 10080 } },
-    ] }],
+    tools: [
+      { id: "chatgpt", name: "ChatGPT", symbolName: "sparkles", limits: [
+        { id: "weekly", name: "Weekly", primary: { remainingPercent: 64, windowDurationMinutes: 10080 } },
+      ] },
+      {
+        id: "claude", name: "Claude", symbolName: "sparkles", limits: [],
+        resetCredits: {
+          availableCount: 2,
+          expiresAt: "2026-12-10T22:00:00Z",
+          credits: [
+            { id: "reset-1", title: "Full reset", expiresAt: "2026-12-10T22:00:00Z", detail: "Refills every limit." },
+            { id: "reset-2", title: "Fable reset", detail: "Refills the 5-hour limit and Fable allowance." },
+          ],
+        },
+      },
+    ],
   };
   const uploaded = await responseJSON(await service.send(`${channelPath}/snapshot`, {
     method: "PUT", token: channel.uploadToken, body: macSnapshot,

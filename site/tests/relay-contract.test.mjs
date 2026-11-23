@@ -64,6 +64,49 @@ test("accepts only normalized reset-credit summaries", () => {
   assert.throws(() => relayTestSupport.validateSnapshot(snapshot));
 });
 
+test("accepts named reset credits at the list and field limits", () => {
+  const snapshot = validSnapshot();
+  const summary = snapshot.tools[0].resetCredits;
+  summary.availableCount = 0;
+  summary.credits = [];
+  assert.doesNotThrow(() => relayTestSupport.validateSnapshot(snapshot));
+
+  summary.availableCount = 20;
+  summary.credits = Array.from({ length: 20 }, (_, index) => ({ id: `reset-${index}`, title: "Full reset" }));
+  summary.credits[0] = {
+    id: "x".repeat(128), title: "x".repeat(80), detail: "x".repeat(300), expiresAt: summary.expiresAt,
+  };
+  assert.doesNotThrow(() => relayTestSupport.validateSnapshot(snapshot));
+});
+
+test("rejects invalid named reset credit lists", () => {
+  const credit = { id: "reset-1", title: "Full reset" };
+  const invalidLists = {
+    "unknown credit key": [{ ...credit, providerToken: "private" }],
+    "missing id": [{ title: credit.title }],
+    "empty id": [{ ...credit, id: "" }],
+    "oversized id": [{ ...credit, id: "x".repeat(129) }],
+    "missing title": [{ id: credit.id }],
+    "empty title": [{ ...credit, title: "" }],
+    "oversized title": [{ ...credit, title: "x".repeat(81) }],
+    "empty detail": [{ ...credit, detail: "" }],
+    "null detail": [{ ...credit, detail: null }],
+    "oversized detail": [{ ...credit, detail: "x".repeat(301) }],
+    "invalid expiry": [{ ...credit, expiresAt: "not-a-date" }],
+    "null expiry": [{ ...credit, expiresAt: null }],
+    "duplicate ids": [credit, { ...credit, title: "Fable reset" }],
+    "21 credits": Array.from({ length: 21 }, (_, index) => ({ ...credit, id: `reset-${index}` })),
+    "non-array credits": credit,
+    "null credits": null,
+    "null credit entry": [null],
+  };
+  for (const [reason, credits] of Object.entries(invalidLists)) {
+    const snapshot = validSnapshot();
+    snapshot.tools[0].resetCredits.credits = credits;
+    assert.throws(() => relayTestSupport.validateSnapshot(snapshot), { message: "Invalid tool snapshot.", status: 400 }, reason);
+  }
+});
+
 test("accepts only privacy-minimal legacy aggregate session status", () => {
   for (const phase of ["idle", "thinking", "complete", "needsInput", "error"]) {
     const snapshot = validSnapshot();
