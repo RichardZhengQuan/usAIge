@@ -52,7 +52,9 @@ struct HUDView: View {
     private var isEdgeRail: Bool { interfaceStyle == .modern }
 
     private var desiredSize: CGSize {
-        let width = HUDMetrics.railWidth(for: settings.textSize, labelWidth: labelWidth)
+        let availableWidth = screenState.visibleWidth - (isEdgeRail ? 0 : 2 * PanelPositioner.inset)
+        let width = HUDMetrics.railWidth(for: settings.textSize, labelWidth: labelWidth,
+                                         maximumWidth: availableWidth / settings.scale)
         if isEdgeRail {
             return CGSize(
                 width: width,
@@ -350,7 +352,7 @@ struct HUDView: View {
             let snapshot = row.snapshot
             QuotaRowView(
                 snapshot: snapshot,
-                showsResetCredits: settings.showsResetCredits,
+                otherLimits: row.others,
                 agentPhase: agentStore.phase(for: snapshot.toolID),
                 agentTaskID: agentStore.targetTask(for: snapshot.toolID)?.id,
                 openTool: openTool,
@@ -367,10 +369,7 @@ struct HUDView: View {
                 onDetailHoverChanged: { isHovered, rowFrame in
                     if isHovered {
                         detailHoveredSnapshotIDs.insert(snapshot.id)
-                        let shows = settings.showsResetCredits
-                        quotaDetail?.show(shows ? snapshot : snapshot.withoutResetCredits,
-                                          others: shows ? row.others : row.others.map(\.withoutResetCredits),
-                                          rowFrame: rowFrame)
+                        quotaDetail?.show(snapshot, others: row.others, rowFrame: rowFrame)
                     } else {
                         detailHoveredSnapshotIDs.remove(snapshot.id)
                         quotaDetail?.pointerLeft(snapshotID: snapshot.id)
@@ -698,11 +697,13 @@ extension View {
 }
 
 enum HUDMetrics {
-    static let railWidth: CGFloat = 128
-    static let horizontalInset: CGFloat = 8
+    static let railWidth: CGFloat = 160
+    static let horizontalInset: CGFloat = 14
 
-    static func railWidth(for textSize: HUDTextSize, labelWidth: CGFloat = 0) -> CGFloat {
-        ceil(max(railWidth * textSize.factor, labelWidth + 2 * horizontalInset))
+    static func railWidth(for textSize: HUDTextSize, labelWidth: CGFloat = 0,
+                          maximumWidth: CGFloat = .greatestFiniteMagnitude) -> CGFloat {
+        let ideal = ceil(max(railWidth * textSize.factor, labelWidth + 2 * horizontalInset))
+        return min(ideal, max(1, maximumWidth))
     }
 
     static let messageSize = CGSize(width: railWidth, height: 120)

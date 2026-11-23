@@ -52,8 +52,11 @@ enum QuotaRingPresentation {
 }
 
 enum ResetCreditPresentation {
-    static func displayedCount(showsResetCredits: Bool, availableCount: Int?) -> Int? {
-        guard showsResetCredits, let availableCount, availableCount > 0 else { return nil }
+    static func displayedCount(for snapshot: QuotaSnapshot, otherLimits: [QuotaSnapshot] = []) -> Int? {
+        // Modern displays one ring per tool. Its tightest limit may be a
+        // model-specific bucket while another holds the tool's reset credits.
+        let availableCount = snapshot.availableResetCount ?? otherLimits.lazy.compactMap(\.availableResetCount).first
+        guard let availableCount, availableCount > 0 else { return nil }
         return availableCount
     }
 }
@@ -141,7 +144,7 @@ extension CodexAgentPhase {
 @available(macOS 14.0, *)
 struct QuotaRowView: View {
     let snapshot: QuotaSnapshot
-    let showsResetCredits: Bool
+    let otherLimits: [QuotaSnapshot]
     let agentPhase: CodexAgentPhase
     let agentTaskID: String?
     let openTool: (AIToolDescriptor) -> Void
@@ -149,7 +152,6 @@ struct QuotaRowView: View {
     /// Reports hover changes with the row's frame in the rail's coordinates.
     let onDetailHoverChanged: (Bool, CGRect) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.hudTextSize) private var textSize
     @AppStorage(InterfaceStyle.defaultsKey) private var style = InterfaceStyle.standard
     @State private var isHovered = false
@@ -179,6 +181,8 @@ struct QuotaRowView: View {
         QuotaSeverity(remainingPercent: snapshot.remainingPercent)
     }
 
+    private var credits: Int? { ResetCreditPresentation.displayedCount(for: snapshot, otherLimits: otherLimits) }
+
     private var secondarySeverity: QuotaSeverity? {
         snapshot.secondaryWindow.map {
             QuotaSeverity(remainingPercent: $0.remainingPercent)
@@ -193,26 +197,9 @@ struct QuotaRowView: View {
         VStack(spacing: 4) {
             usageRing
 
-            HStack(spacing: 4) {
-                typeTag(
-                    resetAt: snapshot.resetAt,
-                    availableResetCount: ResetCreditPresentation.displayedCount(
-                        showsResetCredits: showsResetCredits,
-                        availableCount: snapshot.availableResetCount
-                    ),
-                    isCondensed: snapshot.secondaryWindow != nil,
-                    severity: primarySeverity
-                )
-                if let secondaryWindow = snapshot.secondaryWindow {
-                    typeTag(
-                        resetAt: secondaryWindow.resetAt,
-                        availableResetCount: nil,
-                        isCondensed: true,
-                        severity: QuotaSeverity(remainingPercent: secondaryWindow.remainingPercent)
-                    )
-                }
+            TimelineView(.periodic(from: .now, by: 60)) { context in
+                RailResetBadges(snapshot: snapshot, credits: credits, now: context.date, isModern: isModern)
             }
-            .hudRailLabel()
         }
         .frame(maxWidth: .infinity)
         .frame(height: HUDMetrics.rowHeight(for: textSize))
@@ -337,59 +324,11 @@ struct QuotaRowView: View {
             .shadow(color: severity.glowColor.opacity(0.72), radius: severity.glowRadius)
     }
 
-    private func typeTag(
-        resetAt: Date?,
-        availableResetCount: Int?,
-        isCondensed: Bool,
-        severity: QuotaSeverity
-    ) -> some View {
-        TimelineView(.periodic(from: .now, by: 60)) { context in
-            let resetText = ResetRemainingText.compact(until: resetAt, now: context.date)
-
-            HStack(alignment: .center, spacing: isCondensed ? 1 : 2) {
-                Text(resetText)
-                    .font(.system(
-                        size: (isModern ? (isCondensed ? 11.5 : 13) : (isCondensed ? 9 : 11)) * textSize.factor,
-                        weight: .bold,
-                        design: .rounded
-                    ))
-                    .foregroundStyle(severity.color)
-                    .shadow(color: severity.glowColor, radius: severity.glowRadius / 3)
-                    .shadow(color: severity.glowColor.opacity(0.8), radius: severity.glowRadius)
-
-                if let availableResetCount {
-                    Text("\(availableResetCount)r")
-                        .font(.system(
-                            size: (isModern ? (isCondensed ? 9 : 10) : (isCondensed ? 7 : 8)) * textSize.factor,
-                            weight: .semibold,
-                            design: .rounded
-                        ))
-                        .monospacedDigit()
-                        .foregroundStyle(severity.color)
-                }
-            }
-            .padding(.horizontal, isCondensed ? 3 : 6)
-            .frame(height: (isModern ? 20 : (isCondensed ? 16 : 20)) * textSize.factor)
-            // A material keeps the tag legible over any wallpaper. With Reduce
-            // Transparency the rail's surface is the same solid material, so a
-            // tint keeps the capsule distinct from it.
-            .background(
-                reduceTransparency ? AnyShapeStyle(Color.primary.opacity(0.1)) : AnyShapeStyle(.ultraThinMaterial),
-                in: Capsule()
-            )
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(
-                ResetRemainingText.accessibilityLabel(until: resetAt, now: context.date)
-            )
-            .accessibilityValue(
-                availableResetCount.map { "\($0) reset credits available" } ?? ""
-            )
-            .help(isModern ? "" : ResetRemainingText.accessibilityLabel(until: resetAt, now: context.date))
-        }
-    }
-
     private var accessibilitySummary: String {
         var text = "\(tool.name), \(snapshot.displayName), \(snapshot.typeTag) window, \(Int(snapshot.remainingPercent.rounded())) percent remaining, \(ResetRemainingText.accessibilityLabel(until: snapshot.resetAt))"
+        if let credits {
+            text += ", \(credits) reset \(credits == 1 ? "credit" : "credits") available"
+        }
         if let secondaryWindow = snapshot.secondaryWindow {
             text += ", \(secondaryWindow.typeTag) window, \(Int(secondaryWindow.remainingPercent.rounded())) percent remaining, \(ResetRemainingText.accessibilityLabel(until: secondaryWindow.resetAt))"
         }
@@ -399,6 +338,51 @@ struct QuotaRowView: View {
         return text
     }
 
+}
+
+@available(macOS 14.0, *)
+struct RailResetBadges: View {
+    let snapshot: QuotaSnapshot
+    let credits: Int?
+    let now: Date
+    let isModern: Bool
+    @Environment(\.hudTextSize) private var textSize
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    var body: some View {
+        HStack(spacing: 8 * textSize.factor) {
+            badge(snapshot.primaryWindow, credits: credits)
+            if let secondary = snapshot.secondaryWindow { badge(secondary) }
+        }
+        .hudRailLabel()
+    }
+
+    private func badge(_ window: QuotaWindowSnapshot, credits: Int? = nil) -> some View {
+        let severity = QuotaSeverity(remainingPercent: window.remainingPercent)
+        let description = ResetRemainingText.accessibilityLabel(until: window.resetAt, now: now)
+        return HStack(alignment: .firstTextBaseline, spacing: 5 * textSize.factor) {
+            Text(ResetRemainingText.compact(until: window.resetAt, now: now))
+                .font(.system(size: (isModern ? 13 : 11) * textSize.factor, weight: .bold, design: .rounded))
+                .shadow(color: severity.glowColor, radius: severity.glowRadius / 3)
+                .shadow(color: severity.glowColor.opacity(0.8), radius: severity.glowRadius)
+            if let credits {
+                Text("\(credits)r")
+                    .font(.system(size: (isModern ? 11 : 10) * textSize.factor, weight: .semibold, design: .rounded))
+            }
+        }
+        .lineLimit(1)
+        .monospacedDigit()
+        .foregroundStyle(severity.color)
+        .padding(.horizontal, 10 * textSize.factor)
+        .frame(minWidth: 44 * textSize.factor)
+        .frame(height: 20 * textSize.factor)
+        .background(reduceTransparency ? AnyShapeStyle(Color.primary.opacity(0.1)) : AnyShapeStyle(.ultraThinMaterial),
+                    in: Capsule())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(description)
+        .accessibilityValue(credits.map { "\($0) reset \($0 == 1 ? "credit" : "credits") available" } ?? "")
+        .help(isModern ? "" : description)
+    }
 }
 
 /// A rounded card with an arrow pointing at the hovered row. `rect` includes
@@ -830,7 +814,7 @@ private struct QuotaProgressBar: View {
 enum ResetDateText {
     static func format(
         _ date: Date?,
-        locale: Locale = .autoupdatingCurrent,
+        locale: Locale = AppLanguage.current.locale,
         timeZone: TimeZone = .autoupdatingCurrent
     ) -> String {
         guard let date else { return "Unavailable" }
@@ -852,13 +836,13 @@ enum ResetMomentText {
     static func moment(
         _ resetAt: Date?,
         now: Date = Date(),
-        locale: Locale = .autoupdatingCurrent,
+        locale: Locale = AppLanguage.current.locale,
         timeZone: TimeZone = .autoupdatingCurrent
     ) -> String? {
         guard let resetAt else { return nil }
         let seconds = resetAt.timeIntervalSince(now)
-        if seconds <= 0 { return "now" }
-        if seconds < 3_600 { return "in \(max(1, Int(ceil(seconds / 60)))) min" }
+        if seconds <= 0 { return AppLanguage.text("now", locale: locale) }
+        if seconds < 3_600 { return AppLanguage.format("in %ld min", locale: locale, max(1, Int(ceil(seconds / 60)))) }
         var calendar = Calendar(identifier: .gregorian)
         calendar.locale = locale
         calendar.timeZone = timeZone
@@ -881,7 +865,7 @@ enum ResetMomentText {
         let days = calendar.dateComponents([.day], from: today, to: calendar.startOfDay(for: resetAt)).day ?? 0
         switch days {
         case 0: return time
-        case 1: return "tomorrow \(time)"
+        case 1: return AppLanguage.format("tomorrow %@", locale: locale, time)
         case 2...6: return "\(format("EEE")) \(time)"
         default:
             return calendar.isDate(resetAt, equalTo: now, toGranularity: .year) ? format("MMMd") : format("yMMMd")
@@ -889,9 +873,10 @@ enum ResetMomentText {
     }
 
     /// "Resets 3:40 PM", or that the reset time is unknown.
-    static func sentence(_ resetAt: Date?, now: Date = Date()) -> String {
-        guard let moment = moment(resetAt, now: now) else { return "No reset time" }
-        return moment == "now" ? "Resetting now" : "Resets \(moment)"
+    static func sentence(_ resetAt: Date?, now: Date = Date(), locale: Locale = AppLanguage.current.locale) -> String {
+        guard let moment = moment(resetAt, now: now, locale: locale) else { return AppLanguage.text("No reset time", locale: locale) }
+        return moment == AppLanguage.text("now", locale: locale) ? AppLanguage.text("Resetting now", locale: locale)
+            : AppLanguage.format("Resets %@", locale: locale, moment)
     }
 
     /// How long until the reset, to the minute: "2h 41m", "3d 4h".
