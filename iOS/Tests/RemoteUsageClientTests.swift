@@ -143,6 +143,7 @@ final class RemoteUsageClientTests: XCTestCase {
         let fetched = try await relay.fetch(connection: connection, token: "read-token")
         let result = try XCTUnwrap(fetched)
 
+        XCTAssertEqual(result.snapshots.first?.toolSymbolName, "sparkles")
         XCTAssertEqual(result.snapshots.first?.sessionStatus?.phase, .thinking)
         XCTAssertEqual(
             result.snapshots.first?.sessionStatus?.updatedAt,
@@ -153,6 +154,18 @@ final class RemoteUsageClientTests: XCTestCase {
             result.snapshots.first?.resetCreditExpiresAt,
             Date(timeIntervalSince1970: 1_800_950_400)
         )
+        XCTAssertEqual(result.snapshots.first?.resetCredits, [])
+
+        let claudeLimits = result.snapshots.filter { $0.toolName == "Claude" }
+        let namedCredits = [
+            ResetCreditSnapshot(
+                id: "reset-1", title: "Full reset", expiresAt: Date(timeIntervalSince1970: 1_800_950_400.123)
+            ),
+            ResetCreditSnapshot(id: "reset-2", title: "Fable reset", detail: "Refills your Fable allowance."),
+        ]
+        XCTAssertEqual(claudeLimits.map(\.limitID), ["all-models", "fable"])
+        XCTAssertEqual(claudeLimits.map(\.availableResetCount), [2, 2])
+        XCTAssertEqual(claudeLimits.map(\.resetCredits), [namedCredits, namedCredits])
     }
 
     func testRelayRegistrationIncludesSessionNotificationPreference() async throws {
@@ -273,7 +286,9 @@ final class RelayClientSessionStatusTests: XCTestCase {
         let result = try XCTUnwrap(fetched)
 
         XCTAssertEqual(result.snapshots.count, 1)
+        XCTAssertEqual(result.snapshots[0].toolSymbolName, "sparkles")
         XCTAssertEqual(result.snapshots[0].sessionStatus?.phase, .needsInput)
+        XCTAssertTrue(result.snapshots[0].resetCredits.isEmpty)
         XCTAssertEqual(
             result.snapshots[0].sessionStatus?.updatedAt,
             ISO8601DateFormatter().date(from: "2026-07-19T12:00:02Z")
@@ -340,7 +355,44 @@ private final class RemoteUsageStubURLProtocol: URLProtocol, @unchecked Sendable
         if url.path.hasSuffix("/session-events"), request.httpMethod == "GET" {
             responseBody = Data(#"{"events":[{"id":"session-1:finished:123","kind":"finished","sessionTitle":"Ship notification inbox","workspaceName":"GPTUsage","occurredAt":"2026-07-19T12:00:00Z"}]}"#.utf8)
         } else if url.path.contains("/api/v1/channels/"), request.httpMethod == "GET" {
-            responseBody = Data(#"{"version":8,"serverReceivedAt":"2027-01-15T08:01:40Z","snapshot":{"schemaVersion":1,"generatedAt":"2027-01-15T08:01:40Z","tools":[{"id":"chatGPT","name":"ChatGPT","symbolName":"sparkles","resetCredits":{"availableCount":1,"expiresAt":"2027-01-26T08:00:00Z"},"sessionStatus":{"phase":"thinking","updatedAt":"2027-01-15T08:01:39Z"},"limits":[{"id":"codex","name":"Codex","planType":"pro","primary":{"remainingPercent":86,"resetAt":"2027-01-20T08:00:00Z","windowDurationMinutes":10080},"secondary":null}]}]}}"#.utf8)
+            responseBody = Data(#"""
+            {
+              "version": 8,
+              "serverReceivedAt": "2027-01-15T08:01:40Z",
+              "snapshot": {
+                "schemaVersion": 1,
+                "generatedAt": "2027-01-15T08:01:40Z",
+                "tools": [
+                  {
+                    "id": "chatGPT", "name": "ChatGPT", "symbolName": "sparkles",
+                    "resetCredits": {"availableCount": 1, "expiresAt": "2027-01-26T08:00:00Z"},
+                    "sessionStatus": {"phase": "thinking", "updatedAt": "2027-01-15T08:01:39Z"},
+                    "limits": [
+                      {
+                        "id": "codex", "name": "Codex", "planType": "pro",
+                        "primary": {"remainingPercent": 86, "resetAt": "2027-01-20T08:00:00Z", "windowDurationMinutes": 10080},
+                        "secondary": null
+                      }
+                    ]
+                  },
+                  {
+                    "id": "claude", "name": "Claude", "symbolName": "asterisk",
+                    "resetCredits": {
+                      "availableCount": 2,
+                      "credits": [
+                        {"id": "reset-1", "title": "Full reset", "expiresAt": "2027-01-26T08:00:00.123Z"},
+                        {"id": "reset-2", "title": "Fable reset", "detail": "Refills your Fable allowance."}
+                      ]
+                    },
+                    "limits": [
+                      {"id": "all-models", "name": "All models", "primary": {"remainingPercent": 55}},
+                      {"id": "fable", "name": "Fable", "primary": {"remainingPercent": 17}}
+                    ]
+                  }
+                ]
+              }
+            }
+            """#.utf8)
         } else {
             responseBody = Data(#"{"limits":[{"id":"messages","usedPercent":25}]}"#.utf8)
         }

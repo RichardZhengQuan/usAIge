@@ -26,6 +26,9 @@ struct UsAIgeIOSApp: App {
             .task {
                 await model.start()
                 await model.refreshAll()
+                #if DEBUG
+                await DemoWidgetCache.writeIfNeeded()
+                #endif
                 // Seed the background chain at first launch; the .background
                 // transition keeps it going afterwards.
                 BackgroundRefreshCoordinator.schedule(

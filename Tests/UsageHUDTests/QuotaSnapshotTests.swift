@@ -2,6 +2,29 @@ import Foundation
 import Testing
 @testable import UsageHUD
 
+@Suite struct QuotaSnapshotResetCreditTests {
+    @Test func encodesNamedCreditsAndDecodesOlderSnapshotsWithoutThem() throws {
+        var snapshot = Fixtures.codexSnapshot
+        let expiresAt = Date(timeIntervalSince1970: 1_800_950_400)
+        snapshot.availableResetCount = 1
+        snapshot.resetCreditExpiresAt = expiresAt
+        #expect(snapshot.resetCredits.isEmpty)
+        snapshot.resetCredits = [
+            ResetCredit(id: "reset-1", title: "Full reset", expiresAt: expiresAt, detail: "Refills every limit."),
+        ]
+
+        let encoded = try JSONEncoder().encode(snapshot)
+        let decoder = JSONDecoder()
+        #expect(try decoder.decode(QuotaSnapshot.self, from: encoded) == snapshot)
+
+        var oldFields = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        oldFields.removeValue(forKey: "resetCredits")
+        let oldData = try JSONSerialization.data(withJSONObject: oldFields)
+        snapshot.resetCredits = []
+        #expect(try decoder.decode(QuotaSnapshot.self, from: oldData) == snapshot)
+    }
+}
+
 @Test func calculatesAndClampsRemainingPercentage() throws {
     let now = Date(timeIntervalSince1970: 1_800_000_000)
     let snapshot = QuotaSnapshot.make(

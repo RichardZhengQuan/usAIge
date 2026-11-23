@@ -52,6 +52,18 @@ struct QuotaWindowSnapshot: Codable, Equatable, Sendable {
     }
 }
 
+struct ResetCredit: Codable, Equatable, Sendable {
+    let id: String
+    let title: String
+    let expiresAt: Date?
+    let detail: String?
+
+    func isUnexpired(at date: Date) -> Bool {
+        guard let expiresAt else { return true }
+        return expiresAt.timeIntervalSince1970.isFinite && expiresAt > date
+    }
+}
+
 struct QuotaSnapshot: Identifiable, Codable, Equatable, Sendable {
     let id: String
     var toolID: AIToolID = .chatGPT
@@ -67,6 +79,7 @@ struct QuotaSnapshot: Identifiable, Codable, Equatable, Sendable {
     let updatedAt: Date
     var availableResetCount: Int? = nil
     var resetCreditExpiresAt: Date? = nil
+    var resetCredits: [ResetCredit] = []
     var secondaryWindow: QuotaWindowSnapshot? = nil
 
     var typeTag: String {
@@ -119,5 +132,27 @@ struct QuotaSnapshot: Identifiable, Codable, Equatable, Sendable {
             updatedAt: updatedAt,
             secondaryWindow: secondary
         )
+    }
+}
+
+extension QuotaSnapshot {
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(String.self, forKey: .id)
+        toolID = try values.decode(AIToolID.self, forKey: .toolID)
+        toolName = try values.decodeIfPresent(String.self, forKey: .toolName)
+        toolWebURL = try values.decodeIfPresent(URL.self, forKey: .toolWebURL)
+        toolSystemImage = try values.decodeIfPresent(String.self, forKey: .toolSystemImage)
+        displayName = try values.decode(String.self, forKey: .displayName)
+        usedPercent = try values.decode(Double.self, forKey: .usedPercent)
+        remainingPercent = try values.decode(Double.self, forKey: .remainingPercent)
+        resetAt = try values.decodeIfPresent(Date.self, forKey: .resetAt)
+        windowDurationMinutes = try values.decodeIfPresent(Int.self, forKey: .windowDurationMinutes)
+        planType = try values.decodeIfPresent(String.self, forKey: .planType)
+        updatedAt = try values.decode(Date.self, forKey: .updatedAt)
+        availableResetCount = try values.decodeIfPresent(Int.self, forKey: .availableResetCount)
+        resetCreditExpiresAt = try values.decodeIfPresent(Date.self, forKey: .resetCreditExpiresAt)
+        resetCredits = try values.decodeIfPresent([ResetCredit].self, forKey: .resetCredits) ?? []
+        secondaryWindow = try values.decodeIfPresent(QuotaWindowSnapshot.self, forKey: .secondaryWindow)
     }
 }

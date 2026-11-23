@@ -86,6 +86,20 @@ public struct QuotaWindowSnapshot: Codable, Equatable, Hashable, Sendable {
     }
 }
 
+public struct ResetCreditSnapshot: Codable, Hashable, Sendable {
+    public let id: String
+    public let title: String
+    public let expiresAt: Date?
+    public let detail: String?
+
+    public init(id: String, title: String, expiresAt: Date? = nil, detail: String? = nil) {
+        self.id = id
+        self.title = title
+        self.expiresAt = expiresAt
+        self.detail = detail
+    }
+}
+
 public struct QuotaSnapshot: Codable, Equatable, Hashable, Identifiable, Sendable {
     /// Stable compound identifier made from the tool UUID and remote limit ID.
     public let id: String
@@ -100,8 +114,11 @@ public struct QuotaSnapshot: Codable, Equatable, Hashable, Identifiable, Sendabl
     public let windowDurationMinutes: Int?
     public let availableResetCount: Int?
     public let resetCreditExpiresAt: Date?
+    public let resetCredits: [ResetCreditSnapshot]
     public let secondaryWindow: QuotaWindowSnapshot?
     public let sessionStatus: CodexSessionStatus?
+    /// The SF Symbol the Mac chose for this limit's tool, when the relay sent one.
+    public let toolSymbolName: String?
 
     public init(
         id: String,
@@ -116,8 +133,10 @@ public struct QuotaSnapshot: Codable, Equatable, Hashable, Identifiable, Sendabl
         windowDurationMinutes: Int? = nil,
         availableResetCount: Int? = nil,
         resetCreditExpiresAt: Date? = nil,
+        resetCredits: [ResetCreditSnapshot] = [],
         secondaryWindow: QuotaWindowSnapshot? = nil,
-        sessionStatus: CodexSessionStatus? = nil
+        sessionStatus: CodexSessionStatus? = nil,
+        toolSymbolName: String? = nil
     ) {
         self.id = id
         self.limitID = limitID
@@ -131,8 +150,30 @@ public struct QuotaSnapshot: Codable, Equatable, Hashable, Identifiable, Sendabl
         self.windowDurationMinutes = windowDurationMinutes.flatMap { $0 > 0 ? $0 : nil }
         self.availableResetCount = availableResetCount.map { max(0, $0) }
         self.resetCreditExpiresAt = resetCreditExpiresAt
+        self.resetCredits = resetCredits
         self.secondaryWindow = secondaryWindow
         self.sessionStatus = sessionStatus
+        self.toolSymbolName = toolSymbolName
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        limitID = try container.decode(String.self, forKey: .limitID)
+        toolID = try container.decode(UUID.self, forKey: .toolID)
+        toolName = try container.decode(String.self, forKey: .toolName)
+        displayName = try container.decode(String.self, forKey: .displayName)
+        remainingPercent = try container.decode(Double.self, forKey: .remainingPercent)
+        resetAt = try container.decodeIfPresent(Date.self, forKey: .resetAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        planType = try container.decodeIfPresent(String.self, forKey: .planType)
+        windowDurationMinutes = try container.decodeIfPresent(Int.self, forKey: .windowDurationMinutes)
+        availableResetCount = try container.decodeIfPresent(Int.self, forKey: .availableResetCount)
+        resetCreditExpiresAt = try container.decodeIfPresent(Date.self, forKey: .resetCreditExpiresAt)
+        resetCredits = try container.decodeIfPresent([ResetCreditSnapshot].self, forKey: .resetCredits) ?? []
+        secondaryWindow = try container.decodeIfPresent(QuotaWindowSnapshot.self, forKey: .secondaryWindow)
+        sessionStatus = try container.decodeIfPresent(CodexSessionStatus.self, forKey: .sessionStatus)
+        toolSymbolName = try container.decodeIfPresent(String.self, forKey: .toolSymbolName)
     }
 
     public var usedPercent: Double {

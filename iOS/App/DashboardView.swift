@@ -1,20 +1,26 @@
+import Foundation
 import SwiftUI
 
 struct DashboardView: View {
     @Environment(RelayAppModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @SceneStorage("usage.expandedToolIDs") private var storedExpandedToolIDs = ""
 
     var body: some View {
+        let sections = macSections
+        let hasReadings = sections.contains { !$0.snapshots.isEmpty }
+
         Group {
-            if !model.isConnected {
+            if sections.isEmpty {
                 ContentUnavailableView {
                     Label("Connect your Mac", systemImage: "macbook.and.iphone")
                 } description: {
                     Text("Open iPhone Sync in usAIge Settings on your Mac, then enter its pairing code in the Connection tab.")
                 }
-            } else if model.snapshots.isEmpty, model.isRefreshing {
+            } else if !hasReadings, model.isRefreshing {
                 ProgressView("Getting limits from your Macs…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if model.snapshots.isEmpty {
+            } else if !hasReadings {
                 ContentUnavailableView {
                     Label("Limits unavailable", systemImage: "wifi.exclamationmark")
                 } description: {
@@ -24,58 +30,70 @@ struct DashboardView: View {
                         .usaigeProminentButtonStyle()
                 }
             } else {
-                quotaList
+                quotaList(sections)
             }
         }
-        .navigationTitle("usAIge")
+        .background(ModernPalette.page)
+        .navigationTitle("Usage")
         .toolbarTitleDisplayMode(.inlineLarge)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button("Refresh", systemImage: "arrow.clockwise") { Task { await model.refreshAll() } }
-                    .disabled(!model.isConnected || model.isRefreshing)
+                    .disabled(isShowingDemo || !model.isConnected || model.isRefreshing)
             }
         }
     }
 
-    private var quotaList: some View {
-        List {
-            if model.isCacheStale || model.errorMessage != nil {
+    private func quotaList(_ sections: [MacUsageSection]) -> some View {
+        let expanded = expandedToolIDs
+        return List {
+            if !isShowingDemo, model.isCacheStale || model.errorMessage != nil {
                 Section {
                     Label {
                         VStack(alignment: .leading, spacing: 3) {
-                            Text("Showing saved limits").font(.headline)
-                            Text(model.errorMessage ?? model.statusDetail).font(.subheadline).foregroundStyle(.secondary)
+                            Text("Showing saved limits")
+                                .font(.headline)
+                            Text(model.errorMessage ?? model.statusDetail)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
                         }
-                    } icon: { Image(systemName: "clock.badge.exclamationmark").foregroundStyle(.orange) }
+                    } icon: {
+                        Image(systemName: "clock.badge.exclamationmark")
+                            .foregroundStyle(.orange)
+                    }
+                    .accessibilityElement(children: .combine)
                 }
             }
-            ForEach(model.connectionStates, id: \.connection.channelID) { state in
-                let tools = groupedTools(in: state.snapshots)
+            ForEach(sections) { section in
+                let tools = ToolUsageSummary.group(section.snapshots)
                 Section {
                     if tools.isEmpty {
                         Label("Waiting for this Mac to upload limits", systemImage: "clock")
                             .foregroundStyle(.secondary)
                     }
-                    ForEach(tools, id: \.id) { tool in
-                        if tools.count > 1 {
-                            Label(tool.name, systemImage: "sparkles")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.secondary)
+                    ForEach(tools) { tool in
+                        let id = tool.id.uuidString
+                        QuotaRow(tool: tool, isExpanded: expanded.contains(id)) {
+                            toggleTool(id)
                         }
-                        ForEach(tool.values) { QuotaRow(snapshot: $0) }
                     }
                 } header: {
-                    Label(state.connection.macName, systemImage: "laptopcomputer")
+                    Text(section.name)
+                        .textCase(nil)
                 } footer: {
-                    if let updated = state.serverReceivedAt {
-                        Text("Server updated \(updated, style: .relative)")
+                    if let updated = section.updatedAt {
+                        Text("Updated \(.currentDate, format: .reference(to: updated, maxFieldCount: 1))")
                     }
                 }
             }
         }
-        .refreshable { await model.refreshAll() }
+        .listStyle(.insetGrouped)
+        .readableListWidth()
+        .refreshable {
+            if !isShowingDemo { await model.refreshAll() }
+        }
         .overlay(alignment: .top) {
-            if model.isRefreshing {
+            if !isShowingDemo, model.isRefreshing {
                 ProgressView()
                     .padding(10)
                     .usaigeRefreshSurface()
@@ -84,14 +102,56 @@ struct DashboardView: View {
         }
     }
 
-    private func groupedTools(in snapshots: [QuotaSnapshot]) -> [(id: UUID, name: String, values: [QuotaSnapshot])] {
-        var seen: [UUID] = []
-        for snapshot in snapshots where !seen.contains(snapshot.toolID) { seen.append(snapshot.toolID) }
-        return seen.map { id in
-            let values = snapshots.filter { $0.toolID == id }
-            return (id, values.first?.toolName ?? "AI Tool", values)
+    private var expandedToolIDs: Set<String> {
+        Set(storedExpandedToolIDs.split(separator: ",").map(String.init))
+    }
+
+    private func toggleTool(_ id: String) {
+        var expanded = expandedToolIDs
+        if !expanded.insert(id).inserted {
+            expanded.remove(id)
+        }
+        withAnimation(reduceMotion ? nil : .snappy) {
+            storedExpandedToolIDs = expanded.sorted().joined(separator: ",")
         }
     }
+
+    private var macSections: [MacUsageSection] {
+        #if DEBUG
+        if isShowingDemo { return Self.demoSections }
+        #endif
+        return model.connectionStates.map { state in
+            MacUsageSection(
+                id: state.connection.channelID,
+                name: state.connection.macName,
+                snapshots: state.snapshots,
+                updatedAt: state.serverReceivedAt
+            )
+        }
+    }
+
+    private var isShowingDemo: Bool {
+        #if DEBUG
+        UsageDemoData.isEnabled
+        #else
+        false
+        #endif
+    }
+
+    #if DEBUG
+    private static var demoSections: [MacUsageSection] {
+        UsageDemoData.macSections().map {
+            MacUsageSection(id: $0.id, name: $0.name, snapshots: $0.snapshots, updatedAt: $0.updatedAt)
+        }
+    }
+    #endif
+}
+
+private struct MacUsageSection: Identifiable {
+    let id: UUID
+    let name: String
+    let snapshots: [QuotaSnapshot]
+    let updatedAt: Date?
 }
 
 extension View {
