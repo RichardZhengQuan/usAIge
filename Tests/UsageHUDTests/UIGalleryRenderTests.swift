@@ -344,7 +344,6 @@ struct UIGalleryRenderTests {
     @Test func rendersUsageConnectionActions() async throws {
         guard #available(macOS 14.0, *) else { return }
         let (settings, defaults) = makeSettings()
-        defaults.set("claude,cursor", forKey: ModernUsageBoard.expandedDefaultsKey)
         let store = UsageStore(provider: FixedUsageProvider(.success(.authenticated([]))), monitorsNetworkChanges: false)
         await store.refresh()
         let registry = LocalToolStatusRegistry(detectInstallations: { [.claude, .cursor] })
@@ -352,6 +351,14 @@ struct UIGalleryRenderTests {
         registry.report(.waitingForClaudeUsage, for: .claude)
         registry.report(.credentialExpired, for: .cursor)
         for appearance in GalleryAppearance.allCases {
+            defaults.set("", forKey: ModernUsageBoard.expandedDefaultsKey)
+            try render(
+                ModernUsageBoard(store: store, settings: settings, localToolStatus: registry, editing: false)
+                    .padding(24).background(ModernPalette.page).defaultAppStorage(defaults),
+                size: CGSize(width: 830, height: 290), appearance: appearance,
+                name: "usage-folded-connections-\(appearance.rawValue)"
+            )
+            defaults.set("claude,cursor", forKey: ModernUsageBoard.expandedDefaultsKey)
             try render(
                 ModernUsageBoard(store: store, settings: settings, localToolStatus: registry, editing: false)
                     .padding(24).background(ModernPalette.page).defaultAppStorage(defaults),
@@ -372,7 +379,7 @@ struct UIGalleryRenderTests {
         let snapshot = sampleBranchesSnapshot(now: Date())
         let store = BranchesStore(
             defaults: defaults, initialSnapshot: snapshot, initialDiskSpace: sampleDiskSpace,
-            initialToolStorage: sampleToolStorage
+            initialToolStorage: sampleToolStorage, initialCleanupInventory: sampleCleanupInventory
         )
         let tasks = sampleLiveWork(), processes = sampleProcesses(), disk = sampleDiskSpace
         let memory = sampleMemoryUsage
@@ -430,6 +437,18 @@ struct UIGalleryRenderTests {
             try render(RailDetailCard(content: .cpu(monitor.cpu), openDetails: {}),
                        size: CGSize(width: 400, height: 380), appearance: appearance,
                        name: "rail-cpu-details-\(appearance.rawValue)")
+            let breakdown = StorageBreakdown(storage: PaperweightData.storage(
+                disk: disk, board: BranchesBoard.make(snapshot: snapshot, now: Date()), toolStorage: sampleToolStorage,
+                isMeasuring: false), freeableBytes: store.cleanableSpace.bytes, measuredAt: Date())
+            let wallpaper: GalleryWallpaper = appearance == .light ? .light : .dark
+            for (name, content) in [("memory", RailDetailCard.Content.liveWork(monitor.summary, memory: memory, history: monitor.memoryHistory)),
+                                    ("storage", .storage(disk, breakdown, history: monitor.storageHistory))] {
+                try render(ZStack {
+                    wallpaper.view
+                    RailDetailCard(content: content, openDetails: {})
+                }, size: CGSize(width: 402, height: name == "memory" ? 640 : 445), appearance: appearance,
+                   name: "rail-\(name)-details-\(appearance.rawValue)")
+            }
             try render(
                 BranchesRootView(store: store, liveWork: monitor, initialFront: .memory).defaultAppStorage(defaults),
                 size: CGSize(width: 1000, height: 1_400), appearance: appearance,
@@ -938,14 +957,14 @@ struct UIGalleryRenderTests {
             try render(
                 ZStack {
                     wallpaper.view
-                    LiveWorkCard(summary: monitor.summary)
+                    LiveWorkCard(summary: monitor.summary, memory: monitor.memoryUsage, history: monitor.memoryHistory)
                 },
                 size: nil, appearance: appearance, name: "live-tile-card-\(appearance.rawValue)"
             )
             try render(
                 ZStack {
                     wallpaper.view
-                    LiveWorkCard(summary: idleMonitor.summary)
+                    LiveWorkCard(summary: idleMonitor.summary, memory: idleMonitor.memoryUsage, history: idleMonitor.memoryHistory)
                 },
                 size: nil, appearance: appearance, name: "live-tile-card-idle-\(appearance.rawValue)"
             )
@@ -964,14 +983,14 @@ struct UIGalleryRenderTests {
             try render(
                 ZStack {
                     wallpaper.view
-                    StorageCard(disk: disk, breakdown: measured, now: now, openBranches: {})
+                    StorageCard(disk: disk, breakdown: measured, history: monitor.storageHistory, now: now, openBranches: {})
                 },
                 size: nil, appearance: appearance, name: "storage-tile-card-\(appearance.rawValue)"
             )
             try render(
                 ZStack {
                     wallpaper.view
-                    StorageCard(disk: disk, breakdown: nil, now: now, openBranches: {})
+                    StorageCard(disk: disk, breakdown: nil, history: monitor.storageHistory, now: now, openBranches: {})
                 },
                 size: nil, appearance: appearance, name: "storage-tile-card-unmeasured-\(appearance.rawValue)"
             )
@@ -1025,7 +1044,7 @@ struct UIGalleryRenderTests {
             try render(
                 ZStack {
                     wallpaper.view
-                    LiveWorkCard(summary: summary)
+                    LiveWorkCard(summary: summary, memory: monitor.memoryUsage, history: monitor.memoryHistory)
                 },
                 size: nil, appearance: appearance, name: "real-tile-card-\(appearance.rawValue)"
             )
@@ -1129,6 +1148,21 @@ struct UIGalleryRenderTests {
             ],
             items: [running, main, unsaved, pushed, finished, alsoFinished, empty]
         )
+    }
+
+    private var sampleCleanupInventory: StorageCleanupInventory {
+        func row(_ kind: StorageArtifactKind, owner: String, bytes: Int64) -> StorageCleanupRow {
+            let location = StorageArtifactLocation(kind: kind, owner: owner, workspace: owner)
+            let inspection = CleanupFileInspection(identity: CleanupFileIdentity(stat()), fingerprint: "sample",
+                                                   allocatedBytes: bytes, protectedPath: nil)
+            return StorageCleanupRow(location: location, bytes: bytes, reason: nil,
+                                     candidate: StorageCleanupCandidate(location: location, inspection: inspection))
+        }
+        return StorageCleanupInventory(rows: [
+            row(.xcodeBuild, owner: "/Users/me/Library/Developer/Xcode/DerivedData/usAIge", bytes: 6_400_000_000),
+            row(.npmCache, owner: "/Users/me", bytes: 3_100_000_000),
+            row(.nodeModules, owner: "/Users/me/Developer/worktrees/finished-one", bytes: 300_000_000)
+        ], foldersChecked: 3)
     }
 
     private var sampleToolStorage: [ToolStorageEntry] {

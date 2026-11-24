@@ -21,6 +21,11 @@ struct MainRootView: View {
     var updateController: UpdateController? = nil
     var openSettings: () -> Void
     @AppStorage(InterfaceStyle.defaultsKey) private var interfaceStyle = InterfaceStyle.standard
+    @Environment(\.locale) private var locale
+
+    private var cleanBadge: Text {
+        Text(verbatim: store.isDeleting ? "…" : store.cleanableSpace.label(locale: locale))
+    }
 
     private var modernSelection: Binding<ModernPage?> {
         Binding(get: { presentation.selectedSection == .settings ? nil : presentation.modernPage },
@@ -86,6 +91,7 @@ struct MainRootView: View {
                                 .contentShape(Rectangle())
                                 .onTapGesture { presentation.open(page) }
                                 .accessibilityAction { presentation.open(page) }
+                                .badge(page == .clean ? cleanBadge : nil)
                                 .tag(page)
                             }
                         }
@@ -102,6 +108,7 @@ struct MainRootView: View {
                             navigationItem("Resources", symbol: "chart.pie", section: .resources)
                                 .tag(OverviewSection.resources)
                             navigationItem("Clean", symbol: ModernPage.clean.symbol, section: .clean)
+                                .badge(cleanBadge)
                                 .tag(OverviewSection.clean)
                             navigationItem("Branches & Worktrees", symbol: "arrow.triangle.branch", section: .branches)
                                 .tag(OverviewSection.branches)
@@ -754,7 +761,8 @@ private struct ModernSummaryCard<Detail: View>: View {
                         ViewThatFits(in: .horizontal) {
                             HStack(spacing: 16) {
                                 reading.fixedSize(horizontal: true, vertical: false)
-                                trend.frame(minWidth: 210, maxWidth: .infinity)
+                                trend.frame(minWidth: 210, maxWidth: 640)
+                                    .frame(maxWidth: .infinity, alignment: .trailing)
                             }
                             VStack(alignment: .leading, spacing: 10) {
                                 reading
@@ -765,7 +773,7 @@ private struct ModernSummaryCard<Detail: View>: View {
                     }
                 } else if let resourceHistory {
                     let trend = ResourceTrendChart(history: resourceHistory, resource: page == .memory ? .memory : .storage,
-                                                   compact: true)
+                                                   compact: true, plotHeight: 68)
                     VStack(alignment: .leading, spacing: 10) {
                         header
                         amount

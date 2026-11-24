@@ -140,9 +140,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
             quotaDetail.onVisibilityChanged = { [weak liveWork] isShown in
                 liveWork?.detailVisibilityChanged(isShown)
             }
-            liveWorkObserver = liveWork.$summary.combineLatest(liveWork.$memoryUsage)
-                .sink { [weak quotaDetail] summary, memory in
+            liveWorkObserver = liveWork.$summary.combineLatest(liveWork.$memoryUsage, liveWork.$diskSpace)
+                .sink { [weak quotaDetail] summary, memory, disk in
                     quotaDetail?.update(liveWork: summary, memory: memory)
+                    quotaDetail?.update(disk: disk)
                 }
             quotaDetail.openBranches = { [weak self] front in self?.showBranches(front: front) }
             quotaDetail.openCPU = { [weak self] in self?.presentMainWindow(destination: .thisMac) }

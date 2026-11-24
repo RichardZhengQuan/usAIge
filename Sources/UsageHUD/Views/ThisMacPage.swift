@@ -65,13 +65,14 @@ private struct CPUReadings: View {
             }
             Text("Last 10 minutes", bundle: AppLanguage.resourceBundle).font(.headline)
             CPUTrendChart(samples: monitor.samples, plotHeight: 180)
-            CPUTimeBreakdown(usage: usage)
+            CPUTimeBreakdown(usage: usage, barHeight: ProportionalBar.detailHeight)
         }
     }
 }
 
 struct CPUTimeBreakdown: View {
     let usage: SystemCPUUsage?
+    var barHeight = ProportionalBar.thinHeight
     var compact = false
 
     private struct TimeShare: Identifiable {
@@ -90,7 +91,7 @@ struct CPUTimeBreakdown: View {
         VStack(alignment: .leading, spacing: compact ? 6 : 10) {
             ProportionalBar(segments: shares.map {
                 .init(id: $0.id, fraction: $0.fraction ?? 0, color: $0.color)
-            })
+            }, height: barHeight)
             .accessibilityHidden(true)
             LazyVGrid(columns: [GridItem(.adaptive(minimum: compact ? 80 : 110), alignment: .leading)], alignment: .leading) {
                 ForEach(shares) { share in

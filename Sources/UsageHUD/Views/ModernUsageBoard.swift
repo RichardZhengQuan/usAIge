@@ -243,7 +243,7 @@ struct ModernUsageBoard: View {
                         .help(AppLanguage.text("Drag to reorder", locale: locale))
                         .accessibilityHidden(true)
                 }
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 8) {
                         cardHeader(tool: tool, subtitle: subtitle, disclosure: disclosure)
                         if editing {
@@ -252,16 +252,18 @@ struct ModernUsageBoard: View {
                         }
                     }
                     if !showsDetails {
-                        VStack(alignment: .leading, spacing: 5) {
+                        VStack(alignment: .leading, spacing: 0) {
                             if !limits.isEmpty {
                                 TimelineView(.periodic(from: .now, by: 60)) { context in
                                     if let text = UsageCardSummary.resets(limits, now: context.date, locale: locale) {
                                         Label(text, systemImage: "clock")
+                                            .padding(.top, 14)
                                     }
                                 }
                             }
                             if let liveWork {
-                                UsageCardWorkSummary(monitor: liveWork, tool: entry.id)
+                                UsageCardWorkSummary(monitor: liveWork, tool: entry.id,
+                                                     topSpacing: limits.isEmpty ? 14 : 5)
                             }
                         }
                         .font(.callout)
@@ -291,6 +293,7 @@ struct ModernUsageBoard: View {
                             }
                         }
                         .opacity(editing && !isShown ? 0.55 : 1)
+                        .padding(.top, 14)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -485,10 +488,12 @@ private struct UsageCardWorkSummary: View {
     @Environment(\.locale) private var locale
     @ObservedObject var monitor: LiveWorkMonitor
     let tool: AIToolID
+    let topSpacing: CGFloat
 
     var body: some View {
         if let text = UsageCardSummary.work(monitor.summary, for: tool, locale: locale) {
             Label(text, systemImage: "laptopcomputer")
+                .padding(.top, topSpacing)
         }
     }
 }

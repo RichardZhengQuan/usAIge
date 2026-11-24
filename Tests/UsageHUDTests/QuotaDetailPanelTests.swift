@@ -130,7 +130,7 @@ import Testing
     @Test func railAndHoverCardCanJoinAnotherAppsFullScreenSpaceWithoutTakingFocus() throws {
         let rail = HUDPanel(contentView: NSView(frame: CGRect(x: 0, y: 0, width: 84, height: 300)))
         let controller = QuotaDetailPanelController(rail: { rail })
-        controller.showLiveWork(rowFrame: CGRect(x: 4, y: 10, width: 76, height: 80))
+        controller.showLiveWork(rowFrame: CGRect(x: 4, y: 10, width: 76, height: 80), history: ResourceTrendHistory(interval: LiveWorkMonitor.backgroundInterval))
         defer { controller.hide(rowID: .liveWork) }
         let detail = try #require(controller.panel)
         #expect(detail.parent === rail)
@@ -150,7 +150,7 @@ import Testing
         let monitor = SystemCPUMonitor(read: { nil })
         var openedCPU = false
         controller.openCPU = { openedCPU = true }
-        controller.showLiveWork(rowFrame: .zero)
+        controller.showLiveWork(rowFrame: .zero, history: ResourceTrendHistory(interval: LiveWorkMonitor.backgroundInterval))
         let first = try #require(controller.panel)
         controller.showCPU(rowFrame: .zero, monitor: monitor)
         controller.hide(rowID: .liveWork)
@@ -160,6 +160,34 @@ import Testing
         controller.openShownDetails()
         #expect(openedCPU)
         #expect(controller.shownRowID == nil)
+    }
+
+    @Test func openResourceCardsKeepTheirTenMinuteHistoryWhenReadingsUpdate() throws {
+        let rail = makeRail()
+        let controller = QuotaDetailPanelController(rail: { rail })
+        let memoryHistory = ResourceTrendHistory(interval: LiveWorkMonitor.backgroundInterval)
+        let diskHistory = ResourceTrendHistory(interval: LiveWorkMonitor.diskInterval)
+        let memory = SystemMemoryUsage(capacityBytes: 32_000_000_000, usedBytes: 20_000_000_000)
+        controller.showLiveWork(rowFrame: .zero, history: memoryHistory)
+        let host = try #require(controller.panel?.contentView as? NSHostingView<AppLanguageEnvironment<RailDetailCard>>)
+        controller.update(liveWork: LiveWorkSummary(), memory: memory)
+        guard case let .liveWork(_, reading, retained) = host.rootView.content.content else {
+            Issue.record("Expected the Memory detail card")
+            return
+        }
+        #expect(reading == memory && retained === memoryHistory)
+        let disk = DiskSpace(totalBytes: 500_000_000_000, availableBytes: 90_000_000_000)
+        controller.showStorage(rowFrame: .zero, disk: nil, breakdown: nil, history: diskHistory)
+        defer { controller.hide(rowID: .storage) }
+        controller.update(disk: disk)
+        diskHistory.record(bytes: disk.availableBytes, at: Date())
+        guard case let .storage(diskReading, _, retainedDisk) = host.rootView.content.content else {
+            Issue.record("Expected the Storage detail card")
+            return
+        }
+        #expect(diskReading == disk && retainedDisk === diskHistory)
+        #expect(retainedDisk.samples.last?.value == Double(disk.availableBytes))
+        #expect(retainedDisk.domain.upperBound.timeIntervalSince(retainedDisk.domain.lowerBound) == 600)
     }
 
     @Test func aLateExitFromThePreviousRowDoesNotHideTheNewOne() {

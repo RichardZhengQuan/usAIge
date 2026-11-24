@@ -13,6 +13,9 @@ final class BranchesStore: ObservableObject {
     @Published private(set) var toolStorage: [ToolStorageEntry] = []
     @Published private(set) var isMeasuringToolStorage = false
     @Published private(set) var hasMeasuredToolStorage = false
+    @Published private(set) var cleanupInventory: StorageCleanupInventory?
+    @Published private(set) var isScanningCleanup = false
+    private(set) var hasCheckedWorktrees = false
     @Published private(set) var memoryShip: PaperweightShipKind = .sailboat
     @Published private(set) var storageShip: PaperweightShipKind = .galleon
     @Published private(set) var isDeleting = false
@@ -49,6 +52,8 @@ final class BranchesStore: ObservableObject {
     private let diskURL: URL
     private var scanTask: Task<Void, Never>?
     private var toolStorageTask: Task<Void, Never>?
+    private var inventoryTask: Task<Void, Never>?
+    private var inventoryMeasuredAt: Date?
     private var runningTask: Task<Void, Never>?
     private var deleteTask: Task<Void, Never>?
     private var scanBeforeCleanup: Task<Void, Never>?
@@ -66,7 +71,8 @@ final class BranchesStore: ObservableObject {
         diskURL: URL = FileManager.default.homeDirectoryForCurrentUser,
         initialSnapshot: BranchesSnapshot = BranchesSnapshot(),
         initialDiskSpace: DiskSpace? = nil,
-        initialToolStorage: [ToolStorageEntry] = []
+        initialToolStorage: [ToolStorageEntry] = [],
+        initialCleanupInventory: StorageCleanupInventory? = nil
     ) {
         self.defaults = defaults
         self.diskURL = diskURL
@@ -74,6 +80,9 @@ final class BranchesStore: ObservableObject {
         self.diskSpace = initialDiskSpace
         self.toolStorage = initialToolStorage
         self.hasMeasuredToolStorage = !initialToolStorage.isEmpty
+        self.cleanupInventory = initialCleanupInventory
+        self.inventoryMeasuredAt = initialCleanupInventory == nil ? nil : Date()
+        self.hasCheckedWorktrees = initialSnapshot.activity == .idle && !initialSnapshot.items.isEmpty
         self.memoryShip = PaperweightShipPreferences.ship(for: .memory, defaults: defaults)
         self.storageShip = PaperweightShipPreferences.ship(for: .storage, defaults: defaults)
         let key = Self.addedFoldersKey
@@ -91,6 +100,7 @@ final class BranchesStore: ObservableObject {
         setVisible(true)
         if !resumesRestoredWork { startScan(force: false) }
         readDiskSpace()
+        loadCleanupInventory()
         if !isDeleting, !measuredToolsThisOpen {
             measuredToolsThisOpen = true
             loadToolStorage(force: true)
@@ -154,12 +164,14 @@ final class BranchesStore: ObservableObject {
 
     /// Re-reads when the person comes back, unless that just happened.
     func windowBecameKey() {
+        loadCleanupInventory()
         if !needsRepositoryReadAfterRestore,
            let lastScanStartedAt, Date().timeIntervalSince(lastScanStartedAt) < Self.rescanAfter { return }
         startScan(force: false)
     }
 
     func windowClosed() {
+        stopInventoryScan()
         scanTask?.cancel()
         toolStorageTask?.cancel()
         runningTask?.cancel()
@@ -225,6 +237,7 @@ final class BranchesStore: ObservableObject {
     private func apply(_ updated: BranchesSnapshot) {
         guard !Task.isCancelled, !isDeleting else { return }
         let finished = snapshot.activity != .idle && updated.activity == .idle
+        if finished { hasCheckedWorktrees = true }
         snapshot = updated
         if finished { readDiskSpace() }
     }
@@ -253,10 +266,41 @@ final class BranchesStore: ObservableObject {
         folders.append(path)
         defaults.set(folders, forKey: Self.addedFoldersKey)
         startScan(force: false)
+        loadCleanupInventory(force: true)
     }
 
-    func scanStorage() async -> StorageCleanupInventory {
-        await scanner.scanStorage(addedFolders: addedFolders)
+    var cleanableSpace: CleanableSpace {
+        CleanableSpace(inventory: cleanupInventory, worktrees: snapshot.items,
+                       checkedWorktrees: hasCheckedWorktrees && snapshot.activity == .idle)
+    }
+
+    @discardableResult
+    func loadCleanupInventory(force: Bool = false) -> Task<Void, Never>? {
+        guard !isDeleting else { return nil }
+        if force {
+            stopInventoryScan()
+            inventoryMeasuredAt = nil
+        } else if inventoryTask != nil || inventoryMeasuredAt.map({ Date().timeIntervalSince($0) < Self.rescanAfter }) == true {
+            return inventoryTask
+        }
+        let folders = addedFolders
+        let scanner = scanner
+        isScanningCleanup = true
+        inventoryTask = Task(priority: .utility) { [weak self] in
+            let result = await scanner.scanStorage(addedFolders: folders)
+            guard !Task.isCancelled, let self else { return }
+            cleanupInventory = result
+            inventoryMeasuredAt = Date()
+            isScanningCleanup = false
+            inventoryTask = nil
+        }
+        return inventoryTask
+    }
+
+    private func stopInventoryScan() {
+        inventoryTask?.cancel()
+        inventoryTask = nil
+        isScanningCleanup = false
     }
 
     // MARK: Deleting
@@ -300,6 +344,9 @@ final class BranchesStore: ObservableObject {
         // Claim the operation before scheduling work, so a second click cannot
         // replace its task handle before isDeleting becomes visible.
         isDeleting = true
+        stopInventoryScan()
+        cleanupInventory = nil
+        inventoryMeasuredAt = nil
         cleanupProgress = CleanupProgress(operation: operation, completed: 0, total: names.count,
                                           currentName: names.first)
         resultMessage = nil

@@ -91,6 +91,7 @@ final class QuotaDetailPanelController {
     private var hostingView: NSHostingView<AppLanguageEnvironment<RailDetailCard>>?
     private var rowFrame = CGRect.zero
     private var shownQuotaRow: RailQuotaRow?
+    private var shownContent: RailDetailCard.Content?
     private var liveWork = LiveWorkSummary()
     private var memory: SystemMemoryUsage?
     private var arrowEdge: HorizontalEdge = .leading
@@ -123,10 +124,10 @@ final class QuotaDetailPanelController {
     }
 
     /// Shows every tool's current work beside the rail's tile.
-    func showLiveWork(rowFrame: CGRect) {
+    func showLiveWork(rowFrame: CGRect, history: ResourceTrendHistory) {
         shownRowID = .liveWork
         shownQuotaRow = nil
-        presentOnHover(.liveWork(liveWork, memory: memory), rowFrame: rowFrame)
+        presentOnHover(.liveWork(liveWork, memory: memory, history: history), rowFrame: rowFrame)
     }
 
     func showCPU(rowFrame: CGRect, monitor: SystemCPUMonitor) {
@@ -137,10 +138,10 @@ final class QuotaDetailPanelController {
 
     /// Shows the disk, and what the Branches window last measured on it,
     /// beside the rail's Storage paperweight.
-    func showStorage(rowFrame: CGRect, disk: DiskSpace?, breakdown: StorageBreakdown?) {
+    func showStorage(rowFrame: CGRect, disk: DiskSpace?, breakdown: StorageBreakdown?, history: ResourceTrendHistory) {
         shownRowID = .storage
         shownQuotaRow = nil
-        presentOnHover(.storage(disk, breakdown), rowFrame: rowFrame)
+        presentOnHover(.storage(disk, breakdown, history: history), rowFrame: rowFrame)
     }
 
     private func presentOnHover(_ content: RailDetailCard.Content, rowFrame: CGRect) {
@@ -170,12 +171,19 @@ final class QuotaDetailPanelController {
     /// Keeps the open card current as the work changes.
     func update(liveWork: LiveWorkSummary, memory: SystemMemoryUsage? = nil) {
         let workChanged = self.liveWork != liveWork
+        let memoryChanged = self.memory != memory
         self.liveWork = liveWork
         self.memory = memory
-        if shownRowID == .liveWork {
-            present(.liveWork(liveWork, memory: memory))
+        if case let .liveWork(_, _, history) = shownContent, workChanged || memoryChanged {
+            present(.liveWork(liveWork, memory: memory, history: history))
         } else if workChanged, let shownQuotaRow {
             present(content(for: shownQuotaRow))
+        }
+    }
+
+    func update(disk: DiskSpace?) {
+        if case let .storage(previous, breakdown, history) = shownContent, previous != disk {
+            present(.storage(disk, breakdown, history: history))
         }
     }
 
@@ -200,6 +208,7 @@ final class QuotaDetailPanelController {
     func hide(rowID: RailDetailID) {
         guard shownRowID == rowID else { return }
         shownRowID = nil
+        shownContent = nil
         shownQuotaRow = nil
         isPointerOnCard = false
         cancelPendingHide()
@@ -288,6 +297,7 @@ final class QuotaDetailPanelController {
     }
 
     private func present(_ content: RailDetailCard.Content) {
+        shownContent = content
         guard let rail = railWindow(), let railView = rail.contentView else { return }
         let cardView = cardView(showing: content)
         let panel = self.panel ?? makePanel(contentView: cardView)

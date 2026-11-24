@@ -670,7 +670,7 @@ private final class DiskPublications: @unchecked Sendable {
         controller.show(RailQuotaRow(snapshot: snapshot("a")), rowFrame: .zero)
         let first = controller.panel
         controller.hide(rowID: .limit("a"))
-        controller.showLiveWork(rowFrame: .zero)
+        controller.showLiveWork(rowFrame: .zero, history: ResourceTrendHistory(interval: LiveWorkMonitor.backgroundInterval))
         #expect(controller.panel === first)
         #expect(controller.shownRowID == .liveWork)
         #expect(first?.parent === rail)
@@ -680,7 +680,7 @@ private final class DiskPublications: @unchecked Sendable {
         guard #available(macOS 14.0, *) else { return }
         let rail = makeRail()
         let controller = QuotaDetailPanelController(rail: { rail })
-        controller.showLiveWork(rowFrame: .zero)
+        controller.showLiveWork(rowFrame: .zero, history: ResourceTrendHistory(interval: LiveWorkMonitor.backgroundInterval))
         controller.update([RailQuotaRow(snapshot: snapshot("a"))])
         #expect(controller.shownRowID == .liveWork)
         controller.update(liveWork: read([task("a")]))
@@ -695,7 +695,7 @@ private final class DiskPublications: @unchecked Sendable {
         guard #available(macOS 14.0, *) else { return }
         let rail = makeRail()
         let controller = QuotaDetailPanelController(rail: { rail })
-        controller.showStorage(rowFrame: .zero, disk: DiskSpace(totalBytes: 1_000, availableBytes: 100), breakdown: nil)
+        controller.showStorage(rowFrame: .zero, disk: DiskSpace(totalBytes: 1_000, availableBytes: 100), breakdown: nil, history: ResourceTrendHistory(interval: LiveWorkMonitor.diskInterval))
         #expect(controller.shownRowID == .storage)
         #expect(controller.panel?.parent === rail)
         controller.update([RailQuotaRow(snapshot: snapshot("a"))])
@@ -716,7 +716,7 @@ private final class DiskPublications: @unchecked Sendable {
         controller.show(RailQuotaRow(snapshot: snapshot("a")), rowFrame: .zero)
         controller.hide(rowID: .limit("other"))
         controller.hide(rowID: .limit("a"))
-        controller.showLiveWork(rowFrame: .zero)
+        controller.showLiveWork(rowFrame: .zero, history: ResourceTrendHistory(interval: LiveWorkMonitor.backgroundInterval))
         controller.hide(rowID: .liveWork)
         #expect(visibility.values == [true, false, true, false])
     }
@@ -899,9 +899,9 @@ private final class DiskPublications: @unchecked Sendable {
         let rail = makeRail()
         let controller = QuotaDetailPanelController(rail: { rail })
         controller.openBranches = { opened.fronts.append($0) }
-        controller.showStorage(rowFrame: .zero, disk: nil, breakdown: nil)
+        controller.showStorage(rowFrame: .zero, disk: nil, breakdown: nil, history: ResourceTrendHistory(interval: LiveWorkMonitor.diskInterval))
         controller.openShownDetails()
-        controller.showLiveWork(rowFrame: .zero)
+        controller.showLiveWork(rowFrame: .zero, history: ResourceTrendHistory(interval: LiveWorkMonitor.backgroundInterval))
         controller.openShownDetails()
         #expect(opened.fronts == [.storage, .memory])
         #expect(controller.shownRowID == nil)

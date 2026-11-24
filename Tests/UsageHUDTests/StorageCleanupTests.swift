@@ -14,10 +14,13 @@ struct StorageCleanupTests {
         try fixture.write("draft.txt", "Local work stays", in: worktree)
 
         let store = BranchesStore(scanner: fixture.scanner(), diskURL: URL(fileURLWithPath: fixture.home))
-        let inventory = await store.scanStorage()
+        await store.loadCleanupInventory()?.value
+        let inventory = try #require(store.cleanupInventory)
         let items = inventory.rows.compactMap(\.candidate)
         #expect(Set(items.map(\.id)) == Set([fixture.repository, worktree].map { $0 + "/site/node_modules" }))
         #expect(inventory.foldersChecked == 2)
+        #expect(store.cleanableSpace.bytes == items.reduce(0) { $0 + $1.bytes })
+        #expect(store.loadCleanupInventory() == nil)
         #expect(!store.startStorageCleanup([try #require(items.first), try #require(items.first)]))
         #expect(store.startStorageCleanup(items))
         #expect(store.cleanupProgress?.operation == .clearingFiles)
@@ -29,6 +32,10 @@ struct StorageCleanupTests {
         #expect(store.resultMessage?.deletedCount == 2)
         #expect(store.resultMessage?.undoable.isEmpty == true)
         #expect(store.resultMessage?.text.contains("Available space was") == true)
+        #expect(store.cleanupInventory == nil)
+        await store.loadCleanupInventory()?.value
+        #expect(store.cleanupInventory?.rows.isEmpty == true)
+        #expect(store.cleanableSpace.bytes == 0)
         for item in items { #expect(!FileManager.default.fileExists(atPath: item.id)) }
         #expect(try fixture.git(["worktree", "list"]).contains(worktree))
         #expect(FileManager.default.fileExists(atPath: worktree + "/draft.txt"))

@@ -361,6 +361,7 @@ struct LiveSessionList: View {
 struct LiveWorkCard: View {
     let summary: LiveWorkSummary
     var memory: SystemMemoryUsage? = nil
+    let history: ResourceTrendHistory
     var arrowEdge: HorizontalEdge = .leading
     var arrowOffset: CGFloat = 0
     var openBranches: (() -> Void)? = nil
@@ -378,6 +379,11 @@ struct LiveWorkCard: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            RailResourceHistory(history: history, resource: .memory)
+            if let memory {
+                ResourceCapacityBreakdown(configuration: PaperweightData.memory(summary: summary, running: [], systemUsage: memory),
+                                          compact: true)
+            }
             Divider()
             HStack(alignment: .firstTextBaseline) {
                 Text(LiveWorkText.headline(summary)).font(.headline)
@@ -390,7 +396,7 @@ struct LiveWorkCard: View {
                 }
             }
             if !summary.sessions.isEmpty {
-                LiveSessionList(sessions: summary.sessions, visibleRows: 6, showsTool: true)
+                LiveSessionList(sessions: summary.sessions, showsTool: true)
             }
             Divider()
             Text("These figures count AI apps and processes running in their folders.")
@@ -402,7 +408,7 @@ struct LiveWorkCard: View {
             }
         }
         .font(.caption)
-        .railDetailCardChrome(width: 320, arrowEdge: arrowEdge, arrowOffset: arrowOffset)
+        .railDetailCardChrome(width: 350, arrowEdge: arrowEdge, arrowOffset: arrowOffset)
     }
 }
 
@@ -412,6 +418,7 @@ struct LiveWorkCard: View {
 struct StorageCard: View {
     let disk: DiskSpace?
     let breakdown: StorageBreakdown?
+    let history: ResourceTrendHistory
     var now = Date()
     var arrowEdge: HorizontalEdge = .leading
     var arrowOffset: CGFloat = 0
@@ -457,6 +464,7 @@ struct StorageCard: View {
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
+            RailResourceHistory(history: history, resource: .storage)
             if let disk {
                 // One bar, split the way the paperweight stacks its layers.
                 GeometryReader { geometry in
@@ -469,7 +477,7 @@ struct StorageCard: View {
                     }
                     .clipShape(Capsule())
                 }
-                .frame(height: 8)
+                .frame(height: ProportionalBar.thinHeight)
                 .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(rows) { row in
@@ -496,7 +504,25 @@ struct StorageCard: View {
             }
         }
         .font(.caption)
-        .railDetailCardChrome(width: 300, arrowEdge: arrowEdge, arrowOffset: arrowOffset)
+        .railDetailCardChrome(width: 350, arrowEdge: arrowEdge, arrowOffset: arrowOffset)
+    }
+}
+
+@available(macOS 14.0, *)
+private struct RailResourceHistory: View {
+    let history: ResourceTrendHistory
+    let resource: PaperweightID
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text(resource == .memory ? LocalizedStringKey("Memory in use") : "Free disk space", bundle: AppLanguage.resourceBundle)
+                    .fontWeight(.semibold)
+                Spacer()
+                Text("10 min", bundle: AppLanguage.resourceBundle).foregroundStyle(.secondary)
+            }
+            ResourceTrendChart(history: history, resource: resource, plotHeight: 68)
+        }
     }
 }
 
@@ -506,8 +532,8 @@ struct RailDetailCard: View {
     enum Content {
         case cpu(SystemCPUMonitor)
         case quota(QuotaSnapshot, others: [QuotaSnapshot], work: [LiveSessionWork], memoryBytes: UInt64)
-        case liveWork(LiveWorkSummary, memory: SystemMemoryUsage? = nil)
-        case storage(DiskSpace?, StorageBreakdown?)
+        case liveWork(LiveWorkSummary, memory: SystemMemoryUsage?, history: ResourceTrendHistory)
+        case storage(DiskSpace?, StorageBreakdown?, history: ResourceTrendHistory)
     }
 
     let content: Content
@@ -530,10 +556,12 @@ struct RailDetailCard: View {
                 arrowOffset: arrowOffset,
                 openBranches: openDetails
             )
-        case let .liveWork(summary, memory):
-            LiveWorkCard(summary: summary, memory: memory, arrowEdge: arrowEdge, arrowOffset: arrowOffset, openBranches: openDetails)
-        case let .storage(disk, breakdown):
-            StorageCard(disk: disk, breakdown: breakdown, arrowEdge: arrowEdge, arrowOffset: arrowOffset, openBranches: openDetails)
+        case let .liveWork(summary, memory, history):
+            LiveWorkCard(summary: summary, memory: memory, history: history,
+                         arrowEdge: arrowEdge, arrowOffset: arrowOffset, openBranches: openDetails)
+        case let .storage(disk, breakdown, history):
+            StorageCard(disk: disk, breakdown: breakdown, history: history,
+                        arrowEdge: arrowEdge, arrowOffset: arrowOffset, openBranches: openDetails)
         }
     }
 }

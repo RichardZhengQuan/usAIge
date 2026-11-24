@@ -148,7 +148,7 @@ struct CapacitySegment: Identifiable, Equatable {
 struct CapacityBar: View {
     let segments: [CapacitySegment]
     let capacity: Int64
-    var height: CGFloat = 22
+    var height = ProportionalBar.detailHeight
     /// Thin bars on cards read better without gaps between stretches.
     var gap: CGFloat = 1.5
 
@@ -165,6 +165,7 @@ struct CapacityBar: View {
 /// Shared geometry for storage capacity, memory allocation and CPU time shares.
 struct ProportionalBar: View {
     static let thinHeight: CGFloat = 8
+    static let detailHeight: CGFloat = 22
 
     struct Segment: Identifiable {
         let id: String
@@ -197,6 +198,27 @@ struct ProportionalBar: View {
         .frame(height: height)
         .background(Color.primary.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: min(height * 0.32, 7), style: .continuous))
+    }
+}
+
+/// Memory and storage show the same allocation and key in their pages and hover cards.
+@available(macOS 14.0, *)
+struct ResourceCapacityBreakdown: View {
+    let configuration: PaperweightConfiguration
+    var compact = false
+
+    var body: some View {
+        let segments = ModernResourceCard.segments(configuration)
+        let free = configuration.freeLayer
+        VStack(alignment: .leading, spacing: compact ? 6 : 18) {
+            CapacityBar(segments: segments, capacity: configuration.capacityBytes,
+                        height: compact ? ProportionalBar.thinHeight : ProportionalBar.detailHeight, gap: compact ? 0 : 1.5)
+            CapacityLegend(segments: segments.filter { $0.bytes > 0 || $0.isMeasuring } + [
+                CapacitySegment(id: free.id, title: free.title, bytes: free.bytes,
+                                color: Color.primary.opacity(0.15), isMeasuring: free.isMeasuring,
+                                detail: configuration.amount(for: free))
+            ])
+        }
     }
 }
 

@@ -10,6 +10,16 @@
 "Clean" = "清理";
 "Generated Files" = "生成的文件";
 "Finished Worktrees" = "已完成的工作树";
+"Review Files…" = "检查文件…";
+"No generated folders found." = "未找到生成的文件夹。";
+"Scanning for generated files…" = "正在扫描生成的文件…";
+"Checking worktrees…" = "正在检查工作树…";
+"Show all %lld" = "显示全部 %lld 项";
+"Show less" = "收起";
+"Unknown size" = "大小未知";
+"Finished" = "已完成";
+"Empty" = "空";
+"Folder gone" = "文件夹已移除";
 "Review build output and downloaded dependencies." = "检查构建产物和已下载的依赖项。";
 "No finished worktrees to review." = "暂无已完成的工作树可供检查。";
 "Review merged and empty worktrees." = "检查已合并或空的工作树。";

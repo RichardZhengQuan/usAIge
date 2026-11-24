@@ -417,13 +417,13 @@ struct HUDView: View {
                 }
                 LiveWorkTile(monitor: liveWork, open: { openPaperweight(.memory) }) { isHovered, frame in
                     detailHoverChanged(.liveWork, inside: isHovered) {
-                        quotaDetail?.showLiveWork(rowFrame: frame)
+                        quotaDetail?.showLiveWork(rowFrame: frame, history: liveWork.memoryHistory)
                     }
                 }
                 StorageTile(monitor: liveWork, open: { openPaperweight(.storage) }) { isHovered, frame in
                     detailHoverChanged(.storage, inside: isHovered) {
                         quotaDetail?.showStorage(rowFrame: frame, disk: liveWork.diskSpace,
-                                                 breakdown: StorageBreakdown.load(from: .standard))
+                                                 breakdown: StorageBreakdown.load(from: .standard), history: liveWork.storageHistory)
                     }
                 }
             }

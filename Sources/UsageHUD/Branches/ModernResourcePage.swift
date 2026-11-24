@@ -257,9 +257,7 @@ struct ModernResourcePage: View {
     /// The page's one figure, the bar under it and its key.
     private func figureCard(value: String, unit: String, caption: String? = nil,
                             configuration: PaperweightConfiguration) -> some View {
-        let segments = ModernResourceCard.segments(configuration)
-        let free = configuration.freeLayer
-        return ModernCard(padding: 18) {
+        ModernCard(padding: 18) {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -279,12 +277,7 @@ struct ModernResourcePage: View {
                     let source = resource == .memory ? liveWork.memoryHistory : liveWork.storageHistory
                     ResourceTrendChart(history: source, resource: resource)
                 }
-                CapacityBar(segments: segments, capacity: configuration.capacityBytes)
-                CapacityLegend(segments: segments.filter { $0.bytes > 0 || $0.isMeasuring } + [
-                    CapacitySegment(id: free.id, title: free.title, bytes: free.bytes,
-                                    color: Color.primary.opacity(0.15), isMeasuring: free.isMeasuring,
-                                    detail: configuration.amount(for: free))
-                ])
+                ResourceCapacityBreakdown(configuration: configuration)
             }
         }
     }

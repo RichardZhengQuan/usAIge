@@ -5,6 +5,7 @@ struct ResourceTrendChart: View {
     @ObservedObject var history: ResourceTrendHistory
     let resource: PaperweightID
     var compact = false
+    var plotHeight: CGFloat = 128
 
     var body: some View {
         let domain = history.domain
@@ -16,7 +17,6 @@ struct ResourceTrendChart: View {
         let midpoint = (maximum + minimum) / 2
         let scale = max(0, midpoint - 0.6 * magnitude)...(midpoint + 0.6 * magnitude)
         let name: LocalizedStringKey = resource == .memory ? "Memory in use" : "Free disk space"
-        let plotHeight: CGFloat = compact ? 68 : 128
         Group {
             if compact {
                 TrendLinePlot(points: points, domain: domain, valueRange: scale, compact: true)
