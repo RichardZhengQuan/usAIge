@@ -21,12 +21,19 @@ enum AppLanguage: String, CaseIterable, Identifiable {
     /// The distributable app puts its localizations beside the icon. SwiftPM's
     /// test host and command-line executable use the same resources in a bundle.
     static let resourceBundle: Bundle = {
-        if Bundle.main.url(forResource: "zh-Hans-SG", withExtension: "lproj") != nil { return .main }
+        if chineseCatalog(in: .main) != nil { return .main }
         return .module
     }()
 
-    private static let chineseBundle = resourceBundle.url(forResource: "zh-Hans-SG", withExtension: "lproj")
-        .flatMap(Bundle.init(url:))
+    private static func chineseCatalog(in bundle: Bundle) -> URL? {
+        // SwiftPM can lowercase the locale identifier when processing resources.
+        guard let name = bundle.localizations.first(where: {
+            $0.caseInsensitiveCompare(simplifiedChinese.rawValue) == .orderedSame
+        }) else { return nil }
+        return bundle.url(forResource: name, withExtension: "lproj")
+    }
+
+    private static let chineseBundle = chineseCatalog(in: resourceBundle).flatMap(Bundle.init(url:))
 
     static func text(_ key: String, locale: Locale = current.locale) -> String {
         guard locale.languageCode == "zh",

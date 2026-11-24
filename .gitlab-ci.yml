@@ -1,0 +1,28 @@
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID == $CI_PROJECT_ID && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == $CI_DEFAULT_BRANCH'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+relay:
+  stage: test
+  tags: [usaige-linux]
+  image: node:22-bookworm
+  script:
+    - cd site
+    - npm ci
+    - node --experimental-strip-types --test tests/relay-contract.test.mjs tests/relay-server.test.mjs
+    - node --test ../Integrations/ClaudeUsageBridge/tests/*.test.mjs
+    - npm run lint
+
+macos:
+  stage: test
+  tags: [usaige-macos-richard]
+  resource_group: usaige-creator-mac
+  variables:
+    SCENE_TEST_FILTER: 'SailingSeaSimulationTests|PaperweightShipAnimationTests|ShipDetailRenderTests|ShipCraftRenderTests|ShipOrientationTests|ShipDetailFramingTests|everyRailShipImageHasVisiblePixels|CruiseWeatherRenderTests|AutomaticWeatherIntegrationTests|ResourceOceanShaderTests|ResourceOceanTests'
+  script:
+    - swift --version
+    - swift build --build-tests -j 4
+    - swift test --skip-build --no-parallel --skip "$SCENE_TEST_FILTER"
+    - swift test --skip-build --no-parallel --filter "$SCENE_TEST_FILTER"
+    - python3 -m unittest discover -s scripts/tests -p 'test_*.py'
