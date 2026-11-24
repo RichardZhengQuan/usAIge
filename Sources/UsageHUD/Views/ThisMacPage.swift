@@ -99,7 +99,8 @@ struct CPUTimeBreakdown: View {
                         Circle().fill(share.color).frame(width: 8, height: 8)
                         Text(LocalizedStringKey(share.title), bundle: AppLanguage.resourceBundle)
                             .foregroundColor(.secondary)
-                        Text(share.fraction.map(LiveWorkText.percent) ?? "–").monospacedDigit()
+                        Text(share.fraction.map(LiveWorkText.percent) ?? "–")
+                            .font(.caption.monospacedDigit())
                     }
                     .font(.caption)
                     .accessibilityElement(children: .ignore)
