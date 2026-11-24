@@ -131,8 +131,27 @@ struct BranchesBoard: Equatable, Sendable {
         }
     }
 
+    /// Counts Git rows. A protected folder or a failed repository scan does
+    /// not establish how many branches or worktrees it contains.
+    var scannedNeedsLookCount: Int {
+        needsLook.reduce(0) { count, entry in
+            switch entry {
+            case .item: count + 1
+            case let .copy(copy): count + copy.items.count
+            case .notChecked, .unreadable: count
+            }
+        }
+    }
+
     var needsLookBytes: Int64 { needsLook.map(\.bytes).reduce(0, +) }
     var safeBytes: Int64 { safeToClear.compactMap(\.size?.totalBytes).reduce(0, +) }
+
+    var unscannedProjects: [String] {
+        needsLook.compactMap { entry in
+            if case let .notChecked(folder) = entry { return folder }
+            return nil
+        }
+    }
 
     /// Rows with a folder, biggest first: the cards worth seeing one by one.
     var safeFolders: [WorkItem] {

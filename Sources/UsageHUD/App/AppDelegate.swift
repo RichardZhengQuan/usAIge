@@ -543,22 +543,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     }
 
     func addWorkspaceFolder() {
-        guard #available(macOS 14.0, *) else { return }
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.message = "Choose a folder inside a Git repository."
-        panel.prompt = "Add"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        let path = url.standardizedFileURL.path
+        guard #available(macOS 14.0, *), let path = WorkspaceFolderAccess.shared.chooseFolder() else { return }
         if let controller = branchesWindowController as? BranchesWindowController {
-            controller.addFolder(path)
+            controller.addSelectedFolder(path)
         } else {
             var folders = UserDefaults.standard.stringArray(forKey: BranchesStore.addedFoldersKey) ?? []
-            guard !folders.contains(path) else { return }
-            folders.append(path)
-            UserDefaults.standard.set(folders, forKey: BranchesStore.addedFoldersKey)
+            if !folders.contains(path) {
+                folders.append(path)
+                UserDefaults.standard.set(folders, forKey: BranchesStore.addedFoldersKey)
+            }
             refreshWorkspace()
         }
     }

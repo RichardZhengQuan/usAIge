@@ -10,6 +10,8 @@ final class BranchesStore: ObservableObject {
     private static let rescanAfter: TimeInterval = 2 * 60
 
     @Published private(set) var snapshot = BranchesSnapshot()
+    @Published private(set) var requestingProject: String?
+    @Published private(set) var projectAccessFailures: [String: WorkspaceFolderAccess.Result] = [:]
     @Published private(set) var toolStorage: [ToolStorageEntry] = []
     @Published private(set) var isMeasuringToolStorage = false
     @Published private(set) var hasMeasuredToolStorage = false
@@ -258,20 +260,45 @@ final class BranchesStore: ObservableObject {
 
     // MARK: Folders
 
-    /// Lets usAIge read a folder it wouldn't touch by itself, or adds a
-    /// repository no AI session has worked in.
-    func addFolder(_ path: String) {
+    @discardableResult
+    func chooseFolder() -> Bool {
+        guard !isDeleting, let path = WorkspaceFolderAccess.shared.chooseFolder() else { return false }
+        addSelectedFolder(path)
+        return true
+    }
+
+    func addSelectedFolder(_ path: String) {
         var folders = addedFolders
-        guard !folders.contains(path) else { return }
-        folders.append(path)
-        defaults.set(folders, forKey: Self.addedFoldersKey)
+        if !folders.contains(path) {
+            folders.append(path)
+            defaults.set(folders, forKey: Self.addedFoldersKey)
+        }
+        projectAccessFailures[path] = nil
         startScan(force: false)
         loadCleanupInventory(force: true)
     }
 
+    var workspaceIsLocked: Bool { !snapshot.notCheckedFolders.isEmpty }
+
+    func scanProject(_ folder: String) {
+        guard snapshot.notCheckedFolders.contains(folder), requestingProject == nil, !isDeleting else { return }
+        projectAccessFailures[folder] = nil
+        requestingProject = folder
+        Task { [weak self] in
+            let result = await WorkspaceFolderAccess.shared.requestScan(of: folder)
+            guard let self else { return }
+            requestingProject = nil
+            if result == .allowed {
+                addSelectedFolder(folder)
+            } else {
+                projectAccessFailures[folder] = result
+            }
+        }
+    }
+
     var cleanableSpace: CleanableSpace {
         CleanableSpace(inventory: cleanupInventory, worktrees: snapshot.items,
-                       checkedWorktrees: hasCheckedWorktrees && snapshot.activity == .idle)
+                       checkedWorktrees: hasCheckedWorktrees && snapshot.activity == .idle && !workspaceIsLocked)
     }
 
     @discardableResult
@@ -321,9 +348,8 @@ final class BranchesStore: ObservableObject {
                   paths.contains { $0 != folder && RepositoryLocator.contains(folder, $0) }
               }),
               beginCleanup(.clearingFiles, names: items.map { $0.location.title }) else { return false }
-        let folders = addedFolders
         deleteTask = Task { [weak self] in
-            await self?.performStorageCleanup(items, addedFolders: folders)
+            await self?.performStorageCleanup(items)
         }
         return true
     }
@@ -402,7 +428,7 @@ final class BranchesStore: ObservableObject {
         readDiskSpace()
     }
 
-    private func performStorageCleanup(_ items: [StorageCleanupCandidate], addedFolders: [String]) async {
+    private func performStorageCleanup(_ items: [StorageCleanupCandidate]) async {
         defer { finishCleanup() }
         await scanBeforeCleanup?.value
         scanBeforeCleanup = nil
@@ -416,7 +442,7 @@ final class BranchesStore: ObservableObject {
             if Task.isCancelled { break }
             cleanupProgress?.currentName = item.id
             let failure = await Task.detached(priority: .utility) {
-                await scanner.removeStorageArtifact(item, addedFolders: addedFolders)
+                await scanner.removeStorageArtifact(item)
             }.value
             if let failure { problems.append("\(item.id)\n\(failure)") } else { removed += 1 }
             processed += 1
