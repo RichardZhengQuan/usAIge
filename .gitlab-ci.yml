@@ -1,7 +1,6 @@
 workflow:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID == $CI_PROJECT_ID && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == $CI_DEFAULT_BRANCH'
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
 
 relay:
   stage: test
@@ -22,6 +21,7 @@ macos:
     SCENE_TEST_FILTER: 'SailingSeaSimulationTests|PaperweightShipAnimationTests|ShipDetailRenderTests|ShipCraftRenderTests|ShipOrientationTests|ShipDetailFramingTests|everyRailShipImageHasVisiblePixels|CruiseWeatherRenderTests|AutomaticWeatherIntegrationTests|ResourceOceanShaderTests|ResourceOceanTests'
   script:
     - swift --version
+    - node --test Integrations/ClaudeUsageBridge/tests/*.test.mjs
     - swift build --build-tests -j 4
     - swift test --skip-build --no-parallel --skip "$SCENE_TEST_FILTER"
     - swift test --skip-build --no-parallel --filter "$SCENE_TEST_FILTER"
