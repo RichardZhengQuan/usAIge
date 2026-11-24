@@ -1,6 +1,5 @@
 import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
 
 @available(macOS 14.0, *)
 struct StorageCleanupReview: View {
@@ -10,7 +9,6 @@ struct StorageCleanupReview: View {
 
     @State private var selected: Set<String> = []
     @State private var page: Page = .generated
-    @State private var choosingFolder = false
     @State private var confirming = false
     @State private var review: [StorageCleanupCandidate] = []
     @State private var notice: String?
@@ -54,15 +52,6 @@ struct StorageCleanupReview: View {
         .onAppear {
             if store.cleanupInventory == nil { store.loadCleanupInventory() }
         }
-        .fileImporter(isPresented: $choosingFolder, allowedContentTypes: [.folder]) { result in
-            switch result {
-            case let .success(folder):
-                store.addFolder(CleanupFileInspection.normalized(folder.path))
-                selected.removeAll()
-            case let .failure(error):
-                notice = error.localizedDescription
-            }
-        }
         .alert(review.count == 1 ? "Permanently delete this folder?" : "Permanently delete \(review.count) folders?",
                isPresented: $confirming) {
             Button("Cancel", role: .cancel) { review = [] }
@@ -91,7 +80,9 @@ struct StorageCleanupReview: View {
                 .pickerStyle(.segmented)
                 .fixedSize()
                 Spacer(minLength: 12)
-                Button("Add Folder…") { choosingFolder = true }
+                Button("Add Folder…") {
+                    if store.chooseFolder() { selected.removeAll() }
+                }
                 Button("Rescan", systemImage: "arrow.clockwise", action: rescan)
                     .disabled(inventory == nil)
             }

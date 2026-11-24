@@ -29,6 +29,12 @@
 	<string>53</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>11.0</string>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>usAIge reads the project you choose in Documents to check its branches, worktrees, and build cache sizes.</string>
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>usAIge reads the project you choose on your Desktop to check its branches, worktrees, and build cache sizes.</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>usAIge reads the project you choose in Downloads to check its branches, worktrees, and build cache sizes.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSPrincipalClass</key>

@@ -39,6 +39,16 @@ private func repository(_ id: String, name: String = "app", remote: String? = "g
 
 // MARK: Lanes
 
+@Test func overviewCountsScannedRowsWithoutCountingLockedFolders() {
+    let board = BranchesBoard(needsLook: [
+        .item(row("scanned")),
+        .notChecked(folder: "/Users/me/Documents/project"),
+        .unreadable(repository("/work/unreadable/.git"))
+    ])
+    #expect(board.only(.worktrees).scannedNeedsLookCount == 1)
+    #expect(board.only(.branches).scannedNeedsLookCount == 0)
+}
+
 @Test func cleanSpaceCountsOverlappingCandidatesOnlyOnceAndTracksMissingMeasurements() {
     let finished = row("topic")
     let inside = finished.worktreePath!

@@ -528,60 +528,43 @@ struct LeftoverCopyCard<Content: View>: View {
 }
 
 @available(macOS 14.0, *)
-struct NotCheckedCard: View {
+struct UnscannedProjectRow: View {
     let folder: String
-    let isExpanded: Bool
-    let toggle: () -> Void
-    let check: () -> Void
-    @Environment(\.interfaceStyle) private var style
+    @ObservedObject var store: BranchesStore
+    @Environment(\.locale) private var locale
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button(action: toggle) {
-                HStack(alignment: .top, spacing: 10) {
-                if style == .modern {
-                    ModernIcon(symbol: "lock.fill", color: .orange).padding(.top, 1)
+        let name = (folder as NSString).lastPathComponent
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(name).font(.headline)
+                Text(BranchesPresentation.abbreviated(folder))
+                    .font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.middle)
+                switch store.projectAccessFailures[folder] {
+                case .denied:
+                    Text("Enable access in System Settings → Privacy & Security → Files & Folders, then retry.", bundle: AppLanguage.resourceBundle)
+                        .font(.callout)
+                case .unavailable:
+                    Text("This project folder is unavailable.", bundle: AppLanguage.resourceBundle)
+                        .font(.callout)
+                default: EmptyView()
                 }
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(URL(fileURLWithPath: folder).lastPathComponent)
-                        .font(.system(size: 13, weight: .semibold))
-                    if style == .classic {
-                        PaperweightRowBar(share: 0, color: StorageCategory.worktrees.tint)
-                            .padding(.vertical, 2)
-                    }
-                    Text(BranchesPresentation.abbreviated(folder))
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Text("Not checked: macOS protects this folder")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.orange)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .padding(.trailing, 28)
-                .overlay(alignment: .topTrailing) { FoldChevron(isExpanded: isExpanded) }
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .accessibilityValue(isExpanded ? "Unfolded" : "Folded")
-            if isExpanded {
-                Divider().padding(.vertical, 9)
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("""
-                    usAIge doesn't read folders macOS protects by itself, and macOS may ask for permission. \
-                    If iCloud manages the folder, usAIge lists its branches but skips files and sizes, because \
-                    reading them can start downloads, so they can't be deleted here.
-                    """)
-                    .font(.callout)
-                    .fixedSize(horizontal: false, vertical: true)
-                    Button("Check This Folder", action: check)
-                        .controlSize(.small)
+            Spacer(minLength: 8)
+            if store.requestingProject == folder {
+                ProgressView { Text("Waiting for macOS", bundle: AppLanguage.resourceBundle) }
+                    .controlSize(.small)
+            } else {
+                Button { store.scanProject(folder) } label: {
+                    Text("Scan Project", bundle: AppLanguage.resourceBundle)
                 }
+                .disabled(store.isDeleting || store.requestingProject != nil)
+                .accessibilityLabel(AppLanguage.format("Scan %@", locale: locale, name))
+                .accessibilityHint(BranchesPresentation.abbreviated(folder))
             }
         }
-        .modifier(CardSurface(isExpanded: isExpanded))
+        .modifier(CardSurface())
     }
 }
 
