@@ -22,17 +22,6 @@ extension QuotaSnapshot {
     }
 }
 
-extension QuotaSnapshot {
-    /// The same limit with its free resets left out.
-    var withoutResetCredits: QuotaSnapshot {
-        var copy = self
-        copy.resetCredits = []
-        copy.availableResetCount = nil
-        copy.resetCreditExpiresAt = nil
-        return copy
-    }
-}
-
 extension Array where Element == QuotaSnapshot {
     /// A tool's free resets that haven't expired, from whichever of its
     /// limits carries them, soonest to expire first.
@@ -81,6 +70,7 @@ enum ResetCreditText {
 /// expires. usAIge shows them; using one happens in the tool.
 @available(macOS 14.0, *)
 struct ModernResetCredits: View {
+    @Environment(\.usageCardColumns) private var columns
     let credits: [ResetCredit]
 
     var body: some View {
@@ -89,11 +79,13 @@ struct ModernResetCredits: View {
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
                 .accessibilityAddTraits(.isHeader)
+                .padding(.leading, columns?.contentInset ?? 0)
             ForEach(credits) { credit in
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: columns?.spacing ?? 8) {
                     Image(systemName: "arrow.counterclockwise.circle.fill")
                         .font(.system(size: 13))
                         .foregroundStyle(credit.usableNow ? Color(nsColor: .systemGreen) : Color.secondary)
+                        .frame(width: columns?.markerWidth)
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(alignment: .firstTextBaseline, spacing: 6) {

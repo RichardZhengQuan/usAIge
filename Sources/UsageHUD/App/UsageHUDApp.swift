@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct UsAIgeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @AppStorage(AppLanguage.defaultsKey) private var language = AppLanguage.system
 
     var body: some Scene {
         Settings {
@@ -25,35 +26,37 @@ struct UsAIgeApp: App {
                         store: appDelegate.store,
                         launchAtLogin: appDelegate.launchAtLogin,
                         updateController: appDelegate.updateController,
-                        relaySync: appDelegate.relaySync
+                        relaySync: appDelegate.relaySync,
+                        liveWork: appDelegate.liveWork
                     )
                     .frame(width: 520, height: 580)
                 }
             }
+            .appLanguageEnvironment()
         }
         .commands {
             settingsCommands
             // A menu item added through AppKit at launch doesn't survive
             // SwiftUI rebuilding the menu bar, so this one is declared here.
             CommandGroup(after: .appInfo) {
-                Button("Open usAIge") { appDelegate.showMainWindow() }
+                Button(AppLanguage.text("Open usAIge", locale: language.locale)) { appDelegate.showMainWindow() }
                     .keyboardShortcut("0", modifiers: .command)
             }
             CommandGroup(replacing: .newItem) {
-                Button("Open usAIge") { appDelegate.showMainWindow() }
+                Button(AppLanguage.text("Open usAIge", locale: language.locale)) { appDelegate.showMainWindow() }
                     .keyboardShortcut("n", modifiers: .command)
             }
             CommandGroup(after: .toolbar) {
-                Button("Refresh") { appDelegate.refresh() }
+                Button(AppLanguage.text("Refresh", locale: language.locale)) { appDelegate.refresh() }
                     .keyboardShortcut("r", modifiers: .command)
                 Divider()
-                Button("Branches and Worktrees…") { appDelegate.showBranches() }
+                Button(AppLanguage.text("Branches and Worktrees…", locale: language.locale)) { appDelegate.showBranches() }
                     .keyboardShortcut("1", modifiers: .command)
                     .disabled(!AppDelegate.branchesAreAvailable)
-                Button("Memory…") { appDelegate.showBranches(front: .memory) }
+                Button(AppLanguage.text("Memory…", locale: language.locale)) { appDelegate.showBranches(front: .memory) }
                     .keyboardShortcut("2", modifiers: .command)
                     .disabled(!AppDelegate.branchesAreAvailable)
-                Button("Storage…") { appDelegate.showBranches(front: .storage) }
+                Button(AppLanguage.text("Storage…", locale: language.locale)) { appDelegate.showBranches(front: .storage) }
                     .keyboardShortcut("3", modifiers: .command)
                     .disabled(!AppDelegate.branchesAreAvailable)
             }
@@ -73,7 +76,7 @@ struct UsAIgeApp: App {
     @ViewBuilder
     private var settingsCommandContent: some View {
         if #available(macOS 14.0, *) {
-            Button("Settings…") { appDelegate.showSettings() }
+            Button(AppLanguage.text("Settings…", locale: language.locale)) { appDelegate.showSettings() }
                 .keyboardShortcut(",", modifiers: .command)
         }
     }

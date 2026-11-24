@@ -33,62 +33,87 @@ struct WaterShape: Shape {
     }
 }
 
-/// The rail's always-visible summary of what the AI tools are doing: where
-/// they're working, and how much of this Mac's memory they use. Hovering
-/// shows the detail beside the rail, and clicking opens the list.
+/// The memory gauge uses the same RAM and swap budget as the Memory page.
 @available(macOS 14.0, *)
 struct LiveWorkTile: View {
     @ObservedObject var monitor: LiveWorkMonitor
     let open: () -> Void
     /// Reports hover changes with the tile's frame in the rail's coordinates.
     let onHoverChanged: (Bool, CGRect) -> Void
-    var physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory
     @AppStorage(PaperweightShipPreferences.memoryKey) private var shipName = PaperweightShipKind.sailboat.rawValue
     @AppStorage(InterfaceStyle.defaultsKey) private var style = InterfaceStyle.standard
     @Environment(\.hudPreviewsHover) private var previewsHover
     @State private var isHovered = false
-    @State private var frame = CGRect.zero
-
-    private var summary: LiveWorkSummary { monitor.summary }
-
-    private var share: Double {
-        LiveWorkText.memoryShare(summary.memoryBytes, of: physicalMemory)
-    }
 
     var body: some View {
+        let memory = monitor.memoryUsage
+        let share = memory?.usedShare
+        let value = share.map(LiveWorkText.percent) ?? "–"
+        let detail = memory?.compactTotal ?? "Memory"
         Button(action: open) {
             if style == .modern {
                 ModernRailGauge(
-                    share: share, color: ModernPalette.memory, symbol: "memorychip",
-                    value: LiveWorkText.percent(share),
-                    detail: summary.sessions.isEmpty ? "Idle" : "\(summary.placeCount) at work",
+                    share: share ?? 0, color: ModernPalette.memory,
+                    value: value, detail: detail,
                     isHovered: isHovered || previewsHover
-                )
+                ) { Image(systemName: "memorychip") }
             } else {
                 RailResourcePaperweight(
-                    configuration: RailPaperweightData.memory(summary, physicalMemory: physicalMemory),
+                    configuration: PaperweightData.memory(summary: monitor.summary, running: [], systemUsage: memory),
                     ship: PaperweightShipKind(rawValue: shipName) ?? .sailboat,
-                    value: LiveWorkText.percent(share),
+                    value: value,
                     symbol: "memorychip",
-                    detail: summary.sessions.isEmpty ? "Idle" : "\(summary.placeCount)",
+                    detail: detail,
                     isMoving: isHovered || previewsHover
                 )
             }
         }
         .buttonStyle(.plain)
-        .help(LiveWorkText.tileHelp(summary, of: physicalMemory))
-        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { value in
-            frame = value
-            if isHovered { onHoverChanged(true, value) }
+        .help(memory?.breakdown() ?? AppLanguage.text("Memory unavailable"))
+        .modifier(RailDetailHover(isHovered: $isHovered, changed: onHoverChanged))
+        .accessibilityLabel("Memory")
+        .accessibilityValue(memory?.breakdown() ?? AppLanguage.text("Unavailable"))
+        .accessibilityHint("Opens Memory")
+    }
+}
+
+@available(macOS 14.0, *)
+struct CPUTile: View {
+    @ObservedObject var monitor: SystemCPUMonitor
+    let open: () -> Void
+    var onHoverChanged: (Bool, CGRect) -> Void = { _, _ in }
+    @AppStorage(InterfaceStyle.defaultsKey) private var style = InterfaceStyle.standard
+    @Environment(\.hudTextSize) private var textSize
+    @State private var hovered = false
+
+    var body: some View {
+        let value = monitor.usage.map { LiveWorkText.percent($0.busy) } ?? "–"
+        let status = monitor.usage?.trendStatus ?? .unknown
+        Button(action: open) {
+            if style == .modern {
+                ModernRailGauge(share: monitor.usage?.busy ?? 0, color: status.color,
+                                value: value, detail: "CPU", isHovered: hovered) {
+                    CPUTrendPlot(samples: monitor.samples, compact: true).frame(width: 39, height: 26)
+                }
+            } else {
+                VStack(spacing: HUDMetrics.resourceReadoutGap) {
+                    ModernRingGauge(share: monitor.usage?.busy ?? 0, color: status.color, lineWidth: 3)
+                        .frame(width: HUDMetrics.resourcePaperweightHeight, height: HUDMetrics.resourcePaperweightHeight)
+                        .overlay { CPUTrendPlot(samples: monitor.samples, compact: true).frame(width: 22, height: 15) }
+                    Text("CPU \(value)")
+                        .font(.system(size: 11 * textSize.factor, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .hudRailLabel()
+                        .frame(minHeight: HUDMetrics.resourceReadoutHeight * textSize.factor)
+                }
+            }
         }
-        .onHover { hovering in
-            isHovered = hovering
-            onHoverChanged(hovering, frame)
-        }
-        .onDisappear { onHoverChanged(false, frame) }
-        .accessibilityLabel(LiveWorkText.headline(summary))
-        .accessibilityValue(LiveWorkText.memorySentence(summary.memoryBytes, of: physicalMemory))
-        .accessibilityHint("Opens Memory in branches and worktrees")
+        .buttonStyle(.plain)
+        .modifier(RailDetailHover(isHovered: $hovered, changed: onHoverChanged))
+        .accessibilityLabel(Text("CPU usage", bundle: AppLanguage.resourceBundle))
+        .accessibilityValue(monitor.usage == nil ? status.localizedTitle : Text("\(value) · \(status.localizedTitle)",
+                                                                              bundle: AppLanguage.resourceBundle))
+        .accessibilityHint(Text("Opens CPU", bundle: AppLanguage.resourceBundle))
     }
 }
 
@@ -103,7 +128,6 @@ struct StorageTile: View {
     @AppStorage(InterfaceStyle.defaultsKey) private var style = InterfaceStyle.standard
     @Environment(\.hudPreviewsHover) private var previewsHover
     @State private var isHovered = false
-    @State private var frame = CGRect.zero
 
     private var disk: DiskSpace? { monitor.diskSpace }
 
@@ -117,11 +141,11 @@ struct StorageTile: View {
             if style == .modern {
                 let used = disk?.usedShare() ?? 0
                 ModernRailGauge(
-                    share: used, color: ModernPalette.storageColor(usedShare: used), symbol: "internaldrive",
+                    share: used, color: ModernPalette.storageColor(usedShare: used),
                     value: disk.map { LiveWorkText.percent($0.usedShare()) } ?? "–",
                     detail: disk.map { RailResourceText.freeSpace($0.availableBytes) + " free" } ?? "–",
                     isHovered: isHovered || previewsHover
-                )
+                ) { Image(systemName: "internaldrive") }
             } else {
                 RailResourcePaperweight(
                     configuration: RailPaperweightData.storage(disk),
@@ -134,15 +158,7 @@ struct StorageTile: View {
             }
         }
         .buttonStyle(.plain)
-        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { value in
-            frame = value
-            if isHovered { onHoverChanged(true, value) }
-        }
-        .onHover { hovering in
-            isHovered = hovering
-            onHoverChanged(hovering, frame)
-        }
-        .onDisappear { onHoverChanged(false, frame) }
+        .modifier(RailDetailHover(isHovered: $isHovered, changed: onHoverChanged))
         .accessibilityLabel("Storage")
         .accessibilityValue(detail)
         .accessibilityHint("Opens Storage in branches and worktrees")
@@ -152,13 +168,14 @@ struct StorageTile: View {
 /// The Modern rail's resource tile: a ring gauge with its symbol, and the
 /// figure under it. Nothing moves, so the rail costs nothing while idle.
 @available(macOS 14.0, *)
-private struct ModernRailGauge: View {
+private struct ModernRailGauge<Face: View>: View {
+    @Environment(\.hudTextSize) private var textSize
     let share: Double
     let color: Color
-    let symbol: String
     let value: String
     let detail: String
     let isHovered: Bool
+    @ViewBuilder let face: () -> Face
 
     var body: some View {
         // The same ring as a tool's, with its figure under it in place of
@@ -166,28 +183,36 @@ private struct ModernRailGauge: View {
         VStack(spacing: 1) {
             // 63 points less the stroke's half on each side puts the ring's
             // centre line at 58, exactly where a tool's outer ring sits.
-            ModernRingGauge(share: share, color: color, lineWidth: 5, symbol: symbol, symbolSize: 17)
+            ModernRingGauge(share: share, color: color, lineWidth: 5)
                 .frame(width: 63, height: 63)
+                .overlay {
+                    face()
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(color)
+                        .accessibilityHidden(true)
+                }
                 .scaleEffect(isHovered ? 1.04 : 1)
                 .animation(.snappy(duration: 0.18), value: isHovered)
             VStack(spacing: 0) {
                 Text(value)
-                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .font(.system(size: 14 * textSize.factor, weight: .bold, design: .rounded))
                     .monospacedDigit()
                 Text(detail)
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .font(.system(size: 11 * textSize.factor, weight: .medium, design: .rounded))
                     .foregroundStyle(.secondary)
             }
             .lineLimit(1)
-            .minimumScaleFactor(0.8)
+            .hudRailLabel()
         }
-        .frame(width: 76, height: HUDMetrics.quotaRowHeight)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
     }
 }
 
 @available(macOS 14.0, *)
 private struct RailResourcePaperweight: View {
+    @Environment(\.hudTextSize) private var textSize
     let configuration: PaperweightConfiguration
     let ship: PaperweightShipKind
     let value: String
@@ -196,39 +221,22 @@ private struct RailResourcePaperweight: View {
     let isMoving: Bool
 
     var body: some View {
-        let percentWidth: CGFloat = value.count >= 4 ? 34 : 28
         VStack(spacing: HUDMetrics.resourceReadoutGap) {
             RailPaperweightView(configuration: configuration, ship: ship, hovered: isMoving)
-            HStack(spacing: 2) {
+            HStack(spacing: 6) {
                 Text(value)
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .font(.system(size: 12 * textSize.factor, weight: .bold, design: .rounded))
                     .monospacedDigit()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-                    .allowsTightening(true)
-                    .frame(width: percentWidth, alignment: .leading)
-                HStack(spacing: 2) {
-                    // Keep numbers readable before spending space on an icon.
-                    if (symbol == "memorychip" && (detail.count <= 2 || (detail == "Idle" && value.count < 4)))
-                        || (symbol == "internaldrive" && detail == "–") {
-                        Image(systemName: symbol).font(.system(size: 8, weight: .medium))
-                    }
-                    Text(detail)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.85)
-                        .allowsTightening(true)
-                        .layoutPriority(1)
-                }
-                .font(value.count >= 4
-                      ? .system(size: 10.5, weight: .medium, design: .rounded).width(.condensed)
-                      : .system(size: 10.5, weight: .medium, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(.primary.opacity(0.8))
-                .frame(width: 62 - percentWidth, alignment: .trailing)
+                Label(detail, systemImage: symbol)
+                    .font(.system(size: 10.5 * textSize.factor, weight: .medium, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
             }
-            .frame(width: 64, height: HUDMetrics.resourceReadoutHeight)
+            .lineLimit(1)
+            .hudRailLabel()
+            .frame(height: HUDMetrics.resourceReadoutHeight * textSize.factor)
         }
-        .frame(width: 64, height: HUDMetrics.resourceTileHeight)
+        .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
     }
 }
@@ -252,6 +260,7 @@ enum RailResourceText {
 /// mixes several.
 @available(macOS 14.0, *)
 struct LivePlaceRow: View {
+    @Environment(\.usageCardColumns) private var columns
     let place: LiveWorkPlace
     var showsTool = false
 
@@ -261,10 +270,11 @@ struct LivePlaceRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 5) {
+            HStack(spacing: columns?.spacing ?? 5) {
                 Image(systemName: heading == nil ? "folder" : "arrow.triangle.branch")
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(.secondary)
+                    .frame(width: columns?.markerWidth)
                     .accessibilityHidden(true)
                 Text(heading ?? place.lead.title)
                     .font(.system(.caption, design: .monospaced))
@@ -284,11 +294,13 @@ struct LivePlaceRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .padding(.leading, columns?.contentInset ?? 0)
             }
-            HStack(spacing: 5) {
+            HStack(spacing: columns?.spacing ?? 5) {
                 Circle()
                     .fill(place.lead.phase.statusColor ?? Color.secondary)
                     .frame(width: 7, height: 7)
+                    .frame(width: columns?.markerWidth)
                     .accessibilityHidden(true)
                 Text(sessionText)
                     .lineLimit(1)
@@ -348,12 +360,31 @@ struct LiveSessionList: View {
 @available(macOS 14.0, *)
 struct LiveWorkCard: View {
     let summary: LiveWorkSummary
+    var memory: SystemMemoryUsage? = nil
+    let history: ResourceTrendHistory
     var arrowEdge: HorizontalEdge = .leading
     var arrowOffset: CGFloat = 0
     var openBranches: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Memory").font(.headline)
+                Spacer()
+                Text(memory?.compactTotal ?? "Unavailable").monospacedDigit()
+            }
+            if let memory {
+                Text(memory.breakdown())
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            RailResourceHistory(history: history, resource: .memory)
+            if let memory {
+                ResourceCapacityBreakdown(configuration: PaperweightData.memory(summary: summary, running: [], systemUsage: memory),
+                                          compact: true)
+            }
+            Divider()
             HStack(alignment: .firstTextBaseline) {
                 Text(LiveWorkText.headline(summary)).font(.headline)
                 Spacer(minLength: 8)
@@ -365,10 +396,10 @@ struct LiveWorkCard: View {
                 }
             }
             if !summary.sessions.isEmpty {
-                LiveSessionList(sessions: summary.sessions, visibleRows: 6, showsTool: true)
+                LiveSessionList(sessions: summary.sessions, showsTool: true)
             }
             Divider()
-            Text("\(LiveWorkText.memorySentence(summary.memoryBytes)). This counts AI apps and everything running in these folders.")
+            Text("These figures count AI apps and processes running in their folders.")
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             if let openBranches {
@@ -377,7 +408,7 @@ struct LiveWorkCard: View {
             }
         }
         .font(.caption)
-        .railDetailCardChrome(width: 320, arrowEdge: arrowEdge, arrowOffset: arrowOffset)
+        .railDetailCardChrome(width: 350, arrowEdge: arrowEdge, arrowOffset: arrowOffset)
     }
 }
 
@@ -387,6 +418,7 @@ struct LiveWorkCard: View {
 struct StorageCard: View {
     let disk: DiskSpace?
     let breakdown: StorageBreakdown?
+    let history: ResourceTrendHistory
     var now = Date()
     var arrowEdge: HorizontalEdge = .leading
     var arrowOffset: CGFloat = 0
@@ -432,6 +464,7 @@ struct StorageCard: View {
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
+            RailResourceHistory(history: history, resource: .storage)
             if let disk {
                 // One bar, split the way the paperweight stacks its layers.
                 GeometryReader { geometry in
@@ -444,7 +477,7 @@ struct StorageCard: View {
                     }
                     .clipShape(Capsule())
                 }
-                .frame(height: 8)
+                .frame(height: ProportionalBar.thinHeight)
                 .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(rows) { row in
@@ -471,7 +504,25 @@ struct StorageCard: View {
             }
         }
         .font(.caption)
-        .railDetailCardChrome(width: 300, arrowEdge: arrowEdge, arrowOffset: arrowOffset)
+        .railDetailCardChrome(width: 350, arrowEdge: arrowEdge, arrowOffset: arrowOffset)
+    }
+}
+
+@available(macOS 14.0, *)
+private struct RailResourceHistory: View {
+    let history: ResourceTrendHistory
+    let resource: PaperweightID
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text(resource == .memory ? LocalizedStringKey("Memory in use") : "Free disk space", bundle: AppLanguage.resourceBundle)
+                    .fontWeight(.semibold)
+                Spacer()
+                Text("10 min", bundle: AppLanguage.resourceBundle).foregroundStyle(.secondary)
+            }
+            ResourceTrendChart(history: history, resource: resource, plotHeight: 68)
+        }
     }
 }
 
@@ -479,18 +530,22 @@ struct StorageCard: View {
 @available(macOS 14.0, *)
 struct RailDetailCard: View {
     enum Content {
+        case cpu(SystemCPUMonitor)
         case quota(QuotaSnapshot, others: [QuotaSnapshot], work: [LiveSessionWork], memoryBytes: UInt64)
-        case liveWork(LiveWorkSummary)
-        case storage(DiskSpace?, StorageBreakdown?)
+        case liveWork(LiveWorkSummary, memory: SystemMemoryUsage?, history: ResourceTrendHistory)
+        case storage(DiskSpace?, StorageBreakdown?, history: ResourceTrendHistory)
     }
 
     let content: Content
     var arrowEdge: HorizontalEdge = .leading
     var arrowOffset: CGFloat = 0
-    var openBranches: (() -> Void)? = nil
+    var openDetails: (() -> Void)? = nil
 
     var body: some View {
         switch content {
+        case let .cpu(monitor):
+            CPUHoverCard(monitor: monitor, open: openDetails)
+                .railDetailCardChrome(width: 330, arrowEdge: arrowEdge, arrowOffset: arrowOffset)
         case let .quota(snapshot, others, work, memoryBytes):
             QuotaDetailCard(
                 snapshot: snapshot,
@@ -499,12 +554,14 @@ struct RailDetailCard: View {
                 memoryBytes: memoryBytes,
                 arrowEdge: arrowEdge,
                 arrowOffset: arrowOffset,
-                openBranches: openBranches
+                openBranches: openDetails
             )
-        case let .liveWork(summary):
-            LiveWorkCard(summary: summary, arrowEdge: arrowEdge, arrowOffset: arrowOffset, openBranches: openBranches)
-        case let .storage(disk, breakdown):
-            StorageCard(disk: disk, breakdown: breakdown, arrowEdge: arrowEdge, arrowOffset: arrowOffset, openBranches: openBranches)
+        case let .liveWork(summary, memory, history):
+            LiveWorkCard(summary: summary, memory: memory, history: history,
+                         arrowEdge: arrowEdge, arrowOffset: arrowOffset, openBranches: openDetails)
+        case let .storage(disk, breakdown, history):
+            StorageCard(disk: disk, breakdown: breakdown, history: history,
+                        arrowEdge: arrowEdge, arrowOffset: arrowOffset, openBranches: openDetails)
         }
     }
 }

@@ -573,6 +573,162 @@ func delayedPhoneListCannotChangeStateAfterDisconnect(shouldFail: Bool) async th
 }
 
 @MainActor
+@Test(.timeLimit(.minutes(1)))
+func visiblePhonePairingWaitsForOptInAndReusesTheChannelInvitation() async throws {
+    let fixture = try RelayControllerFixture(linked: false, responses: [.createdChannel, .uploaded, .devices])
+    let view = UUID()
+    defer {
+        fixture.controller.setPhonePairingVisible(false, for: view)
+        fixture.cleanup()
+    }
+    fixture.controller.setPhonePairingVisible(true, for: view)
+    await Task.yield()
+    #expect(fixture.stub.requests.isEmpty)
+    // Close before opting in so the issued code can be checked before the
+    // fixture reports a newly paired iPhone.
+    fixture.controller.setPhonePairingVisible(false, for: view)
+    await fixture.controller.createPairingCode()
+    await fixture.controller.createPairingCode()
+    #expect(fixture.controller.pairingCode == "PHONE")
+    #expect(fixture.stub.requests.map { $0.url?.lastPathComponent } == ["channels", "snapshot"])
+}
+
+@MainActor
+@Test(.timeLimit(.minutes(1)))
+func visiblePhonePairingRenewsOnAnAddedPhoneButKeepsTheCodeForAWatchedPhone() async throws {
+    func devices(_ ids: [String]) throws -> RelayTestResponse {
+        let rows = ids.map { ["id": $0, "name": $0, "created_at": "2026-11-20T08:00:00Z",
+                              "last_seen_at": "2026-11-23T08:00:00Z"] }
+        let data = try JSONEncoder().encode(["devices": rows])
+        return RelayTestResponse(statusCode: 200, body: String(decoding: data, as: UTF8.self))
+    }
+    let original = try devices(["existing-phone"])
+    let withWatch = try devices(["existing-phone", "7c2df876-8402-5c7d-a909-d6ac13135945"])
+    let withPhone = try devices(["existing-phone", "new-phone", "7c2df876-8402-5c7d-a909-d6ac13135945"])
+    let clock = PhonePairingTestClock()
+    var sleeps = clock.scheduled.makeAsyncIterator()
+    let fixture = try RelayControllerFixture(responses: [original, .pairing("11111111"), withWatch, withPhone,
+                                                          .pairing("22222222")], phoneClock: clock)
+    let first = UUID(), second = UUID()
+    defer {
+        fixture.controller.setPhonePairingVisible(false, for: first)
+        fixture.controller.setPhonePairingVisible(false, for: second)
+        fixture.cleanup()
+    }
+    fixture.controller.setPhonePairingVisible(true, for: first)
+    fixture.controller.setPhonePairingVisible(true, for: second)
+    fixture.controller.setPhonePairingVisible(false, for: first)
+    let poll = try #require(fixture.controller.startVisiblePhonePairing())
+    let initial = try #require(await sleeps.next())
+    #expect(fixture.controller.pairingCode == "11111111")
+    clock.advance(initial)
+    let watchJoined = try #require(await sleeps.next())
+    #expect(fixture.controller.pairingCode == "11111111")
+    clock.advance(watchJoined)
+    let phoneJoined = try #require(await sleeps.next())
+    #expect(fixture.controller.pairingCode == "22222222")
+    fixture.controller.setPhonePairingVisible(false, for: second)
+    await poll.value
+    #expect(fixture.controller.needsPhonePairingCheck)
+    #expect(fixture.stub.requests.prefix(5).map { $0.url?.lastPathComponent }
+        == ["devices", "pairings", "devices", "devices", "pairings"])
+    clock.advance(phoneJoined)
+    #expect(fixture.stub.requests.count == 5)
+}
+
+@MainActor
+@Test(.timeLimit(.minutes(1)))
+func visiblePhonePairingVerifiesCachedInvitationOnReentryWithoutRotatingIt() async throws {
+    let clock = PhonePairingTestClock()
+    var sleeps = clock.scheduled.makeAsyncIterator()
+    let fixture = try RelayControllerFixture(responses: [.devices, .pairing("11111111"),
+                                                          .failure("Cannot verify pairing"), .devices], phoneClock: clock)
+    let view = UUID()
+    defer { fixture.controller.setPhonePairingVisible(false, for: view); fixture.cleanup() }
+    fixture.controller.setPhonePairingVisible(true, for: view)
+    let initialPoll = try #require(fixture.controller.startVisiblePhonePairing())
+    _ = try #require(await sleeps.next())
+    #expect(fixture.controller.pairingCode == "11111111")
+    fixture.controller.setPhonePairingVisible(false, for: view)
+    await initialPoll.value
+    #expect(fixture.controller.needsPhonePairingCheck)
+    fixture.controller.setPhonePairingVisible(true, for: view)
+    let failedPoll = try #require(fixture.controller.startVisiblePhonePairing())
+    await failedPoll.value
+    #expect(fixture.controller.phonePairingState == .failed("Cannot verify pairing"))
+    #expect(fixture.controller.needsPhonePairingCheck)
+    fixture.controller.startVisiblePhonePairing()
+    _ = try #require(await sleeps.next())
+    #expect(!fixture.controller.needsPhonePairingCheck)
+    #expect(fixture.controller.pairingCode == "11111111")
+    #expect(fixture.stub.requests.map { $0.url?.lastPathComponent } == ["devices", "pairings", "devices", "devices"])
+}
+
+@MainActor
+@Test(.timeLimit(.minutes(1)))
+func visiblePhonePairingRenewsAtExpiryAndStopsOnFailureUntilRetried() async throws {
+    let expiry = Date(timeIntervalSince1970: 1_800_000_000)
+    let clock = PhonePairingTestClock(now: expiry.addingTimeInterval(-3))
+    var sleeps = clock.scheduled.makeAsyncIterator()
+    let expiresAt = ISO8601DateFormatter().string(from: expiry)
+    let fixture = try RelayControllerFixture(responses: [.devices, .pairing("11111111", expiresAt: expiresAt),
+                                                          .devices, .failure("Pairing is offline"),
+                                                          .devices, .pairing("22222222"), .devices],
+                                             phoneClock: clock)
+    let view = UUID()
+    defer { fixture.controller.setPhonePairingVisible(false, for: view); fixture.cleanup() }
+    fixture.controller.setPhonePairingVisible(true, for: view)
+    let poll = try #require(fixture.controller.startVisiblePhonePairing())
+    let scheduledExpiry = try #require(await sleeps.next())
+    #expect(fixture.controller.pairingCode == "11111111")
+    #expect(scheduledExpiry.delay == 3)
+    clock.advance(scheduledExpiry)
+    #expect(fixture.controller.validPhonePairing(at: clock.now) == nil)
+    await poll.value
+    #expect(fixture.controller.phonePairingState == .failed("Pairing is offline"))
+    #expect(fixture.stub.requests.count == 4)
+    fixture.controller.startVisiblePhonePairing()
+    let renewed = try #require(await sleeps.next())
+    #expect(renewed.delay == 5)
+    #expect(fixture.controller.validPhonePairing(at: clock.now)?.code == "22222222")
+    #expect(fixture.stub.requests.filter { $0.httpMethod == "POST" }.count == 3)
+}
+
+/// A scheduled sleep means the preceding relay response has been applied.
+/// Each sleep waits for its own wake signal, or for cancellation on page exit.
+@MainActor
+private final class PhonePairingTestClock {
+    struct Sleep: Sendable {
+        let delay: TimeInterval
+        let wake: AsyncStream<Void>.Continuation
+    }
+
+    private(set) var now: Date
+    let scheduled: AsyncStream<Sleep>
+    private let schedule: AsyncStream<Sleep>.Continuation
+
+    init(now: Date = Date()) {
+        self.now = now
+        (scheduled, schedule) = AsyncStream.makeStream(of: Sleep.self)
+    }
+
+    func sleep(_ delay: TimeInterval) async throws {
+        try Task.checkCancellation()
+        let (ticks, wake) = AsyncStream.makeStream(of: Void.self)
+        var next = ticks.makeAsyncIterator()
+        schedule.yield(Sleep(delay: delay, wake: wake))
+        _ = await next.next()
+        try Task.checkCancellation()
+    }
+
+    func advance(_ sleep: Sleep) {
+        now.addTimeInterval(sleep.delay)
+        sleep.wake.yield(())
+        sleep.wake.finish()
+    }
+}
+
+@MainActor
 @Test(.timeLimit(.minutes(1)), arguments: [false, true])
 func delayedPhonePairingCannotChangeStateAfterDisconnect(shouldFail: Bool) async throws {
     let fixture = try RelayControllerFixture(
@@ -916,8 +1072,8 @@ private struct RelayTestResponse: Sendable {
         return Self(statusCode: statusCode, body: String(decoding: data, as: UTF8.self))
     }
 
-    static func pairing(_ code: String) -> Self {
-        let data = try! JSONEncoder().encode(["pairingCode": code, "expiresAt": "2099-01-01T00:00:00Z"])
+    static func pairing(_ code: String, expiresAt: String = "2099-01-01T00:00:00.000Z") -> Self {
+        let data = try! JSONEncoder().encode(["pairingCode": code, "expiresAt": expiresAt])
         return Self(statusCode: 200, body: String(decoding: data, as: UTF8.self))
     }
 }
@@ -1118,7 +1274,8 @@ private final class RelayControllerFixture {
         linked: Bool = true,
         responses: [RelayTestResponse],
         holdResponses: Bool = false,
-        heldPathSuffix: String? = nil
+        heldPathSuffix: String? = nil,
+        phoneClock: PhonePairingTestClock? = nil
     ) throws {
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("RelaySyncTests-\(identifier)", isDirectory: true)
@@ -1135,7 +1292,12 @@ private final class RelayControllerFixture {
         configuration.protocolClasses = [RelayTestURLProtocol.self]
         configuration.httpAdditionalHeaders = ["X-Relay-Test-ID": identifier]
         session = URLSession(configuration: configuration)
-        controller = RelaySyncController(defaults: defaults, session: session, credentials: credentials)
+        if let phoneClock {
+            controller = RelaySyncController(defaults: defaults, session: session, credentials: credentials,
+                                             pairingNow: { phoneClock.now }, waitForPhonePoll: phoneClock.sleep)
+        } else {
+            controller = RelaySyncController(defaults: defaults, session: session, credentials: credentials)
+        }
     }
 
     func task<Success: Sendable>(
@@ -1219,4 +1381,70 @@ func relayFixtureCleanupDrainsOperationsBeforeInvalidatingTheirSession() async t
     let tool = try #require(fixture.controller.remoteTools.first)
     await fixture.controller.revoke(tool)
     #expect(fixture.controller.remoteToolActionState == .failed(expected))
+}
+
+@MainActor
+@Test func manualWatchDockChoicesAreLocalToTheChannelAndYieldToRelayPairing() async throws {
+    let time = Date(timeIntervalSinceReferenceDate: 100000)
+    let phone = RelayPhoneDevice(id: "9397638e-bbbd-4fce-b65b-48f21adc68a6", name: "iPhone", createdAt: time, lastSeenAt: time)
+    let second = RelayPhoneDevice(id: "9c77a7c0-68d3-4cd3-9805-897fec2acbd2", name: "iPhone", createdAt: time, lastSeenAt: time)
+    let watch = RelayPhoneDevice(id: "3220af21-eff2-5855-a5ee-a09dbbf43150", name: "Watch", createdAt: time, lastSeenAt: time)
+    var confirmed = watch
+    confirmed.parentPhoneID = second.id
+    func response(_ devices: [RelayPhoneDevice]) throws -> RelayTestResponse {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return RelayTestResponse(statusCode: 200, body: String(decoding: try encoder.encode(["devices": devices]), as: UTF8.self))
+    }
+    let initial = try response([phone, second, watch])
+    let fixture = try RelayControllerFixture(responses: [initial, try response([second, watch]), initial,
+                                                         try response([phone, second, confirmed])])
+    defer { fixture.cleanup() }
+    let controller = fixture.controller
+    let channel = try #require(controller.channelID)
+    await controller.refreshDevices()
+    controller.chooseDockPhone(phone.id, for: watch.id, in: channel)
+    controller.chooseDockPhone(second.id, for: watch.id, in: channel)
+    #expect(controller.localDockPhones == [watch.id: second.id])
+    controller.chooseDockPhone(nil, for: watch.id, in: channel)
+    #expect(controller.localDockPhones.isEmpty)
+    controller.chooseDockPhone(phone.id, for: watch.id, in: channel)
+    controller.chooseDockPhone("missing-phone", for: watch.id, in: channel)
+    controller.chooseDockPhone(second.id, for: "missing-watch", in: channel)
+    controller.chooseDockPhone(nil, for: watch.id, in: "stale-channel")
+    #expect(controller.localDockPhones == [watch.id: phone.id])
+    #expect(fixture.stub.requests.map(\.httpMethod) == ["GET"])
+
+    func relaunch() -> RelaySyncController {
+        RelaySyncController(defaults: fixture.defaults, session: fixture.session, credentials: fixture.credentials)
+    }
+    #expect(relaunch().localDockPhones == [watch.id: phone.id])
+    fixture.defaults.set("another-channel", forKey: "usageHUD.relay.channelID")
+    #expect(relaunch().localDockPhones.isEmpty)
+    fixture.defaults.set(channel, forKey: "usageHUD.relay.channelID")
+    await controller.refreshDevices()
+    #expect(controller.localDockPhones.isEmpty)
+    await controller.refreshDevices()
+    controller.chooseDockPhone(phone.id, for: watch.id, in: channel)
+    await controller.refreshDevices()
+    controller.chooseDockPhone(phone.id, for: watch.id, in: channel)
+    #expect(controller.localDockPhones.isEmpty)
+    #expect(relaunch().localDockPhones.isEmpty)
+    #expect(fixture.stub.requests.allSatisfy { $0.httpMethod == "GET" })
+}
+
+@MainActor
+func makeDeviceDockGalleryFixture() async throws -> (controller: RelaySyncController, cleanup: @MainActor () -> Void) {
+    let response = RelayTestResponse(statusCode: 200, body: """
+        {"devices":[
+          {"id":"9397638e-bbbd-4fce-b65b-48f21adc68a6","name":"Work iPhone","created_at":"2026-11-21T09:00:00Z","last_seen_at":"2026-11-23T08:10:00Z"},
+          {"id":"3220af21-eff2-5855-a5ee-a09dbbf43150","name":"Apple Watch Ultra","parent_phone_id":"9397638e-bbbd-4fce-b65b-48f21adc68a6","created_at":"2026-11-21T09:01:00Z","last_seen_at":"2026-11-23T08:12:00Z"},
+          {"id":"9c77a7c0-68d3-4cd3-9805-897fec2acbd2","name":"Personal iPhone","created_at":"2026-11-22T16:00:00Z","last_seen_at":"2026-11-23T04:20:00Z"},
+          {"id":"7c2df876-8402-5c7d-a909-d6ac13135945","name":"Apple Watch SE","created_at":"2026-11-21T09:10:00Z","last_seen_at":"2026-11-23T04:19:00Z"}
+        ]}
+        """)
+    let fixture = try RelayControllerFixture(responses: [response, .pairing("12345678")] + Array(repeating: response, count: 30))
+    await fixture.controller.refreshDevices()
+    await fixture.controller.createPairingCode()
+    return (fixture.controller, { fixture.cleanup() })
 }

@@ -17,7 +17,7 @@ enum MagnetGeometry {
     /// How close to the physical screen edge the pointer must be to reveal.
     static let revealDistance: CGFloat = 1
     /// The pointer must be this far outside a revealed rail before it hides.
-    static let hideMargin: CGFloat = 24
+    static let hideMargin: CGFloat = 2
 
     /// The side of the display the rail's middle is on: where a full-height
     /// rail goes when it is dropped anywhere.
@@ -29,10 +29,11 @@ enum MagnetGeometry {
     /// height, behind the menu bar and a bottom Dock, and keeps its content
     /// clear of them inside. A Dock on that side still pushes it inward.
     static func edgeRailFrame(width: CGFloat, edge: MagnetEdge, screenFrame: CGRect, visibleFrame: CGRect) -> CGRect {
-        CGRect(
-            x: edge == .left ? visibleFrame.minX : visibleFrame.maxX - width,
+        let windowWidth = ceil(width)
+        return CGRect(
+            x: edge == .left ? visibleFrame.minX : visibleFrame.maxX - windowWidth,
             y: screenFrame.minY,
-            width: width,
+            width: windowWidth,
             height: screenFrame.height
         )
     }
@@ -93,8 +94,8 @@ enum MagnetGeometry {
     ) -> Bool {
         guard pointer.y >= screenFrame.minY, pointer.y <= screenFrame.maxY else { return false }
         switch edge {
-        case .left: return pointer.x <= screenFrame.minX + revealDistance
-        case .right: return pointer.x >= screenFrame.maxX - revealDistance
+        case .left: return (screenFrame.minX...screenFrame.minX + revealDistance).contains(pointer.x)
+        case .right: return (screenFrame.maxX - revealDistance...screenFrame.maxX).contains(pointer.x)
         }
     }
 

@@ -196,6 +196,45 @@ struct StorageCleanupInventory: Equatable, Sendable {
     var reachedScanLimit = false
 }
 
+/// Measured disk space represented by the two lists on Clean. A generated
+/// folder can also be part of a finished worktree's measured footprint.
+struct CleanableSpace: Equatable {
+    let bytes: Int64
+    let isPartial: Bool
+
+    init(inventory: StorageCleanupInventory?, worktrees: [WorkItem], checkedWorktrees: Bool) {
+        var folders = [String: Int64]()
+        for candidate in inventory?.rows.compactMap(\.candidate) ?? [] {
+            folders[CleanupFileInspection.normalized(candidate.id)] = candidate.bytes
+        }
+        var partial = inventory == nil || inventory?.reachedScanLimit == true || !checkedWorktrees
+        for item in worktrees where item.facts.folderExists && BranchesBoard.lane(for: item) == .safeToClear {
+            guard let path = item.worktreePath else { continue }
+            if let bytes = item.size?.totalBytes {
+                folders[CleanupFileInspection.normalized(path)] = bytes
+            } else {
+                partial = true
+            }
+        }
+        self.bytes = folders.reduce(into: Int64(0)) { total, folder in
+            var ancestor = (folder.key as NSString).deletingLastPathComponent
+            while !ancestor.isEmpty && ancestor != "/" {
+                if folders[ancestor] != nil { return }
+                ancestor = (ancestor as NSString).deletingLastPathComponent
+            }
+            total += folder.value
+        }
+        self.isPartial = partial
+    }
+
+    @available(macOS 12.0, *)
+    func label(locale: Locale) -> String {
+        if isPartial && bytes == 0 { return "…" }
+        let size = bytes.formatted(.byteCount(style: .file, spellsOutZero: false).locale(locale))
+        return isPartial ? "≥\(size)" : size
+    }
+}
+
 struct StorageArtifactScanner: Sendable {
     let home: String
     let locator: RepositoryLocator

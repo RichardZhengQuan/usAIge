@@ -6,8 +6,8 @@ import AppKit
 /// Dock. Docking is per display and survives relaunch.
 @MainActor
 final class MagnetController {
-    static let hideDelay: TimeInterval = 0.6
-    static let animationDuration: TimeInterval = 0.2
+    static let hideDelay: TimeInterval = 0.12
+    static let animationDuration: TimeInterval = 0.15
     private static let pollInterval: TimeInterval = 0.08
 
     /// Called when the rail docks, undocks, or is dragged while docked, with
@@ -26,13 +26,6 @@ final class MagnetController {
     /// tell its own animations apart from the user dragging.
     private(set) var isMovingPanel = false
 
-    var isEnabled: Bool {
-        didSet {
-            guard isEnabled != oldValue, !isEnabled else { return }
-            undock()
-        }
-    }
-
     private weak var panel: NSPanel?
     private var pointerLocation: () -> CGPoint
     private var dockedFrame: CGRect = .zero
@@ -50,11 +43,7 @@ final class MagnetController {
     private var pollTimer: Timer?
     private var moveGeneration = 0
 
-    init(
-        isEnabled: Bool,
-        pointerLocation: @escaping () -> CGPoint = { NSEvent.mouseLocation }
-    ) {
-        self.isEnabled = isEnabled
+    init(pointerLocation: @escaping () -> CGPoint = { NSEvent.mouseLocation }) {
         self.pointerLocation = pointerLocation
     }
 
@@ -83,7 +72,7 @@ final class MagnetController {
 
     /// Docks the rail to `edge` on `screen` at vertical position `y`.
     func dock(to edge: MagnetEdge, y: CGFloat, on screen: NSScreen, animated: Bool) {
-        guard let panel, isEnabled else { return }
+        guard let panel else { return }
         self.edge = edge
         dockedDisplayID = Self.displayID(of: screen)
         dockedY = y
@@ -102,6 +91,7 @@ final class MagnetController {
         let screen = dockedScreen
         edge = nil
         dockedDisplayID = nil
+        previewUntil = nil
         hideTask?.cancel()
         hideTask = nil
         stopPolling()
@@ -125,8 +115,7 @@ final class MagnetController {
     func dragDidEnd() {
         isDragging = false
         guard let panel, let screen = panel.screen ?? NSScreen.main else { return }
-        guard isEnabled,
-              let snapEdge = MagnetGeometry.edge(toSnap: panel.frame, in: screen.visibleFrame) else {
+        guard let snapEdge = MagnetGeometry.edge(toSnap: panel.frame, in: screen.visibleFrame) else {
             if edge != nil {
                 edge = nil
                 dockedDisplayID = nil
@@ -164,9 +153,7 @@ final class MagnetController {
         let target = isRevealed
             ? dockedFrame
             : MagnetGeometry.hiddenFrame(from: dockedFrame, edge: edge, screenFrame: screen.frame)
-        isMovingPanel = true
-        panel.setFrame(target, display: true, animate: false)
-        isMovingPanel = false
+        move(panel, to: target, animated: false)
         if isDockedDisplayPresent { onDockingChanged?(edge, dockedFrame, screen) }
     }
 
@@ -202,18 +189,19 @@ final class MagnetController {
     func hide() {
         guard let panel, let edge, isRevealed, !isDragging,
               let screen = dockedScreen else { return }
-        guard MagnetGeometry.pointerIsClear(of: dockedFrame, pointer: pointerLocation()), !keepsRevealed(),
-              previewUntil.map({ Date() >= $0 }) ?? true else {
+        guard MagnetGeometry.pointerIsClear(of: dockedFrame, pointer: pointerLocation()), !keepsRevealed() else { return }
+        if let previewUntil, previewUntil.timeIntervalSinceNow > 0 {
             scheduleHide()
             return
         }
+        previewUntil = nil
         isRevealed = false
         move(panel, to: MagnetGeometry.hiddenFrame(from: dockedFrame, edge: edge, screenFrame: screen.frame), animated: true)
     }
 
     /// One step of the pointer watch; exposed for tests.
     func handlePointer(at pointer: CGPoint) {
-        guard let edge, panel != nil, let screen = dockedScreen else { return }
+        guard !isDragging, let edge, panel != nil, let screen = dockedScreen else { return }
         if !isRevealed {
             if MagnetGeometry.pointerReveals(pointer: pointer, edge: edge, screenFrame: screen.frame) {
                 reveal()
@@ -221,6 +209,7 @@ final class MagnetController {
         } else if MagnetGeometry.pointerIsClear(of: dockedFrame, pointer: pointer), !keepsRevealed() {
             if hideTask == nil { scheduleHide() }
         } else {
+            if dockedFrame.contains(pointer) { previewUntil = nil }
             hideTask?.cancel()
             hideTask = nil
         }
@@ -228,8 +217,9 @@ final class MagnetController {
 
     private func scheduleHide() {
         hideTask?.cancel()
+        let delay = max(Self.hideDelay, previewUntil?.timeIntervalSinceNow ?? 0)
         hideTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(Self.hideDelay * 1_000_000_000))
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard let self, !Task.isCancelled else { return }
             self.hideTask = nil
             self.hide()
@@ -238,9 +228,9 @@ final class MagnetController {
 
     private func startPolling() {
         guard pollTimer == nil else { return }
-        let timer = Timer(timeInterval: Self.pollInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
+        let timer = Timer(timeInterval: Self.pollInterval, repeats: true) { [weak self] timer in
+            guard let self else { timer.invalidate(); return }
+            MainActor.assumeIsolated {
                 self.handlePointer(at: self.pointerLocation())
             }
         }
@@ -256,7 +246,7 @@ final class MagnetController {
     private func move(_ panel: NSPanel, to frame: CGRect, animated: Bool) {
         isMovingPanel = true
         moveGeneration += 1
-        guard animated else {
+        guard animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             panel.setFrame(frame, display: true, animate: false)
             isMovingPanel = false
             return

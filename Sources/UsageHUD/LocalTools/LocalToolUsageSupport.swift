@@ -98,6 +98,17 @@ enum LocalToolOptIn {
 @MainActor
 final class LocalToolStatusRegistry: ObservableObject {
     @Published private(set) var statuses: [AIToolID: LocalToolStatus] = [:]
+    @Published private(set) var installedTools: Set<AIToolID>?
+    private let detectInstallations: @MainActor () async -> Set<AIToolID>
+
+    init(detectInstallations: @escaping @MainActor () async -> Set<AIToolID> = InstalledUsageTools.detect) {
+        self.detectInstallations = detectInstallations
+    }
+
+    func refreshInstallations() async {
+        let result = await detectInstallations()
+        if !Task.isCancelled, installedTools != result { installedTools = result }
+    }
 
     func report(_ status: LocalToolStatus, for tool: AIToolID) {
         guard statuses[tool] != status else { return }

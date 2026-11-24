@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 import Testing
 @testable import UsageHUD
@@ -7,9 +8,13 @@ import Testing
 @Test func publishesCurrentSnapshotsAfterRefresh() async {
     let provider = StubUsageProvider(results: [.success(.authenticated([Fixtures.codexSnapshot]))])
     let store = UsageStore(provider: provider)
+    var checking: [Bool] = []
+    let observation = store.$isManuallyRefreshing.sink { checking.append($0) }
+    defer { observation.cancel() }
 
     await store.refresh()
 
+    #expect(checking == [false, true, false])
     #expect(store.state == .current([Fixtures.codexSnapshot]))
 }
 

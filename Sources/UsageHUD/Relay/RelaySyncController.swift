@@ -189,9 +189,17 @@ struct RelayPhoneDevice: Codable, Identifiable, Equatable, Sendable {
     let name: String
     let createdAt: Date
     let lastSeenAt: Date
+    var parentPhoneID: String? = nil
+
+    // Older relay responses omit parent IDs. The shipping Watch client uses
+    // scoped version-5 identifiers, whereas a pairing claim creates a v4 UUID.
+    var isWatch: Bool {
+        parentPhoneID != nil || UUID(uuidString: id).map { ($0.uuid.6 >> 4) == 5 } == true
+    }
 
     enum CodingKeys: String, CodingKey {
         case id, name
+        case parentPhoneID = "parent_phone_id"
         case createdAt = "created_at"
         case lastSeenAt = "last_seen_at"
     }
@@ -250,17 +258,20 @@ final class RelaySyncController: ObservableObject {
         case unconfigured, idle, loading, loaded, connectionUnavailable, failed(String)
     }
 
-    enum RemoteToolActionState: Equatable {
+    enum PairingActionState: Equatable {
         case idle, connecting, failed(String)
     }
 
     @Published private(set) var status: Status = .disconnected
     @Published private(set) var pairingCode: String?
     @Published private(set) var pairingExpiresAt: Date?
+    @Published private(set) var phonePairingState: PairingActionState = .idle
+    @Published private(set) var needsPhonePairingCheck = false
     @Published private(set) var devices: [RelayPhoneDevice] = []
+    @Published private(set) var localDockPhones: [String: String] = [:]
     @Published private(set) var remoteTools: [RelayRemoteTool] = []
     @Published private(set) var remoteToolsState: RemoteToolsState = .unconfigured
-    @Published private(set) var remoteToolActionState: RemoteToolActionState = .idle
+    @Published private(set) var remoteToolActionState: PairingActionState = .idle
     @Published private(set) var canReconnectRemoteTools = false
     @Published private(set) var remotePairingCode: String?
     @Published private(set) var remotePairingExpiresAt: Date?
@@ -274,6 +285,13 @@ final class RelaySyncController: ObservableObject {
     private let defaults: UserDefaults
     private let session: URLSession
     private let credentials: RelayMacCredentialStore
+    private let pairingNow: () -> Date
+    private static let phonePollInterval: TimeInterval = 5
+    private let waitForPhonePoll: @MainActor (TimeInterval) async throws -> Void
+    private var pairingViews: Set<UUID> = []
+    private var phonePoll: Task<Void, Never>?
+    private var phonePollID: UUID?
+    private var hasLoadedDeviceList = false
     private var latestSnapshots: [QuotaSnapshot] = []
     private var latestSessionStatuses: [AIToolID: RelaySessionStatusPayload] = [:]
     private var uploadTask: Task<Void, Never>?
@@ -281,6 +299,7 @@ final class RelaySyncController: ObservableObject {
     private var remotePairingPollTask: Task<Void, Never>?
     private var remotePairingPollID: UUID?
     private var channelGeneration = UUID()
+    private var deviceRequestID: UUID?
     private var remoteToolsRequestID: UUID?
     private var remoteToolsRefreshTask: Task<[QuotaSnapshot], Error>?
     private var remoteToolsStateBeforeRefresh: RemoteToolsState?
@@ -294,19 +313,29 @@ final class RelaySyncController: ObservableObject {
     init(
         defaults: UserDefaults = .standard,
         session: URLSession = .shared,
-        credentials: RelayMacCredentialStore = RelayMacCredentialStore()
+        credentials: RelayMacCredentialStore = RelayMacCredentialStore(),
+        pairingNow: @escaping () -> Date = Date.init,
+        waitForPhonePoll: @escaping @MainActor (TimeInterval) async throws -> Void = { seconds in
+            try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+        }
     ) {
         self.defaults = defaults
         self.session = session
         self.credentials = credentials
+        self.pairingNow = pairingNow
+        self.waitForPhonePoll = waitForPhonePoll
 
         // Older ad-hoc-signed builds stored this token in Keychain. Reading that
         // item from a newer build can display a system password prompt because
         // every ad-hoc build has a different code identity. Do not touch the old
         // item; reset the local link and let the user create a prompt-free one.
-        if channelID != nil, (try? credentials.token()) == nil {
+        if let channelID, (try? credentials.token()) == nil {
+            defaults.removeObject(forKey: Self.dockChoicesKey(channelID))
             defaults.removeObject(forKey: Self.channelKey)
             defaults.removeObject(forKey: Self.macNameKey)
+        }
+        if let channelID {
+            localDockPhones = defaults.dictionary(forKey: Self.dockChoicesKey(channelID)) as? [String: String] ?? [:]
         }
         status = channelID == nil ? .disconnected : .connected
         remoteToolsState = channelID == nil ? .unconfigured : .idle
@@ -395,46 +424,184 @@ final class RelaySyncController: ObservableObject {
             try credentials.save(response.uploadToken)
             defaults.set(response.channelID, forKey: Self.channelKey)
             defaults.set(response.macName, forKey: Self.macNameKey)
+            localDockPhones = [:]
+            devices = []
+            hasLoadedDeviceList = true
             channelGeneration = UUID()
             remoteToolsState = .idle
             pairingCode = response.pairingCode
             pairingExpiresAt = response.expiresAt
+            needsPhonePairingCheck = false
+            phonePairingState = .idle
             status = .connected
             retryAttempt = 0
             await uploadLatest(force: true)
+            startVisiblePhonePairing()
         } catch {
             guard channelGeneration == generation else { return }
             status = .failed(error.localizedDescription)
         }
     }
 
+    func validPhonePairing(at date: Date) -> (code: String, expiry: Date)? {
+        guard let code = pairingCode, !code.isEmpty, let expiry = pairingExpiresAt, expiry > date else { return nil }
+        return (code, expiry)
+    }
+
     func createPairingCode() async {
-        guard let channelID else { await createChannel(); return }
+        guard !Task.isCancelled, phonePairingState != .connecting,
+              validPhonePairing(at: pairingNow()) == nil else { return }
+        phonePairingState = .connecting
+        guard let channelID else {
+            await createChannel()
+            if !isLinked, case let .failed(message) = status { phonePairingState = .failed(message) }
+            return
+        }
         let generation = channelGeneration
         do {
             let response: PairingResponse = try await authorizedRequest(method: "POST", path: "channels/\(channelID)/pairings")
             guard isCurrentChannel(channelID, generation: generation) else { return }
             pairingCode = response.pairingCode
             pairingExpiresAt = response.expiresAt
+            guard validPhonePairing(at: pairingNow()) != nil else {
+                phonePairingState = .failed("The pairing code has expired. Try again for a new code.")
+                return
+            }
+            needsPhonePairingCheck = false
+            phonePairingState = .idle
             status = .connected
         } catch {
             guard isCurrentChannel(channelID, generation: generation) else { return }
+            if Task.isCancelled {
+                phonePairingState = .idle
+                return
+            }
+            phonePairingState = .failed(error.localizedDescription)
             status = .failed(error.localizedDescription)
         }
     }
 
-    func refreshDevices() async {
-        guard let channelID else { return }
+    func setPhonePairingVisible(_ visible: Bool, for viewID: UUID) {
+        if visible {
+            pairingViews.insert(viewID)
+            startVisiblePhonePairing()
+        } else if pairingViews.remove(viewID) != nil, pairingViews.isEmpty {
+            // A phone may claim the invitation before this page is shown again.
+            if pairingCode != nil { needsPhonePairingCheck = true }
+            stopPhonePoll()
+        }
+    }
+
+    /// Only visible device pages maintain an invitation. Sharing this task lets
+    /// Settings and the main window display the same single-use code.
+    @discardableResult
+    func startVisiblePhonePairing() -> Task<Void, Never>? {
+        guard !pairingViews.isEmpty, let channelID else { return nil }
+        if let phonePoll { return phonePoll }
         let generation = channelGeneration
+        let pollID = UUID()
+        phonePollID = pollID
+        if case .failed = phonePairingState { phonePairingState = .idle }
+        phonePoll = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                if self.phonePollID == pollID {
+                    self.phonePoll = nil
+                    self.phonePollID = nil
+                }
+            }
+            while !Task.isCancelled, self.isCurrentChannel(channelID, generation: generation) {
+                do {
+                    let refreshed = try await self.loadDevices()
+                    guard !Task.isCancelled, self.isCurrentChannel(channelID, generation: generation) else { return }
+                    if refreshed, self.needsPhonePairingCheck { self.needsPhonePairingCheck = false }
+                    if refreshed, self.validPhonePairing(at: self.pairingNow()) == nil {
+                        await self.createPairingCode()
+                    }
+                    guard !Task.isCancelled else { return }
+                    if case .failed = self.phonePairingState { return }
+                    let remaining = self.pairingExpiresAt?.timeIntervalSince(self.pairingNow()) ?? Self.phonePollInterval
+                    let delay = max(0.05, min(Self.phonePollInterval, remaining))
+                    try await self.waitForPhonePoll(delay)
+                } catch {
+                    guard !Task.isCancelled, self.isCurrentChannel(channelID, generation: generation) else { return }
+                    self.needsPhonePairingCheck = true
+                    self.phonePairingState = .failed(error.localizedDescription)
+                    return
+                }
+            }
+        }
+        return phonePoll
+    }
+
+    private func stopPhonePoll() {
+        phonePoll?.cancel()
+        phonePoll = nil
+        phonePollID = nil
+    }
+
+    func refreshDevices() async {
+        _ = try? await loadDevices()
+    }
+
+    private func loadDevices() async throws -> Bool {
+        guard let channelID, !Task.isCancelled else { return false }
+        let generation = channelGeneration
+        let requestID = UUID()
+        deviceRequestID = requestID
         do {
             let response: DeviceListResponse = try await authorizedRequest(method: "GET", path: "channels/\(channelID)/devices")
-            guard isCurrentChannel(channelID, generation: generation) else { return }
+            guard isCurrentChannel(channelID, generation: generation),
+                  deviceRequestID == requestID, !Task.isCancelled else { return false }
+            if hasLoadedDeviceList, pairingCode != nil {
+                let knownPhones = Set(devices.filter { !$0.isWatch }.map(\.id))
+                if response.devices.contains(where: { !$0.isWatch && !knownPhones.contains($0.id) }) {
+                    pairingCode = nil
+                    pairingExpiresAt = nil
+                }
+            }
+            hasLoadedDeviceList = true
             devices = response.devices
+            pruneDockChoices(for: channelID)
             status = .connected
+            return true
         } catch {
-            guard isCurrentChannel(channelID, generation: generation) else { return }
+            guard isCurrentChannel(channelID, generation: generation),
+                  deviceRequestID == requestID, !Task.isCancelled else { return false }
             status = .failed(error.localizedDescription)
+            throw error
         }
+    }
+
+    /// A local display preference for Watches whose older relay record does
+    /// not identify their phone. Only the iPhone can establish a relay parent.
+    func chooseDockPhone(_ phoneID: String?, for watchID: String, in channelID: String) {
+        guard self.channelID == channelID,
+              let watch = devices.first(where: { $0.id == watchID && $0.isWatch }),
+              watch.parentPhoneID == nil else { return }
+        if let phoneID, !devices.contains(where: { $0.id == phoneID && !$0.isWatch }) { return }
+        var choices = localDockPhones
+        choices[watchID.lowercased()] = phoneID?.lowercased()
+        saveDockChoices(choices, for: channelID)
+    }
+
+    private static func dockChoicesKey(_ channelID: String) -> String {
+        "usageHUD.relay.dockPhones.\(channelID.lowercased())"
+    }
+
+    private func pruneDockChoices(for channelID: String) {
+        guard !localDockPhones.isEmpty else { return }
+        let phones = Set(devices.filter { !$0.isWatch }.map { $0.id.lowercased() })
+        let watches = Set(devices.filter { $0.isWatch && $0.parentPhoneID == nil }.map { $0.id.lowercased() })
+        saveDockChoices(localDockPhones.filter { watches.contains($0.key) && phones.contains($0.value) }, for: channelID)
+    }
+
+    private func saveDockChoices(_ choices: [String: String], for channelID: String) {
+        guard choices != localDockPhones else { return }
+        localDockPhones = choices
+        let key = Self.dockChoicesKey(channelID)
+        if choices.isEmpty { defaults.removeObject(forKey: key) }
+        else { defaults.set(choices, forKey: key) }
     }
 
     func createRemoteToolPairingCode() async {
@@ -567,7 +734,9 @@ final class RelaySyncController: ObservableObject {
         do {
             try await authorizedVoid(method: "DELETE", path: "channels/\(channelID)/devices/\(device.id)")
             guard isCurrentChannel(channelID, generation: generation) else { return }
+            deviceRequestID = nil
             devices.removeAll { $0.id == device.id }
+            pruneDockChoices(for: channelID)
         } catch {
             guard isCurrentChannel(channelID, generation: generation) else { return }
             status = .failed(error.localizedDescription)
@@ -591,7 +760,13 @@ final class RelaySyncController: ObservableObject {
 
     private func clearLocalLink() {
         channelGeneration = UUID()
+        stopPhonePoll()
+        phonePairingState = .idle
+        needsPhonePairingCheck = false
+        hasLoadedDeviceList = false
         try? credentials.delete()
+        if let channelID { defaults.removeObject(forKey: Self.dockChoicesKey(channelID)) }
+        localDockPhones = [:]
         defaults.removeObject(forKey: Self.channelKey)
         defaults.removeObject(forKey: Self.macNameKey)
         pairingCode = nil
@@ -838,7 +1013,13 @@ final class RelaySyncController: ObservableObject {
         let (data, response) = try await session.data(for: request)
         try validateResponse(response, data: data)
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        // The relay sends JavaScript ISO timestamps with milliseconds. Older
+        // macOS Foundation decoders accept only whole seconds with .iso8601.
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let value = try decoder.singleValueContainer()
+            if let date = LocalToolDates.parse(try value.decode(String.self)) { return date }
+            throw DecodingError.dataCorruptedError(in: value, debugDescription: "Invalid relay timestamp")
+        }
         return try decoder.decode(T.self, from: data)
     }
 

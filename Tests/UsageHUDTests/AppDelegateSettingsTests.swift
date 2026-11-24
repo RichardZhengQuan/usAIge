@@ -117,9 +117,9 @@ import Testing
     presentation.show(.memory)
     presentation.navigate(to: .cleanup)
     #expect(presentation.destination == .overview)
-    #expect(presentation.focusRequest?.section == .resources)
-    #expect(presentation.selectedSection == .resources)
-    #expect(presentation.request?.front == .storage)
+    #expect(presentation.focusRequest?.section == .clean)
+    #expect(presentation.selectedSection == .clean)
+    #expect(presentation.modernPage == .clean)
     presentation.show(.memory)
     #expect(presentation.destination == .overview)
     #expect(presentation.request?.front == .memory)
@@ -271,8 +271,8 @@ import Testing
     controller.present()
     #expect(controller.window?.contentView != nil)
     #expect(controller.presentation.destination == .overview)
-    #expect(controller.presentation.focusRequest?.section == .resources)
-    #expect(controller.presentation.request?.front == .storage)
+    #expect(controller.presentation.focusRequest?.section == .clean)
+    #expect(controller.presentation.modernPage == .clean)
     #expect(store.resultMessage?.id == result.id)
     controller.window?.close()
     #expect(closeCount == 0)
@@ -281,4 +281,58 @@ import Testing
     store.resultMessage = nil
     controller.window?.close()
     #expect(closeCount == 1)
+}
+
+@MainActor
+@Test func menuBarHoverRevealsAndTheNativeMenuOpensTheSelectedDestination() throws {
+    _ = NSApplication.shared
+    var hover: [Bool] = []
+    var actions: [String] = []
+    var installs = 0
+    var removals = 0
+    var attachedMenu: NSMenu?
+    let button = NSButton()
+    let icon = MenuBarIconController(hoverChanged: { hover.append($0) },
+                                     openWindow: { actions.append("window") }, showPanel: { actions.append("panel") },
+                                     openSettings: { actions.append("settings") }) {
+        installs += 1
+        return MenuBarIconController.Item(button: button, setMenu: { attachedMenu = $0 }, remove: { removals += 1 })
+    }
+    icon.setVisible(true)
+    defer { icon.setVisible(false) }
+    icon.setVisible(true)
+    #expect(installs == 1)
+    let tracking = try #require(button.trackingAreas.first { $0.owner === icon })
+    #expect(tracking.options.contains([.mouseEnteredAndExited, .activeAlways, .inVisibleRect]))
+    let event = try #require(NSEvent.enterExitEvent(with: .mouseEntered, location: .zero,
+        modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0,
+        trackingNumber: 0, userData: nil))
+    icon.mouseEntered(with: event)
+    icon.mouseEntered(with: event)
+    #expect(hover == [true])
+    #expect(actions.isEmpty)
+    let menu = try #require(attachedMenu)
+    #expect(menu.items.filter { !$0.isSeparatorItem }.map(\.title) == [
+        "Open usAIge", "Show Floating Panel", "Settings…", "Quit usAIge"
+    ])
+    #expect(menu.item(withTitle: "Settings…")?.keyEquivalent == ",")
+    let quit = try #require(menu.item(withTitle: "Quit usAIge"))
+    #expect(quit.action == #selector(NSApplication.terminate(_:)))
+    #expect(quit.target === NSApplication.shared)
+    #expect(quit.keyEquivalent == "q")
+    for title in ["Open usAIge", "Show Floating Panel", "Settings…"] {
+        menu.performActionForItem(at: menu.indexOfItem(withTitle: title))
+    }
+    #expect(actions == ["window", "panel", "settings"])
+    icon.mouseExited(with: event)
+    #expect(hover == [true, false])
+    icon.mouseEntered(with: event)
+    icon.setVisible(false)
+    icon.mouseEntered(with: event)
+    icon.setVisible(false)
+    #expect(removals == 1)
+    #expect(attachedMenu == nil)
+    #expect(!button.trackingAreas.contains(tracking))
+    #expect(!icon.containsPointer)
+    #expect(hover == [true, false, true, false])
 }

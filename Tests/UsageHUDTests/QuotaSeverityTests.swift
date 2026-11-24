@@ -1,4 +1,5 @@
-import CoreGraphics
+import AppKit
+import SwiftUI
 import Testing
 @testable import UsageHUD
 
@@ -41,31 +42,57 @@ func mapsRemainingPercentageToVisibleRingFraction(input: (Double, Double)) {
     #expect(QuotaRingPresentation.arcFraction(remainingPercent: input.0) == input.1)
 }
 
-@Test func hidesResetCreditsUnlessTheAvailableCountIsPositive() {
-    #expect(
-        ResetCreditPresentation.displayedCount(
-            showsResetCredits: true,
-            availableCount: 1
-        ) == 1
-    )
-    #expect(
-        ResetCreditPresentation.displayedCount(
-            showsResetCredits: true,
-            availableCount: 0
-        ) == nil
-    )
-    #expect(
-        ResetCreditPresentation.displayedCount(
-            showsResetCredits: true,
-            availableCount: nil
-        ) == nil
-    )
-    #expect(
-        ResetCreditPresentation.displayedCount(
-            showsResetCredits: false,
-            availableCount: 2
-        ) == nil
-    )
+private func resetSample(hours: Int, credits: Int? = nil, now: Date = Date()) -> QuotaSnapshot {
+    var sample = QuotaSnapshot.make(from: RateLimitBucket(
+        limitID: "quota-\(hours)", limitName: nil, usedPercent: 50, windowDurationMinutes: hours * 60,
+        resetsAt: now.addingTimeInterval(Double(hours) * 3600).timeIntervalSince1970, planType: nil
+    ), updatedAt: now)
+    sample.availableResetCount = credits
+    return sample
+}
+
+@Test func showsPositiveResetCreditsEvenWhenAnotherLimitHoldsTheCount() {
+    let model = resetSample(hours: 3)
+    let account = resetSample(hours: 16, credits: 2)
+    #expect(ResetCreditPresentation.displayedCount(for: model) == nil)
+    #expect(ResetCreditPresentation.displayedCount(for: account) == 2)
+    #expect(ResetCreditPresentation.displayedCount(for: model, otherLimits: [account]) == 2)
+    #expect(ResetCreditPresentation.displayedCount(for: resetSample(hours: 16, credits: 0)) == nil)
+    #expect(ResetCreditPresentation.displayedCount(for: resetSample(hours: 16, credits: -1)) == nil)
+}
+
+@MainActor
+@Test func fullSizeResetBadgesFitSideBySideAtEveryRailTextSize() {
+    guard #available(macOS 14.0, *) else { return }
+    let now = Date(timeIntervalSinceReferenceDate: 1_000_000)
+    let primary = resetSample(hours: 3, credits: 2, now: now)
+    let secondary = resetSample(hours: 16, now: now)
+    let weekly = resetSample(hours: 7 * 24, credits: 3, now: now)
+    var pair = primary
+    pair.secondaryWindow = secondary.primaryWindow
+    for size in HUDTextSize.allCases {
+        for modern in [false, true] {
+            func width(_ snapshot: QuotaSnapshot, credits: Int?) -> CGFloat {
+                let badges = RailResetBadges(snapshot: snapshot, credits: credits, now: now, isModern: modern)
+                    .environment(\.hudTextSize, size)
+                return NSHostingView(rootView: badges).fittingSize.width
+            }
+            let first = width(primary, credits: 2)
+            let second = width(secondary, credits: nil)
+            let together = width(pair, credits: 2)
+            #expect(first > width(primary, credits: nil))
+            #expect(width(weekly, credits: 3) > width(weekly, credits: nil))
+            #expect(second >= 44 * size.factor - 1)
+            #expect(abs(together - first - second - 8 * size.factor) < 2)
+            for scale in [0.5, 1.0, 1.5] {
+                let panel = HUDMetrics.railWidth(for: size, labelWidth: together, maximumWidth: 1280 / scale) * scale
+                #expect(panel >= (together + 2 * HUDMetrics.horizontalInset) * scale)
+            }
+            let long = width(pair, credits: 123_456_789)
+            #expect(long > together)
+            #expect(HUDMetrics.railWidth(for: size, labelWidth: long) >= long + 2 * HUDMetrics.horizontalInset)
+        }
+    }
 }
 
 @Test func breathesAgentGloryOutwardWithoutCrossingRingInterior() {
@@ -103,8 +130,21 @@ func mapsRemainingPercentageToVisibleRingFraction(input: (Double, Double)) {
     #expect(HUDMetrics.maximumRailHeight(visibleHeight: 932, scale: 1) == 900)
     #expect(HUDMetrics.maximumRailHeight(visibleHeight: 932, scale: 2) == 450)
     #expect(HUDMetrics.maximumRailHeight(visibleHeight: 100, scale: 1) == 120)
-    #expect(HUDMetrics.messageSize == CGSize(width: 84, height: 120))
-    #expect(HUDMetrics.railWidth == 84)
+    #expect(HUDMetrics.messageSize == CGSize(width: 160, height: 120))
+    #expect(HUDMetrics.railWidth(for: .standard) == 160)
+}
+
+@Test func theRailFitsTheSelectedTextSizeAndTheWidestActualReadout() {
+    let small = HUDMetrics.railWidth(for: .small)
+    let standard = HUDMetrics.railWidth(for: .standard)
+    let large = HUDMetrics.railWidth(for: .large)
+    #expect(small > 84 && small < standard && standard < large)
+    for size in HUDTextSize.allCases {
+        let width = HUDMetrics.railWidth(for: size, labelWidth: 198.5)
+        #expect(width >= 198.5 + 2 * HUDMetrics.horizontalInset)
+        #expect(HUDMetrics.railWidth(for: size, labelWidth: 198.5, maximumWidth: 212) == 212)
+    }
+    #expect(HUDMetrics.railHeight(rowCount: 2, textSize: .large) > HUDMetrics.railHeight(rowCount: 2))
 }
 
 @Test func scalesThePanelBoundsWithTheHUDContent() {

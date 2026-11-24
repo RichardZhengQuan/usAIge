@@ -8,16 +8,18 @@ enum AppWindowIdentifiers {
 }
 
 enum MainPageDestination: String, CaseIterable, Identifiable {
-    case overview, worktrees, cleanup, resources, settings
+    case overview, thisMac, worktrees, cleanup, resources, devices, settings
 
     var id: Self { self }
 
     var title: String {
         switch self {
         case .overview: "Overview"
+        case .thisMac: "CPU"
         case .worktrees: "Branches"
-        case .cleanup: "Cleanup"
+        case .cleanup: "Clean"
         case .resources: "Overview"
+        case .devices: "iPhone & Watch"
         case .settings: "Settings"
         }
     }
@@ -25,22 +27,24 @@ enum MainPageDestination: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .overview: "square.grid.2x2"
+        case .thisMac: "cpu"
         case .worktrees: "point.3.connected.trianglepath.dotted"
         case .cleanup: "sparkles"
         case .resources: "chart.pie"
+        case .devices: "applewatch"
         case .settings: "gearshape"
         }
     }
 }
 
 enum OverviewSection: String, Hashable {
-    case overview, resources, branches, settings
+    case overview, thisMac, resources, clean, branches, devices, settings
 }
 
 /// Modern gives each part of the window a page of its own; Classic scrolls
 /// one page through the `OverviewSection`s.
 enum ModernPage: String, CaseIterable, Identifiable, Hashable, Sendable {
-    case overview, usage, memory, storage, branches, worktrees, devices
+    case overview, usage, thisMac, memory, storage, clean, branches, worktrees, devices
 
     var id: String { rawValue }
 
@@ -48,8 +52,10 @@ enum ModernPage: String, CaseIterable, Identifiable, Hashable, Sendable {
         switch self {
         case .overview: "Overview"
         case .usage: "Usage"
+        case .thisMac: "CPU"
         case .memory: "Memory"
         case .storage: "Storage"
+        case .clean: "Clean"
         case .branches: "Branches"
         case .worktrees: "Worktrees"
         case .devices: "iPhone & Watch"
@@ -60,8 +66,10 @@ enum ModernPage: String, CaseIterable, Identifiable, Hashable, Sendable {
         switch self {
         case .overview: "square.grid.2x2.fill"
         case .usage: "gauge.with.dots.needle.67percent"
+        case .thisMac: "cpu"
         case .memory: "memorychip.fill"
         case .storage: "internaldrive.fill"
+        case .clean: "sparkles"
         case .branches: "arrow.triangle.branch"
         case .worktrees: "folder.fill"
         case .devices: "applewatch"
@@ -72,9 +80,11 @@ enum ModernPage: String, CaseIterable, Identifiable, Hashable, Sendable {
     var section: OverviewSection {
         switch self {
         case .overview, .usage: .overview
+        case .thisMac: .thisMac
         case .memory, .storage: .resources
+        case .clean: .clean
         case .branches, .worktrees: .branches
-        case .devices: .overview
+        case .devices: .devices
         }
     }
 }
@@ -114,10 +124,11 @@ final class BranchesPaperweightPresentation: ObservableObject {
         self.destination = .overview
         switch destination {
         case .overview: focus(.overview)
+        case .thisMac: focus(.thisMac)
         case .worktrees: focus(.branches)
-        case .cleanup:
-            show(.storage)
+        case .cleanup: focus(.clean)
         case .resources: focus(.resources)
+        case .devices: focus(.devices)
         case .settings: focus(.settings)
         }
     }
@@ -127,8 +138,11 @@ final class BranchesPaperweightPresentation: ObservableObject {
         focusRequest = FocusRequest(section: section)
         switch section {
         case .overview: modernPage = .overview
+        case .thisMac: modernPage = .thisMac
+        case .clean: modernPage = .clean
         case .resources: if modernPage != .memory { modernPage = .storage }
         case .branches: modernPage = .worktrees
+        case .devices: modernPage = .devices
         case .settings: break
         }
     }
@@ -240,7 +254,7 @@ final class BranchesWindowController: NSWindowController, NSWindowDelegate {
             syncContent: syncContent,
             localToolStatus: localToolStatus,
             updateController: updateController, openSettings: openSettings
-        ))
+        ).appLanguageEnvironment())
         window.titlebarSeparatorStyle = .none
         window.toolbar?.showsBaselineSeparator = false
     }

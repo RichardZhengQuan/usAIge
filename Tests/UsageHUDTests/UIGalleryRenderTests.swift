@@ -86,7 +86,8 @@ private func bucket(
     remaining: Double,
     minutes: Int,
     secondaryRemaining: Double? = nil,
-    plan: String = "pro"
+    plan: String = "pro",
+    resetCredits: Int? = nil
 ) -> QuotaSnapshot {
     let now = Date().timeIntervalSince1970
     var snapshot = QuotaSnapshot.make(
@@ -104,6 +105,7 @@ private func bucket(
         updatedAt: Date()
     )
     snapshot.toolID = tool
+    snapshot.availableResetCount = resetCredits
     return snapshot
 }
 
@@ -339,6 +341,33 @@ struct UIGalleryRenderTests {
         return state
     }()
 
+    @Test func rendersUsageConnectionActions() async throws {
+        guard #available(macOS 14.0, *) else { return }
+        let (settings, defaults) = makeSettings()
+        let store = UsageStore(provider: FixedUsageProvider(.success(.authenticated([]))), monitorsNetworkChanges: false)
+        await store.refresh()
+        let registry = LocalToolStatusRegistry(detectInstallations: { [.claude, .cursor] })
+        await registry.refreshInstallations()
+        registry.report(.waitingForClaudeUsage, for: .claude)
+        registry.report(.credentialExpired, for: .cursor)
+        for appearance in GalleryAppearance.allCases {
+            defaults.set("", forKey: ModernUsageBoard.expandedDefaultsKey)
+            try render(
+                ModernUsageBoard(store: store, settings: settings, localToolStatus: registry, editing: false)
+                    .padding(24).background(ModernPalette.page).defaultAppStorage(defaults),
+                size: CGSize(width: 830, height: 290), appearance: appearance,
+                name: "usage-folded-connections-\(appearance.rawValue)"
+            )
+            defaults.set("claude,cursor", forKey: ModernUsageBoard.expandedDefaultsKey)
+            try render(
+                ModernUsageBoard(store: store, settings: settings, localToolStatus: registry, editing: false)
+                    .padding(24).background(ModernPalette.page).defaultAppStorage(defaults),
+                size: CGSize(width: 830, height: 290), appearance: appearance,
+                name: "usage-connection-actions-\(appearance.rawValue)"
+            )
+        }
+    }
+
     /// The Modern window: the same sidebar and sections as Classic, with a
     /// capacity bar and grouped lists instead of the ocean.
     @Test func rendersModernStyle() async throws {
@@ -350,31 +379,42 @@ struct UIGalleryRenderTests {
         let snapshot = sampleBranchesSnapshot(now: Date())
         let store = BranchesStore(
             defaults: defaults, initialSnapshot: snapshot, initialDiskSpace: sampleDiskSpace,
-            initialToolStorage: sampleToolStorage
+            initialToolStorage: sampleToolStorage, initialCleanupInventory: sampleCleanupInventory
         )
         let tasks = sampleLiveWork(), processes = sampleProcesses(), disk = sampleDiskSpace
         let memory = sampleMemoryUsage
+        var cpuSamples = sampleCPUTicks.makeIterator()
         let monitor = LiveWorkMonitor(
             currentTasks: { tasks },
             runningApplications: { [.claude: ["/Applications/Claude.app"]] },
             locator: { RepositoryLocator(home: "/Users/me") },
             scan: { _, _ in processes },
-            readDiskSpace: { disk }, readMemoryPressure: { .normal }, readMemoryUsage: { memory }
+            readDiskSpace: { disk }, readMemoryPressure: { .normal }, readMemoryUsage: { memory },
+            readCPUTicks: { cpuSamples.next() }
         )
         await monitor.refresh()
+        fillCPUHistory(monitor.cpu)
+        fillResourceHistory(monitor, memory: memory, disk: disk)
         let (settings, _) = makeSettings()
         let usageStore = UsageStore(provider: FixedUsageProvider(.success(.authenticated(mixedSnapshots))),
                                     monitorsNetworkChanges: false)
         await usageStore.refresh()
         // A tool whose sign-in expired, one that isn't connected yet, and an
         // opt-in tool that's off.
-        let status = LocalToolStatusRegistry()
+        defaults.set(AIToolID.chatGPT.rawValue, forKey: ModernUsageBoard.expandedDefaultsKey)
+        let installed = Set(mixedSnapshots.map(\.toolID)).union([.jetBrainsAI, .windsurf, .copilot])
+        let status = LocalToolStatusRegistry(detectInstallations: { installed })
+        await status.refreshInstallations()
+        let devices = try await makeDeviceDockGalleryFixture()
+        defer { devices.cleanup() }
         status.report(.credentialExpired, for: .jetBrainsAI)
         status.report(.signedOut, for: .windsurf)
         status.report(.optInRequired, for: .copilot)
-        func window(_ presentation: BranchesPaperweightPresentation) -> some View {
+        let unpaired = RelaySyncController(defaults: defaults)
+        func window(_ presentation: BranchesPaperweightPresentation, devices: RelaySyncController) -> some View {
             MainRootView(store: store, liveWork: monitor, usageStore: usageStore, settings: settings,
-                         presentation: presentation, localToolStatus: status, openSettings: {})
+                         presentation: presentation, syncContent: AnyView(ModernDevicesPage(relaySync: devices)),
+                         localToolStatus: status, openSettings: {})
                 .defaultAppStorage(defaults)
         }
         func page(_ page: ModernPage) -> BranchesPaperweightPresentation {
@@ -384,8 +424,30 @@ struct UIGalleryRenderTests {
         }
         for appearance in GalleryAppearance.allCases {
             for modernPage in ModernPage.allCases {
-                try render(window(page(modernPage)), size: CGSize(width: 1180, height: 780),
+                try render(window(page(modernPage), devices: devices.controller), size: CGSize(width: 1180, height: 780),
                            appearance: appearance, name: "modern-page-\(modernPage.rawValue)-\(appearance.rawValue)")
+            }
+            try render(window(page(.overview), devices: devices.controller), size: CGSize(width: 1180, height: 1140),
+                       appearance: appearance, name: "modern-system-trends-\(appearance.rawValue)")
+            try render(window(page(.devices), devices: unpaired), size: CGSize(width: 1180, height: 780),
+                       appearance: appearance, name: "modern-devices-empty-\(appearance.rawValue)")
+            try render(CPUTile(monitor: monitor.cpu, open: {}).defaultAppStorage(defaults),
+                       size: CGSize(width: HUDMetrics.railWidth, height: 120),
+                       appearance: appearance, name: "rail-cpu-trend-\(appearance.rawValue)")
+            try render(RailDetailCard(content: .cpu(monitor.cpu), openDetails: {}),
+                       size: CGSize(width: 400, height: 380), appearance: appearance,
+                       name: "rail-cpu-details-\(appearance.rawValue)")
+            let breakdown = StorageBreakdown(storage: PaperweightData.storage(
+                disk: disk, board: BranchesBoard.make(snapshot: snapshot, now: Date()), toolStorage: sampleToolStorage,
+                isMeasuring: false), freeableBytes: store.cleanableSpace.bytes, measuredAt: Date())
+            let wallpaper: GalleryWallpaper = appearance == .light ? .light : .dark
+            for (name, content) in [("memory", RailDetailCard.Content.liveWork(monitor.summary, memory: memory, history: monitor.memoryHistory)),
+                                    ("storage", .storage(disk, breakdown, history: monitor.storageHistory))] {
+                try render(ZStack {
+                    wallpaper.view
+                    RailDetailCard(content: content, openDetails: {})
+                }, size: CGSize(width: 402, height: name == "memory" ? 640 : 445), appearance: appearance,
+                   name: "rail-\(name)-details-\(appearance.rawValue)")
             }
             try render(
                 BranchesRootView(store: store, liveWork: monitor, initialFront: .memory).defaultAppStorage(defaults),
@@ -406,11 +468,17 @@ struct UIGalleryRenderTests {
                     name: "modern-rail-card-\(appearance.rawValue)"
                 )
             }
+            let docks = RelayDeviceDock.list(devices.controller.devices)
+            let legacyWatch = try #require(docks.first { $0.phone == nil }?.watch)
+            let phone = try #require(docks.first { $0.watch == nil }?.phone)
+            let channel = try #require(devices.controller.channelID)
+            devices.controller.chooseDockPhone(phone.id, for: legacyWatch.id, in: channel)
             try render(
-                ModernDevicesPage(relaySync: RelaySyncController(defaults: defaults)).defaultAppStorage(defaults),
+                ModernDevicesPage(relaySync: devices.controller).defaultAppStorage(defaults),
                 size: CGSize(width: 980, height: 700), appearance: appearance,
                 name: "modern-devices-\(appearance.rawValue)"
             )
+            devices.controller.chooseDockPhone(nil, for: legacyWatch.id, in: channel)
             // Editing on the Usage page: switches and drag handles.
             settings.hiddenBucketIDs.insert("codex_bengalfox")
             try render(
@@ -500,8 +568,9 @@ struct UIGalleryRenderTests {
     @Test func rendersTwelveToolsOnASmallMacBook() async throws {
         guard #available(macOS 14.0, *) else { return }
         let twelve = [
-            bucket("codex", "Codex", .chatGPT, remaining: 62, minutes: 300, secondaryRemaining: 81),
-            bucket("claude", "All models", .claude, remaining: 45, minutes: 300, secondaryRemaining: 70, plan: "max"),
+            bucket("codex", "Codex", .chatGPT, remaining: 62, minutes: 10_080, resetCredits: 3),
+            bucket("claude", "All models", .claude, remaining: 45, minutes: 300, secondaryRemaining: 70,
+                   plan: "max", resetCredits: 2),
             bucket("cursor", "Cursor models", .cursor, remaining: 33, minutes: 44_640),
             bucket("grok", "Weekly credits", .grok, remaining: 100, minutes: 10_080),
             bucket("gemini", "Gemini Pro", .gemini, remaining: 74, minutes: 1_440),
@@ -522,12 +591,15 @@ struct UIGalleryRenderTests {
         await store.refresh()
         let agentStore = CodexAgentStore(sources: [])
         let tasks = sampleLiveWork(), processes = sampleProcesses(), disk = sampleDiskSpace, memory = sampleMemoryUsage
+        var cpuSamples = sampleCPUTicks.makeIterator()
         let monitor = LiveWorkMonitor(
             currentTasks: { tasks }, runningApplications: { [:] },
             locator: { RepositoryLocator(home: "/Users/me") }, scan: { _, _ in processes },
-            readDiskSpace: { disk }, readMemoryPressure: { .normal }, readMemoryUsage: { memory }
+            readDiskSpace: { disk }, readMemoryPressure: { .normal }, readMemoryUsage: { memory },
+            readCPUTicks: { cpuSamples.next() }
         )
         await monitor.refresh()
+        fillCPUHistory(monitor.cpu)
         // 13-inch MacBook Air (notch, 1470 x 956) and 13-inch MacBook Pro
         // (1440 x 900), each with the Dock at the bottom.
         let screens: [(String, PanelScreenState)] = [
@@ -550,25 +622,53 @@ struct UIGalleryRenderTests {
                 )
             }
         }
-        // The Display settings people change: a lighter rail and a larger one.
+        // Exercise independent background, overall scale and label size.
         let screen = screens[0].1
-        for (opacity, scale) in [(0.38, 1.2), (0.1, 0.8), (1.0, 1.5)] {
-        let (tuned, _) = makeSettings()
-        tuned.opacity = opacity
-        tuned.scale = scale
-        for appearance in GalleryAppearance.allCases {
-            try render(
-                ZStack(alignment: .trailing) {
-                    (appearance == .light ? GalleryWallpaper.light : .dark).view
-                    HUDView(store: store, agentStore: agentStore, settings: tuned, updateController: UpdateController(),
-                            openTool: { _ in }, openCodex: {}, openSettings: {}, resizePanel: { _ in },
-                            screenState: screen, liveWork: monitor)
-                        .defaultAppStorage(defaults)
-                },
-                size: CGSize(width: HUDMetrics.railWidth * scale + 120, height: screen.screenHeight), appearance: appearance,
-                name: "tuned-rail-\(Int(opacity * 100))-\(scale)-\(appearance.rawValue)"
-            )
+        let appearances: [(Double, Double, HUDTextSize)] = [(0.38, 1.2, .standard), (0, 0.5, .small), (1, 1.5, .large)]
+        for (opacity, scale, textSize) in appearances {
+            let (tuned, _) = makeSettings()
+            tuned.opacity = opacity
+            tuned.scale = scale
+            tuned.textSize = textSize
+            for appearance in GalleryAppearance.allCases {
+                try render(
+                    ZStack(alignment: .trailing) {
+                        (appearance == .light ? GalleryWallpaper.light : .dark).view
+                        HUDView(store: store, agentStore: agentStore, settings: tuned, updateController: UpdateController(),
+                                openTool: { _ in }, openCodex: {}, openSettings: {}, resizePanel: { _ in },
+                                screenState: screen, liveWork: monitor)
+                            .defaultAppStorage(defaults)
+                    },
+                    size: CGSize(width: HUDMetrics.railWidth(for: textSize) * scale + 120, height: screen.screenHeight),
+                    appearance: appearance,
+                    name: "tuned-rail-\(Int(opacity * 100))-\(scale)-\(textSize.rawValue)-\(appearance.rawValue)"
+                )
+            }
         }
+    }
+
+    @Test func rendersChineseLanguageSettings() throws {
+        guard #available(macOS 14.0, *) else { return }
+        let domain = "usaige.render.language.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        defaults.set(AppLanguage.simplifiedChinese.rawValue, forKey: AppLanguage.defaultsKey)
+        let settings = HUDSettings(defaults: defaults)
+        let status = LocalToolStatusRegistry(detectInstallations: { [] })
+        let usage = UsageStore(provider: FixedUsageProvider(.success(.authenticated([]))), monitorsNetworkChanges: false)
+        let preferences = HUDSettingsRootView(
+            settings: settings, store: usage, launchAtLogin: inertLaunchAtLogin(), updateController: UpdateController(),
+            relaySync: RelaySyncController(defaults: defaults), localToolStatus: status,
+            navigation: SettingsNavigation(), layout: .page)
+        let navigation = BranchesPaperweightPresentation()
+        navigation.focus(.settings)
+        let window = MainRootView(store: BranchesStore(defaults: defaults), usageStore: usage, settings: settings,
+                                  presentation: navigation, settingsContent: AnyView(preferences), openSettings: {})
+            .appLanguageEnvironment()
+            .defaultAppStorage(defaults)
+        for appearance in GalleryAppearance.allCases {
+            try render(window, size: CGSize(width: 1180, height: 820), appearance: appearance,
+                       name: "modern-settings-chinese-\(appearance.rawValue)")
         }
     }
 
@@ -678,8 +778,53 @@ struct UIGalleryRenderTests {
         DiskSpace(totalBytes: 1_000_000_000_000, availableBytes: 212_000_000_000)
     }
 
+    private var sampleCPUTicks: [SystemCPUUsage.Ticks] {
+        let percentages: [UInt32] = [23, 25, 30, 28, 47, 58, 49, 36, 32, 30, 27, 26, 34, 39, 38,
+                                     46, 71, 83, 95, 92, 78, 54, 46, 48, 42, 38, 41, 44, 42, 40]
+        var user: UInt32 = 0, system: UInt32 = 0, idle: UInt32 = 0
+        var ticks = [SystemCPUUsage.Ticks(user: user, system: system, idle: idle, nice: 0)]
+        for index in 0..<Int(SystemTrendWindow.duration / SystemCPUMonitor.sampleInterval) {
+            let percent = percentages[index % percentages.count]
+            system += percent / 3
+            user += percent - percent / 3
+            idle += 100 - percent
+            ticks.append(.init(user: user, system: system, idle: idle, nice: 0))
+        }
+        return ticks
+    }
+
+    private func fillCPUHistory(_ monitor: SystemCPUMonitor) {
+        let count = sampleCPUTicks.count
+        let start = Date().addingTimeInterval(-Double(count - 1) * SystemCPUMonitor.sampleInterval)
+        for index in 0..<count {
+            monitor.sample(at: start.addingTimeInterval(Double(index) * SystemCPUMonitor.sampleInterval))
+        }
+    }
+
+    private func fillResourceHistory(_ monitor: LiveWorkMonitor, memory: SystemMemoryUsage, disk: DiskSpace) {
+        let end = Date()
+        let start = SystemTrendWindow.ending(at: end).lowerBound
+        let offsets: [Int64] = [0, 200, 500, 700, 250, -350, -450, -300, 100, 0]
+        for index in 0...Int(SystemTrendWindow.duration / 10) {
+            let bytes = memory.combinedUsedBytes + offsets[index % offsets.count] * 1_000_000
+            let pressure: SystemMemoryPressure = switch index % 30 {
+            case 7...10, 17...22: .warning
+            case 11...16: .critical
+            default: .normal
+            }
+            monitor.memoryHistory.record(bytes: bytes, status: pressure.trendStatus, at: start.addingTimeInterval(Double(index * 10)))
+        }
+        for (index, factor) in [100, 82, 70, 57, 55, 52, 38, 22, 21, 41, 100].enumerated() {
+            let diskSample = DiskSpace(totalBytes: disk.totalBytes, availableBytes: disk.availableBytes / 100 * Int64(factor))
+            monitor.storageHistory.record(bytes: diskSample.availableBytes, status: .storage(usedShare: diskSample.usedShare()),
+                                          at: start.addingTimeInterval(Double(index * 60)))
+        }
+    }
+
     private var sampleMemoryUsage: SystemMemoryUsage {
-        SystemMemoryUsage(capacityBytes: 24 * 1_024 * 1_024 * 1_024, usedBytes: 20 * 1_024 * 1_024 * 1_024)
+        let gibibyte: Int64 = 1_024 * 1_024 * 1_024
+        return SystemMemoryUsage(capacityBytes: 24 * gibibyte, usedBytes: 20 * gibibyte,
+                                 swapUsedBytes: gibibyte + gibibyte / 2, swapTotalBytes: 4 * gibibyte)
     }
 
     /// The rail's tiles, the card beside them, and a row's card with its tool's
@@ -812,14 +957,14 @@ struct UIGalleryRenderTests {
             try render(
                 ZStack {
                     wallpaper.view
-                    LiveWorkCard(summary: monitor.summary)
+                    LiveWorkCard(summary: monitor.summary, memory: monitor.memoryUsage, history: monitor.memoryHistory)
                 },
                 size: nil, appearance: appearance, name: "live-tile-card-\(appearance.rawValue)"
             )
             try render(
                 ZStack {
                     wallpaper.view
-                    LiveWorkCard(summary: idleMonitor.summary)
+                    LiveWorkCard(summary: idleMonitor.summary, memory: idleMonitor.memoryUsage, history: idleMonitor.memoryHistory)
                 },
                 size: nil, appearance: appearance, name: "live-tile-card-idle-\(appearance.rawValue)"
             )
@@ -838,14 +983,14 @@ struct UIGalleryRenderTests {
             try render(
                 ZStack {
                     wallpaper.view
-                    StorageCard(disk: disk, breakdown: measured, now: now, openBranches: {})
+                    StorageCard(disk: disk, breakdown: measured, history: monitor.storageHistory, now: now, openBranches: {})
                 },
                 size: nil, appearance: appearance, name: "storage-tile-card-\(appearance.rawValue)"
             )
             try render(
                 ZStack {
                     wallpaper.view
-                    StorageCard(disk: disk, breakdown: nil, now: now, openBranches: {})
+                    StorageCard(disk: disk, breakdown: nil, history: monitor.storageHistory, now: now, openBranches: {})
                 },
                 size: nil, appearance: appearance, name: "storage-tile-card-unmeasured-\(appearance.rawValue)"
             )
@@ -899,7 +1044,7 @@ struct UIGalleryRenderTests {
             try render(
                 ZStack {
                     wallpaper.view
-                    LiveWorkCard(summary: summary)
+                    LiveWorkCard(summary: summary, memory: monitor.memoryUsage, history: monitor.memoryHistory)
                 },
                 size: nil, appearance: appearance, name: "real-tile-card-\(appearance.rawValue)"
             )
@@ -1003,6 +1148,21 @@ struct UIGalleryRenderTests {
             ],
             items: [running, main, unsaved, pushed, finished, alsoFinished, empty]
         )
+    }
+
+    private var sampleCleanupInventory: StorageCleanupInventory {
+        func row(_ kind: StorageArtifactKind, owner: String, bytes: Int64) -> StorageCleanupRow {
+            let location = StorageArtifactLocation(kind: kind, owner: owner, workspace: owner)
+            let inspection = CleanupFileInspection(identity: CleanupFileIdentity(stat()), fingerprint: "sample",
+                                                   allocatedBytes: bytes, protectedPath: nil)
+            return StorageCleanupRow(location: location, bytes: bytes, reason: nil,
+                                     candidate: StorageCleanupCandidate(location: location, inspection: inspection))
+        }
+        return StorageCleanupInventory(rows: [
+            row(.xcodeBuild, owner: "/Users/me/Library/Developer/Xcode/DerivedData/usAIge", bytes: 6_400_000_000),
+            row(.npmCache, owner: "/Users/me", bytes: 3_100_000_000),
+            row(.nodeModules, owner: "/Users/me/Developer/worktrees/finished-one", bytes: 300_000_000)
+        ], foldersChecked: 3)
     }
 
     private var sampleToolStorage: [ToolStorageEntry] {

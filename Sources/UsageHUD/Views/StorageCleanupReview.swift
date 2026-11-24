@@ -8,9 +8,7 @@ struct StorageCleanupReview: View {
     let confirm: ([StorageCleanupCandidate]) -> Bool
     let cancel: () -> Void
 
-    @State private var inventory: StorageCleanupInventory?
     @State private var selected: Set<String> = []
-    @State private var scanID = UUID()
     @State private var page: Page = .generated
     @State private var choosingFolder = false
     @State private var confirming = false
@@ -26,6 +24,10 @@ struct StorageCleanupReview: View {
         let id: String
         let name: String
         let bytes: Int64
+    }
+
+    private var inventory: StorageCleanupInventory? {
+        store.isScanningCleanup ? nil : store.cleanupInventory
     }
 
     private var chosen: [StorageCleanupCandidate] {
@@ -49,15 +51,14 @@ struct StorageCleanupReview: View {
             footer.padding(16)
         }
         .frame(minWidth: 560, idealWidth: 720, minHeight: 420, idealHeight: 540)
-        .task(id: scanID) {
-            let scanned = await store.scanStorage()
-            if !Task.isCancelled { inventory = scanned }
+        .onAppear {
+            if store.cleanupInventory == nil { store.loadCleanupInventory() }
         }
         .fileImporter(isPresented: $choosingFolder, allowedContentTypes: [.folder]) { result in
             switch result {
             case let .success(folder):
                 store.addFolder(CleanupFileInspection.normalized(folder.path))
-                rescan()
+                selected.removeAll()
             case let .failure(error):
                 notice = error.localizedDescription
             }
@@ -268,9 +269,8 @@ struct StorageCleanupReview: View {
     }
 
     private func rescan() {
-        inventory = nil
         selected = []
         notice = nil
-        scanID = UUID()
+        store.loadCleanupInventory(force: true)
     }
 }

@@ -1,73 +1,52 @@
 import SwiftUI
 
-/// The sidebar opens the Settings page to review an update. Installing remains
-/// an explicit action in Settings, using the app's shared update controller.
+/// The sidebar keeps the install action, its progress, and any retry in one place.
 @available(macOS 14.0, *)
 struct SidebarUpdateReminderView: View {
     @ObservedObject var updateController: UpdateController
-    var openSettings: () -> Void
 
     var body: some View {
+        if let update = updateController.status.sidebarManifest {
+            VStack(alignment: .leading, spacing: 5) {
+                switch updateController.status {
+                case .available:
+                    installButton("Update to \(update.version)", symbol: "arrow.down.circle.fill")
+                case let .installationFailed(_, message):
+                    installButton("Retry update", symbol: "arrow.clockwise.circle")
+                        .help(message)
+                    Text(message)
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                        .help(message)
+                case .downloading:
+                    Text("Downloading \(update.version)…").font(.callout.weight(.medium))
+                    if let progress = updateController.downloadProgress {
+                        ProgressView(progress).labelsHidden().progressViewStyle(.linear)
+                            .accessibilityLabel("Download progress")
+                    } else {
+                        ProgressView("Starting download").labelsHidden().progressViewStyle(.linear)
+                    }
+                case .preparing:
+                    Text("Preparing \(update.version)…").font(.callout.weight(.medium))
+                    ProgressView("Verifying and preparing update").labelsHidden().progressViewStyle(.linear)
+                default:
+                    EmptyView()
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+            .padding(.horizontal, 14)
+        }
+    }
+
+    private func installButton(_ title: String, symbol: String) -> some View {
         Button {
-            openSettings()
-            if !updateController.canInstallUpdate && !isBusy,
-               updateController.status != .unavailableInDevelopment {
-                Task { await updateController.checkForUpdates() }
-            }
+            Task { await updateController.installAvailableUpdate() }
         } label: {
-            Label {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title).font(.callout.weight(updateController.canInstallUpdate ? .semibold : .regular))
-                        .lineLimit(1)
-                    Text(detail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            } icon: {
-                if isBusy {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Image(systemName: updateController.canInstallUpdate
-                          ? "arrow.down.circle.fill" : "arrow.triangle.2.circlepath")
-                }
-            }
-            .foregroundStyle(updateController.canInstallUpdate ? Color.accentColor : Color.primary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
+            Label(title, systemImage: symbol)
+                .font(.callout.weight(.semibold))
+                .frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(title)
-        .accessibilityValue(detail)
-        .help(updateController.canInstallUpdate ? "Review and install this update in Settings" : "Check for updates in Settings")
-    }
-
-    private var title: String {
-        switch updateController.status {
-        case .available: "Update available"
-        case .checking: "Checking for updates…"
-        case .downloading: "Downloading update…"
-        case .preparing: "Preparing update…"
-        case .failed: "Retry Update Check"
-        default: "Check for Updates"
-        }
-    }
-
-    private var detail: String {
-        if let update = updateController.availableUpdate {
-            return "Version \(update.version) is ready"
-        }
-        if updateController.status == .idle {
-            return "Version \(updateController.currentVersionText)"
-        }
-        return updateController.statusText
-    }
-
-    private var isBusy: Bool {
-        switch updateController.status {
-        case .checking, .downloading, .preparing: true
-        default: false
-        }
+        .foregroundStyle(Color.accentColor)
     }
 }

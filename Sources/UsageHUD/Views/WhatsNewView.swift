@@ -80,7 +80,7 @@ struct WhatsNewView: View {
     /// way; otherwise the notes stand on their own.
     private var showsUpdateStatus: Bool {
         switch updateController.status {
-        case .available, .downloading, .preparing, .failed: true
+        case .available, .downloading, .preparing, .failed, .installationFailed: true
         case .idle, .checking, .upToDate, .unavailableInDevelopment: presentation.isAvailableUpdate
         }
     }
@@ -117,7 +117,7 @@ final class WhatsNewWindowController: NSWindowController, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "What’s New in usAIge"
+        window.title = AppLanguage.text("What’s New in usAIge")
         window.identifier = Self.windowIdentifier
         window.minSize = NSSize(width: 520, height: 520)
         window.setFrameAutosaveName("WhatsNewWindow")
@@ -126,7 +126,7 @@ final class WhatsNewWindowController: NSWindowController, NSWindowDelegate {
         window.contentView = NSHostingView(rootView: WhatsNewView(
             updateController: updateController,
             close: { [weak window] in window?.close() }
-        ))
+        ).appLanguageEnvironment())
     }
 
     @available(*, unavailable)

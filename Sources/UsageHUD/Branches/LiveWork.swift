@@ -290,6 +290,9 @@ final class LiveWorkMonitor: ObservableObject {
     @Published private(set) var diskSpace: DiskSpace?
     @Published private(set) var memoryPressure = SystemMemoryPressure.unknown
     @Published private(set) var memoryUsage: SystemMemoryUsage?
+    let cpu: SystemCPUMonitor
+    let memoryHistory = ResourceTrendHistory(interval: backgroundInterval)
+    let storageHistory = ResourceTrendHistory(interval: diskInterval)
 
     private let currentTasks: @MainActor () -> [CodexAgentTask]
     private let runningApplications: @MainActor () -> [AIToolID: [String]]
@@ -303,6 +306,7 @@ final class LiveWorkMonitor: ObservableObject {
     private var loop: Task<Void, Never>?
     private var isDetailShown = false
     private var isReading = false
+    private var includesProcesses = true
 
     init(
         currentTasks: @escaping @MainActor () -> [CodexAgentTask],
@@ -316,6 +320,7 @@ final class LiveWorkMonitor: ObservableObject {
         },
         readMemoryPressure: @escaping @Sendable () -> SystemMemoryPressure = SystemMemoryPressure.read,
         readMemoryUsage: @escaping @Sendable () -> SystemMemoryUsage? = SystemMemoryUsage.read,
+        readCPUTicks: @escaping () -> SystemCPUUsage.Ticks? = SystemCPUUsage.Ticks.read,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.currentTasks = currentTasks
@@ -325,17 +330,21 @@ final class LiveWorkMonitor: ObservableObject {
         self.readDiskSpace = readDiskSpace
         self.readMemoryPressure = readMemoryPressure
         self.readMemoryUsage = readMemoryUsage
+        self.cpu = SystemCPUMonitor(read: readCPUTicks)
         self.now = now
     }
 
-    func start() {
+    func start(includingProcesses: Bool = true) {
         guard loop == nil else { return }
+        includesProcesses = includingProcesses
+        cpu.start()
         restartLoop()
     }
 
     func stop() {
         loop?.cancel()
         loop = nil
+        cpu.stop()
     }
 
     /// Ports cost more to read, so they're only read while they can be seen.
@@ -361,13 +370,13 @@ final class LiveWorkMonitor: ObservableObject {
         guard !isReading else { return }
         isReading = true
         defer { isReading = false }
-        let tasks = currentTasks()
-        let applications = runningApplications()
+        let tasks = includesProcesses ? currentTasks() : []
+        let applications = includesProcesses ? runningApplications() : [:]
         let locator = locator()
         let includePorts = isDetailShown
         let scan = scan
         let sampledAt = now()
-        let readsDisk = lastDiskRead.map { sampledAt.timeIntervalSince($0) >= Self.diskInterval } ?? true
+        let readsDisk = lastDiskRead.map { sampledAt < $0 || sampledAt.timeIntervalSince($0) >= Self.diskInterval } ?? true
         // Detail cards sample more often, but disk capacity needs only one
         // read a minute, even when a read fails or the loop restarts.
         let readDiskSpace = readDiskSpace
@@ -384,13 +393,20 @@ final class LiveWorkMonitor: ObservableObject {
             return (summary: summary, disk: readsDisk ? readDiskSpace() : nil,
                     pressure: readMemoryPressure(), memory: readMemoryUsage())
         }.value
+        let measuredAt = now()
+        memoryHistory.record(bytes: updated.memory?.combinedUsedBytes, status: updated.pressure.trendStatus, at: measuredAt)
         if updated.summary != summary { summary = updated.summary }
         if updated.pressure != memoryPressure { memoryPressure = updated.pressure }
         if updated.memory != memoryUsage { memoryUsage = updated.memory }
         if readsDisk {
             // Count from completion so a slow process scan can't bring the
             // next capacity read forward.
-            lastDiskRead = now()
+            lastDiskRead = measuredAt
+            if let disk = updated.disk, disk.totalBytes > 0, disk.availableBytes >= 0 {
+                storageHistory.record(bytes: disk.availableBytes, status: .storage(usedShare: disk.usedShare()), at: measuredAt)
+            } else {
+                storageHistory.record(bytes: nil, at: measuredAt)
+            }
             if updated.disk != diskSpace { diskSpace = updated.disk }
         }
     }

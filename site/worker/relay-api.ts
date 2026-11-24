@@ -173,7 +173,7 @@ export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: R
       const readToken = randomToken("usg_watch_");
       const now = new Date().toISOString();
       const inserted = await insertDeviceWithinLimit(env.DB, {
-        id: watchDeviceID, channelID, name: deviceName, readTokenHash: await sha256(readToken), now, replaceExisting: true,
+        id: watchDeviceID, channelID, name: deviceName, readTokenHash: await sha256(readToken), now, parentPhoneID: phone.id,
       });
       if (!inserted) return json({ error: "This Mac already has the maximum number of paired devices." }, 409);
       return json({ channelID, deviceID: watchDeviceID, readToken, macName: channel.mac_name }, 201);
@@ -247,7 +247,7 @@ export async function handleRelayRequest(request: Request, env: RelayEnv, ctx: R
 
     if (request.method === "GET" && tail === "devices") {
       if (!await authorizeMac(request, channel)) return unauthorized();
-      const rows = await env.DB.prepare("SELECT id, name, created_at, last_seen_at FROM relay_devices WHERE channel_id = ? ORDER BY created_at")
+      const rows = await env.DB.prepare("SELECT id, name, created_at, last_seen_at, parent_phone_id FROM relay_devices WHERE channel_id = ? ORDER BY created_at")
         .bind(channelID).all();
       return json({ devices: rows.results });
     }
@@ -332,7 +332,7 @@ async function ensureRelaySchema(db: D1Database) {
       await db.batch([
         db.prepare("CREATE TABLE IF NOT EXISTS relay_channels (id TEXT PRIMARY KEY NOT NULL, mac_name TEXT NOT NULL, upload_token_hash TEXT NOT NULL UNIQUE, snapshot_json TEXT, snapshot_hash TEXT, snapshot_version INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, last_upload_at TEXT)"),
         db.prepare("CREATE TABLE IF NOT EXISTS relay_pairings (id TEXT PRIMARY KEY NOT NULL, channel_id TEXT NOT NULL REFERENCES relay_channels(id) ON DELETE CASCADE, code_hash TEXT NOT NULL UNIQUE, expires_at TEXT NOT NULL, claimed_at TEXT, failed_attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)"),
-        db.prepare("CREATE TABLE IF NOT EXISTS relay_devices (id TEXT PRIMARY KEY NOT NULL, channel_id TEXT NOT NULL REFERENCES relay_channels(id) ON DELETE CASCADE, name TEXT NOT NULL, read_token_hash TEXT NOT NULL UNIQUE, apns_token TEXT, apns_environment TEXT, last_push_at TEXT, session_notifications_enabled INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, last_seen_at TEXT NOT NULL)"),
+        db.prepare("CREATE TABLE IF NOT EXISTS relay_devices (id TEXT PRIMARY KEY NOT NULL, channel_id TEXT NOT NULL REFERENCES relay_channels(id) ON DELETE CASCADE, name TEXT NOT NULL, read_token_hash TEXT NOT NULL UNIQUE, apns_token TEXT, apns_environment TEXT, last_push_at TEXT, session_notifications_enabled INTEGER NOT NULL DEFAULT 0, parent_phone_id TEXT, created_at TEXT NOT NULL, last_seen_at TEXT NOT NULL)"),
         db.prepare("CREATE INDEX IF NOT EXISTS relay_devices_channel_idx ON relay_devices(channel_id)"),
         db.prepare("CREATE TABLE IF NOT EXISTS relay_tool_pairings (id TEXT PRIMARY KEY NOT NULL, channel_id TEXT NOT NULL REFERENCES relay_channels(id) ON DELETE CASCADE, code_hash TEXT NOT NULL UNIQUE, expires_at TEXT NOT NULL, claimed_at TEXT, created_at TEXT NOT NULL)"),
         db.prepare("CREATE TABLE IF NOT EXISTS relay_remote_tools (id TEXT PRIMARY KEY NOT NULL, channel_id TEXT NOT NULL REFERENCES relay_channels(id) ON DELETE CASCADE, name TEXT NOT NULL, symbol_name TEXT NOT NULL, website_url TEXT, write_token_hash TEXT NOT NULL UNIQUE, snapshot_json TEXT, created_at TEXT NOT NULL, last_upload_at TEXT)"),
@@ -345,12 +345,16 @@ async function ensureRelaySchema(db: D1Database) {
         db.prepare("CREATE INDEX IF NOT EXISTS app_feedback_received_at_idx ON app_feedback(received_at DESC)"),
       ]);
       const columns = await db.prepare("PRAGMA table_info(relay_devices)").all<{ name: string }>();
-      if (!columns.results.some(column => column.name === "session_notifications_enabled")) {
+      for (const [name, type] of [
+        ["session_notifications_enabled", "INTEGER NOT NULL DEFAULT 0"],
+        ["parent_phone_id", "TEXT"],
+      ]) {
+        if (columns.results.some(column => column.name === name)) continue;
         try {
-          await db.prepare("ALTER TABLE relay_devices ADD COLUMN session_notifications_enabled INTEGER NOT NULL DEFAULT 0").run();
+          await db.prepare(`ALTER TABLE relay_devices ADD COLUMN ${name} ${type}`).run();
         } catch (error) {
           const refreshed = await db.prepare("PRAGMA table_info(relay_devices)").all<{ name: string }>();
-          if (!refreshed.results.some(column => column.name === "session_notifications_enabled")) throw error;
+          if (!refreshed.results.some(column => column.name === name)) throw error;
         }
       }
     })().catch(error => { schemaReady = undefined; throw error; });
@@ -534,20 +538,24 @@ function randomCode() {
   return digits.join("");
 }
 /// Inserts a device only while the channel is under its device limit, in one statement so two
-/// concurrent registrations cannot both squeeze in at nine. With `replaceExisting`, a device that
-/// already exists is refreshed in place and does not count against the limit.
-async function insertDeviceWithinLimit(db: D1Database, device: { id: string; channelID: string; name: string; readTokenHash: string; now: string; replaceExisting?: boolean }) {
-  const existingClause = device.replaceExisting ? "OR EXISTS (SELECT 1 FROM relay_devices WHERE id = ?1)" : "";
-  const conflict = device.replaceExisting
-    ? "ON CONFLICT(id) DO UPDATE SET name = excluded.name, read_token_hash = excluded.read_token_hash, last_seen_at = excluded.last_seen_at"
+/// concurrent registrations cannot both squeeze in at nine. A newly provisioned Watch records the
+/// authenticated phone even when it is rotating an existing Watch credential. Keep that identifier
+/// after a phone is revoked: a Watch has its own revocable connection.
+async function insertDeviceWithinLimit(db: D1Database, device: { id: string; channelID: string; name: string; readTokenHash: string; now: string; parentPhoneID?: string }) {
+  const existingClause = device.parentPhoneID ? "OR EXISTS (SELECT 1 FROM relay_devices WHERE id = ?1 AND channel_id = ?2)" : "";
+  const conflict = device.parentPhoneID
+    ? `ON CONFLICT(id) DO UPDATE SET name = excluded.name, read_token_hash = excluded.read_token_hash,
+        last_seen_at = excluded.last_seen_at, parent_phone_id = excluded.parent_phone_id
+       WHERE relay_devices.channel_id = excluded.channel_id
+         AND (relay_devices.parent_phone_id IS NOT NULL OR substr(relay_devices.id, 15, 1) = '5')`
     : "";
   const result = await db.prepare(
-    `INSERT INTO relay_devices (id, channel_id, name, read_token_hash, created_at, last_seen_at)
-     SELECT ?1, ?2, ?3, ?4, ?5, ?5
+    `INSERT INTO relay_devices (id, channel_id, name, read_token_hash, created_at, last_seen_at, parent_phone_id)
+     SELECT ?1, ?2, ?3, ?4, ?5, ?5, ?7
      WHERE (SELECT COUNT(*) FROM relay_devices WHERE channel_id = ?2) < ?6
         ${existingClause}
      ${conflict}`
-  ).bind(device.id, device.channelID, device.name, device.readTokenHash, device.now, maximumDevicesPerChannel).run();
+  ).bind(device.id, device.channelID, device.name, device.readTokenHash, device.now, maximumDevicesPerChannel, device.parentPhoneID ?? null).run();
   return (result.meta.changes ?? 0) === 1;
 }
 async function createPairing(db: D1Database, channelID: string, now: Date) {

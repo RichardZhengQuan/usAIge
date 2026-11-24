@@ -7,29 +7,31 @@ struct LegacyHUDView: View {
     @ObservedObject var settings: HUDSettings
     @ObservedObject var updateController: UpdateController
     @ObservedObject var screenState: PanelScreenState
+    @ObservedObject var liveWork: LiveWorkMonitor
     let openTool: (AIToolDescriptor) -> Void
     let openSettings: () -> Void
     let resizePanel: (CGSize) -> Void
+    @State private var labelWidth: CGFloat = 0
+    @State private var isHovered = false
 
     private var availableSnapshots: [QuotaSnapshot] { store.visibleSnapshots }
     private var snapshots: [QuotaSnapshot] { settings.ordered(availableSnapshots) }
     private var desiredSize: CGSize {
-        snapshots.isEmpty
-            ? HUDMetrics.messageSize
-            : CGSize(
-                width: HUDMetrics.railWidth,
-                height: HUDMetrics.railHeight(
-                    rowCount: snapshots.count,
-                    maximumHeight: HUDMetrics.maximumRailHeight(
-                        visibleHeight: screenState.visibleHeight,
-                        scale: settings.scale
-                    )
-                )
-            )
+        // A legacy row places its icon beside the title and percentage.
+        let naturalWidth = max(ceil(216 * settings.textSize.factor), labelWidth + 62)
+        let maximumWidth = (screenState.visibleWidth - 2 * PanelPositioner.inset) / settings.scale
+        let maximumHeight = HUDMetrics.maximumRailHeight(visibleHeight: screenState.visibleHeight, scale: settings.scale)
+        let rowsHeight = HUDMetrics.railHeight(
+            rowCount: snapshots.count,
+            maximumHeight: maximumHeight,
+            textSize: settings.textSize
+        )
+        return CGSize(width: min(naturalWidth, maximumWidth), height: min(maximumHeight, rowsHeight + 46 * settings.textSize.factor))
     }
 
     var body: some View {
         VStack(spacing: 8) {
+            LegacyResourceReadings(cpu: liveWork.cpu, memory: liveWork.memoryUsage)
             if snapshots.isEmpty {
                 legacyStatus
             } else {
@@ -49,12 +51,20 @@ struct LegacyHUDView: View {
                 .buttonStyle(PlainButtonStyle())
             }
         }
+        .font(.system(size: 13 * settings.textSize.factor))
+        .environment(\.hudTextSize, settings.textSize)
         .padding(10)
         .frame(width: desiredSize.width, height: desiredSize.height)
         .background(Color(NSColor.windowBackgroundColor).opacity(0.94))
         .cornerRadius(18)
-        .opacity(settings.opacity)
+        .opacity(HUDMetrics.contentOpacity(configured: settings.opacity, isHovered: isHovered))
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
+        .onPreferenceChange(HUDLabelWidthKey.self) { width in
+            MainActor.assumeIsolated { labelWidth = width }
+        }
         .scaleEffect(settings.scale)
+        .frame(width: desiredSize.width * settings.scale, height: desiredSize.height * settings.scale)
         .onAppear {
             settings.registerBuckets(availableSnapshots)
             resizePanel(HUDMetrics.scaledSize(desiredSize, scale: settings.scale))
@@ -86,6 +96,34 @@ struct LegacyHUDView: View {
     }
 }
 
+private struct LegacyResourceReadings: View {
+    @ObservedObject var cpu: SystemCPUMonitor
+    let memory: SystemMemoryUsage?
+    var showsCPUTrend = false
+    @Environment(\.hudTextSize) private var textSize
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text("CPU  \(cpu.usage.map { LiveWorkText.percent($0.busy) } ?? "–")")
+                if !showsCPUTrend {
+                    CPUTrendPlot(samples: cpu.samples, compact: true).frame(width: 32, height: 15)
+                }
+            }
+            if showsCPUTrend {
+                CPUTrendChart(samples: cpu.samples, plotHeight: 88)
+            }
+            Label(memory?.compactTotal ?? "Memory unavailable", systemImage: "memorychip")
+                .hudRailLabel()
+                .help(memory?.breakdown() ?? AppLanguage.text("Memory unavailable"))
+                .accessibilityLabel("Memory")
+                .accessibilityValue(memory?.compactTotal ?? "Unavailable")
+        }
+        .font(.system(size: 11 * textSize.factor, weight: .medium).monospacedDigit())
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 private struct LegacyQuotaRow: View {
     let snapshot: QuotaSnapshot
     let openTool: (AIToolDescriptor) -> Void
@@ -99,11 +137,9 @@ private struct LegacyQuotaRow: View {
             }
             .buttonStyle(PlainButtonStyle())
             VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text(snapshot.displayName).lineLimit(1)
-                    Spacer()
-                    Text("\(Int(remaining.rounded()))%")
-                }
+                // An unusually long provider title can wrap at the screen
+                // edge. Its ideal width still drives the normal panel size.
+                readout.background(readout.hudRailLabel().hidden().accessibilityHidden(true))
                 GeometryReader { geometry in
                     ZStack(alignment: .leading) {
                         Rectangle().fill(Color.gray.opacity(0.25))
@@ -117,6 +153,20 @@ private struct LegacyQuotaRow: View {
         }
         .padding(.horizontal, 4)
     }
+
+    private var readout: some View {
+        HStack {
+            Text(snapshot.displayName).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 6)
+            if let count = ResetCreditPresentation.displayedCount(for: snapshot) {
+                Text("\(count)r")
+                    .fontWeight(.medium)
+                    .fixedSize()
+                    .accessibilityLabel("\(count) reset \(count == 1 ? "credit" : "credits") available")
+            }
+            Text("\(Int(remaining.rounded()))%").fixedSize()
+        }
+    }
 }
 
 struct LegacyHUDSettingsRootView: View {
@@ -125,6 +175,8 @@ struct LegacyHUDSettingsRootView: View {
     @ObservedObject var launchAtLogin: LaunchAtLoginController
     @ObservedObject var updateController: UpdateController
     @ObservedObject var relaySync: RelaySyncController
+    @ObservedObject var liveWork: LiveWorkMonitor
+    @State private var showsThisMac = false
     @State private var feedbackDraft = FeedbackDraft()
     @State private var isSendingFeedback = false
     @State private var feedbackStatusMessage: String?
@@ -132,16 +184,41 @@ struct LegacyHUDSettingsRootView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                Text("Floating panel").font(.headline)
+                Text("Overview").font(.headline)
+                LegacyResourceReadings(cpu: liveWork.cpu, memory: liveWork.memoryUsage, showsCPUTrend: true)
+                Button("CPU…") { showsThisMac = true }
+                    .sheet(isPresented: $showsThisMac) {
+                        VStack(alignment: .trailing) {
+                            ThisMacPage(liveWork: liveWork)
+                            Button("Done") { showsThisMac = false }.padding([.bottom, .trailing])
+                        }
+                        .frame(width: 440, height: 430)
+                    }
+                Divider()
+                Text("Display", bundle: AppLanguage.resourceBundle).font(.headline)
+                AppLanguagePicker()
                 HStack { Text("Opacity"); Slider(value: opacityBinding, in: HUDSettings.opacityRange) }
-                HStack { Text("Scale"); Slider(value: scaleBinding, in: 0.75...1.5) }
+                HStack { Text("Scale"); Slider(value: scaleBinding, in: HUDSettings.scaleRange) }
+                Picker("Panel text size", selection: $settings.textSize) {
+                    ForEach(HUDTextSize.allCases, id: \.self) { size in
+                        Text(LocalizedStringKey(size.title), bundle: AppLanguage.resourceBundle).tag(size)
+                    }
+                }
+                .pickerStyle(SegmentedPickerStyle())
 
                 Divider()
                 Text("Usage display").font(.headline)
-                Toggle("Show reset credits", isOn: resetCreditsVisibilityBinding)
+                Picker("Usage alerts", selection: $settings.usageAlertIntervalPercent) {
+                    ForEach(HUDSettings.usageAlertIntervalOptions, id: \.self) { interval in
+                        Text("\(interval)%").tag(interval)
+                    }
+                }
+                .pickerStyle(SegmentedPickerStyle())
 
                 Divider()
                 Text("Startup").font(.headline)
+                Toggle("Show icon in menu bar", isOn: $settings.showsMenuBarIcon)
+                Toggle("Show icon in Dock", isOn: $settings.showsDockIcon)
                 Toggle("Open usAIge at login", isOn: launchAtLoginBinding)
                     .disabled(!launchAtLogin.isSupported)
                 if !launchAtLogin.isSupported {
@@ -152,26 +229,28 @@ struct LegacyHUDSettingsRootView: View {
 
                 Divider()
                 Text("iPhone & Apple Watch Sync").font(.headline)
+                Text("How it works").font(.subheadline).bold()
+                Text("Enter this Mac’s one-time code in usAIge on your iPhone. Open usAIge on the paired Apple Watch to sync its limits.")
+                    .font(.caption).foregroundColor(.secondary)
+                PhonePairingCard(relaySync: relaySync)
+                    .modifier(PhonePairingVisibility(relaySync: relaySync))
+                let docks = RelayDeviceDock.list(relaySync.devices, localPhones: relaySync.localDockPhones)
+                Text("Device docks").font(.subheadline).bold()
+                ForEach(docks.isEmpty ? [.empty] : docks) { dock in
+                    GroupBox {
+                        HStack(alignment: .top, spacing: 14) {
+                            dockSlot(dock.phone, isWatch: false, missing: dock.missingPhoneText(isLinked: relaySync.isLinked))
+                            Divider()
+                            dockSlot(dock.watch, isWatch: true,
+                                     missing: relaySync.isLinked ? "No Apple Watch reported" : "No Apple Watch paired")
+                        }
+                        .padding(4)
+                    }
+                }
                 if relaySync.isLinked {
                     Text("Connected as \(relaySync.macName)")
-                    if let code = relaySync.pairingCode, let expiry = relaySync.pairingExpiresAt, expiry > Date() {
-                        Text(code).font(.system(.title2, design: .monospaced).weight(.semibold))
-                        Text("Code expires \(expiry, style: .time).")
-                            .font(.caption).foregroundColor(.secondary)
-                    }
-                    Button("Add iPhone") { Task { await relaySync.createPairingCode() } }
-                    ForEach(relaySync.devices) { device in
-                        HStack {
-                            Text(device.name)
-                            Spacer()
-                            Button("Revoke") { Task { await relaySync.revoke(device) } }
-                        }
-                    }
+                    Button("Refresh devices") { Task { await relaySync.refreshDevices() } }
                     Button("Disconnect All") { Task { await relaySync.disconnectAll() } }
-                } else {
-                    Text("Create a one-time code, then enter it in usAIge on iPhone.")
-                        .font(.caption).foregroundColor(.secondary)
-                    Button("Create Connection") { Task { await relaySync.createChannel() } }
                 }
 
                 Divider()
@@ -226,19 +305,28 @@ struct LegacyHUDSettingsRootView: View {
         }
     }
 
+    private func dockSlot(_ device: RelayPhoneDevice?, isWatch: Bool, missing: String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Label(isWatch ? "Apple Watch" : "iPhone", systemImage: isWatch ? "applewatch" : "iphone")
+                .font(.caption)
+            if let device {
+                Text(device.name)
+                Button("Revoke") { Task { await relaySync.revoke(device) } }
+                    .accessibilityLabel("Revoke \(device.name)")
+            } else {
+                Text(missing)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private var opacityBinding: Binding<Double> {
         Binding(get: { settings.opacity }, set: { settings.opacity = $0 })
     }
 
     private var scaleBinding: Binding<Double> {
         Binding(get: { settings.scale }, set: { settings.scale = $0 })
-    }
-
-    private var resetCreditsVisibilityBinding: Binding<Bool> {
-        Binding(
-            get: { settings.showsResetCredits },
-            set: { settings.showsResetCredits = $0 }
-        )
     }
 
     private var launchAtLoginBinding: Binding<Bool> {

@@ -6,6 +6,42 @@ import Testing
 @Suite
 @MainActor
 struct BranchesPaperweightPresentationTests {
+    @Test func thisMacIsASeparateDestinationInBothNavigationStyles() {
+        guard #available(macOS 14.0, *) else { return }
+        let presentation = BranchesPaperweightPresentation()
+        #expect(ModernPage.thisMac.title == "CPU")
+        #expect(MainPageDestination.thisMac.title == "CPU")
+        #expect(MainRootView.modernGroups.first(where: { $0.pages.contains(.thisMac) })?.title == "Running")
+        presentation.navigate(to: .thisMac)
+        #expect(presentation.modernPage == .thisMac)
+        #expect(presentation.selectedSection == .thisMac)
+        presentation.open(.memory)
+        #expect(presentation.selectedSection == .resources)
+        presentation.open(.thisMac)
+        #expect(presentation.selectedSection == .thisMac)
+        presentation.focus(.devices)
+        #expect(presentation.modernPage == .devices)
+        presentation.open(.devices)
+        #expect(presentation.selectedSection == .devices)
+    }
+
+    @Test func cleanFollowsStorageAndOpensTheSamePageFromEveryEntryPoint() throws {
+        guard #available(macOS 14.0, *) else { return }
+        let pages = try #require(MainRootView.modernGroups.first { $0.pages.contains(.storage) }?.pages)
+        let storage = try #require(pages.firstIndex(of: .storage))
+        #expect(pages.dropFirst(storage + 1).first == .clean)
+        let presentation = BranchesPaperweightPresentation()
+        presentation.open(.storage)
+        presentation.open(.clean)
+        #expect(presentation.selectedSection == .clean)
+        presentation.show(.memory)
+        presentation.navigate(to: .cleanup)
+        #expect(presentation.modernPage == .clean)
+        #expect(presentation.focusRequest?.section == .clean)
+        presentation.show(.storage)
+        #expect(presentation.modernPage == .storage)
+    }
+
     @Test func aRailClickBringsStorageForwardWithWorktreesSelected() {
         guard #available(macOS 14.0, *) else { return }
         let request = BranchesPaperweightPresentation.Request(front: .storage)

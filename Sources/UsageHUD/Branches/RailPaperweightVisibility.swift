@@ -3,7 +3,6 @@ import SwiftUI
 
 /// A hosting panel can become occluded without sending SwiftUI onDisappear or
 /// a pointer-exit event. Observe its real visibility before keeping a hover clock.
-@available(macOS 14.0, *)
 struct RailPaperweightVisibility: NSViewRepresentable {
     let onChange: (Bool) -> Void
 
@@ -23,7 +22,6 @@ struct RailPaperweightVisibility: NSViewRepresentable {
     }
 }
 
-@available(macOS 14.0, *)
 @MainActor
 final class RailPaperweightVisibilityView: NSView {
     var onChange: (Bool) -> Void = { _ in }

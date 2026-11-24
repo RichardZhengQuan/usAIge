@@ -39,6 +39,39 @@ private func repository(_ id: String, name: String = "app", remote: String? = "g
 
 // MARK: Lanes
 
+@Test func cleanSpaceCountsOverlappingCandidatesOnlyOnceAndTracksMissingMeasurements() {
+    let finished = row("topic")
+    let inside = finished.worktreePath!
+    func artifact(_ owner: String, _ bytes: Int64, eligible: Bool = true) -> StorageCleanupRow {
+        let location = StorageArtifactLocation(kind: .nodeModules, owner: owner, workspace: owner)
+        let inspection = CleanupFileInspection(identity: CleanupFileIdentity(stat()), fingerprint: "fixture",
+                                               allocatedBytes: bytes, protectedPath: nil)
+        return StorageCleanupRow(location: location, bytes: bytes, reason: eligible ? nil : "In use",
+                                 candidate: eligible ? StorageCleanupCandidate(location: location, inspection: inspection) : nil)
+    }
+    let sibling = artifact(inside + "-two", 70)
+    let inventory = StorageCleanupInventory(rows: [artifact(inside, 600), sibling, sibling,
+                                                    artifact("/elsewhere", 8_000, eligible: false)])
+    let items = [finished, row("locked") { $0.facts.isLocked = true }, row("removed") { $0.facts.folderExists = false }]
+    let total = CleanableSpace(inventory: inventory, worktrees: items, checkedWorktrees: true)
+    #expect(total.bytes == 1_070)
+    #expect(!total.isPartial)
+    var unmeasured = finished
+    unmeasured.size = nil
+    let partial = CleanableSpace(inventory: inventory, worktrees: [unmeasured], checkedWorktrees: true)
+    #expect(partial.bytes == 670)
+    #expect(partial.isPartial)
+    let pending = CleanableSpace(inventory: nil, worktrees: [], checkedWorktrees: false)
+    let zero = CleanableSpace(inventory: StorageCleanupInventory(), worktrees: [], checkedWorktrees: true)
+    #expect(pending.isPartial && !zero.isPartial && zero.bytes == 0)
+    if #available(macOS 12.0, *) {
+        let locale = Locale(identifier: "en_US")
+        #expect(pending.label(locale: locale) == "…")
+        #expect(partial.label(locale: locale).hasPrefix("≥"))
+        #expect(zero.label(locale: locale).hasPrefix("0"))
+    }
+}
+
 @Test func eachRowGoesWhereItsDecisionBelongs() {
     #expect(BranchesBoard.lane(for: row("finished")) == .safeToClear)
     #expect(BranchesBoard.lane(for: row("empty") { $0.facts.ownCommits = 0; $0.facts.merge = nil }) == .safeToClear)

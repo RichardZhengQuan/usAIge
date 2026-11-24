@@ -14,13 +14,11 @@ struct ModernResourcePage: View {
     @State private var summary: LiveWorkSummary
     @State private var memoryUsage: SystemMemoryUsage?
     @State private var expanded: Set<String> = []
-    @State private var clearReview: ClearReviewRequest?
     @State private var singleReview: DeleteReviewRequest?
     @State private var memoryTab: String?
     private static let scrollSpace = "modernResourcePage"
-    @State private var showsStorageReview = false
-    @State private var storageCleanupStarted = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.locale) private var locale
 
     init(resource: PaperweightID, store: BranchesStore, liveWork: LiveWorkMonitor?,
          presentation: BranchesPaperweightPresentation) {
@@ -82,21 +80,6 @@ struct ModernResourcePage: View {
                 store.startDelete(chosen)
             } cancel: { singleReview = nil }
         }
-        .sheet(isPresented: $showsStorageReview, onDismiss: storageReviewDismissed) {
-            StorageCleanupReview(store: store) { chosen in
-                guard store.startStorageCleanup(chosen) else { return false }
-                storageCleanupStarted = true
-                showsStorageReview = false
-                return true
-            } cancel: { showsStorageReview = false }
-        }
-        .sheet(item: $clearReview, onDismiss: reviewDismissed) { request in
-            ClearReviewSheet(request: request, disk: store.diskSpace) { chosen in
-                clearReview = nil
-                expanded = []
-                store.startDelete(chosen)
-            } cancel: { clearReview = nil }
-        }
     }
 
     // MARK: Memory
@@ -106,17 +89,17 @@ struct ModernResourcePage: View {
         // AI tools and dev servers, largest first. macOS and other apps
         // are already in the bar's key and have nothing to list.
         let layers = memory.layers
-            .filter { $0.bytes > 0 && $0.id != PaperweightData.otherMemoryLayerID }
+            .filter { $0.bytes > 0 && $0.id != PaperweightData.otherMemoryLayerID && $0.id != PaperweightData.swapLayerID }
             .sorted { $0.bytes == $1.bytes ? $0.id < $1.id : $0.bytes > $1.bytes }
         VStack(alignment: .leading, spacing: 24) {
             heading("Memory")
             figureCard(
                 value: memory.freeBytes == nil ? "–" : memory.id.formatBytes(memory.usedBytes),
-                unit: "of \(memory.id.formatBytes(memory.capacityBytes)) in use",
-                caption: memoryUsage.map { Self.swapText($0, in: memory) },
+                unit: memoryUsage == nil ? "" : AppLanguage.format("of %@ in use", locale: locale, memory.id.formatBytes(memory.capacityBytes)),
+                caption: memoryUsage?.breakdown(locale: locale),
                 configuration: memory
             )
-            if liveWork == nil {
+            if memoryUsage == nil {
                 ModernSection(title: "Not available") {
                     ModernNoteRow(text: "No memory reading is available.")
                 }
@@ -158,14 +141,6 @@ struct ModernResourcePage: View {
         }
     }
 
-    /// Swap is memory macOS moved to disk when RAM ran short; a lot of it
-    /// means the Mac is slowing down to make room.
-    static func swapText(_ usage: SystemMemoryUsage, in memory: PaperweightConfiguration) -> String {
-        guard usage.swapUsedBytes > 0 else { return "No swap used" }
-        return "Swap \(memory.id.formatBytes(usage.swapUsedBytes)) used"
-            + (usage.swapTotalBytes > 0 ? " of \(memory.id.formatBytes(usage.swapTotalBytes))" : "")
-    }
-
     /// A tool's own logo; dev servers get a server symbol.
     private func memoryTabIcon(_ layer: PaperweightLayer) -> AnyView {
         if layer.id.hasPrefix("tool-") {
@@ -187,18 +162,35 @@ struct ModernResourcePage: View {
         HStack(alignment: .center, spacing: 10) {
             heading("Storage")
             Spacer(minLength: 12)
-            storageActions(board: board, now: now)
+            let scanning = store.snapshot.activity != .idle
+            Button {
+                store.refresh()
+                store.loadToolStorage(force: true)
+                store.readDiskSpace()
+            } label: {
+                Label { Text(scanning ? "Scanning…" : "Rescan", bundle: AppLanguage.resourceBundle) } icon: {
+                    Image(systemName: "arrow.clockwise")
+                }
+            }
+            .disabled(scanning || store.isDeleting)
+            .help("Measure worktrees, build caches and tool storage again")
+            Button { presentation.open(.clean) } label: {
+                Text("Clean", bundle: AppLanguage.resourceBundle)
+            }
+            .buttonStyle(.borderedProminent)
+            .accessibilityIdentifier("storage.clean")
         }
         figureCard(
             value: disk.map { BoardText.bytes($0.availableBytes) } ?? "–",
-            unit: disk.map { "free of \(BoardText.bytes($0.totalBytes))" } ?? "",
+            unit: disk.map { AppLanguage.format("free of %@", locale: locale, BoardText.bytes($0.totalBytes)) } ?? "",
             caption: freeable > 0
-                ? "About \(BoardText.bytes(freeable)) can be cleared from \(board.safeToClear.count) finished worktrees"
-                    + (disk.map { ", leaving \(BoardText.bytes($0.availableBytes + freeable)) free." } ?? ".")
+                ? AppLanguage.format("About %@ can be cleared from %ld finished worktrees", locale: locale,
+                                     BoardText.bytes(freeable), board.safeToClear.count)
+                    + (disk.map { AppLanguage.format(", leaving %@ free.", locale: locale, BoardText.bytes($0.availableBytes + freeable)) }
+                       ?? AppLanguage.text(".", locale: locale))
                 : nil,
             configuration: storage
         )
-        cleanupStatus()
         ModernSection(title: "Categories") {
             ModernNavigationRow(
                 symbol: "folder.fill", color: ModernPalette.worktrees, title: "Worktrees",
@@ -225,92 +217,6 @@ struct ModernResourcePage: View {
                 value: amount("other", in: storage)
             )
         }
-        if !BranchesPresentation.restorable(store.snapshot.deletions, now: now).isEmpty {
-            StorageRecoveryView(store: store) { presentation.showsCleanupProgress = true }
-                .padding(.horizontal, 4)
-        }
-    }
-
-    /// The page's one action: what clearing would free, and the way to it.
-    /// The page's actions sit beside its title: read everything again, look
-    /// for generated files, and review finished worktrees. Each review is a
-    /// sheet, and each item is checked again before it goes.
-    @ViewBuilder
-    private func storageActions(board: BranchesBoard, now: Date) -> some View {
-        let scanning = store.snapshot.activity != .idle
-        Button(scanning ? "Scanning…" : "Rescan", systemImage: "arrow.clockwise") {
-            store.refresh()
-            store.loadToolStorage(force: true)
-            store.readDiskSpace()
-        }
-        .disabled(scanning || store.isDeleting)
-        .help("Measure worktrees, build caches and tool storage again")
-        Button("Generated Files…", systemImage: "hammer") { startStorageReview() }
-            .disabled(store.isDeleting)
-            .help("Find build output and dependencies a build makes again, and choose what goes")
-        if !board.safeToClear.isEmpty {
-            Button("Review Worktrees…") { startReview(board.safeToClear, now: now) }
-                .buttonStyle(.borderedProminent)
-                .disabled(store.isDeleting)
-                .help("Review the \(board.safeToClear.count) merged or empty worktrees before clearing")
-        }
-    }
-
-    /// While a cleanup runs, or after it, one line to follow or undo it.
-    @ViewBuilder
-    private func cleanupStatus() -> some View {
-        if let progress = store.cleanupProgress {
-            ModernGroupBox {
-                cleanupRow(symbol: "hourglass", color: Color(nsColor: .systemBlue),
-                           title: "Clearing \(progress.completed) of \(progress.total)",
-                           detail: "Each one is checked again just before it goes.",
-                           action: "Show Progress…", prominent: false) { presentation.showsCleanupProgress = true }
-            }
-        } else if let result = store.resultMessage {
-            ModernGroupBox {
-                cleanupRow(symbol: result.isProblem ? "exclamationmark.triangle.fill" : "checkmark.circle.fill",
-                           color: Color(nsColor: result.isProblem ? .systemOrange : .systemGreen),
-                           title: result.isProblem ? "Cleanup needs attention" : "Cleanup finished",
-                           detail: result.freedBytes > 0 ? "Freed about \(BoardText.bytes(result.freedBytes))." : "See what changed, or undo it.",
-                           action: "View Result…", prominent: false) { presentation.showsCleanupProgress = true }
-            }
-        }
-    }
-
-    private func cleanupRow(symbol: String, color: Color, title: String, detail: String, action: String,
-                            prominent: Bool, perform: @escaping () -> Void) -> some View {
-        HStack(spacing: 12) {
-            ModernIcon(symbol: symbol, color: color)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.system(size: 13, weight: .semibold)).monospacedDigit()
-                Text(detail).font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 12)
-            if prominent {
-                Button(action, action: perform).buttonStyle(.borderedProminent)
-            } else {
-                Button(action, action: perform)
-            }
-        }
-        .padding(.horizontal, ModernMetrics.rowPadding)
-        .padding(.vertical, 10)
-        .overlay(alignment: .top) {
-            Rectangle().fill(Color.primary.opacity(0.1)).frame(height: 0.5)
-                .padding(.leading, ModernMetrics.separatorInset)
-        }
-    }
-
-    private func startStorageReview() {
-        store.resultMessage = nil
-        presentation.isReviewingCleanup = true
-        showsStorageReview = true
-    }
-
-    private func storageReviewDismissed() {
-        presentation.isReviewingCleanup = false
-        if storageCleanupStarted { presentation.showsCleanupProgress = true }
-        storageCleanupStarted = false
     }
 
     @ViewBuilder
@@ -342,7 +248,7 @@ struct ModernResourcePage: View {
     // MARK: Shared pieces
 
     private func heading(_ title: String) -> some View {
-        Text(title)
+        Text(LocalizedStringKey(title), bundle: AppLanguage.resourceBundle)
             .font(.largeTitle.weight(.bold))
             .accessibilityAddTraits(.isHeader)
             .padding(.horizontal, 4)
@@ -351,27 +257,27 @@ struct ModernResourcePage: View {
     /// The page's one figure, the bar under it and its key.
     private func figureCard(value: String, unit: String, caption: String? = nil,
                             configuration: PaperweightConfiguration) -> some View {
-        let segments = ModernResourceCard.segments(configuration)
-        let free = configuration.freeLayer
-        return ModernCard(padding: 18) {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(value)
-                        .font(.system(size: 30, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
-                        .contentTransition(.numericText())
-                    Text(unit).font(.title3).foregroundStyle(.secondary)
+        ModernCard(padding: 18) {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(value)
+                            .font(.system(size: 30, weight: .semibold, design: .rounded))
+                            .monospacedDigit()
+                            .contentTransition(.numericText())
+                        Text(LocalizedStringKey(unit), bundle: AppLanguage.resourceBundle).font(.title3).foregroundStyle(.secondary)
+                    }
+                    if let caption {
+                        Text(caption).font(.callout).foregroundStyle(.secondary).monospacedDigit()
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
-                if let caption {
-                    Text(caption).font(.callout).foregroundStyle(.secondary).monospacedDigit()
-                        .padding(.top, -8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                if let liveWork {
+                    let source = resource == .memory ? liveWork.memoryHistory : liveWork.storageHistory
+                    ResourceTrendChart(history: source, resource: resource)
                 }
-                CapacityBar(segments: segments, capacity: configuration.capacityBytes)
-                CapacityLegend(segments: segments.filter { $0.bytes > 0 || $0.isMeasuring } + [
-                    CapacitySegment(id: free.id, title: free.title, bytes: free.bytes,
-                                    color: Color.primary.opacity(0.15), isMeasuring: free.isMeasuring,
-                                    detail: configuration.amount(for: free))
-                ])
+                ResourceCapacityBreakdown(configuration: configuration)
             }
         }
     }
@@ -395,14 +301,6 @@ struct ModernResourcePage: View {
         withAnimation(reduceMotion ? nil : .snappy(duration: 0.22)) {
             if expanded.contains(id) { expanded.remove(id) } else { expanded.insert(id) }
         }
-    }
-
-    /// Freeze reviewed rows while background checks finish, then check again
-    /// before deleting, as in the individual review.
-    private func startReview(_ items: [WorkItem], now: Date) {
-        store.resultMessage = nil
-        presentation.isReviewingCleanup = true
-        clearReview = ClearReviewRequest(items: items, selection: ClearSelection(items: items, now: now), now: now)
     }
 
     private func reviewDismissed() {

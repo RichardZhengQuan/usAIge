@@ -6,6 +6,16 @@ private let visible = CGRect(x: 0, y: 25, width: 1_440, height: 875)
 private let screen = CGRect(x: 0, y: 0, width: 1_440, height: 900)
 private let size = CGSize(width: 260, height: 220)
 
+@Test func fullHeightRailCoversTheLastWindowPointAtFractionalScales() {
+    let display = CGRect(x: -1440, y: 80, width: 1440, height: 900)
+    for edge in [MagnetEdge.left, .right] {
+        let frame = MagnetGeometry.edgeRailFrame(width: 166.0664, edge: edge, screenFrame: display, visibleFrame: display)
+        #expect(frame.width == 167)
+        #expect(frame.minY == display.minY && frame.maxY == display.maxY)
+        #expect(edge == .left ? frame.minX == display.minX : frame.maxX == display.maxX)
+    }
+}
+
 @Test func magnetSnapsOnlyDropsNearAnEdge() {
     #expect(MagnetGeometry.edge(toSnap: CGRect(x: 10, y: 100, width: 260, height: 220), in: visible) == .left)
     #expect(MagnetGeometry.edge(toSnap: CGRect(x: 1_160, y: 100, width: 260, height: 220), in: visible) == .right)
@@ -45,37 +55,37 @@ private let size = CGSize(width: 260, height: 220)
     #expect(!MagnetGeometry.pointerReveals(pointer: CGPoint(x: 20, y: 450), edge: .left, screenFrame: screen))
     // A pointer on another display beside this edge is not on this edge.
     #expect(!MagnetGeometry.pointerReveals(pointer: CGPoint(x: 0, y: 1_200), edge: .left, screenFrame: screen))
+    #expect(!MagnetGeometry.pointerReveals(pointer: CGPoint(x: -20, y: 450), edge: .left, screenFrame: screen))
+    #expect(!MagnetGeometry.pointerReveals(pointer: CGPoint(x: 1_460, y: 450), edge: .right, screenFrame: screen))
 }
 
 @Test func magnetHidesOnlyOnceThePointerIsClearOfTheRail() {
     let frame = CGRect(x: 0, y: 300, width: 260, height: 220)
     #expect(!MagnetGeometry.pointerIsClear(of: frame, pointer: CGPoint(x: 100, y: 400)))
-    #expect(!MagnetGeometry.pointerIsClear(of: frame, pointer: CGPoint(x: 270, y: 400)))
+    #expect(!MagnetGeometry.pointerIsClear(of: frame, pointer: CGPoint(x: 261, y: 400)))
+    #expect(MagnetGeometry.pointerIsClear(of: frame, pointer: CGPoint(x: 264, y: 400)))
     #expect(MagnetGeometry.pointerIsClear(of: frame, pointer: CGPoint(x: 400, y: 400)))
 }
 
 @MainActor
-@Test func magnetSettingsPersistTheDockedEdgeAndTheToggle() {
+@Test func magnetSettingsPersistTheDockedEdge() {
     let defaults = isolatedDefaults()
     var settings: HUDSettings? = HUDSettings(defaults: defaults)
-    #expect(settings?.magnetEnabled == true)
     settings?.setPosition(CGPoint(x: 0, y: 300), edge: .left, for: "display-1")
     settings?.setPosition(CGPoint(x: 40, y: 60), for: "display-2")
-    settings?.magnetEnabled = false
     settings = nil
 
     let restored = HUDSettings(defaults: defaults)
     #expect(restored.magnetEdge(for: "display-1") == .left)
     #expect(restored.position(for: "display-1") == CGPoint(x: 0, y: 300))
     #expect(restored.magnetEdge(for: "display-2") == nil)
-    #expect(restored.magnetEnabled == false)
 }
 
 @MainActor
 @Test func magnetControllerDocksHidesAndRevealsAroundThePointer() async throws {
     guard let mainScreen = NSScreen.main else { return }
     let pointer = TestPointer(location: CGPoint(x: 700, y: 400))
-    let controller = MagnetController(isEnabled: true, pointerLocation: { pointer.location })
+    let controller = MagnetController(pointerLocation: { pointer.location })
     let panel = NSPanel(
         contentRect: CGRect(origin: .zero, size: size),
         styleMask: [.borderless, .nonactivatingPanel],
@@ -109,8 +119,15 @@ private let size = CGSize(width: 260, height: 220)
     controller.handlePointer(at: pointer.location)
     #expect(controller.isRevealed)
 
-    // Turning Magnet off releases the rail where it was docked.
-    controller.isEnabled = false
+    // Crossing back during the short exit grace keeps the rail in place.
+    #expect(MagnetController.hideDelay <= 0.15)
+    pointer.location = CGPoint(x: mainScreen.visibleFrame.maxX - size.width - 5, y: 330)
+    controller.handlePointer(at: pointer.location)
+    pointer.location = CGPoint(x: mainScreen.visibleFrame.maxX - 20, y: 330)
+    controller.handlePointer(at: pointer.location)
+    try await Task.sleep(nanoseconds: UInt64((MagnetController.hideDelay + 0.1) * 1_000_000_000))
+    #expect(controller.isRevealed)
+    controller.undock()
     #expect(!controller.isDocked)
     #expect(recorded.last?.0 == nil)
 }
@@ -118,7 +135,7 @@ private let size = CGSize(width: 260, height: 220)
 @MainActor
 @Test func magnetRemembersTheDockedDisplayWhileHidden() throws {
     guard let mainScreen = NSScreen.main else { return }
-    let controller = MagnetController(isEnabled: true, pointerLocation: { CGPoint(x: -10_000, y: -10_000) })
+    let controller = MagnetController(pointerLocation: { CGPoint(x: -10_000, y: -10_000) })
     let panel = NSPanel(
         contentRect: CGRect(origin: .zero, size: size),
         styleMask: [.borderless, .nonactivatingPanel],
@@ -157,7 +174,7 @@ private func isolatedDefaults() -> UserDefaults {
 @MainActor
 @Test func magnetKeepsTheDockedHeightWhenLayoutClampsItForAWhile() throws {
     guard let mainScreen = NSScreen.main else { return }
-    let controller = MagnetController(isEnabled: true, pointerLocation: { CGPoint(x: -10_000, y: -10_000) })
+    let controller = MagnetController(pointerLocation: { CGPoint(x: -10_000, y: -10_000) })
     let panel = NSPanel(
         contentRect: CGRect(origin: .zero, size: size),
         styleMask: [.borderless, .nonactivatingPanel],
@@ -184,7 +201,7 @@ private func isolatedDefaults() -> UserDefaults {
 @MainActor
 @Test func aHiddenRailSlidesOutBrieflyToShowAChange() throws {
     guard let mainScreen = NSScreen.main else { return }
-    let controller = MagnetController(isEnabled: true, pointerLocation: { CGPoint(x: -10_000, y: -10_000) })
+    let controller = MagnetController(pointerLocation: { CGPoint(x: -10_000, y: -10_000) })
     let panel = NSPanel(
         contentRect: CGRect(origin: .zero, size: size),
         styleMask: [.borderless, .nonactivatingPanel],

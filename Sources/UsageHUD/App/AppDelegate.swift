@@ -18,9 +18,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     let settingsNavigation: SettingsNavigation
     let localToolStatus: LocalToolStatusRegistry
     private var panel: HUDPanel?
+    private var measuredRailSize: CGSize?
     let screenState = PanelScreenState()
     private let magnet: MagnetController
     private var magnetSettingsObserver: AnyCancellable?
+    private var iconSettingsObserver: AnyCancellable?
+    private var dockIconTransition: AnyCancellable?
+    private lazy var menuBarIcon = MenuBarIconController(
+        hoverChanged: { [weak self] inside in
+            guard let self else { return }
+            if inside {
+                // The native status item owns the click on the current display.
+                // The rail is already ordered on every Space and only needs to slide out.
+                self.magnet.reveal()
+            } else if self.magnet.isRevealed {
+                // Give the pointer time to travel from the menu bar to the rail.
+                self.magnet.showBriefly(for: 0.65)
+            }
+        },
+        openWindow: { [weak self] in self?.showMainWindow() },
+        showPanel: { [weak self] in self?.showLimits() },
+        openSettings: { [weak self] in self?.showSettings() }
+    )
     private var screenObserver: NSObjectProtocol?
     private var whatsNewWindowController: WhatsNewWindowController?
     private var branchesWindowController: NSWindowController?
@@ -46,7 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     override init() {
         let configuredSettings = HUDSettings()
         settings = configuredSettings
-        magnet = MagnetController(isEnabled: configuredSettings.magnetEnabled)
+        magnet = MagnetController()
         let configuredRelaySync = RelaySyncController()
         relaySync = configuredRelaySync
         settingsNavigation = SettingsNavigation()
@@ -95,7 +114,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.regular)
+        applyIconVisibility()
+        iconSettingsObserver = settings.objectWillChange.sink { [weak self] in
+            DispatchQueue.main.async { self?.applyIconVisibility() }
+        }
         closeRestoredSettingsWindow()
         DispatchQueue.main.async { [weak self] in
             self?.installWhatsNewMenuItem()
@@ -112,16 +134,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
             relaySync.observe(visible)
         }
         let content: AnyView
+        let pointerIsOnDetail: () -> Bool
         if #available(macOS 14.0, *) {
             let quotaDetail = QuotaDetailPanelController(rail: { [weak self] in self?.panel })
             quotaDetail.onVisibilityChanged = { [weak liveWork] isShown in
                 liveWork?.detailVisibilityChanged(isShown)
             }
-            liveWorkObserver = liveWork.$summary.sink { [weak quotaDetail] summary in
-                quotaDetail?.update(liveWork: summary)
-            }
+            liveWorkObserver = liveWork.$summary.combineLatest(liveWork.$memoryUsage, liveWork.$diskSpace)
+                .sink { [weak quotaDetail] summary, memory, disk in
+                    quotaDetail?.update(liveWork: summary, memory: memory)
+                    quotaDetail?.update(disk: disk)
+                }
             quotaDetail.openBranches = { [weak self] front in self?.showBranches(front: front) }
-            magnet.keepsRevealed = { [weak quotaDetail] in quotaDetail?.isPointerOnCard ?? false }
+            quotaDetail.openCPU = { [weak self] in self?.presentMainWindow(destination: .thisMac) }
+            pointerIsOnDetail = { [weak quotaDetail] in quotaDetail?.isPointerOnCard ?? false }
             content = AnyView(HUDView(
                 store: store,
                 agentStore: agentStore,
@@ -135,23 +161,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
                 quotaDetail: quotaDetail,
                 liveWork: liveWork,
                 openBranches: { [weak self] in self?.showBranches() },
-                openResourcePaperweight: { [weak self] front in self?.showBranches(front: front) }
+                openResourcePaperweight: { [weak self] front in self?.showBranches(front: front) },
+                openThisMac: { [weak self] in self?.presentMainWindow(destination: .thisMac) }
             ))
         } else {
+            pointerIsOnDetail = { false }
             content = AnyView(LegacyHUDView(
                 store: store,
                 settings: settings,
                 updateController: updateController,
                 screenState: screenState,
+                liveWork: liveWork,
                 openTool: AIToolLauncher.open,
                 openSettings: { [weak self] in self?.showSettings() },
                 resizePanel: { [weak self] size in self?.resizePanel(to: size) }
             ))
         }
-        let panel = HUDPanel(contentView: NSHostingView(rootView: content))
+        let panel = HUDPanel(contentView: NSHostingView(rootView: content.appLanguageEnvironment()))
         panel.delegate = self
         self.panel = panel
         magnet.attach(to: panel)
+        magnet.keepsRevealed = { [weak self] in
+            self?.menuBarIcon.containsPointer == true || pointerIsOnDetail()
+        }
         magnet.onDockingChanged = { [weak self] edge, frame, screen in
             guard let self else { return }
             self.settings.setPosition(frame.origin, edge: edge, for: Self.displayKey(for: screen))
@@ -184,23 +216,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
                 }
             }
         }
-        var railLook = (opacity: settings.opacity, scale: settings.scale)
+        var railLook = (opacity: settings.opacity, scale: settings.scale, textSize: settings.textSize)
         magnetSettingsObserver = settings.objectWillChange.sink { [weak self] in
             DispatchQueue.main.async {
                 guard let self else { return }
-                self.magnet.isEnabled = self.settings.magnetEnabled
                 // A docked rail is usually out of sight while its look is
                 // changed in Settings, so it slides out to show the change.
-                let look = (opacity: self.settings.opacity, scale: self.settings.scale)
+                let look = (opacity: self.settings.opacity, scale: self.settings.scale, textSize: self.settings.textSize)
                 if look != railLook {
                     railLook = look
                     if self.magnet.isDocked { self.magnet.showBriefly() }
-                }
-                // A full-height rail docks as soon as Magnet is on, so it
-                // starts sliding away without being dragged first.
-                if self.usesEdgeRail, self.settings.magnetEnabled, !self.magnet.isDocked,
-                   let panel = self.panel, let screen = panel.screen ?? NSScreen.main {
-                    self.placeEdgeRail(panel, on: screen, edge: self.screenState.railEdge ?? .right, animated: false)
                 }
             }
         }
@@ -244,7 +269,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
                 }
             }
         agentStore.start()
-        if Self.branchesAreAvailable { liveWork.start() }
+        liveWork.start(includingProcesses: Self.branchesAreAvailable)
         let codexAttentionMonitor = CodexAttentionMonitor { [weak self] toolID in
             self?.agentStore.acknowledgeAttentionStates(for: toolID)
         }
@@ -272,6 +297,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     ) -> Bool {
         showMainWindow()
         return true
+    }
+
+    private func applyIconVisibility() {
+        menuBarIcon.setVisible(settings.showsMenuBarIcon)
+        let policy: NSApplication.ActivationPolicy = settings.showsDockIcon ? .regular : .accessory
+        guard NSApp.activationPolicy() != policy else { return }
+        dockIconTransition = nil
+        let keyWindow = NSApp.keyWindow ?? NSApp.mainWindow
+        guard NSApp.isActive, let window = keyWindow?.sheetParent ?? keyWindow,
+              window.isVisible, !window.isMiniaturized else {
+            NSApp.setActivationPolicy(policy)
+            return
+        }
+
+        // Removing a Dock tile can deactivate the app several times, even
+        // after setActivationPolicy returns. Keep the open window on screen.
+        let wasHideable = window.canHide
+        window.canHide = false
+        let started = ProcessInfo.processInfo.systemUptime
+        let deactivation = NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification, object: NSApp)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak window] _ in
+                guard let window, window.isVisible, !window.isMiniaturized, NSApp.activationPolicy() == policy else { return }
+                // A new click or keystroke can deliberately move focus elsewhere.
+                let elapsed = ProcessInfo.processInfo.systemUptime - started
+                guard [CGEventType.leftMouseDown, .rightMouseDown, .keyDown].allSatisfy({
+                    CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) >= elapsed
+                }) else { return }
+                if NSApp.isHidden { NSApp.unhideWithoutActivation() }
+                NSApp.activate(ignoringOtherApps: true)
+                (window.attachedSheet ?? window).makeKeyAndOrderFront(nil)
+            }
+        let transition = AnyCancellable { [weak window] in
+            deactivation.cancel()
+            window?.canHide = wasHideable
+        }
+        dockIconTransition = transition
+        guard NSApp.setActivationPolicy(policy) else { dockIconTransition = nil; return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { [weak self, weak transition] in
+            guard let self, let transition, self.dockIconTransition === transition else { return }
+            self.dockIconTransition = nil
+        }
     }
 
     /// Login and service launches keep the rail available without opening a
@@ -410,7 +477,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
             return
         }
         let item = NSMenuItem(
-            title: "What’s New in usAIge",
+            title: AppLanguage.text("What’s New in usAIge"),
             action: #selector(showWhatsNewWindow(_:)),
             keyEquivalent: ""
         )
@@ -553,9 +620,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
             showSettings()
             return
         }
-        NSApp.activate(ignoringOtherApps: true)
         panel.orderFrontRegardless()
-        magnet.reveal()
+        magnet.showBriefly()
     }
 
     /// Modern's rail runs the full height of the display at one side.
@@ -578,26 +644,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         let key = Self.displayKey(for: screen)
         if let edge = settings.magnetEdge(for: key) { return edge }
         if let saved = settings.position(for: key) {
-            return saved.x + HUDMetrics.railWidth / 2 < screen.visibleFrame.midX ? .left : .right
+            return saved.x + edgeRailWidth / 2 < screen.visibleFrame.midX ? .left : .right
         }
         return .right
+    }
+
+    private var edgeRailWidth: CGFloat {
+        measuredRailSize?.width ?? HUDMetrics.railWidth(for: settings.textSize) * settings.scale
     }
 
     private func placeEdgeRail(_ panel: NSPanel, on screen: NSScreen, edge: MagnetEdge, animated: Bool) {
         screenState.railEdge = edge
         let frame = MagnetGeometry.edgeRailFrame(
-            width: HUDMetrics.railWidth * settings.scale,
+            width: edgeRailWidth,
             edge: edge,
             screenFrame: screen.frame,
             visibleFrame: screen.visibleFrame
         )
-        if settings.magnetEnabled {
-            if panel.frame.size != frame.size { panel.setFrame(frame, display: true, animate: false) }
-            magnet.dock(to: edge, y: frame.minY, on: screen, animated: animated)
-            return
-        }
-        panel.setFrame(frame, display: true, animate: animated)
-        settings.setPosition(frame.origin, edge: edge, for: Self.displayKey(for: screen))
+        if panel.frame.size != frame.size { panel.setFrame(frame, display: true, animate: false) }
+        magnet.dock(to: edge, y: frame.minY, on: screen, animated: animated)
     }
 
     /// A full-height rail always belongs at a side. A short flick toward
@@ -616,14 +681,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
             return
         }
         let key = Self.displayKey(for: screen)
-        if settings.magnetEnabled,
-           let edge = settings.magnetEdge(for: key),
+        let contentSize = measuredRailSize ?? panel.frame.size
+        if let edge = settings.magnetEdge(for: key),
            let saved = settings.position(for: key) {
+            if panel.frame.size != contentSize { panel.setContentSize(contentSize) }
             magnet.dock(to: edge, y: saved.y, on: screen, animated: false)
             return
         }
         let frame = PanelPositioner.frame(
-            panelSize: panel.frame.size,
+            panelSize: contentSize,
             visibleFrame: screen.visibleFrame,
             savedOrigin: settings.position(for: key)
         )
@@ -631,6 +697,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     }
 
     private func resizePanel(to size: CGSize) {
+        measuredRailSize = size
         guard let panel,
               abs(panel.frame.width - size.width) > 0.5
                 || abs(panel.frame.height - size.height) > 0.5 else { return }

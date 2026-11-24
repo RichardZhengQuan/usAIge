@@ -18,6 +18,7 @@ enum ModernPalette {
     static let buildCache = Color(nsColor: .systemGreen)
     static let toolStorage = Color(nsColor: .systemOrange)
     static let system = Color(nsColor: .systemGray)
+    static let cpu = Color(nsColor: .systemGreen)
     static let memory = Color(nsColor: .systemPurple)
     static let storage = Color(nsColor: .systemBlue)
     static let free = Color.primary.opacity(0.08)
@@ -42,6 +43,7 @@ enum ModernPalette {
         case "cache": buildCache
         case "tool": toolStorage
         case "other", PaperweightData.otherMemoryLayerID: system
+        case PaperweightData.swapLayerID: memory
         case "free", "mfree": free
         case "dev": Color(nsColor: .systemTeal)
         case "tool-" + AIToolID.claude.rawValue: Color(nsColor: .systemOrange)
@@ -68,6 +70,7 @@ enum ModernPalette {
         case "cache": "hammer.fill"
         case "tool": "shippingbox.fill"
         case "other", PaperweightData.otherMemoryLayerID: "macwindow"
+        case PaperweightData.swapLayerID: "internaldrive"
         case "free": "circle.dashed"
         case "mfree": "square.stack.3d.up.fill"
         case "dev": "server.rack"
@@ -77,9 +80,8 @@ enum ModernPalette {
 
     /// How full a disk looks: calm until it is nearly full.
     static func storageColor(usedShare: Double) -> Color {
-        if usedShare >= 0.95 { return Color(nsColor: .systemRed) }
-        if usedShare >= 0.9 { return Color(nsColor: .systemOrange) }
-        return storage
+        let status = TrendStatus.storage(usedShare: usedShare)
+        return status == .normal ? storage : status.color
     }
 }
 
@@ -146,30 +148,77 @@ struct CapacitySegment: Identifiable, Equatable {
 struct CapacityBar: View {
     let segments: [CapacitySegment]
     let capacity: Int64
-    var height: CGFloat = 22
+    var height = ProportionalBar.detailHeight
     /// Thin bars on cards read better without gaps between stretches.
     var gap: CGFloat = 1.5
 
     var body: some View {
+        let total = Double(max(capacity, PaperweightData.total(segments.map(\.bytes)), 1))
+        ProportionalBar(segments: segments.map {
+            .init(id: $0.id, fraction: Double($0.bytes) / total, color: $0.color)
+        }, height: height, gap: gap)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(segments.map { "\($0.title) \(BoardText.bytes($0.bytes))" }.joined(separator: ", "))
+    }
+}
+
+/// Shared geometry for storage capacity, memory allocation and CPU time shares.
+struct ProportionalBar: View {
+    static let thinHeight: CGFloat = 8
+    static let detailHeight: CGFloat = 22
+
+    struct Segment: Identifiable {
+        let id: String
+        let fraction: Double
+        let color: Color
+    }
+
+    let segments: [Segment]
+    var height = ProportionalBar.thinHeight
+    var gap: CGFloat = 1.5
+
+    var body: some View {
         GeometryReader { geometry in
-            let visible = segments.filter { $0.bytes > 0 }
+            let visible = segments.filter { $0.fraction > 0 }
             let gaps = gap * CGFloat(max(0, visible.count - 1))
             let usable = max(0, geometry.size.width - gaps)
-            let total = Double(max(capacity, PaperweightData.total(visible.map(\.bytes)), 1))
             HStack(spacing: gap) {
                 ForEach(visible) { segment in
-                    Rectangle()
-                        .fill(segment.color.gradient)
-                        .frame(width: max(2, usable * CGFloat(Double(segment.bytes) / total)))
+                    Group {
+                        if #available(macOS 13.0, *) {
+                            Rectangle().fill(segment.color.gradient)
+                        } else {
+                            Rectangle().fill(segment.color)
+                        }
+                    }
+                    .frame(width: max(2, usable * CGFloat(segment.fraction)))
                 }
-                Spacer(minLength: 0)
             }
         }
         .frame(height: height)
-        .background(ModernPalette.free)
+        .background(Color.primary.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: min(height * 0.32, 7), style: .continuous))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(segments.map { "\($0.title) \(BoardText.bytes($0.bytes))" }.joined(separator: ", "))
+    }
+}
+
+/// Memory and storage show the same allocation and key in their pages and hover cards.
+@available(macOS 14.0, *)
+struct ResourceCapacityBreakdown: View {
+    let configuration: PaperweightConfiguration
+    var compact = false
+
+    var body: some View {
+        let segments = ModernResourceCard.segments(configuration)
+        let free = configuration.freeLayer
+        VStack(alignment: .leading, spacing: compact ? 6 : 18) {
+            CapacityBar(segments: segments, capacity: configuration.capacityBytes,
+                        height: compact ? ProportionalBar.thinHeight : ProportionalBar.detailHeight, gap: compact ? 0 : 1.5)
+            CapacityLegend(segments: segments.filter { $0.bytes > 0 || $0.isMeasuring } + [
+                CapacitySegment(id: free.id, title: free.title, bytes: free.bytes,
+                                color: Color.primary.opacity(0.15), isMeasuring: free.isMeasuring,
+                                detail: configuration.amount(for: free))
+            ])
+        }
     }
 }
 
@@ -185,7 +234,7 @@ struct CapacityLegend: View {
                 HStack(spacing: 6) {
                     Circle().fill(segment.color).frame(width: 8, height: 8)
                         .overlay { Circle().stroke(Color.primary.opacity(0.12), lineWidth: 0.5) }
-                    Text(segment.title).foregroundStyle(.secondary)
+                    Text(LocalizedStringKey(segment.title), bundle: AppLanguage.resourceBundle).foregroundStyle(.secondary)
                     Text(segment.isMeasuring ? "Measuring…" : segment.detail ?? BoardText.bytes(segment.bytes))
                         .monospacedDigit()
                 }
@@ -232,7 +281,7 @@ struct ModernSection<Content: View, Accessory: View>: View {
                 if let tint {
                     Circle().fill(tint).frame(width: 9, height: 9).alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
                 }
-                Text(title).font(.headline)
+                Text(LocalizedStringKey(title), bundle: AppLanguage.resourceBundle).font(.headline)
                 if let detail {
                     Text(detail).font(.subheadline).foregroundStyle(.secondary).monospacedDigit()
                 }
@@ -287,7 +336,7 @@ struct ModernNoteRow: View {
                     .foregroundStyle(.tertiary)
                     .frame(width: ModernMetrics.iconSize)
             }
-            Text(text)
+            Text(LocalizedStringKey(text), bundle: AppLanguage.resourceBundle)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -331,9 +380,10 @@ struct ModernNavigationRow: View {
         HStack(spacing: 10) {
             ModernIcon(symbol: symbol, color: color)
             VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.system(size: 13, weight: .medium))
+                Text(LocalizedStringKey(title), bundle: AppLanguage.resourceBundle).font(.system(size: 13, weight: .medium))
                 if let subtitle {
-                    Text(subtitle).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Text(LocalizedStringKey(subtitle), bundle: AppLanguage.resourceBundle)
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
             Spacer(minLength: 8)
@@ -361,8 +411,6 @@ struct ModernRingGauge: View {
     let share: Double
     let color: Color
     var lineWidth: CGFloat = 4
-    var symbol: String? = nil
-    var symbolSize: CGFloat = 11
 
     var body: some View {
         ZStack {
@@ -371,11 +419,6 @@ struct ModernRingGauge: View {
                 .trim(from: 0, to: min(max(share, share > 0 ? 0.015 : 0), 1))
                 .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-            if let symbol {
-                Image(systemName: symbol)
-                    .font(.system(size: symbolSize, weight: .semibold))
-                    .foregroundStyle(color)
-            }
         }
         .padding(lineWidth / 2)
         .accessibilityHidden(true)
@@ -509,7 +552,7 @@ struct ModernTabBar: View {
                     Button { withAnimation(.snappy(duration: 0.18)) { selection = tab.id } } label: {
                         HStack(spacing: 8) {
                             tab.icon.frame(width: 18, height: 18)
-                            Text(tab.title).font(.callout.weight(.semibold)).lineLimit(1)
+                            Text(LocalizedStringKey(tab.title), bundle: AppLanguage.resourceBundle).font(.callout.weight(.semibold)).lineLimit(1)
                             if let detail = tab.detail {
                                 Text(detail).font(.callout).foregroundStyle(.secondary).monospacedDigit().lineLimit(1)
                             }

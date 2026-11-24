@@ -168,6 +168,8 @@ private struct WindowScreenHeightReader: NSViewRepresentable {
 
 @available(macOS 14.0, *)
 struct HUDSettingsView: View {
+    @Environment(\.locale) private var locale
+    private func localized(_ key: String) -> String { AppLanguage.text(key, locale: locale) }
     private static let websiteURL = URL(string: "https://pmrichq.com/project/usaige/")!
 
     @ObservedObject var settings: HUDSettings
@@ -245,9 +247,9 @@ struct HUDSettingsView: View {
 
     private var settingsPage: some View {
         settingsForm(topPadding: 16) {
-            Section("General") {
+            Section(localized("General")) {
                 Toggle(
-                    "Open usAIge at login",
+                    localized("Open usAIge at login"),
                     isOn: Binding(
                         get: { launchAtLogin.isEnabled },
                         set: { launchAtLogin.setEnabled($0) }
@@ -260,7 +262,7 @@ struct HUDSettingsView: View {
                             .foregroundStyle(launchAtLogin.requiresApproval ? Color.secondary : Color.red)
                         if launchAtLogin.requiresApproval {
                             Spacer()
-                            Button("Open Login Items") {
+                            Button(localized("Open Login Items")) {
                                 launchAtLogin.openSystemSettings()
                             }
                             .buttonStyle(.link)
@@ -268,17 +270,20 @@ struct HUDSettingsView: View {
                     }
                 }
 
+                Toggle(localized("Show icon in menu bar"), isOn: $settings.showsMenuBarIcon)
+                Toggle(localized("Show icon in Dock"), isOn: $settings.showsDockIcon)
+
                 HStack(alignment: .center, spacing: 12) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Usage alerts")
+                        Text(localized("Usage alerts"))
 
-                        Text("Alerts are sent when usage crosses each selected interval.")
+                        Text(localized("Alerts are sent when usage crosses each selected interval."))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
                     Picker(
-                        "Usage alerts",
+                        localized("Usage alerts"),
                         selection: Binding(
                             get: { settings.usageAlertIntervalPercent },
                             set: { settings.usageAlertIntervalPercent = $0 }
@@ -288,8 +293,9 @@ struct HUDSettingsView: View {
                             Text("\(interval)%").tag(interval)
                         }
                     }
-                    .pickerStyle(.menu)
+                    .pickerStyle(.segmented)
                     .labelsHidden()
+                    .fixedSize()
                     .accessibilityLabel("Usage alerts")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -301,29 +307,8 @@ struct HUDSettingsView: View {
                 }
             }
 
-            Section("Display") {
-                HStack(alignment: .center, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Style")
-
-                        Text(interfaceStyle == .modern
-                             ? "Clean gauges and lists. Classic brings back the liquid paperweights and ships."
-                             : "Liquid paperweights with ships, as in earlier versions.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Picker("Style", selection: $interfaceStyle) {
-                        ForEach(InterfaceStyle.allCases) { style in
-                            Text(style.title).tag(style)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .fixedSize()
-                    .accessibilityLabel("Style")
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+            Section(localized("Display")) {
+                AppLanguagePicker()
                 LabeledContent {
                     HStack(spacing: 8) {
                         Slider(value: binding(for: \HUDSettings.opacity), in: HUDSettings.opacityRange)
@@ -337,15 +322,15 @@ struct HUDSettingsView: View {
                     }
                 } label: {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Opacity")
+                        Text(localized("Opacity"))
                         if interfaceStyle == .modern {
-                            Text("How solid the rail's background is. Its rings and text stay fully visible.")
+                            Text(localized("How solid the rail's background is. Its rings and text stay fully visible."))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
                     }
                 }
-                LabeledContent("Scale") {
+                LabeledContent(localized("Scale")) {
                     HStack(spacing: 8) {
                         Slider(value: binding(for: \HUDSettings.scale), in: HUDSettings.scaleRange)
                             .frame(width: 180)
@@ -357,71 +342,40 @@ struct HUDSettingsView: View {
                             .accessibilityHidden(true)
                     }
                 }
-                HStack(alignment: .center, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Show reset credits")
-
-                        Text("Shows the free resets your AI tools offer and when they expire.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                LabeledContent(localized("Panel text size")) {
+                    Picker(localized("Panel text size"), selection: $settings.textSize) {
+                        ForEach(HUDTextSize.allCases, id: \.self) { size in
+                            Text(localized(size.title)).tag(size)
+                        }
                     }
-                    Spacer()
-                    Toggle(
-                        "Show reset credits",
-                        isOn: Binding(
-                            get: { settings.showsResetCredits },
-                            set: { settings.showsResetCredits = $0 }
-                        )
-                    )
+                    .pickerStyle(.segmented)
                     .labelsHidden()
-                    .accessibilityLabel("Show reset credits")
+                    .fixedSize()
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                HStack(alignment: .center, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Magnet")
-
-                        Text("Drop the rail near the left or right edge of a display to dock it there. A docked rail slides off screen while you work and returns when your pointer touches that edge.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Toggle(
-                        "Magnet",
-                        isOn: Binding(
-                            get: { settings.magnetEnabled },
-                            set: { settings.magnetEnabled = $0 }
-                        )
-                    )
-                    .labelsHidden()
-                    .accessibilityLabel("Magnet")
-                    .help("Dock the rail to a screen edge and hide it until the pointer returns")
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             // Modern rescans from Storage, Branches and Worktrees, and adds
             // folders from Branches and Worktrees.
             if interfaceStyle == .classic {
-            Section("Workspace") {
-                LabeledContent("Repository data") {
-                    Button("Read Everything Again", action: refreshWorkspace)
+            Section(localized("Workspace")) {
+                LabeledContent(localized("Repository data")) {
+                    Button(localized("Read Everything Again"), action: refreshWorkspace)
                         .help("Recheck branches, worktrees, and tool storage")
                 }
-                LabeledContent("Additional repositories") {
-                    Button("Add Folder…", action: addWorkspaceFolder)
+                LabeledContent(localized("Additional repositories")) {
+                    Button(localized("Add Folder…"), action: addWorkspaceFolder)
                         .help("Choose a folder inside a Git repository")
                 }
             }
             }
 
-            Section("More") {
+            Section {
                 pageLink("Send Feedback", destination: .feedback)
 
                 HStack(alignment: .center, spacing: 12) {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Software updates")
-                        Text("Current version \(updateController.currentVersionText)")
+                        Text(localized("Software updates"))
+                        Text(AppLanguage.format("Current version %@", locale: locale, localized(updateController.currentVersionText)))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -433,7 +387,7 @@ struct HUDSettingsView: View {
                                 ProgressView()
                                     .controlSize(.small)
                             }
-                            Text(updateController.statusText)
+                            Text(localized(updateController.statusText))
                                 .font(.caption)
                                 .foregroundStyle(isUpdateError ? Color.red : Color.secondary)
                                 .lineLimit(1)
@@ -444,8 +398,8 @@ struct HUDSettingsView: View {
                 }
 
                 HStack(spacing: 10) {
-                    Link("About usAIge", destination: Self.websiteURL)
-                    Button("What’s New") {
+                    Link(localized("About usAIge"), destination: Self.websiteURL)
+                    Button(localized("What’s New")) {
                         NSApp.sendAction(
                             #selector(AppDelegate.showWhatsNewWindow(_:)),
                             to: nil,
@@ -454,10 +408,25 @@ struct HUDSettingsView: View {
                     }
                     .buttonStyle(.link)
                     Spacer()
-                    Button("Quit usAIge") {
+                    Button(localized("Quit usAIge")) {
                         NSApplication.shared.terminate(nil)
                     }
                 }
+            } header: {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(localized("More"))
+                    Spacer()
+                    let isModern = interfaceStyle == .modern
+                    Button(localized(isModern ? "Something I like" : "Something new")) {
+                        interfaceStyle = isModern ? .classic : .modern
+                    }
+                    .buttonStyle(.link)
+                    .font(.body)
+                    .help(localized(isModern ? "Switch to Classic" : "Switch to Modern"))
+                    .accessibilityHint(localized(isModern ? "Switch to Classic" : "Switch to Modern"))
+                    .accessibilityIdentifier("settings.switchStyle")
+                }
+                .textCase(nil)
             }
         }
         .task {
@@ -475,7 +444,7 @@ struct HUDSettingsView: View {
 
     private var updateButton: some View {
         ZStack(alignment: .topTrailing) {
-            Button(updateController.primaryButtonTitle) {
+            Button(localized(updateController.primaryButtonTitle)) {
                 Task { await updateController.performPrimaryAction() }
             }
             .disabled(!updateController.canPerformPrimaryAction)
@@ -801,63 +770,7 @@ struct HUDSettingsView: View {
 
     private var iPhoneSyncPage: some View {
         pageContainer(title: "iPhone & Apple Watch Sync") {
-            settingsForm {
-                Section("Connection") {
-                    if relaySync.isLinked {
-                        LabeledContent("Mac", value: relaySync.macName)
-                        LabeledContent("Status", value: relayStatusText)
-                        if let date = relaySync.lastUploadAt {
-                            LabeledContent("Last upload", value: date.formatted(date: .omitted, time: .shortened))
-                        }
-                    } else {
-                        ContentUnavailableView(
-                            "Not Connected",
-                            systemImage: "iphone.and.arrow.forward",
-                            description: Text("Create a code, then enter it in usAIge on iPhone.")
-                        )
-                    }
-                    if let code = relaySync.pairingCode, let expiry = relaySync.pairingExpiresAt, expiry > Date() {
-                        LabeledContent("Pairing code") {
-                            Text(code)
-                                .font(.system(.title2, design: .monospaced, weight: .semibold))
-                                .textSelection(.enabled)
-                        }
-                        Text("Expires \(expiry.formatted(date: .omitted, time: .shortened)). Each code connects one iPhone.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    HStack {
-                        Spacer()
-                        Button(relaySync.isLinked ? "Add iPhone" : "Create Connection") {
-                            Task {
-                                if relaySync.isLinked { await relaySync.createPairingCode() }
-                                else { await relaySync.createChannel() }
-                            }
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
-                }
-                if relaySync.isLinked {
-                    Section("Paired iPhones") {
-                        if relaySync.devices.isEmpty {
-                            Text("No iPhones paired yet.").foregroundStyle(.secondary)
-                        }
-                        ForEach(relaySync.devices) { device in
-                            HStack {
-                                Label(device.name, systemImage: "iphone")
-                                Spacer()
-                                Text(device.lastSeenAt, style: .relative).font(.caption).foregroundStyle(.secondary)
-                                Button("Revoke", role: .destructive) { Task { await relaySync.revoke(device) } }
-                            }
-                        }
-                    }
-                    Section {
-                        Button("Disconnect All", role: .destructive) { Task { await relaySync.disconnectAll() } }
-                    } footer: {
-                        Text("Only normalized limit percentages and reset times are relayed. A paired iPhone forwards them to Apple Watch. Disconnecting deletes the shared server channel and revokes every iPhone and paired AI tool.")
-                    }
-                }
-            }
+            ModernDevicesPage(relaySync: relaySync, showsHeading: false)
         }
     }
 
@@ -982,16 +895,6 @@ struct HUDSettingsView: View {
         }
     }
 
-    private var relayStatusText: String {
-        switch relaySync.status {
-        case .disconnected: "Disconnected"
-        case .connecting: "Connecting…"
-        case .connected: "Connected"
-        case .uploading: "Uploading…"
-        case let .failed(message): message
-        }
-    }
-
     private var isRemoteToolActionBusy: Bool {
         if case .connecting = relaySync.remoteToolActionState { true } else { false }
     }
@@ -1015,7 +918,7 @@ struct HUDSettingsView: View {
                 .buttonStyle(.borderless)
                 .help("Back")
                 .accessibilityLabel("Back")
-                Text(title)
+                Text(localized(title))
                     .font(.title3.weight(.semibold))
                     .accessibilityAddTraits(.isHeader)
                     .accessibilityFocused($isPageTitleFocused)
@@ -1047,7 +950,7 @@ struct HUDSettingsView: View {
             navigation.route.append(destination)
         } label: {
             HStack {
-                Text(title)
+                Text(localized(title))
                 Spacer()
                 Image(systemName: "chevron.right")
                     .foregroundStyle(.tertiary)
@@ -1329,7 +1232,10 @@ struct HUDSettingsView: View {
     }
 
     private var isUpdateError: Bool {
-        if case .failed = updateController.status { true } else { false }
+        switch updateController.status {
+        case .failed, .installationFailed: true
+        default: false
+        }
     }
 }
 

@@ -3,6 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "usAIge",
+    defaultLocalization: "en",
     platforms: [.macOS(.v11)],
     products: [
         .executable(name: "usAIge", targets: ["UsageHUD"]),
@@ -16,7 +17,8 @@ let package = Package(
         .executableTarget(
             name: "UsageHUD",
             dependencies: ["CZstd"],
-            exclude: ["Resources"]
+            exclude: ["Resources"],
+            resources: [.process("Translations")]
         ),
         .testTarget(name: "UsageHUDTests", dependencies: ["UsageHUD"]),
     ]
