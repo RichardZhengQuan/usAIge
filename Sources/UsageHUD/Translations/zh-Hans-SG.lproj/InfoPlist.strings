@@ -1,0 +1,3 @@
+"NSDocumentsFolderUsageDescription" = "usAIge 会读取你在“文稿”中选择的项目，检查其分支、工作树和构建缓存大小。";
+"NSDesktopFolderUsageDescription" = "usAIge 会读取你在桌面上选择的项目，检查其分支、工作树和构建缓存大小。";
+"NSDownloadsFolderUsageDescription" = "usAIge 会读取你在“下载”中选择的项目，检查其分支、工作树和构建缓存大小。";

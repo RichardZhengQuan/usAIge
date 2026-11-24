@@ -242,8 +242,8 @@ final class BranchesWindowController: NSWindowController, NSWindowDelegate {
         store.readDiskSpace()
     }
 
-    func addFolder(_ path: String) {
-        store.addFolder(path)
+    func addSelectedFolder(_ path: String) {
+        store.addSelectedFolder(path)
     }
 
     private func attachContentIfNeeded() {

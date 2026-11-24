@@ -20,7 +20,7 @@ struct CleanupFileInspection: Equatable, Sendable {
     let protectedPath: String?
 
     static func normalized(_ path: String) -> String {
-        RepositoryLocator.normalized(URL(fileURLWithPath: path).standardizedFileURL.path)
+        RepositoryLocator.lexicalPath(path)
     }
 
     static func metadata(_ path: String) -> stat? {

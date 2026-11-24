@@ -246,10 +246,13 @@ struct StorageArtifactScanner: Sendable {
     func scan(sessionFolders: [String], addedFolders: [String]) async -> StorageCleanupInventory {
         let folders = Array(Set((addedFolders + sessionFolders).map(CleanupFileInspection.normalized))).sorted()
         let chosen = Set(addedFolders.map(CleanupFileInspection.normalized))
-        let local = folders.filter(isReadableRoot)
+        // A tool launched from home is not evidence that the whole home is a project.
+        let workspaceFolders = folders.filter { $0 != home || chosen.contains($0) }
+        let local = workspaceFolders.filter(isReadableRoot)
         var result = StorageCleanupInventory()
-        result.skippedFolders = folders.filter { !local.contains($0) }
-        let repositories = locator.locate(folders: local).repositories
+        let located = locator.locate(folders: local)
+        result.skippedFolders = Array(Set(workspaceFolders.filter { !local.contains($0) } + located.notChecked)).sorted()
+        let repositories = located.repositories
         var roots = Set(local)
         if let git {
             for repo in repositories {
@@ -280,7 +283,14 @@ struct StorageArtifactScanner: Sendable {
             let projects = projectFolders(in: root, excluding: roots, visited: &seenPaths, budget: &budget)
             result.foldersChecked += 1
             for owner in projects {
-                let worktree = Self.containingGitWorktree(owner)
+                let worktree: String?
+                switch locator.lookup(containing: owner) {
+                case let .found(location): worktree = location.root
+                case let .locked(path):
+                    result.skippedFolders.append(RepositoryLocator.projectFolder(of: path))
+                    continue
+                case .missing: worktree = nil
+                }
                 for kind in StorageArtifactKind.projectKinds {
                     let location = StorageArtifactLocation(kind: kind, owner: owner, workspace: worktree ?? root,
                                                            gitWorktree: worktree)
@@ -324,7 +334,8 @@ struct StorageArtifactScanner: Sendable {
 
     private func inspect(_ location: StorageArtifactLocation, processes: [WorkProcess],
                          seen: inout Set<CleanupFileIdentity>) async -> StorageCleanupRow? {
-        guard !Task.isCancelled, let info = CleanupFileInspection.metadata(location.path),
+        guard !Task.isCancelled, case let .allowed(resolved) = locator.access(to: location.path),
+              resolved == location.path, let info = CleanupFileInspection.metadata(location.path),
               seen.insert(CleanupFileIdentity(info)).inserted else { return nil }
         let refusal = await refusal(for: location)
         let inspection = CleanupFileInspection.directory(location.path) == nil ? nil
@@ -344,7 +355,8 @@ struct StorageArtifactScanner: Sendable {
     }
 
     private func refusal(for location: StorageArtifactLocation) async -> String? {
-        guard isReadableRoot(location.workspace), locator.isAllowed(location.path),
+        guard isReadableRoot(location.workspace),
+              case let .allowed(resolved) = locator.access(to: location.path), resolved == location.path,
               let homeID = CleanupFileInspection.directory(home),
               let identity = CleanupFileInspection.directory(location.path), identity.device == homeID.device else {
             return "This folder is protected, inaccessible, or on another volume."
@@ -354,7 +366,7 @@ struct StorageArtifactScanner: Sendable {
         }
         if location.isProject {
             guard RepositoryLocator.contains(location.workspace, location.owner),
-                  Self.containingGitWorktree(location.owner) == location.gitWorktree else {
+                  matchesGitWorktree(location) else {
                 return "The project location changed."
             }
             if let repository = location.gitWorktree {
@@ -389,7 +401,8 @@ struct StorageArtifactScanner: Sendable {
     }
 
     private func isReadableRoot(_ path: String) -> Bool {
-        path != "/" && locator.isAllowed(path) && CleanupFileInspection.directory(path) != nil
+        guard path != "/", case let .allowed(resolved) = locator.access(to: path), resolved == path else { return false }
+        return CleanupFileInspection.directory(path) != nil
     }
 
     private func projectFolders(in root: String, excluding roots: Set<String>,
@@ -404,7 +417,8 @@ struct StorageArtifactScanner: Sendable {
             guard depth < 3, let children = try? FileManager.default.contentsOfDirectory(atPath: folder) else { continue }
             for name in children.sorted().reversed() where !name.hasPrefix(".") && !ignored.contains(name) {
                 let path = folder + "/" + name
-                if !roots.contains(path), let info = CleanupFileInspection.metadata(path), CleanupFileInspection.isDirectory(info) {
+                if !roots.contains(path), locator.isAllowed(path),
+                   let info = CleanupFileInspection.metadata(path), CleanupFileInspection.isDirectory(info) {
                     pending.append((path, depth + 1))
                 }
             }
@@ -419,12 +433,11 @@ struct StorageArtifactScanner: Sendable {
         return children.sorted().map { path + "/" + $0 }
     }
 
-    static func containingGitWorktree(_ path: String) -> String? {
-        var folder = path
-        while folder != "/" && !folder.isEmpty {
-            if CleanupFileInspection.metadata(folder + "/.git") != nil { return folder }
-            folder = (folder as NSString).deletingLastPathComponent
+    private func matchesGitWorktree(_ location: StorageArtifactLocation) -> Bool {
+        switch locator.lookup(containing: location.owner) {
+        case let .found(found): return found.root == location.gitWorktree
+        case .locked: return false
+        case .missing: return location.gitWorktree == nil
         }
-        return nil
     }
 }

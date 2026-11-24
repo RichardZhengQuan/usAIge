@@ -586,15 +586,17 @@ private struct ModernOverviewPage: View {
 
     /// What needs you first: work that needs a look, then what can go.
     private func workCard(_ page: ModernPage, board: BranchesBoard) -> some View {
-        let needsLook = board.needsLookCount
+        let needsLook = board.scannedNeedsLookCount
         var caption: [String] = []
         if !board.running.isEmpty { caption.append(AppLanguage.format("%ld running", locale: locale, board.running.count)) }
         if !board.safeToClear.isEmpty { caption.append(AppLanguage.format("%ld safe to clear", locale: locale, board.safeToClear.count)) }
+        if store.workspaceIsLocked { caption.insert(AppLanguage.text("Scanned projects only", locale: locale), at: 0) }
         return ModernSummaryCard(
             page: page,
             value: "\(needsLook)",
             unit: needsLook == 1 ? "needs a look" : "need a look",
             caption: caption.isEmpty ? AppLanguage.text("Nothing else to do", locale: locale) : caption.joined(separator: " · "),
+            hasUnscannedProjectsOnly: store.workspaceIsLocked && store.snapshot.repositories.allSatisfy { $0.failure != nil },
             open: { presentation.open(page) }
         ) { EmptyView() }
     }
@@ -748,6 +750,7 @@ private struct ModernSummaryCard<Detail: View>: View {
     let caption: String
     var cpuHistory: SystemCPUMonitor.History? = nil
     var resourceHistory: ResourceTrendHistory? = nil
+    var hasUnscannedProjectsOnly = false
     let open: () -> Void
     @ViewBuilder let detail: () -> Detail
 
@@ -796,7 +799,13 @@ private struct ModernSummaryCard<Detail: View>: View {
     private var stacked: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
-            reading
+            if hasUnscannedProjectsOnly {
+                amount.redacted(reason: .placeholder).accessibilityHidden(true)
+                Text("No projects scanned", bundle: AppLanguage.resourceBundle)
+                    .font(.callout).foregroundStyle(.secondary)
+            } else {
+                reading
+            }
             detail()
             Spacer(minLength: 0)
         }
@@ -897,10 +906,12 @@ private struct ModernStorageSummary: View {
     var body: some View {
         let now = Date()
         let board = BranchesBoard.make(snapshot: store.snapshot, now: now)
-        let storage = PaperweightData.storage(disk: store.diskSpace, board: board, toolStorage: store.toolStorage,
-                                              isMeasuring: store.isMeasuringToolStorage || !store.hasMeasuredToolStorage)
-        let freeable = ClearSelection(items: board.safeToClear, now: now).bytes(from: board.safeToClear)
         let disk = store.diskSpace
+        let storage = store.workspaceIsLocked ? RailPaperweightData.storage(disk) : PaperweightData.storage(
+            disk: disk, board: board, toolStorage: store.toolStorage,
+            isMeasuring: store.isMeasuringToolStorage || !store.hasMeasuredToolStorage
+        )
+        let freeable = store.workspaceIsLocked ? 0 : ClearSelection(items: board.safeToClear, now: now).bytes(from: board.safeToClear)
         ModernSummaryCard(
             page: .storage,
             value: disk.map { RailResourceText.freeSpace($0.availableBytes) } ?? "–",
