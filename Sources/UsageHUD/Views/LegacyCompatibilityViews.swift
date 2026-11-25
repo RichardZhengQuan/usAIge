@@ -217,8 +217,8 @@ struct LegacyHUDSettingsRootView: View {
 
                 Divider()
                 Text("Startup").font(.headline)
-                Toggle("Show icon in menu bar", isOn: $settings.showsMenuBarIcon)
-                Toggle("Show icon in Dock", isOn: $settings.showsDockIcon)
+                IconVisibilityToggle(location: .menuBar, isOn: $settings.showsMenuBarIcon)
+                IconVisibilityToggle(location: .dock, isOn: $settings.showsDockIcon)
                 Toggle("Open usAIge at login", isOn: launchAtLoginBinding)
                     .disabled(!launchAtLogin.isSupported)
                 if !launchAtLogin.isSupported {

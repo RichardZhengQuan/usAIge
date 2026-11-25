@@ -115,7 +115,7 @@ final class MenuBarIconController: NSResponder, NSMenuDelegate {
     }
 
     /// A monochrome rendering of the app icon's usage arc, needle and limit.
-    private static let gaugeImage: NSImage = {
+    static let gaugeImage: NSImage = {
         let image = NSImage(size: NSSize(width: 20, height: 18), flipped: true) { _ in
             NSColor.black.setStroke()
             let arc = NSBezierPath()

@@ -270,8 +270,8 @@ struct HUDSettingsView: View {
                     }
                 }
 
-                Toggle(localized("Show icon in menu bar"), isOn: $settings.showsMenuBarIcon)
-                Toggle(localized("Show icon in Dock"), isOn: $settings.showsDockIcon)
+                IconVisibilityToggle(location: .menuBar, isOn: $settings.showsMenuBarIcon)
+                IconVisibilityToggle(location: .dock, isOn: $settings.showsDockIcon)
 
                 HStack(alignment: .center, spacing: 12) {
                     VStack(alignment: .leading, spacing: 8) {
@@ -372,41 +372,10 @@ struct HUDSettingsView: View {
             Section {
                 pageLink("Send Feedback", destination: .feedback)
 
-                HStack(alignment: .center, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(localized("Software updates"))
-                        Text(AppLanguage.format("Current version %@", locale: locale, localized(updateController.currentVersionText)))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .layoutPriority(1)
-                    Spacer(minLength: 12)
-                    VStack(alignment: .trailing, spacing: 6) {
-                        HStack(spacing: 6) {
-                            if isUpdateBusy {
-                                ProgressView()
-                                    .controlSize(.small)
-                            }
-                            Text(localized(updateController.statusText))
-                                .font(.caption)
-                                .foregroundStyle(isUpdateError ? Color.red : Color.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                        }
-                        updateButton
-                    }
-                }
+                softwareUpdateRow
 
-                HStack(spacing: 10) {
+                HStack {
                     Link(localized("About usAIge"), destination: Self.websiteURL)
-                    Button(localized("What’s New")) {
-                        NSApp.sendAction(
-                            #selector(AppDelegate.showWhatsNewWindow(_:)),
-                            to: nil,
-                            from: nil
-                        )
-                    }
-                    .buttonStyle(.link)
                     Spacer()
                     Button(localized("Quit usAIge")) {
                         NSApplication.shared.terminate(nil)
@@ -440,6 +409,53 @@ struct HUDSettingsView: View {
 
     static func scaleText(_ scale: Double) -> String {
         String(format: "%.1f\u{00D7}", scale)
+    }
+
+    private var softwareUpdateRow: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(localized("Software updates"))
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) {
+                        currentVersionLabel
+                        updateStatusLabel
+                    }
+                    VStack(alignment: .leading, spacing: 3) {
+                        currentVersionLabel
+                        updateStatusLabel
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .accessibilityElement(children: .combine)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Button(localized("What’s New")) {
+                    NSApp.sendAction(#selector(AppDelegate.showWhatsNewWindow(_:)), to: nil, from: nil)
+                }
+                updateButton
+            }
+            .fixedSize()
+        }
+    }
+
+    private var currentVersionLabel: some View {
+        Text(AppLanguage.format("Current version %@", locale: locale, localized(updateController.currentVersionText)))
+    }
+
+    private var updateStatusLabel: some View {
+        HStack(spacing: 6) {
+            if isUpdateBusy {
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityHidden(true)
+            }
+            Text(localized(updateController.statusText))
+                .foregroundStyle(isUpdateError ? Color.red : Color.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private var updateButton: some View {
