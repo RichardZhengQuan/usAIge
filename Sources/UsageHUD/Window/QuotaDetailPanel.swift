@@ -88,6 +88,7 @@ final class QuotaDetailPanelController {
 
     private let railWindow: () -> NSWindow?
     private let pointerLocation: () -> CGPoint
+    private let visibleFrame: (NSWindow) -> CGRect
     private var hostingView: NSHostingView<AppLanguageEnvironment<RailDetailCard>>?
     private var rowFrame = CGRect.zero
     private var shownQuotaRow: RailQuotaRow?
@@ -110,10 +111,12 @@ final class QuotaDetailPanelController {
 
     init(
         rail: @escaping () -> NSWindow?,
-        pointerLocation: @escaping () -> CGPoint = { NSEvent.mouseLocation }
+        pointerLocation: @escaping () -> CGPoint = { NSEvent.mouseLocation },
+        visibleFrame: @escaping (NSWindow) -> CGRect = { ($0.screen ?? NSScreen.main)?.visibleFrame ?? $0.frame }
     ) {
         railWindow = rail
         self.pointerLocation = pointerLocation
+        self.visibleFrame = visibleFrame
     }
 
     /// Shows the limit or tool beside its row, in the rail's coordinates.
@@ -306,12 +309,11 @@ final class QuotaDetailPanelController {
         let inset = QuotaDetailCard.windowInset
         let fittingSize = cardView.fittingSize
         let rowOnScreen = rail.convertToScreen(railView.convert(rowFrame, to: nil))
-        let screen = rail.screen ?? NSScreen.main
         let placement = QuotaDetailPlacement(
             cardSize: CGSize(width: fittingSize.width - inset * 2, height: fittingSize.height - inset * 2),
             rail: rail.frame,
             rowMidY: rowOnScreen.midY,
-            visibleFrame: screen?.visibleFrame ?? rail.frame
+            visibleFrame: visibleFrame(rail)
         )
         cardView.rootView = RailDetailCard(
             content: content,

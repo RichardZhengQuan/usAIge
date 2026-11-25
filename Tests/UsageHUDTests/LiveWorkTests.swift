@@ -647,11 +647,8 @@ private final class DiskPublications: @unchecked Sendable {
 @MainActor
 @Suite(.serialized) struct LiveWorkCardPanelTests {
     private func makeRail() -> NSPanel {
-        // Leave room on the right of the rail on the current display, even
-        // when that display uses an origin other than (0, 0).
-        let origin = NSScreen.main?.visibleFrame.origin ?? .zero
-        return NSPanel(
-            contentRect: CGRect(x: origin.x + 100, y: origin.y + 100, width: 84, height: 300),
+        NSPanel(
+            contentRect: CGRect(x: 100, y: 100, width: 84, height: 300),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: true
@@ -731,7 +728,12 @@ private final class DiskPublications: @unchecked Sendable {
     /// A card open beside the rail, and the middle of the card on screen.
     private func openCard(_ pointer: Pointer) throws -> (controller: QuotaDetailPanelController, card: CGPoint, rail: NSPanel) {
         let rail = makeRail()
-        let controller = QuotaDetailPanelController(rail: { rail }, pointerLocation: { pointer.location })
+        // Keep room beside the rail even when the test runner has no display.
+        let controller = QuotaDetailPanelController(
+            rail: { rail },
+            pointerLocation: { pointer.location },
+            visibleFrame: { _ in CGRect(x: 0, y: 0, width: 1280, height: 900) }
+        )
         controller.show(RailQuotaRow(snapshot: snapshot("a")), rowFrame: CGRect(x: 4, y: 10, width: 76, height: 80))
         let window = try #require(controller.panel?.frame)
         return (controller, CGPoint(x: window.midX, y: window.midY), rail)
