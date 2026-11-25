@@ -246,8 +246,7 @@ struct StorageArtifactScanner: Sendable {
     func scan(sessionFolders: [String], addedFolders: [String]) async -> StorageCleanupInventory {
         let folders = Array(Set((addedFolders + sessionFolders).map(CleanupFileInspection.normalized))).sorted()
         let chosen = Set(addedFolders.map(CleanupFileInspection.normalized))
-        // A tool launched from home is not evidence that the whole home is a project.
-        let workspaceFolders = folders.filter { $0 != home || chosen.contains($0) }
+        let workspaceFolders = folders.filter(locator.isWorkspacePath)
         let local = workspaceFolders.filter(isReadableRoot)
         var result = StorageCleanupInventory()
         let located = locator.locate(folders: local)
@@ -316,7 +315,7 @@ struct StorageArtifactScanner: Sendable {
     func remove(_ candidate: StorageCleanupCandidate) async -> String? {
         let location = candidate.location
         if let reason = await refusal(for: location) { return reason }
-        guard let current = CleanupFileInspection.read(location.path), current.protectedPath == nil,
+        guard let current = CleanupFileInspection.read(location.path, locator: locator), current.protectedPath == nil,
               current.identity == candidate.inspection.identity, current.fingerprint == candidate.inspection.fingerprint else {
             return "The folder or its contents changed. Scan again to review it."
         }
@@ -339,7 +338,7 @@ struct StorageArtifactScanner: Sendable {
               seen.insert(CleanupFileIdentity(info)).inserted else { return nil }
         let refusal = await refusal(for: location)
         let inspection = CleanupFileInspection.directory(location.path) == nil ? nil
-            : CleanupFileInspection.read(location.path)
+            : CleanupFileInspection.read(location.path, locator: locator)
         let reason: String?
         if let refusal { reason = refusal }
         else if inspection == nil { reason = "The folder could not be read completely." }
@@ -355,7 +354,7 @@ struct StorageArtifactScanner: Sendable {
     }
 
     private func refusal(for location: StorageArtifactLocation) async -> String? {
-        guard isReadableRoot(location.workspace),
+        guard !location.isProject || isReadableRoot(location.workspace),
               case let .allowed(resolved) = locator.access(to: location.path), resolved == location.path,
               let homeID = CleanupFileInspection.directory(home),
               let identity = CleanupFileInspection.directory(location.path), identity.device == homeID.device else {
@@ -401,7 +400,8 @@ struct StorageArtifactScanner: Sendable {
     }
 
     private func isReadableRoot(_ path: String) -> Bool {
-        guard path != "/", case let .allowed(resolved) = locator.access(to: path), resolved == path else { return false }
+        guard locator.isWorkspacePath(path), case let .allowed(resolved) = locator.access(to: path), resolved == path
+        else { return false }
         return CleanupFileInspection.directory(path) != nil
     }
 
@@ -428,7 +428,7 @@ struct StorageArtifactScanner: Sendable {
 
     private func derivedDataFolders() -> [String] {
         let path = home + "/" + StorageArtifactKind.derivedDataPath
-        guard CleanupFileInspection.directory(path) != nil,
+        guard isReadableRoot(path),
               let children = try? FileManager.default.contentsOfDirectory(atPath: path) else { return [] }
         return children.sorted().map { path + "/" + $0 }
     }

@@ -258,6 +258,7 @@ struct BranchesRootView: View {
                         }
 
                         if front == .storage, overviewHeader != nil || pageTitle != nil {
+                            ProjectScanSection(store: store)
                             HStack {
                                 StorageRecoveryView(store: store, showProgress: showCleanupProgress)
                                 Spacer(minLength: 12)
@@ -881,7 +882,7 @@ struct BranchesRootView: View {
             DisclosureGroup {
                 rowsGroup {
                     ForEach(unscannedProjects, id: \.self) { folder in
-                        UnscannedProjectRow(folder: folder, store: store)
+                        UnscannedProjectRow(folder: folder, store: store, openClean: openCleanForProjectScan)
                     }
                 }
             } label: {
@@ -954,6 +955,10 @@ struct BranchesRootView: View {
         store.chooseFolder()
     }
 
+    private func openCleanForProjectScan() {
+        if let presentation { presentation.open(.clean) } else { startStorageReview() }
+    }
+
     @ViewBuilder
     private func projectRow(_ row: ProjectRow, now: Date) -> some View {
         switch row {
@@ -969,7 +974,7 @@ struct BranchesRootView: View {
                     ForEach(copy.items) { item in card(item, .look, now: now, share: 0, color: .clear) }
                 }
             case let .notChecked(folder):
-                UnscannedProjectRow(folder: folder, store: store)
+                UnscannedProjectRow(folder: folder, store: store, openClean: openCleanForProjectScan)
             case let .unreadable(repository):
                 UnreadableCard(repository: repository, isExpanded: expanded.contains(entry.id), toggle: { toggle(entry.id) })
             }
@@ -1085,7 +1090,7 @@ struct BranchesRootView: View {
                     }
                 }
             case let .notChecked(folder):
-                UnscannedProjectRow(folder: folder, store: store)
+                UnscannedProjectRow(folder: folder, store: store, openClean: openCleanForProjectScan)
             case let .unreadable(repository):
                 UnreadableCard(repository: repository, isExpanded: expanded.contains(entry.id), toggle: { toggle(entry.id) })
             }

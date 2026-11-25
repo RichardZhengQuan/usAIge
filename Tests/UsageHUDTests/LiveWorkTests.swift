@@ -647,8 +647,11 @@ private final class DiskPublications: @unchecked Sendable {
 @MainActor
 @Suite(.serialized) struct LiveWorkCardPanelTests {
     private func makeRail() -> NSPanel {
-        NSPanel(
-            contentRect: CGRect(x: 100, y: 100, width: 84, height: 300),
+        // Leave room on the right of the rail on the current display, even
+        // when that display uses an origin other than (0, 0).
+        let origin = NSScreen.main?.visibleFrame.origin ?? .zero
+        return NSPanel(
+            contentRect: CGRect(x: origin.x + 100, y: origin.y + 100, width: 84, height: 300),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: true

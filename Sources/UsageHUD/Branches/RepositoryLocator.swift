@@ -34,7 +34,16 @@ struct RepositoryLocator: Sendable {
         var isLinkedWorktree: Bool { gitDirectory != commonDirectory }
     }
 
-    private static let protectedFolders = ["Documents", "Desktop", "Downloads", "Library/Mobile Documents"]
+    private static let protectedFolders = ["Documents", "Desktop", "Downloads", "Library/Mobile Documents", "Library/CloudStorage"]
+    static let photoLibraryExtensions = ["photoslibrary", "photolibrary", "aplibrary", "migratedphotolibrary", "migratedaplibrary"]
+
+    static func isPhotoLibraryName(_ name: String) -> Bool {
+        photoLibraryExtensions.contains((name as NSString).pathExtension.lowercased())
+    }
+
+    static func containsPhotoLibrary(_ path: String) -> Bool {
+        path.split(separator: "/").contains { isPhotoLibraryName(String($0)) }
+    }
 
     /// /tmp and /var are symbolic links, and tools report either spelling.
     static func normalized(_ path: String) -> String {
@@ -63,7 +72,12 @@ struct RepositoryLocator: Sendable {
     }
 
     private func protectedRoot(containing path: String) -> String? {
-        let folded = lexicalPolicyPath(path).lowercased()
+        let path = lexicalPolicyPath(path)
+        let folded = path.lowercased()
+        let components = path.split(separator: "/")
+        if components.count >= 2, components[0].lowercased() == "volumes" {
+            return "/" + components.prefix(2).joined(separator: "/")
+        }
         let home = lexicalPolicyPath(home)
         for folder in Self.protectedFolders {
             let root = home + "/" + folder
@@ -76,10 +90,27 @@ struct RepositoryLocator: Sendable {
         protectedRoot(containing: path) != nil
     }
 
+    func excludesPhotos(at path: String) -> Bool {
+        let path = lexicalPolicyPath(path)
+        let pictures = lexicalPolicyPath(home) + "/Pictures"
+        return Self.contains(pictures.lowercased(), path.lowercased())
+            || Self.containsPhotoLibrary(path)
+    }
+
+    /// A login shell can report home as its working directory. Treat only
+    /// folders narrower than home or its ancestors as workspace candidates.
+    func isWorkspacePath(_ path: String) -> Bool {
+        guard path.hasPrefix("/") else { return false }
+        let folded = lexicalPolicyPath(path).lowercased()
+        return folded != "/volumes"
+            && !Self.contains(folded, lexicalPolicyPath(home).lowercased())
+            && !excludesPhotos(at: path)
+    }
+
     /// A project grant must be inside a protected location. Choosing home or
     /// Documents itself must never give a background scan access to its projects.
     func protectedProjectPath(_ folder: String) -> String? {
-        guard folder.hasPrefix("/") else { return nil }
+        guard isWorkspacePath(folder) else { return nil }
         let path = lexicalPolicyPath(folder)
         guard let root = protectedRoot(containing: path),
               path.lowercased() != root.lowercased() else { return nil }
@@ -88,6 +119,7 @@ struct RepositoryLocator: Sendable {
 
     func isAllowed(_ path: String) -> Bool {
         let path = lexicalPolicyPath(path)
+        guard !excludesPhotos(at: path) else { return false }
         return !isProtected(path) || allowedFolders.contains { folder in
             guard let project = protectedProjectPath(folder) else { return false }
             return Self.contains(project, path)
@@ -97,6 +129,7 @@ struct RepositoryLocator: Sendable {
     private func lexicalPolicyPath(_ path: String) -> String {
         let value = Self.lexicalPath(path)
         let dataVolume = "/System/Volumes/Data"
+        if value == dataVolume { return "/" }
         return value.hasPrefix(dataVolume + "/") ? String(value.dropFirst(dataVolume.count)) : value
     }
 
@@ -105,6 +138,7 @@ struct RepositoryLocator: Sendable {
     func access(to path: String) -> PathAccess {
         guard path.hasPrefix("/") else { return .unavailable }
         let spelling = Self.lexicalPath(path)
+        guard !excludesPhotos(at: spelling) else { return .unavailable }
         guard isAllowed(spelling) else { return .locked(spelling) }
 
         var pending = Array(path.split(separator: "/").reversed())
@@ -117,6 +151,7 @@ struct RepositoryLocator: Sendable {
                 continue
             }
             let next = "/" + (resolved + [name]).joined(separator: "/")
+            guard !excludesPhotos(at: next) else { return .unavailable }
             if !isAllowed(next) {
                 // Reaching a chosen project can require crossing its protected parent.
                 let destination = Self.lexicalPath(pending.reversed().joined(separator: "/"), relativeTo: next)
@@ -164,7 +199,7 @@ struct RepositoryLocator: Sendable {
             case let .found(location):
                 let directory = location.commonDirectory
                 guard checkedDirectories.insert(directory).inserted else { continue }
-                let blocked = lockedWorktrees(in: directory)
+                guard let blocked = lockedWorktrees(in: directory) else { continue }
                 if blocked.isEmpty { directories.insert(directory) }
                 else { notChecked.formUnion(blocked) }
             case let .locked(path):
@@ -187,6 +222,7 @@ struct RepositoryLocator: Sendable {
     }
 
     func lookup(containing folder: String, forLiveWork: Bool = false) -> Lookup {
+        guard isWorkspacePath(folder) else { return .missing }
         switch access(to: folder) {
         case let .allowed(path):
             // A missing worktree must not inherit the branch of its parent.
@@ -203,7 +239,8 @@ struct RepositoryLocator: Sendable {
     private func lookup(fromResolvedFolder folder: String) -> Lookup {
         var root = folder
         for _ in 0..<64 {
-            let dotGit = root == "/" ? "/.git" : root + "/.git"
+            guard isWorkspacePath(root) else { return .missing }
+            let dotGit = root + "/.git"
             // Searching parents stops at the edge of the selected folder.
             guard isAllowed(dotGit) else { return .missing }
             var info = stat()
@@ -216,7 +253,6 @@ struct RepositoryLocator: Sendable {
             } else if (errno == EACCES || errno == EPERM), isProtected(dotGit) {
                 return .locked(root)
             }
-            guard root != "/" else { break }
             root = (root as NSString).deletingLastPathComponent
         }
         return .missing
@@ -264,28 +300,31 @@ struct RepositoryLocator: Sendable {
 
     /// Git's worktree listing checks each backlink for prunable entries.
     /// Check the destinations first using only metadata in the shared Git directory.
-    private func lockedWorktrees(in directory: String) -> [String] {
+    private func lockedWorktrees(in directory: String) -> [String]? {
         let worktrees: String
         switch access(to: directory + "/worktrees") {
         case let .allowed(path): worktrees = path
         case let .locked(path): return [Self.projectFolder(of: path)]
-        case .unavailable: return []
+        case .unavailable: return nil
         }
         let entries = (try? FileManager.default.contentsOfDirectory(atPath: worktrees)) ?? []
-        return entries.compactMap { entry in
+        var locked: [String] = []
+        for entry in entries {
             let metadata = worktrees + "/" + entry
             switch access(to: metadata + "/gitdir") {
             case let .allowed(path):
-                guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
+                guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
                 let pointer = text.trimmingCharacters(in: .newlines)
-                guard case let .locked(blocked) = access(to: Self.absolutePath(pointer, relativeTo: metadata)) else {
-                    return nil
+                switch access(to: Self.absolutePath(pointer, relativeTo: metadata)) {
+                case .allowed: break
+                case let .locked(blocked): locked.append(Self.projectFolder(of: blocked))
+                case .unavailable: return nil
                 }
-                return Self.projectFolder(of: blocked)
-            case let .locked(path): return Self.projectFolder(of: path)
+            case let .locked(path): locked.append(Self.projectFolder(of: path))
             case .unavailable: return nil
             }
         }
+        return locked
     }
 
     private static func absolutePath(_ path: String, relativeTo base: String) -> String {

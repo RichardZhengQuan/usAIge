@@ -158,7 +158,7 @@ struct ModernResourcePage: View {
     private func storageContent(_ storage: PaperweightConfiguration, board: BranchesBoard,
                                 picks: ClearSelection, now: Date) -> some View {
         let disk = store.diskSpace
-        let freeable = store.workspaceIsLocked ? 0 : picks.bytes(from: board.safeToClear)
+        let freeable = picks.bytes(from: board.safeToClear)
         HStack(alignment: .center, spacing: 10) {
             heading("Storage")
             Spacer(minLength: 12)
@@ -189,23 +189,22 @@ struct ModernResourcePage: View {
                     + (disk.map { AppLanguage.format(", leaving %@ free.", locale: locale, BoardText.bytes($0.availableBytes + freeable)) }
                        ?? AppLanguage.text(".", locale: locale))
                 : nil,
-            configuration: store.workspaceIsLocked ? RailPaperweightData.storage(disk) : storage
+            configuration: storage
         )
+        ProjectScanSection(store: store)
         ModernSection(title: "Categories") {
-            if !store.workspaceIsLocked {
-                ModernNavigationRow(
-                    symbol: "folder.fill", color: ModernPalette.worktrees, title: "Worktrees",
-                    subtitle: "Folders AI tools work in, without their build cache",
-                    value: amount("wt", in: storage), action: { presentation.open(.worktrees) }
-                )
-                ModernNavigationRow(
-                    symbol: "hammer.fill", color: ModernPalette.buildCache, title: "Build cache",
-                    subtitle: "Inside worktree folders. A build makes it again.",
-                    value: amount("cache", in: storage), isExpanded: expanded.contains("cat|cache"),
-                    action: { toggle("cat|cache") }
-                )
-                if expanded.contains("cat|cache") { cacheRows(board, now: now) }
-            }
+            ModernNavigationRow(
+                symbol: "folder.fill", color: ModernPalette.worktrees, title: "Worktrees",
+                subtitle: "Scanned worktrees, excluding build caches",
+                value: amount("wt", in: storage), action: { presentation.open(.worktrees) }
+            )
+            ModernNavigationRow(
+                symbol: "hammer.fill", color: ModernPalette.buildCache, title: "Build cache",
+                subtitle: "Build caches inside scanned worktrees",
+                value: amount("cache", in: storage), isExpanded: expanded.contains("cat|cache"),
+                action: { toggle("cat|cache") }
+            )
+            if expanded.contains("cat|cache") { cacheRows(board, now: now) }
             ModernNavigationRow(
                 symbol: "shippingbox.fill", color: ModernPalette.toolStorage, title: "Tool storage",
                 subtitle: "AI tool history and caches. Shown only, never cleared.",
@@ -213,13 +212,11 @@ struct ModernResourcePage: View {
                 action: { toggle("cat|tool") }
             )
             if expanded.contains("cat|tool") { toolRows() }
-            if !store.workspaceIsLocked {
-                ModernNavigationRow(
-                    symbol: "macwindow", color: ModernPalette.system, title: "macOS and apps",
-                    subtitle: "The system, apps and your own files. usAIge doesn't clear these.",
-                    value: amount("other", in: storage)
-                )
-            }
+            ModernNavigationRow(
+                symbol: "macwindow", color: ModernPalette.system, title: "macOS and apps",
+                subtitle: "The system, apps, and other storage outside this scan",
+                value: amount("other", in: storage)
+            )
         }
     }
 

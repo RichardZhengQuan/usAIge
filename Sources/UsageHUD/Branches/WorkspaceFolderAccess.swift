@@ -1,8 +1,8 @@
 import AppKit
 import Darwin
 
-/// Saved paths are discovery hints. Only projects the person chooses during
-/// this launch can be visited, even when macOS remembers a wider permission.
+/// Saved paths are discovery hints. Access granted for a scan lasts until
+/// the app quits, even when macOS remembers a wider permission.
 final class WorkspaceFolderAccess: NSObject, NSOpenSavePanelDelegate, @unchecked Sendable {
     static let shared = WorkspaceFolderAccess(home: FileManager.default.homeDirectoryForCurrentUser.path)
     private let locator: RepositoryLocator
@@ -21,13 +21,23 @@ final class WorkspaceFolderAccess: NSObject, NSOpenSavePanelDelegate, @unchecked
         case allowed, denied, unavailable
     }
 
+    func needsPermission(for folder: String) -> Bool {
+        guard let project = locator.protectedProjectPath(folder) else { return false }
+        return lock.withLock { !paths.contains(project) }
+    }
+
     /// This read is initiated by Scan Project. macOS can ask for Files &
     /// Folders permission as part of opening the project directory.
     func requestScan(of folder: String) async -> Result {
         guard let project = locator.protectedProjectPath(folder) else { return .unavailable }
         return await Task.detached(priority: .userInitiated) { [self] in
             let scope = RepositoryLocator(home: locator.home, allowedFolders: [project])
-            guard case let .allowed(path) = scope.access(to: project) else { return .denied }
+            let path: String
+            switch scope.access(to: project) {
+            case let .allowed(resolved) where scope.isWorkspacePath(resolved): path = resolved
+            case .locked: return .denied
+            default: return .unavailable
+            }
             guard let directory = opendir(path) else {
                 return (errno == EPERM || errno == EACCES) ? .denied : .unavailable
             }
@@ -48,20 +58,18 @@ final class WorkspaceFolderAccess: NSObject, NSOpenSavePanelDelegate, @unchecked
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
+        panel.resolvesAliases = false
+        panel.treatsFilePackagesAsDirectories = false
         panel.message = AppLanguage.text("Choose a project folder to scan.")
         panel.prompt = AppLanguage.text("Add")
         guard panel.runModal() == .OK, let url = panel.url else { return nil }
-        let path = RepositoryLocator.lexicalPath(url.resolvingSymlinksInPath().path)
-        if let project = locator.protectedProjectPath(path) {
-            lock.withLock { _ = paths.insert(project) }
-        }
-        return path
+        return RepositoryLocator.lexicalPath(url.path)
     }
 
     @MainActor
     func panel(_ sender: Any, validate url: URL) throws {
-        let path = url.resolvingSymlinksInPath().path
-        if locator.isProtected(path), locator.protectedProjectPath(path) == nil {
+        let path = url.path
+        if !locator.isWorkspacePath(path) || (locator.isProtected(path) && locator.protectedProjectPath(path) == nil) {
             throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadInvalidFileNameError, userInfo: [
                 NSLocalizedDescriptionKey: AppLanguage.text("Choose a project inside this folder.")
             ])

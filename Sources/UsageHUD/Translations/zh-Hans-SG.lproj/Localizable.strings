@@ -63,6 +63,14 @@
 "Additional repositories" = "其他代码库";
 "Add Folder…" = "添加文件夹…";
 "Scan Project" = "扫描项目";
+"Open Clean" = "打开清理";
+"Project Folders" = "项目文件夹";
+"Add a project folder to include it in this scan." = "添加要纳入此次扫描的项目文件夹。";
+"Scan a project to include it here. macOS may ask for folder access." = "扫描项目即可将其纳入分析。macOS 可能会请求文件夹访问权限。";
+"Scanned worktrees, excluding build caches" = "已扫描的工作树，不含构建缓存";
+"Build caches inside scanned worktrees" = "已扫描工作树中的构建缓存";
+"The system, apps, and other storage outside this scan" = "系统、应用和此次扫描未覆盖的其他存储";
+"No finished worktrees in scanned projects." = "已扫描的项目中没有已完成的工作树。";
 "Scan %@" = "扫描%@";
 "Unscanned projects" = "未扫描的项目";
 "No projects scanned" = "尚未扫描任何项目";

@@ -171,14 +171,37 @@ struct StorageCleanupTests {
 
     @Test func incompleteFolderSizesAreUnknown() async throws {
         let fixture = try GitFixture()
+        let locator = RepositoryLocator(home: fixture.home)
         try fixture.write("readable/data", "fixture")
         try fixture.write("unreadable/data", "protected fixture")
         let folder = fixture.repository + "/unreadable"
         let manager = FileManager.default
         try manager.setAttributes([.posixPermissions: 0o000], ofItemAtPath: folder)
         defer { try? manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder) }
-        #expect(await FolderSizer.bytes(of: fixture.repository) == nil)
-        #expect(CleanupFileInspection.read(fixture.repository) == nil)
+        #expect(await FolderSizer.bytes(of: fixture.repository, locator: locator) == nil)
+        #expect(CleanupFileInspection.read(fixture.repository, locator: locator) == nil)
+    }
+
+    @Test func storageDiscoverySkipsHomeAndPhotoLibraries() async throws {
+        let fixture = try Self.prepareRepository()
+        let locator = RepositoryLocator(home: fixture.home)
+        let library = fixture.repository + "/Library.PhotosLibrary"
+        try fixture.write("Library.PhotosLibrary/assets", String(repeating: "x", count: 1_000_000))
+        try fixture.write("Pictures/Photos Library.photoslibrary/assets", "private fixture", in: fixture.home)
+        try installDependency(in: fixture.repository, fixture: fixture)
+
+        let scanner = StorageArtifactScanner(home: fixture.home, locator: locator, git: GitClient.locate(),
+                                             processes: { [] }, sessions: [], now: Date())
+        let inventory = await scanner.scan(sessionFolders: [fixture.home, fixture.repository],
+                                           addedFolders: [fixture.home, library])
+        #expect(inventory.foldersChecked == 1)
+        #expect(inventory.skippedFolders.isEmpty)
+        #expect(inventory.rows.compactMap(\.candidate).map(\.id) == [fixture.repository + "/site/node_modules"])
+        #expect(await FolderSizer.bytes(of: fixture.home, locator: locator) == nil)
+        #expect(await FolderSizer.bytes(of: library, locator: locator) == nil)
+        let withoutPhotos = try #require(await FolderSizer.bytes(of: fixture.repository, locator: locator))
+        #expect(withoutPhotos < 1_000_000)
+        #expect(CleanupFileInspection.read(fixture.repository, locator: locator) == nil)
     }
 
     private static func prepareRepository() throws -> GitFixture {

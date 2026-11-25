@@ -133,8 +133,7 @@ final class BranchesStore: ObservableObject {
         diskSpace = space
     }
 
-    /// Asking the volume can take a moment when macOS works out what it
-    /// could purge, so it's read off the main thread.
+    /// Keep filesystem queries off the main thread.
     func readDiskSpace() {
         let url = diskURL
         Task { [weak self] in
@@ -261,9 +260,11 @@ final class BranchesStore: ObservableObject {
     // MARK: Folders
 
     @discardableResult
-    func chooseFolder() -> Bool {
-        guard !isDeleting, let path = WorkspaceFolderAccess.shared.chooseFolder() else { return false }
+    func chooseFolder(forScan: Bool = false) -> Bool {
+        let access = WorkspaceFolderAccess.shared
+        guard !isDeleting, requestingProject == nil, let path = access.chooseFolder() else { return false }
         addSelectedFolder(path)
+        if forScan, access.needsPermission(for: path) { scanProject(path) }
         return true
     }
 
@@ -281,7 +282,8 @@ final class BranchesStore: ObservableObject {
     var workspaceIsLocked: Bool { !snapshot.notCheckedFolders.isEmpty }
 
     func scanProject(_ folder: String) {
-        guard snapshot.notCheckedFolders.contains(folder), requestingProject == nil, !isDeleting else { return }
+        guard !isDeleting, requestingProject == nil,
+              snapshot.notCheckedFolders.contains(folder) || addedFolders.contains(folder) else { return }
         projectAccessFailures[folder] = nil
         requestingProject = folder
         Task { [weak self] in

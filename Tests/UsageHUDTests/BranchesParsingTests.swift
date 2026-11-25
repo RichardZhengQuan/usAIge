@@ -180,6 +180,17 @@ import Testing
     #expect(selected.locate(folders: [fixture.repository]).repositories.map(\.commonDirectory) == [fixture.repository + "/.git"])
 }
 
+@Test func aMountedVolumeRequiresChoosingAProjectWithinIt() {
+    let volume = "/Volumes/Example Drive"
+    let project = volume + "/project"
+    let sibling = volume + "/project-other"
+    let locked = RepositoryLocator(home: "/Users/example", allowedFolders: [volume])
+    #expect(locked.locate(folders: [volume, project]).notChecked == [project])
+    let selected = RepositoryLocator(home: "/Users/example", allowedFolders: [project])
+    #expect(selected.isAllowed(project + "/.git"))
+    #expect(!selected.isAllowed(sibling))
+}
+
 @Test func projectAliasesAndRelativeCommonDirectoriesRespectTheSelectedFolder() throws {
     let fixture = try GitFixture()
     let project = fixture.home + "/Documents/target"
@@ -206,6 +217,32 @@ import Testing
     #expect(RepositoryLocator.normalized("/var/folders/a") == "/private/var/folders/a")
     #expect(RepositoryLocator.normalized("/Users/me/app/") == "/Users/me/app")
     #expect(RepositoryLocator.normalized("/") == "/")
+}
+
+@Test func photoAndHomePathsAreExcludedEvenWhenSuppliedByGitOrAnAlias() throws {
+    let fixture = try GitFixture()
+    let library = fixture.home + "/Pictures/Photos Library.photoslibrary"
+    let external = fixture.root + "/Moved.PhOtOsLiBrArY"
+    let alias = fixture.root + "/photos-alias"
+    try fixture.write(".git/HEAD", "ref: refs/heads/main", in: library)
+    try fixture.write(".git/HEAD", "ref: refs/heads/main", in: external)
+    try fixture.write(".git/HEAD", "ref: refs/heads/main", in: fixture.home)
+    try FileManager.default.createSymbolicLink(atPath: alias, withDestinationPath: external)
+
+    let locator = RepositoryLocator(home: fixture.home, allowedFolders: [fixture.home, library, external])
+    let paths = [fixture.home, fixture.root, library, external, alias]
+    let result = locator.locate(folders: paths)
+    #expect(result.repositories.isEmpty)
+    #expect(result.notChecked.isEmpty)
+    #expect(paths.allSatisfy { locator.gitPlace(containing: $0) == nil })
+    #expect(locator.gitPlace(containing: fixture.home + "/Pictures") == nil)
+    #expect(locator.excludesPhotos(at: "/System/Volumes/Data" + library))
+
+    let worktree = fixture.root + "/Second.PhotosLibrary"
+    try fixture.git(["worktree", "add", "--quiet", "-b", "private", worktree])
+    let afterAddingWorktree = locator.locate(folders: [fixture.repository])
+    #expect(afterAddingWorktree.repositories.isEmpty)
+    #expect(afterAddingWorktree.notChecked.isEmpty)
 }
 
 // MARK: Status rules
@@ -365,20 +402,30 @@ private func facts(_ change: (inout WorkFacts) -> Void = { _ in }) -> WorkFacts 
 
 @Test func nestedWorktreesAreNotCountedInsideTheFolderThatHoldsThem() async throws {
     let fixture = try GitFixture()
+    let locator = RepositoryLocator(home: fixture.home)
     let outer = fixture.root + "/sized"
     try fixture.write("data/big.bin", String(repeating: "x", count: 2_000_000), in: outer)
     try fixture.write("node_modules/dep.js", String(repeating: "y", count: 1_000_000), in: outer)
     try fixture.write(".env", "SECRET=1\n", in: outer)
     let inner = outer + "/data"
-    let nestedBytes = try #require(await FolderSizer.bytes(of: inner))
+    let nestedBytes = try #require(await FolderSizer.bytes(of: inner, locator: locator))
 
     let size = try #require(await FolderSizer.measure(
-        folder: outer, ignored: ["node_modules", ".env"], nestedSizes: [inner: nestedBytes], now: Date()
+        folder: outer, ignored: ["node_modules", ".env"], nestedSizes: [inner: nestedBytes], now: Date(), locator: locator
     ))
     #expect(size.totalBytes < 1_500_000)
     #expect(size.cacheBytes >= 1_000_000)
     #expect(size.cacheBytesByName["node_modules"] == size.cacheBytes)
     #expect(size.otherIgnored == [".env"])
+}
+
+@Test func diskSpaceReadsTheVolumeForAnExistingPath() throws {
+    let fixture = try GitFixture()
+    let path = URL(fileURLWithPath: fixture.home)
+    let capacity = try #require(DiskSpace.read(for: path))
+    #expect(capacity.totalBytes > 0)
+    #expect((0...capacity.totalBytes).contains(capacity.availableBytes))
+    #expect(DiskSpace.read(for: path.appendingPathComponent("missing")) == nil)
 }
 
 // MARK: Commands

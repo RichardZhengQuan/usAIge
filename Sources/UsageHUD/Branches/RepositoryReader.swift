@@ -112,7 +112,8 @@ enum RepositoryReader {
             facts.mainBranchKnown = snapshot.baseCommit != nil
             facts.containsOtherWorktree = worktreePaths.contains { $0 != path && RepositoryLocator.contains(path, $0) }
             facts.stashCount = record.branch.flatMap { snapshot.stashCounts[$0] } ?? 0
-            if case let .allowed(resolved) = locator.access(to: path) {
+            if locator.isWorkspacePath(path), case let .allowed(resolved) = locator.access(to: path),
+               locator.isWorkspacePath(resolved) {
                 facts.folderExists = FileManager.default.fileExists(atPath: resolved)
                 facts.folderReadable = !(locator.isProtected(resolved) && RepositoryLocator.isManagedByICloud(resolved))
             } else {

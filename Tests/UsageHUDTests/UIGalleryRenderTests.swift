@@ -509,7 +509,8 @@ struct UIGalleryRenderTests {
         defaults.set(InterfaceStyle.modern.rawValue, forKey: InterfaceStyle.defaultsKey)
         let protected = FileManager.default.homeDirectoryForCurrentUser.path + "/Documents/Project"
         let snapshot = BranchesSnapshot(notCheckedFolders: [protected])
-        let store = BranchesStore(defaults: defaults, initialSnapshot: snapshot, initialDiskSpace: sampleDiskSpace)
+        let store = BranchesStore(defaults: defaults, initialSnapshot: snapshot, initialDiskSpace: sampleDiskSpace,
+                                  initialCleanupInventory: StorageCleanupInventory())
         let memory = sampleMemoryUsage
         let monitor = LiveWorkMonitor(currentTasks: { [] }, runningApplications: { [:] },
                                       scan: { _, _ in [] }, readDiskSpace: { nil },
@@ -518,7 +519,7 @@ struct UIGalleryRenderTests {
         let usage = UsageStore(provider: FixedUsageProvider(.success(.authenticated(mixedSnapshots))),
                                monitorsNetworkChanges: false)
         await usage.refresh()
-        let pages: [ModernPage] = [.overview, .memory, .storage, .branches, .worktrees, .usage]
+        let pages: [ModernPage] = [.clean, .overview, .memory, .storage, .branches, .worktrees, .usage]
         for page in pages {
             let presentation = BranchesPaperweightPresentation()
             presentation.open(page)

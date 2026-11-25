@@ -30,11 +30,17 @@
 	<key>LSMinimumSystemVersion</key>
 	<string>11.0</string>
     <key>NSDocumentsFolderUsageDescription</key>
-    <string>usAIge reads the project you choose in Documents to check its branches, worktrees, and build cache sizes.</string>
+    <string>usAIge checks the project folder you choose in Documents for worktrees, build caches, and generated files.</string>
     <key>NSDesktopFolderUsageDescription</key>
-    <string>usAIge reads the project you choose on your Desktop to check its branches, worktrees, and build cache sizes.</string>
+    <string>usAIge checks the project folder you choose on your Desktop for worktrees, build caches, and generated files.</string>
     <key>NSDownloadsFolderUsageDescription</key>
-    <string>usAIge reads the project you choose in Downloads to check its branches, worktrees, and build cache sizes.</string>
+    <string>usAIge checks the project folder you choose in Downloads for worktrees, build caches, and generated files.</string>
+    <key>NSRemovableVolumesUsageDescription</key>
+    <string>usAIge checks the project folder you choose on the removable drive for worktrees, build caches, and generated files.</string>
+    <key>NSNetworkVolumesUsageDescription</key>
+    <string>usAIge checks the project folder you choose on the network drive for worktrees, build caches, and generated files.</string>
+    <key>NSFileProviderDomainUsageDescription</key>
+    <string>usAIge checks the project folder you choose for worktrees, build caches, and generated files.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSPrincipalClass</key>

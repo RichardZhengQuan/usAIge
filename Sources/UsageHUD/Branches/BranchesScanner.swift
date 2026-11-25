@@ -328,10 +328,10 @@ actor BranchesScanner {
                 nested[path] = known.totalBytes
             } else if let git = environment.git,
                       let ignored = await RepositoryReader.ignoredFiles(git: git, folder: path) {
-                let review = item.facts.isMainCopy ? nil : WorktreeIgnoredReview.read(worktree: path, ignored: ignored)
+                let review = item.facts.isMainCopy ? nil : WorktreeIgnoredReview.read(worktree: path, ignored: ignored, locator: locator)
                 rows[item.id]?.ignoredFiles = ignored
                 rows[item.id]?.ignoredReview = review
-                if var size = await FolderSizer.measure(folder: path, ignored: ignored, nestedSizes: nested, now: now) {
+                if var size = await FolderSizer.measure(folder: path, ignored: ignored, nestedSizes: nested, now: now, locator: locator) {
                     size.ignoredReview = review
                     cache.sizes[path] = size
                     nested[path] = size.totalBytes
@@ -622,7 +622,7 @@ actor BranchesScanner {
 
         if hadFolder, let path = fresh.worktreePath {
             guard let ignored = await RepositoryReader.ignoredFiles(git: git, folder: path),
-                  let review = WorktreeIgnoredReview.read(worktree: path, ignored: ignored) else {
+                  let review = WorktreeIgnoredReview.read(worktree: path, ignored: ignored, locator: locator) else {
                 cache.sizes[path] = nil
                 return "usAIge couldn't re-check all ignored contents."
             }

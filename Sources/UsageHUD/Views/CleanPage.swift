@@ -30,6 +30,7 @@ struct CleanPage: View {
                     .disabled(store.isScanningCleanup || store.isDeleting)
                 }
                 .padding(.horizontal, 4)
+                ProjectScanSection(store: store)
                 ModernSection(title: "Generated Files", tint: ModernPalette.buildCache) {
                     Button {
                         beginReview()
@@ -64,7 +65,7 @@ struct CleanPage: View {
                 } content: {
                     if items.isEmpty {
                         ModernNoteRow(text: store.hasCheckedWorktrees && store.snapshot.activity == .idle
-                                      ? "No finished worktrees to review." : "Checking worktrees…", symbol: "folder")
+                                      ? "No finished worktrees in scanned projects." : "Checking worktrees…", symbol: "folder")
                     } else {
                         candidateRows(items, expanded: $allWorktrees) { item in
                             detailRow(title: item.workTitle, path: item.worktreePath ?? item.repositoryName,

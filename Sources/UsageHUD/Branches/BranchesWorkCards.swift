@@ -531,6 +531,7 @@ struct LeftoverCopyCard<Content: View>: View {
 struct UnscannedProjectRow: View {
     let folder: String
     @ObservedObject var store: BranchesStore
+    var openClean: (() -> Void)? = nil
     @Environment(\.locale) private var locale
 
     var body: some View {
@@ -552,7 +553,11 @@ struct UnscannedProjectRow: View {
                 }
             }
             Spacer(minLength: 8)
-            if store.requestingProject == folder {
+            if let openClean {
+                Button(action: openClean) {
+                    Text("Open Clean", bundle: AppLanguage.resourceBundle)
+                }
+            } else if store.requestingProject == folder {
                 ProgressView { Text("Waiting for macOS", bundle: AppLanguage.resourceBundle) }
                     .controlSize(.small)
             } else {
@@ -565,6 +570,46 @@ struct UnscannedProjectRow: View {
             }
         }
         .modifier(CardSurface())
+    }
+}
+
+@available(macOS 14.0, *)
+struct ProjectScanSection: View {
+    @ObservedObject var store: BranchesStore
+    @State private var showsAll = false
+    @Environment(\.locale) private var locale
+
+    var body: some View {
+        let folders = store.snapshot.notCheckedFolders
+        let limit = 3
+        ModernSection(title: "Project Folders") {
+            Button {
+                store.chooseFolder(forScan: true)
+            } label: {
+                Text("Add Folder…", bundle: AppLanguage.resourceBundle)
+            }
+            .disabled(store.isDeleting || store.requestingProject != nil)
+        } content: {
+            ModernNoteRow(text: folders.isEmpty
+                          ? "Add a project folder to include it in this scan."
+                          : "Scan a project to include it here. macOS may ask for folder access.",
+                          symbol: folders.isEmpty ? "folder" : "lock")
+            ForEach(folders.prefix(showsAll ? folders.count : limit), id: \.self) { folder in
+                UnscannedProjectRow(folder: folder, store: store)
+            }
+            if folders.count > limit {
+                Button {
+                    showsAll.toggle()
+                } label: {
+                    Text(showsAll ? AppLanguage.text("Show less", locale: locale)
+                         : AppLanguage.format("Show all %lld", locale: locale, folders.count))
+                }
+                .buttonStyle(.link)
+                .padding(.horizontal, ModernMetrics.rowPadding)
+                .padding(.vertical, 8)
+            }
+        }
+        .environment(\.interfaceStyle, .modern)
     }
 }
 

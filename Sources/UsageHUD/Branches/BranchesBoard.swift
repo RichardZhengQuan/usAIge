@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// How full the disk holding the home folder is.
@@ -13,14 +14,16 @@ struct DiskSpace: Equatable, Sendable {
         return min(1, max(0, Double(usedBytes - bytes) / Double(totalBytes)))
     }
 
-    /// Free space as Finder counts it, including what macOS can purge.
+    /// Read the volume counters directly. Estimating purgeable space can make
+    /// macOS consult services such as Photos during an ordinary launch.
     static func read(for url: URL) -> DiskSpace? {
-        let keys: Set<URLResourceKey> = [.volumeTotalCapacityKey, .volumeAvailableCapacityForImportantUsageKey]
-        guard let values = try? url.resourceValues(forKeys: keys),
-              let total = values.volumeTotalCapacity,
-              let available = values.volumeAvailableCapacityForImportantUsage,
-              total > 0 else { return nil }
-        return DiskSpace(totalBytes: Int64(total), availableBytes: available)
+        var volume = statfs()
+        guard url.isFileURL, statfs(url.path, &volume) == 0, volume.f_bsize > 0, volume.f_blocks > 0 else { return nil }
+        let blockSize = UInt64(volume.f_bsize)
+        let (total, overflow) = volume.f_blocks.multipliedReportingOverflow(by: blockSize)
+        guard !overflow, let totalBytes = Int64(exactly: total) else { return nil }
+        let available = min(volume.f_bavail, volume.f_blocks) * blockSize
+        return DiskSpace(totalBytes: totalBytes, availableBytes: Int64(available))
     }
 }
 

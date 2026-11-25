@@ -30,7 +30,8 @@ struct CleanupFileInspection: Equatable, Sendable {
     }
 
     static func directory(_ path: String) -> CleanupFileIdentity? {
-        guard let info = metadata(path), isDirectory(info), isLocal(path, info: info),
+        guard !RepositoryLocator.containsPhotoLibrary(path),
+              let info = metadata(path), isDirectory(info), isLocal(path, info: info),
               normalized(path) == normalized(URL(fileURLWithPath: path).resolvingSymlinksInPath().path)
         else { return nil }
         return CleanupFileIdentity(info)
@@ -41,15 +42,17 @@ struct CleanupFileInspection: Equatable, Sendable {
     }
 
     static func regularFile(_ path: String) -> stat? {
-        guard let info = metadata(path), info.st_mode & S_IFMT == S_IFREG,
+        guard !RepositoryLocator.containsPhotoLibrary(path),
+              let info = metadata(path), info.st_mode & S_IFMT == S_IFREG,
               isLocal(path, info: info) else { return nil }
         return info
     }
 
-    static func read(_ path: String) -> CleanupFileInspection? {
-        guard let info = metadata(path),
+    static func read(_ path: String, locator: RepositoryLocator) -> CleanupFileInspection? {
+        guard case let .allowed(resolved) = locator.access(to: path), resolved == path,
+              let info = metadata(path),
               directory((path as NSString).deletingLastPathComponent) != nil else { return nil }
-        var scan = Inspection(root: path, device: info.st_dev)
+        var scan = Inspection(root: path, device: info.st_dev, locator: locator)
         guard scan.visit(path, info: info, depth: 0) else { return nil }
         return CleanupFileInspection(identity: CleanupFileIdentity(info), fingerprint: Self.finish(scan.digest),
                                      allocatedBytes: scan.bytes, protectedPath: scan.protectedPath)
@@ -72,6 +75,7 @@ struct CleanupFileInspection: Equatable, Sendable {
     private struct Inspection {
         let root: String
         let device: Int32
+        let locator: RepositoryLocator
         var digest = SHA256()
         var bytes: Int64 = 0
         var protectedPath: String?
@@ -103,18 +107,23 @@ struct CleanupFileInspection: Equatable, Sendable {
                 // Standard npm executable links point inside node_modules.
                 // Other links may represent a locally linked package.
                 guard let target = try? FileManager.default.destinationOfSymbolicLink(atPath: path) else { return false }
-                let destination = URL(fileURLWithPath: target, relativeTo: URL(
-                    fileURLWithPath: (path as NSString).deletingLastPathComponent, isDirectory: true
-                )).standardizedFileURL
-                let resolved = CleanupFileInspection.normalized(destination.resolvingSymlinksInPath().path)
-                if path == root || !RepositoryLocator.contains(root, resolved) { protectedPath = protectedPath ?? path }
+                let parent = (path as NSString).deletingLastPathComponent
+                let destination = target.hasPrefix("/") ? target : parent + "/" + target
+                if path == root || !RepositoryLocator.contains(root, RepositoryLocator.lexicalPath(destination)) {
+                    protectedPath = protectedPath ?? path
+                } else if case let .allowed(resolved) = locator.access(to: destination),
+                          RepositoryLocator.contains(root, resolved) {
+                    // Internal links are part of a standard npm installation.
+                } else {
+                    protectedPath = protectedPath ?? path
+                }
                 digest.update(data: Data("\(target.utf8.count):\(target)\n".utf8))
                 return true
             case S_IFDIR:
                 guard let children = try? FileManager.default.contentsOfDirectory(atPath: path) else { return false }
                 for name in children.sorted() {
                     let child = path + "/" + name
-                    guard let childInfo = CleanupFileInspection.metadata(child),
+                    guard !RepositoryLocator.isPhotoLibraryName(name), let childInfo = CleanupFileInspection.metadata(child),
                           visit(child, info: childInfo, depth: depth + 1) else { return false }
                 }
                 // A replaced or edited directory invalidates a partially read inventory.
@@ -141,14 +150,14 @@ struct WorktreeIgnoredReview: Codable, Equatable, Sendable {
     let fingerprint: String
     let unverifiedPaths: [String]
 
-    static func read(worktree: String, ignored: [String]) -> WorktreeIgnoredReview? {
+    static func read(worktree: String, ignored: [String], locator: RepositoryLocator) -> WorktreeIgnoredReview? {
         guard let identity = CleanupFileInspection.directory(worktree) else { return nil }
         var digest = SHA256()
         var unverified: [String] = []
         for relative in ignored.sorted() {
             let path = worktree + "/" + relative
             guard CleanupFileInspection.normalized(path) == path, RepositoryLocator.contains(worktree, path),
-                  path != worktree, let scan = CleanupFileInspection.read(path),
+                  path != worktree, let scan = CleanupFileInspection.read(path, locator: locator),
                   scan.identity.device == identity.device else { return nil }
             digest.update(data: Data("\(relative.utf8.count):\(relative):\(scan.fingerprint)\n".utf8))
             if let protected = scan.protectedPath {

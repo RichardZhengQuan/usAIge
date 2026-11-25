@@ -81,7 +81,7 @@ struct StorageCleanupReview: View {
                 .fixedSize()
                 Spacer(minLength: 12)
                 Button("Add Folder…") {
-                    if store.chooseFolder() { selected.removeAll() }
+                    if store.chooseFolder(forScan: true) { selected.removeAll() }
                 }
                 Button("Rescan", systemImage: "arrow.clockwise", action: rescan)
                     .disabled(inventory == nil)

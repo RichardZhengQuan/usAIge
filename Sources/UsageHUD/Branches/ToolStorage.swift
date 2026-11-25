@@ -68,12 +68,15 @@ enum ToolStorageScanner {
     ]
 
     static func scan(home: URL) async -> [ToolStorageEntry] {
+        let locator = RepositoryLocator(home: home.path)
         var entries: [ToolStorageEntry] = []
         for item in catalog {
             if Task.isCancelled { return entries }
             let url = home.appendingPathComponent(item.relativePath)
-            guard FileManager.default.fileExists(atPath: url.path),
-                  let bytes = await FolderSizer.bytes(of: url.path) else { continue }
+            guard case let .allowed(path) = locator.access(to: url.path),
+                  path == RepositoryLocator.lexicalPath(url.path),
+                  FileManager.default.fileExists(atPath: path),
+                  let bytes = await FolderSizer.bytes(of: path, locator: locator) else { continue }
             entries.append(ToolStorageEntry(name: item.name, path: url.path, bytes: bytes, kind: item.kind))
         }
         entries.append(contentsOf: await simulatorRuntimes())
