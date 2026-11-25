@@ -739,7 +739,7 @@ enum HUDMetrics {
 
     static let messageSize = CGSize(width: railWidth, height: 120)
     static let itemSpacing: CGFloat = 10
-    static let quotaRowHeight: CGFloat = 84
+    static let quotaRowHeight: CGFloat = 102
     static let resourcePaperweightHeight: CGFloat = 35
     static let resourceReadoutHeight: CGFloat = 16
     static let resourceReadoutGap: CGFloat = 2
@@ -773,7 +773,7 @@ enum HUDMetrics {
     }
 
     static func rowHeight(for textSize: HUDTextSize) -> CGFloat {
-        quotaRowHeight + ceil(20 * (textSize.factor - 1))
+        quotaRowHeight + ceil(34 * (textSize.factor - 1))
     }
 
     /// The tallest unscaled rail that still fits the display once the user's

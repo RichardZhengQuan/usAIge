@@ -1,29 +1,19 @@
 {
-  "build" : 53,
-  "downloadURL" : "https://pmrichq.com/project/usaige/usAIge-0.2.31-alpha.dmg",
+  "build" : 59,
+  "downloadURL" : "https://pmrichq.com/project/usaige/usAIge-0.2.34-alpha.dmg",
   "minimumSystemVersion" : "11.0",
   "releaseNotes" : {
-    "headline" : "A new Modern look",
+    "headline" : "Recognize your tools at a glance",
     "highlights" : [
       {
-        "detail" : "One ring per AI tool, always on glass at the side of your display. Point at a ring to see every limit, free reset and what the tool is working on.",
+        "detail" : "Each badge sits inside its usage ring, with the provider name and reset times below.",
         "systemImage" : "sidebar.right",
-        "title" : "Full-height rail"
-      },
-      {
-        "detail" : "Overview, Usage, Memory, Storage, Branches, Worktrees, and iPhone & Apple Watch each have their own page. Usage shows when each limit resets.",
-        "systemImage" : "square.grid.2x2",
-        "title" : "A page for each part"
-      },
-      {
-        "detail" : "See the free resets ChatGPT and Claude offer, what each refills, and when it expires.",
-        "systemImage" : "arrow.counterclockwise.circle",
-        "title" : "Free resets"
+        "title" : "Floating panel badges"
       }
     ],
-    "summary" : "usAIge now looks and works like a Mac app by default. The rail runs the full height of your display, and the window has a page for each part of the app. Choose Classic in Settings to keep the ocean."
+    "summary" : "The Mac app uses the selected charcoal-and-ivory circular provider badges."
   },
-  "sha256" : "c65592225455f87da71ceae545d9c16f2c884c11fa8ac7169d1a5ad212a02aba",
-  "signature" : "TZjAk/kogcD2cajq/qB2diUuzua2HuyT5faKQpjvS9xx46yi2pB6zTSen00nNvvZcGJyXrs4P4WYBPLOEzqjAQ==",
-  "version" : "0.2.31"
+  "sha256" : "375fd9f501f573081372042a34787c5fb26cb3cdc19fadb35d17daad0ef3b847",
+  "signature" : "hHvpwuugAltaLeOhX8UjWpxviHHG0FfnF1LOnn7cu6j5sd+C5V0ByCZsUwVHjdYtMjSY84krBj0FDm7uZFfpBg==",
+  "version" : "0.2.34"
 }

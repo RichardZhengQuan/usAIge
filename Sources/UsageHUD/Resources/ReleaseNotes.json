@@ -1,24 +1,14 @@
 {
-  "version": "0.2.31",
-  "build": 53,
+  "version": "0.2.34",
+  "build": 59,
   "releaseNotes": {
-    "headline": "A new Modern look",
-    "summary": "usAIge now looks and works like a Mac app by default. The rail runs the full height of your display, and the window has a page for each part of the app. Choose Classic in Settings to keep the ocean.",
+    "headline": "Recognize your tools at a glance",
+    "summary": "The Mac app uses the selected charcoal-and-ivory circular provider badges.",
     "highlights": [
       {
-        "title": "Full-height rail",
-        "detail": "One ring per AI tool, always on glass at the side of your display. Point at a ring to see every limit, free reset and what the tool is working on.",
+        "title": "Floating panel badges",
+        "detail": "Each badge sits inside its usage ring, with the provider name and reset times below.",
         "systemImage": "sidebar.right"
-      },
-      {
-        "title": "A page for each part",
-        "detail": "Overview, Usage, Memory, Storage, Branches, Worktrees, and iPhone & Apple Watch each have their own page. Usage shows when each limit resets.",
-        "systemImage": "square.grid.2x2"
-      },
-      {
-        "title": "Free resets",
-        "detail": "See the free resets ChatGPT and Claude offer, what each refills, and when it expires.",
-        "systemImage": "arrow.counterclockwise.circle"
       }
     ]
   }

@@ -1,9 +1,7 @@
 import AppKit
 import Foundation
 
-/// The vendors' own marks, shipped in `Contents/Resources/ToolMarks` as
-/// white-on-transparent PNGs and drawn as template images so they take the
-/// current text color like the app-provided ChatGPT template does.
+/// Circular provider artwork packaged inside the Mac app.
 enum BundledToolMark {
     static let directoryName = "ToolMarks"
     static let environmentKey = "USAIGE_TOOL_MARKS_DIR"
@@ -13,7 +11,16 @@ enum BundledToolMark {
 
     static func fileName(for id: AIToolID) -> String? {
         switch id {
-        case .claude, .cursor, .grok: "\(id.rawValue).png"
+        case .chatGPT: "ToolMarkChatGPT.png"
+        case .claude: "ToolMarkClaude.png"
+        case .cursor: "ToolMarkCursor.png"
+        case .grok: "ToolMarkGrok.png"
+        case .gemini: "ToolMarkGemini.png"
+        case .jetBrainsAI: "ToolMarkJetBrains.png"
+        case .windsurf: "ToolMarkWindsurf.png"
+        case .copilot: "ToolMarkGitHubCopilot.png"
+        case .cline: "ToolMarkCline.png"
+        case .openCodeGo: "ToolMarkOpenCode.png"
         default: nil
         }
     }
@@ -54,7 +61,6 @@ enum BundledToolMark {
         }
         lock.unlock()
         let image = url(for: id).flatMap(NSImage.init(contentsOf:))
-        image?.isTemplate = true
         lock.lock()
         cache[id] = image
         lock.unlock()

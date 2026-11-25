@@ -189,9 +189,9 @@ The packaged application includes the custom usAIge icon in Finder, the Dock, Sp
 
 ## Install the public alpha
 
-Download `usAIge-0.2.31-alpha.dmg` and its checksum from the website. Open the disk image, then drag `usAIge.app` onto the Applications shortcut.
+Download `usAIge-0.2.34-alpha.dmg` and its checksum from the website. Open the disk image, then drag `usAIge.app` onto the Applications shortcut.
 
-In the 0.2.31 alpha, usAIge has a new **Modern** look by default: a full-height rail with one ring per AI tool, and a page in the window for Overview, Usage, Memory, Storage, Branches, Worktrees, and iPhone & Apple Watch. Usage shows when each limit resets and the free resets ChatGPT and Claude offer. Choose **Classic** in Settings to keep the ocean.
+In the 0.2.34 alpha, recover AI tool connections from **Usage**, see larger resource charts, and check reclaimable storage in **Clean**. The floating rail shows each tool’s name and circular graphite-and-ivory badge alongside its usage and resets. Choose **Classic** in Settings to keep the ocean.
 
 This alpha is ad-hoc signed and is not notarized because the project does not yet have a Developer ID Application certificate. On first launch:
 
@@ -205,7 +205,7 @@ To build and verify the installer locally:
 
 ```bash
 scripts/package-dmg.sh
-(cd dist && shasum -a 256 -c usAIge-0.2.31-alpha.dmg.sha256)
+(cd dist && shasum -a 256 -c usAIge-0.2.34-alpha.dmg.sha256)
 ```
 
 For headless packaging, reuse the layout from a trusted previous installer:

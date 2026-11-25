@@ -4,49 +4,48 @@ import SwiftUI
 import Testing
 @testable import UsageHUD
 
-@Test func everyBuiltInToolHasABrandMarkAndTemplateCandidatesWhereAppsShipThem() {
-    for id in [AIToolID.claude, .cursor, .grok, .gemini, .jetBrainsAI, .windsurf] {
-        #expect(BrandMark.hasMark(for: id))
-    }
-    #expect(!BrandMark.hasMark(for: .chatGPT))
-    #expect(!BrandMark.hasMark(for: AIToolID(rawValue: "remote-tool")))
-    #expect(AIToolIcon.templateIconCandidates(for: .chatGPT) == ["chatgptTemplate@2x.png", "chatgptTemplate.png"])
-    #expect(AIToolIcon.templateIconCandidates(for: .claude) == ["TrayIconTemplate@2x.png", "TrayIconTemplate.png"])
-    #expect(AIToolIcon.templateIconCandidates(for: .cursor).isEmpty)
-    #expect(AIToolIcon.templateIconCandidates(for: .grok).isEmpty)
-}
-
-@Test func bundledToolMarksShipForClaudeCursorAndGrok() throws {
+@Test func bundledProviderArtworkKeepsTheCircularAlpha() throws {
     let repoRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     let marks = repoRoot.appendingPathComponent("Sources/UsageHUD/Resources/ToolMarks")
     let environment = [BundledToolMark.environmentKey: marks.path]
-
-    for id in [AIToolID.claude, .cursor, .grok] {
+    let tools: [AIToolID] = [
+        .chatGPT, .claude, .cursor, .grok, .gemini, .jetBrainsAI, .windsurf, .copilot, .cline, .openCodeGo,
+    ]
+    var fileNames: Set<String> = []
+    for id in tools {
+        let fileName = try #require(BundledToolMark.fileName(for: id))
+        #expect(fileNames.insert(fileName).inserted)
         let url = try #require(BundledToolMark.url(for: id, environment: environment))
         let image = try #require(NSImage(contentsOf: url))
-        #expect(image.size.width > 0 && image.size.height > 0)
+        #expect(!image.isTemplate)
+        let data = try Data(contentsOf: url)
+        let bitmap = try #require(NSBitmapImageRep(data: data))
+        #expect(bitmap.pixelsWide == 256 && bitmap.pixelsHigh == 256)
+        #expect(bitmap.hasAlpha)
+        #expect(bitmap.colorAt(x: 0, y: 0)?.alphaComponent == 0)
+        #expect(bitmap.colorAt(x: 128, y: 128)?.alphaComponent == 1)
     }
-    #expect(BundledToolMark.fileName(for: .chatGPT) == nil)
+    #expect(BundledToolMark.fileName(for: AIToolID(rawValue: "remote-tool")) == nil)
     #expect(BundledToolMark.url(for: .claude, environment: [:], bundle: Bundle(for: LocalToolTestAnchor.self)) == nil)
-    #expect(BundledToolMark.searchDirectories(environment: environment, bundle: .main).first?.path == marks.path)
 }
 
 private final class LocalToolTestAnchor {}
 
 /// Opt-in: renders every tool icon to PNG for a visual check.
-///   USAIGE_RENDER_ICONS=/path/to/dir swift test --filter rendersBrandMarks
+///   USAIGE_RENDER_ICONS=/path/to/dir swift test --filter rendersToolGlyphs
 @MainActor
 @Test(.enabled(if: ProcessInfo.processInfo.environment["USAIGE_RENDER_ICONS"] != nil))
-func rendersBrandMarksToPNG() throws {
+func rendersToolGlyphsToPNG() throws {
     guard #available(macOS 13.0, *) else { return }
     let directory = URL(fileURLWithPath: ProcessInfo.processInfo.environment["USAIGE_RENDER_ICONS"]!)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     for id in AIToolID.builtInIDs {
         for (variant, view) in [
-            ("icon", AnyView(AIToolIcon(tool: .descriptor(for: id), size: 64).padding(8).background(Color.white))),
-            ("mark", AnyView(BrandMarkView(toolID: id).frame(width: 64, height: 64).padding(8).foregroundColor(.black).background(Color.white))),
-            ("dark", AnyView(AIToolIcon(tool: .descriptor(for: id), size: 64).padding(8).background(Color.black).environment(\.colorScheme, .dark))),
+            ("tile", AnyView(AIToolIcon(tool: .descriptor(for: id), size: 64).padding(8).background(Color.white))),
+            ("circle-light", AnyView(AIToolIcon(tool: .descriptor(for: id), size: 64, circular: true).padding(8).background(Color.white))),
+            ("circle-dark", AnyView(AIToolIcon(tool: .descriptor(for: id), size: 64, circular: true).padding(8).background(Color.black).environment(\.colorScheme, .dark))),
+            ("rail", AnyView(AIToolIcon(tool: .descriptor(for: id), size: 32, circular: true).padding(4).background(Color.black))),
         ] {
             let renderer = ImageRenderer(content: view)
             renderer.scale = 2

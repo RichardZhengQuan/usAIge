@@ -629,7 +629,7 @@ private final class DiskPublications: @unchecked Sendable {
     #expect(HUDMetrics.resourceTileHeight == 53)
     #expect(3 * HUDMetrics.resourceTileHeight + 2 * HUDMetrics.resourcePaperweightGap == HUDMetrics.workTileHeight)
     #expect(HUDMetrics.workTileHeight == 173)
-    #expect(HUDMetrics.railHeight(rowCount: 1, showsWorkTile: true) == 329)
+    #expect(HUDMetrics.railHeight(rowCount: 1, showsWorkTile: true) == 347)
     #expect(HUDMetrics.railHeight(rowCount: 1, showsWorkTile: true) == HUDMetrics.railHeight(rowCount: 1) + room)
     #expect(HUDMetrics.railHeight(rowCount: 8, showsWorkTile: true) == 450)
     #expect(HUDMetrics.railHeight(rowCount: 8, maximumHeight: 2_000, showsWorkTile: true)

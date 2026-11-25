@@ -196,6 +196,13 @@ struct QuotaRowView: View {
         VStack(spacing: 4) {
             usageRing
 
+            Text(tool.name)
+                .font(.system(size: 11 * textSize.factor, weight: .semibold))
+                .lineLimit(1)
+                .frame(height: 14 * textSize.factor)
+                .hudRailLabel()
+                .accessibilityHidden(true)
+
             TimelineView(.periodic(from: .now, by: 60)) { context in
                 RailResetBadges(snapshot: snapshot, credits: credits, now: context.date, isModern: isModern)
             }
@@ -232,12 +239,7 @@ struct QuotaRowView: View {
                 severity: primarySeverity
             )
             Button(action: performPrimaryAction) {
-                AIToolIcon(
-                    tool: tool,
-                    size: 23,
-                    showsContrastHalo: true,
-                    contrastHaloColor: agentPhase.statusColor
-                )
+                AIToolIcon(tool: tool, size: 32, circular: true)
                     .frame(width: 60, height: 60)
                     .contentShape(Circle())
             }

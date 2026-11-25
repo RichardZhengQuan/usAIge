@@ -119,13 +119,13 @@ private func resetSample(hours: Int, credits: Int? = nil, now: Date = Date()) ->
 }
 
 @Test func sizesHUDToVisibleRowsWithoutLeavingBlankSpace() {
-    #expect(HUDMetrics.quotaRowHeight == 84)
-    #expect(HUDMetrics.railHeight(rowCount: 1) == 149)
-    #expect(HUDMetrics.railHeight(rowCount: 2) == 243)
+    #expect(HUDMetrics.quotaRowHeight == 102)
+    #expect(HUDMetrics.railHeight(rowCount: 1) == 167)
+    #expect(HUDMetrics.railHeight(rowCount: 2) == 279)
     #expect(HUDMetrics.railHeight(rowCount: 8) == 450)
     // Five tools no longer scroll when the display has room for them.
-    #expect(HUDMetrics.railHeight(rowCount: 5, maximumHeight: 900) == 525)
-    #expect(HUDMetrics.railHeight(rowCount: 8, maximumHeight: 900) == 807)
+    #expect(HUDMetrics.railHeight(rowCount: 5, maximumHeight: 900) == 615)
+    #expect(HUDMetrics.railHeight(rowCount: 8, maximumHeight: 900) == 900)
     #expect(HUDMetrics.railHeight(rowCount: 8, maximumHeight: 600) == 600)
     #expect(HUDMetrics.maximumRailHeight(visibleHeight: 932, scale: 1) == 900)
     #expect(HUDMetrics.maximumRailHeight(visibleHeight: 932, scale: 2) == 450)

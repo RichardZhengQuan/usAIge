@@ -275,72 +275,50 @@ enum AIToolLauncher {
 struct AIToolIcon: View {
     let tool: AIToolDescriptor
     var size: CGFloat = 24
-    var showsContrastHalo = false
-    var contrastHaloColor: Color?
-
-    /// Monochrome template icons shipped inside the installed apps, in
-    /// preference order. These are the vendors' own marks, so they win over
-    /// the built-in vector marks whenever the app is present.
-    nonisolated static func templateIconCandidates(for id: AIToolID) -> [String] {
-        switch id {
-        case .chatGPT: ["chatgptTemplate@2x.png", "chatgptTemplate.png"]
-        case .claude: ["TrayIconTemplate@2x.png", "TrayIconTemplate.png"]
-        default: []
-        }
-    }
-
-    private var monochromeImage: NSImage? {
-        if let bundled = BundledToolMark.image(for: tool.id) { return bundled }
-        let candidates = Self.templateIconCandidates(for: tool.id)
-        guard !candidates.isEmpty,
-              let applicationURL = AIToolLauncher.applicationURL(for: tool) else { return nil }
-        let resources = applicationURL.appendingPathComponent("Contents/Resources")
-        for name in candidates {
-            let url = resources.appendingPathComponent(name)
-            if let image = NSImage(contentsOf: url) {
-                image.isTemplate = true
-                return image
-            }
-        }
-        return nil
-    }
+    var circular = false
 
     var body: some View {
         Group {
-            if let monochromeImage {
-                Image(nsImage: monochromeImage)
+            if let image = BundledToolMark.image(for: tool.id) {
+                Image(nsImage: image)
                     .resizable()
+                    .renderingMode(.original)
                     .interpolation(.high)
-                    .renderingMode(.template)
-                    .foregroundColor(.primary)
-            } else if BrandMark.hasMark(for: tool.id) {
-                BrandMarkView(toolID: tool.id)
-                    .padding(size * 0.1)
-                    .foregroundColor(.primary)
-            } else {
-                Image(systemName: tool.systemImage)
-                    .resizable()
                     .scaledToFit()
-                    .padding(size * 0.22)
-                    .foregroundColor(.primary)
+            } else if circular {
+                badge(in: Circle())
+            } else {
+                badge(in: RoundedRectangle(cornerRadius: size * 0.24, style: .continuous))
             }
         }
         .frame(width: size, height: size)
-        .background(contrastHalo)
         .accessibilityHidden(true)
     }
 
-    @ViewBuilder
-    private var contrastHalo: some View {
-        if showsContrastHalo {
-            Circle()
-                .fill(
-                    (contrastHaloColor ?? Color(NSColor.windowBackgroundColor))
-                        .opacity(0.38)
-                )
-                .frame(width: size + 4, height: size + 4)
-                .blur(radius: 2)
-                .accessibilityHidden(true)
-        }
+    // Match the graphite and porcelain gradients in Design/AppIcon.svg.
+    private func badge<Plate: InsettableShape>(in plate: Plate) -> some View {
+        let graphite = LinearGradient(stops: [
+            .init(color: Color(railHex: 0x303137), location: 0),
+            .init(color: Color(railHex: 0x1C1D22), location: 0.49),
+            .init(color: Color(railHex: 0x0E0F12), location: 1),
+        ], startPoint: UnitPoint(x: 0.117, y: 0.039), endPoint: UnitPoint(x: 0.828, y: 0.996))
+        let porcelain = LinearGradient(stops: [
+            .init(color: .white, location: 0),
+            .init(color: Color(railHex: 0xF5F4EF), location: 0.47),
+            .init(color: Color(railHex: 0xD9D9D5), location: 1),
+        ], startPoint: UnitPoint(x: 0.406, y: 0.172), endPoint: UnitPoint(x: 0.605, y: 0.820))
+
+        return plate.fill(graphite)
+            .overlay(plate.strokeBorder(Color.white.opacity(0.16), lineWidth: 0.6))
+            .overlay(porcelain.mask(fallbackSymbol))
+    }
+
+    private var fallbackSymbol: some View {
+        Image(systemName: tool.systemImage)
+            .resizable()
+            .scaledToFit()
+            .padding(size * 0.16)
+            .foregroundColor(.white)
+            .frame(width: size, height: size)
     }
 }

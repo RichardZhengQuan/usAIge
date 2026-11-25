@@ -51,7 +51,9 @@ test -x "$app/Contents/MacOS/usAIge"
 test -s "$app/Contents/Resources/AppIcon.icns"
 test -s "$app/Contents/Resources/ReleaseNotes.json"
 test -s "$app/Contents/Resources/ThirdPartyNotices/Zstandard.txt"
-for mark in claude cursor grok; do test -s "$app/Contents/Resources/ToolMarks/$mark.png"; done
+for mark in ChatGPT Claude Cursor Grok Gemini JetBrains Windsurf GitHubCopilot Cline OpenCode; do
+    test -s "$app/Contents/Resources/ToolMarks/ToolMark$mark.png"
+done
 xattr -cr "$app"
 codesign --force --sign - "$app"
 xattr -cr "$app"
