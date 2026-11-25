@@ -294,6 +294,7 @@ import Testing
     let button = NSButton()
     let icon = MenuBarIconController(hoverChanged: { hover.append($0) },
                                      openWindow: { actions.append("window") }, showPanel: { actions.append("panel") },
+                                     refresh: { actions.append("refresh") },
                                      openSettings: { actions.append("settings") }) {
         installs += 1
         return MenuBarIconController.Item(button: button, setMenu: { attachedMenu = $0 }, remove: { removals += 1 })
@@ -313,17 +314,20 @@ import Testing
     #expect(actions.isEmpty)
     let menu = try #require(attachedMenu)
     #expect(menu.items.filter { !$0.isSeparatorItem }.map(\.title) == [
-        "Open usAIge", "Show Floating Panel", "Settings…", "Quit usAIge"
+        "Open usAIge", "Show Floating Panel", "Refresh", "Settings…", "Quit usAIge"
     ])
+    let refresh = try #require(menu.item(withTitle: "Refresh"))
+    #expect(refresh.keyEquivalent == "r")
+    #expect(refresh.keyEquivalentModifierMask == .command)
     #expect(menu.item(withTitle: "Settings…")?.keyEquivalent == ",")
     let quit = try #require(menu.item(withTitle: "Quit usAIge"))
     #expect(quit.action == #selector(NSApplication.terminate(_:)))
     #expect(quit.target === NSApplication.shared)
     #expect(quit.keyEquivalent == "q")
-    for title in ["Open usAIge", "Show Floating Panel", "Settings…"] {
+    for title in ["Open usAIge", "Show Floating Panel", "Refresh", "Settings…"] {
         menu.performActionForItem(at: menu.indexOfItem(withTitle: title))
     }
-    #expect(actions == ["window", "panel", "settings"])
+    #expect(actions == ["window", "panel", "refresh", "settings"])
     icon.mouseExited(with: event)
     #expect(hover == [true, false])
     icon.mouseEntered(with: event)

@@ -15,15 +15,18 @@ final class MenuBarIconController: NSResponder, NSMenuDelegate {
     private let hoverChanged: (Bool) -> Void
     private let openWindow: () -> Void
     private let showPanel: () -> Void
+    private let refresh: () -> Void
     private let openSettings: () -> Void
     private let makeItem: @MainActor () -> Item?
 
     init(hoverChanged: @escaping (Bool) -> Void, openWindow: @escaping () -> Void,
-         showPanel: @escaping () -> Void, openSettings: @escaping () -> Void,
+         showPanel: @escaping () -> Void, refresh: @escaping () -> Void,
+         openSettings: @escaping () -> Void,
          makeItem: @escaping @MainActor () -> Item? = MenuBarIconController.systemItem) {
         self.hoverChanged = hoverChanged
         self.openWindow = openWindow
         self.showPanel = showPanel
+        self.refresh = refresh
         self.openSettings = openSettings
         self.makeItem = makeItem
         super.init()
@@ -78,6 +81,8 @@ final class MenuBarIconController: NSResponder, NSMenuDelegate {
                      keyEquivalent: "0").target = self
         menu.addItem(withTitle: "Show Floating Panel", action: #selector(showFloatingPanel),
                      keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Refresh", action: #selector(refreshReadings),
+                     keyEquivalent: "r").target = self
         menu.addItem(withTitle: "Settings…", action: #selector(openSettingsWindow),
                      keyEquivalent: ",").target = self
         menu.addItem(.separator())
@@ -101,6 +106,7 @@ final class MenuBarIconController: NSResponder, NSMenuDelegate {
 
     @objc private func openMainWindow() { openWindow() }
     @objc private func showFloatingPanel() { showPanel() }
+    @objc private func refreshReadings() { refresh() }
     @objc private func openSettingsWindow() { openSettings() }
 
     override func mouseEntered(with event: NSEvent) {

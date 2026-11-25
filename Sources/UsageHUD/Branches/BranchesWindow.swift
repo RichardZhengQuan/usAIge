@@ -7,8 +7,9 @@ enum AppWindowIdentifiers {
     static let branches = NSUserInterfaceItemIdentifier("usAIge.branches")
 }
 
-enum MainPageDestination: String, CaseIterable, Identifiable {
+enum MainPageDestination: Hashable, Identifiable {
     case overview, thisMac, worktrees, cleanup, resources, devices, settings
+    case page(ModernPage)
 
     var id: Self { self }
 
@@ -21,6 +22,7 @@ enum MainPageDestination: String, CaseIterable, Identifiable {
         case .resources: "Overview"
         case .devices: "iPhone & Watch"
         case .settings: "Settings"
+        case .page(let page): page.title
         }
     }
 
@@ -33,6 +35,7 @@ enum MainPageDestination: String, CaseIterable, Identifiable {
         case .resources: "chart.pie"
         case .devices: "applewatch"
         case .settings: "gearshape"
+        case .page(let page): page.symbol
         }
     }
 }
@@ -130,6 +133,11 @@ final class BranchesPaperweightPresentation: ObservableObject {
         case .resources: focus(.resources)
         case .devices: focus(.devices)
         case .settings: focus(.settings)
+        case .page(.memory): show(.memory)
+        case .page(.storage): show(.storage)
+        case .page(let page):
+            open(page)
+            focusRequest = FocusRequest(section: page.section)
         }
     }
 
@@ -223,9 +231,11 @@ final class BranchesWindowController: NSWindowController, NSWindowDelegate {
 
     func present(destination: MainPageDestination? = nil, front: PaperweightID? = nil) {
         guard let window else { return }
-        if let destination { presentation.navigate(to: destination) }
-        if destination == .cleanup, store.cleanupProgress != nil || store.resultMessage != nil {
-            presentation.showsCleanupProgress = true
+        if let destination {
+            presentation.navigate(to: destination)
+            if presentation.selectedSection == .clean, store.cleanupProgress != nil || store.resultMessage != nil {
+                presentation.showsCleanupProgress = true
+            }
         }
         if let front { presentation.show(front) }
         attachContentIfNeeded()

@@ -49,17 +49,20 @@ struct UsAIgeApp: App {
             CommandGroup(after: .toolbar) {
                 Button(AppLanguage.text("Refresh", locale: language.locale)) { appDelegate.refresh() }
                     .keyboardShortcut("r", modifiers: .command)
-                Divider()
-                Button(AppLanguage.text("Branches and Worktrees…", locale: language.locale)) { appDelegate.showBranches() }
-                    .keyboardShortcut("1", modifiers: .command)
-                    .disabled(!AppDelegate.branchesAreAvailable)
-                Button(AppLanguage.text("Memory…", locale: language.locale)) { appDelegate.showBranches(front: .memory) }
-                    .keyboardShortcut("2", modifiers: .command)
-                    .disabled(!AppDelegate.branchesAreAvailable)
-                Button(AppLanguage.text("Storage…", locale: language.locale)) { appDelegate.showBranches(front: .storage) }
-                    .keyboardShortcut("3", modifiers: .command)
-                    .disabled(!AppDelegate.branchesAreAvailable)
+                if #available(macOS 14.0, *) {
+                    Divider()
+                    pageCommands
+                }
             }
+        }
+    }
+
+    @available(macOS 14.0, *)
+    private var pageCommands: some View {
+        let pages = MainRootView.modernGroups.flatMap(\.pages)
+        return ForEach(Array(pages.prefix(9).enumerated()), id: \.element) { index, page in
+            Button(AppLanguage.text(page.title, locale: language.locale)) { appDelegate.showPage(page) }
+                .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
         }
     }
 

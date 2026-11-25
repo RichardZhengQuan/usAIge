@@ -6,6 +6,32 @@ import Testing
 @Suite
 @MainActor
 struct BranchesPaperweightPresentationTests {
+    @Test func numberedPagesFollowTheSidebarAndFocusTheirClassicSections() {
+        guard #available(macOS 14.0, *) else { return }
+        let destinations: [(page: ModernPage, section: OverviewSection, front: PaperweightID?)] = [
+            (.overview, .overview, nil),
+            (.usage, .overview, nil),
+            (.thisMac, .thisMac, nil),
+            (.memory, .resources, .memory),
+            (.storage, .resources, .storage),
+            (.clean, .clean, nil),
+            (.branches, .branches, nil),
+            (.worktrees, .branches, nil),
+            (.devices, .devices, nil),
+        ]
+        #expect(MainRootView.modernGroups.flatMap(\.pages) == destinations.map(\.page))
+
+        for (page, section, front) in destinations {
+            let presentation = BranchesPaperweightPresentation()
+            presentation.navigate(to: .settings)
+            presentation.navigate(to: .page(page))
+            #expect(presentation.modernPage == page)
+            #expect(presentation.selectedSection == section)
+            #expect(presentation.focusRequest?.section == section)
+            #expect(presentation.request?.front == front)
+        }
+    }
+
     @Test func thisMacIsASeparateDestinationInBothNavigationStyles() {
         guard #available(macOS 14.0, *) else { return }
         let presentation = BranchesPaperweightPresentation()

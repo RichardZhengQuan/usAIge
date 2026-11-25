@@ -162,9 +162,15 @@ When usAIge is the active app:
 | Shortcut | Action |
 | --- | --- |
 | ⌘N or ⌘0 | Open or restore the main window |
-| ⌘1 | Branches and Worktrees |
-| ⌘2 | Memory |
-| ⌘3 | Storage |
+| ⌘1 | Overview |
+| ⌘2 | Usage |
+| ⌘3 | CPU |
+| ⌘4 | Memory |
+| ⌘5 | Storage |
+| ⌘6 | Clean |
+| ⌘7 | Branches |
+| ⌘8 | Worktrees |
+| ⌘9 | iPhone & Watch |
 | ⌘R | Refresh usage, session status, and the visible workspace |
 | ⌘, | Settings |
 | ⌘W | Close the current window |
@@ -172,9 +178,11 @@ When usAIge is the active app:
 | ⌘H | Hide usAIge |
 | ⌘Q | Quit usAIge |
 
-Workspace pages require macOS 14 or later. The floating usage rail remains
-available when the main window closes. Shortcuts appear in the app menus;
-they do not register system-wide hotkeys.
+The number shortcuts follow the Modern sidebar on macOS 14 or later.
+In Classic, they open the corresponding sections, including the shared
+Overview and Branches & Worktrees sections. Find the shortcuts in the View menu.
+The floating rail stays available when the main window closes, and the usAIge
+menu-bar icon also offers Refresh.
 
 ## Package the application
 

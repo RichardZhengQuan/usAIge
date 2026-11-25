@@ -38,6 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         },
         openWindow: { [weak self] in self?.showMainWindow() },
         showPanel: { [weak self] in self?.showLimits() },
+        refresh: { [weak self] in self?.refresh() },
         openSettings: { [weak self] in self?.showSettings() }
     )
     private var screenObserver: NSObjectProtocol?
@@ -507,6 +508,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     func showBranches(front: PaperweightID? = nil) {
         guard #available(macOS 14.0, *) else { return }
         presentMainWindow(destination: front == nil ? .worktrees : .resources, front: front)
+    }
+
+    @available(macOS 14.0, *)
+    func showPage(_ page: ModernPage) {
+        presentMainWindow(destination: .page(page))
     }
 
     func showCleanup() {
