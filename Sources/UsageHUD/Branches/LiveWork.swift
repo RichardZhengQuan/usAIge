@@ -100,48 +100,20 @@ extension RepositoryLocator {
         let detachedAt: String?
     }
 
-    /// Whether files in this folder can be read without a macOS prompt or an
-    /// iCloud download.
-    func canReadFiles(in folder: String) -> Bool {
-        guard isAllowed(folder) else { return false }
-        return !(isProtected(folder) && Self.isManagedByICloud(folder))
-    }
-
-    static func gitPlace(containing folder: String) -> GitPlace? {
-        guard FileManager.default.fileExists(atPath: folder),
-              let common = commonDirectory(containing: folder) else { return nil }
-        var current = folder
-        for _ in 0..<64 {
-            let dotGit = current + "/.git"
-            var isDirectory: ObjCBool = false
-            if FileManager.default.fileExists(atPath: dotGit, isDirectory: &isDirectory) {
-                let gitDirectory = isDirectory.boolValue ? dotGit : pointedGitDirectory(in: dotGit)
-                guard let gitDirectory else { return nil }
-                let head = (try? String(contentsOfFile: gitDirectory + "/HEAD", encoding: .utf8))?
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                let reference = head.flatMap { $0.hasPrefix("ref: refs/heads/") ? String($0.dropFirst(16)) : nil }
-                let isHeadCommit = reference == nil && head?.isEmpty == false && head?.allSatisfy(\.isHexDigit) == true
-                return GitPlace(
-                    root: current,
-                    commonDirectory: common,
-                    isLinkedWorktree: FileManager.default.fileExists(atPath: gitDirectory + "/commondir"),
-                    branch: reference,
-                    detachedAt: isHeadCommit ? head.map { String($0.prefix(7)) } : nil
-                )
-            }
-            guard current != "/", !current.isEmpty else { return nil }
-            current = (current as NSString).deletingLastPathComponent
-        }
-        return nil
-    }
-
-    private static func pointedGitDirectory(in path: String) -> String? {
-        guard let contents = try? String(contentsOfFile: path, encoding: .utf8), contents.hasPrefix("gitdir:") else {
-            return nil
-        }
-        let pointer = contents.dropFirst(7).trimmingCharacters(in: .whitespacesAndNewlines)
-        let full = pointer.hasPrefix("/") ? pointer : (path as NSString).deletingLastPathComponent + "/" + pointer
-        return normalized((full as NSString).standardizingPath)
+    func gitPlace(containing folder: String) -> GitPlace? {
+        guard case let .found(location) = lookup(containing: folder, forLiveWork: true),
+              case let .allowed(headFile) = access(to: location.gitDirectory + "/HEAD") else { return nil }
+        let head = (try? String(contentsOfFile: headFile, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let reference = head.flatMap { $0.hasPrefix("ref: refs/heads/") ? String($0.dropFirst(16)) : nil }
+        let isHeadCommit = reference == nil && head?.isEmpty == false && head?.allSatisfy(\.isHexDigit) == true
+        return GitPlace(
+            root: location.root,
+            commonDirectory: location.commonDirectory,
+            isLinkedWorktree: location.isLinkedWorktree,
+            branch: reference,
+            detachedAt: isHeadCommit ? head.map { String($0.prefix(7)) } : nil
+        )
     }
 
     /// Worktrees an AI tool keeps inside a project, recognised from the path
@@ -203,7 +175,7 @@ enum LiveWorkReader {
                 if let known = places[folder] {
                     place = known
                 } else {
-                    place = locator.canReadFiles(in: folder) ? RepositoryLocator.gitPlace(containing: folder) : nil
+                    place = locator.gitPlace(containing: folder)
                     places[folder] = .some(place)
                 }
             }
@@ -425,7 +397,7 @@ final class LiveWorkMonitor: ObservableObject {
     static func defaultLocator() -> RepositoryLocator {
         RepositoryLocator(
             home: FileManager.default.homeDirectoryForCurrentUser.path,
-            allowedFolders: UserDefaults.standard.stringArray(forKey: BranchesStore.addedFoldersKey) ?? []
+            allowedFolders: WorkspaceFolderAccess.shared.authorizedPaths
         )
     }
 }

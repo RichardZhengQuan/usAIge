@@ -47,7 +47,7 @@ private func read(
 @Test func aMainCopysBranchComesFromItsOwnHead() throws {
     let fixture = try GitFixture()
     try fixture.git(["switch", "--quiet", "-c", "topic/one"])
-    let place = try #require(RepositoryLocator.gitPlace(containing: fixture.repository))
+    let place = try #require(RepositoryLocator(home: fixture.home).gitPlace(containing: fixture.repository))
     #expect(place.branch == "topic/one")
     #expect(!place.isLinkedWorktree)
     #expect(place.root == fixture.repository)
@@ -59,7 +59,7 @@ private func read(
     let path = fixture.worktreePath("linked")
     try fixture.git(["worktree", "add", "--quiet", "-b", "linked", path])
     try FileManager.default.createDirectory(atPath: path + "/deep/inside", withIntermediateDirectories: true)
-    let place = try #require(RepositoryLocator.gitPlace(containing: path + "/deep/inside"))
+    let place = try #require(RepositoryLocator(home: fixture.home).gitPlace(containing: path + "/deep/inside"))
     #expect(place.isLinkedWorktree)
     #expect(place.branch == "linked")
     #expect(place.root == path)
@@ -70,7 +70,7 @@ private func read(
     let fixture = try GitFixture()
     let path = fixture.worktreePath("detached")
     try fixture.git(["worktree", "add", "--quiet", "--detach", path])
-    let place = try #require(RepositoryLocator.gitPlace(containing: path))
+    let place = try #require(RepositoryLocator(home: fixture.home).gitPlace(containing: path))
     #expect(place.branch == nil)
     #expect(place.detachedAt == String(try fixture.head().prefix(7)))
 }
@@ -79,7 +79,7 @@ private func read(
 /// it, and report the project's branch as the session's.
 @Test func aFolderThatsGoneDoesntClaimTheBranchOfWhatsAroundIt() throws {
     let fixture = try GitFixture()
-    #expect(RepositoryLocator.gitPlace(containing: fixture.repository + "/.claude/worktrees/gone") == nil)
+    #expect(RepositoryLocator(home: fixture.home).gitPlace(containing: fixture.repository + "/.claude/worktrees/gone") == nil)
 }
 
 @Test func theFolderTrumpsWhatASessionsLogLastSaid() throws {
@@ -728,7 +728,12 @@ private final class DiskPublications: @unchecked Sendable {
     /// A card open beside the rail, and the middle of the card on screen.
     private func openCard(_ pointer: Pointer) throws -> (controller: QuotaDetailPanelController, card: CGPoint, rail: NSPanel) {
         let rail = makeRail()
-        let controller = QuotaDetailPanelController(rail: { rail }, pointerLocation: { pointer.location })
+        // Keep room beside the rail even when the test runner has no display.
+        let controller = QuotaDetailPanelController(
+            rail: { rail },
+            pointerLocation: { pointer.location },
+            visibleFrame: { _ in CGRect(x: 0, y: 0, width: 1280, height: 900) }
+        )
         controller.show(RailQuotaRow(snapshot: snapshot("a")), rowFrame: CGRect(x: 4, y: 10, width: 76, height: 80))
         let window = try #require(controller.panel?.frame)
         return (controller, CGPoint(x: window.midX, y: window.midY), rail)

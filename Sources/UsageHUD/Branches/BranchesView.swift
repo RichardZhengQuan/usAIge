@@ -126,7 +126,16 @@ struct BranchesRootView: View {
         let now = Date()
         let everything = BranchesBoard.make(snapshot: store.snapshot, now: now)
         let matching = BranchesBoard.make(snapshot: store.snapshot, query: query, projectID: projectID, now: now)
-        let shown = workKind.map { matching.only($0) } ?? matching
+        let shown: BranchesBoard = {
+            var board = workKind.map { matching.only($0) } ?? matching
+            if isModern, mode == .worktrees, workKind != nil {
+                board.needsLook.removeAll {
+                    if case .notChecked = $0 { return true }
+                    return false
+                }
+            }
+            return board
+        }()
         let picks = ClearSelection(items: everything.safeToClear, now: now)
         let selectedItems = picks.chosenItems(from: everything.safeToClear)
         let freeing = preview ? picks.bytes(from: everything.safeToClear) : 0
@@ -177,7 +186,7 @@ struct BranchesRootView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 16) {
                         if workKind != nil {
-                            projectList(shown, now: now)
+                            projectList(shown, unscannedProjects: matching.unscannedProjects, now: now)
                         } else {
                             worktreeList(shown, now: now)
                         }
@@ -249,6 +258,7 @@ struct BranchesRootView: View {
                         }
 
                         if front == .storage, overviewHeader != nil || pageTitle != nil {
+                            ProjectScanSection(store: store)
                             HStack {
                                 StorageRecoveryView(store: store, showProgress: showCleanupProgress)
                                 Spacer(minLength: 12)
@@ -865,8 +875,20 @@ struct BranchesRootView: View {
     /// needs a look first, then what is running, then what can go. The
     /// status tabs filter; each project folds away.
     @ViewBuilder
-    private func projectList(_ board: BranchesBoard, now: Date) -> some View {
+    private func projectList(_ board: BranchesBoard, unscannedProjects: [String], now: Date) -> some View {
         let groups = projectGroups(board, now: now)
+        let showsUnscanned = page.workStatus == .all && !unscannedProjects.isEmpty
+        if showsUnscanned, !store.snapshot.gitIsMissing {
+            DisclosureGroup {
+                rowsGroup {
+                    ForEach(unscannedProjects, id: \.self) { folder in
+                        UnscannedProjectRow(folder: folder, store: store, openClean: openCleanForProjectScan)
+                    }
+                }
+            } label: {
+                Text("Unscanned projects", bundle: AppLanguage.resourceBundle).font(.headline)
+            }
+        }
         if store.snapshot.gitIsMissing {
             rowsGroup {
                 LaneEmpty(text: "Git isn't installed. Install the Xcode Command Line Tools to see branches and worktrees here.")
@@ -884,7 +906,7 @@ struct BranchesRootView: View {
                 .padding(.horizontal, ModernMetrics.rowPadding)
                 .padding(.vertical, 12)
             }
-        } else if groups.isEmpty {
+        } else if groups.isEmpty, !showsUnscanned {
             rowsGroup {
                 LaneEmpty(text: store.snapshot.activity == .idle
                           ? (workKind == .branches ? "No branches match this view." : "No worktrees match this view.")
@@ -930,14 +952,11 @@ struct BranchesRootView: View {
     }
 
     private func chooseFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.message = "Choose a folder inside a Git repository."
-        panel.prompt = "Add"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        store.addFolder(url.standardizedFileURL.path)
+        store.chooseFolder()
+    }
+
+    private func openCleanForProjectScan() {
+        if let presentation { presentation.open(.clean) } else { startStorageReview() }
     }
 
     @ViewBuilder
@@ -955,9 +974,7 @@ struct BranchesRootView: View {
                     ForEach(copy.items) { item in card(item, .look, now: now, share: 0, color: .clear) }
                 }
             case let .notChecked(folder):
-                NotCheckedCard(folder: folder, isExpanded: expanded.contains(entry.id), toggle: { toggle(entry.id) }) {
-                    store.addFolder(folder)
-                }
+                UnscannedProjectRow(folder: folder, store: store, openClean: openCleanForProjectScan)
             case let .unreadable(repository):
                 UnreadableCard(repository: repository, isExpanded: expanded.contains(entry.id), toggle: { toggle(entry.id) })
             }
@@ -977,7 +994,7 @@ struct BranchesRootView: View {
                 let choice: ProjectChoice = switch entry {
                 case let .item(item): project(item)
                 case let .copy(copy): ProjectChoice(id: BranchesBoard.project(of: copy.repository).id, name: copy.projectName)
-                case let .notChecked(folder): ProjectChoice(id: folder, name: URL(fileURLWithPath: folder).lastPathComponent)
+                case let .notChecked(folder): ProjectChoice(id: folder, name: (folder as NSString).lastPathComponent)
                 case let .unreadable(repository): BranchesBoard.project(of: repository)
                 }
                 rows.append((choice, .look(entry)))
@@ -1073,9 +1090,7 @@ struct BranchesRootView: View {
                     }
                 }
             case let .notChecked(folder):
-                NotCheckedCard(folder: folder, isExpanded: expanded.contains(entry.id), toggle: { toggle(entry.id) }) {
-                    store.addFolder(folder)
-                }
+                UnscannedProjectRow(folder: folder, store: store, openClean: openCleanForProjectScan)
             case let .unreadable(repository):
                 UnreadableCard(repository: repository, isExpanded: expanded.contains(entry.id), toggle: { toggle(entry.id) })
             }

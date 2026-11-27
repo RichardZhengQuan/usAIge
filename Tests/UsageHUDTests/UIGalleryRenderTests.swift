@@ -503,6 +503,40 @@ struct UIGalleryRenderTests {
         }
     }
 
+    @Test func rendersWorkspaceAccessPages() async throws {
+        guard #available(macOS 14.0, *) else { return }
+        let (settings, defaults) = makeSettings()
+        defaults.set(InterfaceStyle.modern.rawValue, forKey: InterfaceStyle.defaultsKey)
+        let protected = FileManager.default.homeDirectoryForCurrentUser.path + "/Documents/Project"
+        let snapshot = BranchesSnapshot(notCheckedFolders: [protected])
+        let store = BranchesStore(defaults: defaults, initialSnapshot: snapshot, initialDiskSpace: sampleDiskSpace,
+                                  initialCleanupInventory: StorageCleanupInventory())
+        let memory = sampleMemoryUsage
+        let monitor = LiveWorkMonitor(currentTasks: { [] }, runningApplications: { [:] },
+                                      scan: { _, _ in [] }, readDiskSpace: { nil },
+                                      readMemoryPressure: { .normal }, readMemoryUsage: { memory })
+        await monitor.refresh()
+        let usage = UsageStore(provider: FixedUsageProvider(.success(.authenticated(mixedSnapshots))),
+                               monitorsNetworkChanges: false)
+        await usage.refresh()
+        let pages: [ModernPage] = [.clean, .overview, .memory, .storage, .branches, .worktrees, .usage]
+        for page in pages {
+            let presentation = BranchesPaperweightPresentation()
+            presentation.open(page)
+            for appearance in GalleryAppearance.allCases {
+                for (width, height) in [(1000, 600), (1180, 780)] {
+                    try render(
+                        MainRootView(store: store, liveWork: monitor, usageStore: usage, settings: settings,
+                                     presentation: presentation, openSettings: {})
+                            .defaultAppStorage(defaults),
+                        size: CGSize(width: width, height: height), appearance: appearance,
+                        name: "workspace-locked-\(page.rawValue)-\(width)-\(appearance.rawValue)"
+                    )
+                }
+            }
+        }
+    }
+
     /// Ten limits at once, as with many tools connected: the rail on a
     /// 1107-point display and the Modern Overview and Usage pages.
     @Test func rendersManyTools() async throws {

@@ -4,6 +4,10 @@ import Foundation
 /// between folders count in each and deleting one can free less.
 enum FolderSizer {
     static let duExecutable = URL(fileURLWithPath: "/usr/bin/du")
+    private static let arguments = ["-skPx"] + RepositoryLocator.photoLibraryExtensions.flatMap { suffix in
+        let mask = suffix.map { "[\($0)\(String($0).uppercased())]" }.joined()
+        return ["-I", "*." + mask]
+    }
 
     /// Git-ignored folders that a build or install recreates.
     static let cacheNames: Set<String> = [
@@ -13,9 +17,10 @@ enum FolderSizer {
         ".gradle", ".tox", ".wrangler",
     ]
 
-    static func bytes(of path: String, timeout: TimeInterval = 120) async -> Int64? {
+    static func bytes(of path: String, locator: RepositoryLocator, timeout: TimeInterval = 120) async -> Int64? {
+        guard canMeasure(path, locator: locator) else { return nil }
         let output = await CommandRunner.run(
-            ShellCommand(executable: duExecutable, arguments: ["-sk", path]),
+            ShellCommand(executable: duExecutable, arguments: arguments + [path]),
             timeout: timeout,
             maximumOutputBytes: 64 * 1024
         )
@@ -27,14 +32,16 @@ enum FolderSizer {
 
     /// Sizes of many paths from one `du` per batch, so a folder with hundreds
     /// of ignored entries doesn't start hundreds of processes.
-    static func bytes(ofEach paths: [String], batchSize: Int = 100, timeout: TimeInterval = 120) async -> [String: Int64] {
+    private static func bytes(ofEach paths: [String], locator: RepositoryLocator,
+                              batchSize: Int = 100, timeout: TimeInterval = 120) async -> [String: Int64] {
+        let paths = paths.filter { canMeasure($0, locator: locator) }
         var sizes: [String: Int64] = [:]
         var start = 0
         while start < paths.count, !Task.isCancelled {
             let batch = Array(paths[start..<min(start + batchSize, paths.count)])
             start += batch.count
             let output = await CommandRunner.run(
-                ShellCommand(executable: duExecutable, arguments: ["-sk"] + batch),
+                ShellCommand(executable: duExecutable, arguments: arguments + batch),
                 timeout: timeout
             )
             guard output.succeeded else { continue }
@@ -45,6 +52,11 @@ enum FolderSizer {
             }
         }
         return sizes
+    }
+
+    private static func canMeasure(_ path: String, locator: RepositoryLocator) -> Bool {
+        guard locator.isWorkspacePath(path), case let .allowed(resolved) = locator.access(to: path) else { return false }
+        return resolved == RepositoryLocator.lexicalPath(path)
     }
 
     /// The first path component that names a known cache, if any.
@@ -58,12 +70,13 @@ enum FolderSizer {
         folder: String,
         ignored: [String],
         nestedSizes: [String: Int64],
-        now: Date
+        now: Date,
+        locator: RepositoryLocator
     ) async -> FolderSize? {
-        guard let measured = await bytes(of: folder) else { return nil }
+        guard let measured = await bytes(of: folder, locator: locator) else { return nil }
         let nestedInFolder = nestedSizes.filter { RepositoryLocator.contains(folder, $0.key) && $0.key != folder }
         let total = measured - nestedInFolder.values.reduce(0, +)
-        let sizes = await bytes(ofEach: ignored.map { folder + "/" + $0 })
+        let sizes = await bytes(ofEach: ignored.map { folder + "/" + $0 }, locator: locator)
         if Task.isCancelled { return nil }
         var cacheBytes: Int64 = 0
         var byName: [String: Int64] = [:]

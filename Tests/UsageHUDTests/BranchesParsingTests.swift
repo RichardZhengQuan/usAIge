@@ -96,13 +96,15 @@ import Testing
 
 @Test func locatorFollowsWorktreePointersToTheSharedDirectory() throws {
     let fixture = try GitFixture()
+    let locator = RepositoryLocator(home: fixture.home)
     try fixture.git(["worktree", "add", "--quiet", "-b", "topic", fixture.worktreePath("topic")])
-    let expected = fixture.repository + "/.git"
-    #expect(RepositoryLocator.commonDirectory(containing: fixture.repository) == expected)
-    #expect(RepositoryLocator.commonDirectory(containing: fixture.worktreePath("topic")) == expected)
-    try FileManager.default.createDirectory(atPath: fixture.repository + "/deep/inside", withIntermediateDirectories: true)
-    #expect(RepositoryLocator.commonDirectory(containing: fixture.repository + "/deep/inside") == expected)
-    #expect(RepositoryLocator.commonDirectory(containing: fixture.home) == nil)
+    let expected = [fixture.repository + "/.git"]
+    #expect(locator.locate(folders: [fixture.repository]).repositories.map(\.commonDirectory) == expected)
+    #expect(locator.locate(folders: [fixture.worktreePath("topic")]).repositories.map(\.commonDirectory) == expected)
+    let nested = fixture.repository + "/deep/inside"
+    try FileManager.default.createDirectory(atPath: nested, withIntermediateDirectories: true)
+    #expect(locator.locate(folders: [nested]).repositories.map(\.commonDirectory) == expected)
+    #expect(locator.locate(folders: [fixture.home]).repositories.isEmpty)
 }
 
 @Test func protectedFoldersAreOfferedAsTheirProjectAndNotRead() throws {
@@ -126,11 +128,121 @@ import Testing
     #expect(!RepositoryLocator(home: "/Users/me", allowedFolders: ["/Users/me/Documents/App"]).isAllowed("/Users/me/Documents/Other"))
 }
 
+@Test func linkedWorktreeOutsideDocumentsWaitsForItsProtectedGitDirectory() throws {
+    let fixture = try GitFixture()
+    let documents = fixture.home + "/Documents"
+    let project = documents + "/project"
+    let worktree = fixture.worktreePath("external")
+    try FileManager.default.createDirectory(atPath: documents, withIntermediateDirectories: true)
+    try FileManager.default.moveItem(atPath: fixture.repository, toPath: project)
+    try fixture.git(["worktree", "add", "--quiet", "-b", "external", worktree], in: project)
+
+    let locked = RepositoryLocator(home: fixture.home)
+    let discovery = locked.locate(folders: [worktree])
+    #expect(discovery.notChecked == [project])
+    #expect(discovery.repositories.isEmpty)
+    #expect(locked.gitPlace(containing: worktree) == nil)
+
+    let selected = RepositoryLocator(home: fixture.home, allowedFolders: [project])
+    #expect(selected.locate(folders: [worktree]).repositories.map(\.commonDirectory) == [project + "/.git"])
+    #expect(selected.gitPlace(containing: worktree)?.branch == "external")
+}
+
+@Test func aProtectedRootOrFailedScanCannotAuthorizeItsProjects() async throws {
+    let fixture = try GitFixture()
+    let documents = fixture.home + "/Documents"
+    let project = documents + "/private-project"
+    let manager = FileManager.default
+    try manager.createDirectory(atPath: project, withIntermediateDirectories: true)
+    let access = WorkspaceFolderAccess(home: fixture.home)
+    #expect(await access.requestScan(of: documents) == .unavailable)
+    #expect(await access.requestScan(of: fixture.home) == .unavailable)
+    #expect(await access.requestScan(of: documents + "/missing") == .unavailable)
+    try manager.setAttributes([.posixPermissions: 0o000], ofItemAtPath: project)
+    defer { try? manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: project) }
+    #expect(await access.requestScan(of: project) == .denied)
+    #expect(access.authorizedPaths.isEmpty)
+
+    let locator = RepositoryLocator(home: fixture.home, allowedFolders: [documents, fixture.home, "/"])
+    #expect(!locator.isAllowed(project))
+    #expect(locator.locate(folders: [documents, project]).notChecked == [project])
+}
+
+@Test func gitWorktreeListingWaitsForProtectedBacklinks() throws {
+    let fixture = try GitFixture()
+    let protected = fixture.home + "/Documents/linked"
+    try fixture.git(["worktree", "add", "--quiet", "-b", "protected", protected])
+    let locked = RepositoryLocator(home: fixture.home).locate(folders: [fixture.repository])
+    #expect(locked.notChecked == [protected])
+    #expect(locked.repositories.isEmpty)
+
+    let selected = RepositoryLocator(home: fixture.home, allowedFolders: [protected])
+    #expect(selected.locate(folders: [fixture.repository]).repositories.map(\.commonDirectory) == [fixture.repository + "/.git"])
+}
+
+@Test func aMountedVolumeRequiresChoosingAProjectWithinIt() {
+    let volume = "/Volumes/Example Drive"
+    let project = volume + "/project"
+    let sibling = volume + "/project-other"
+    let locked = RepositoryLocator(home: "/Users/example", allowedFolders: [volume])
+    #expect(locked.locate(folders: [volume, project]).notChecked == [project])
+    let selected = RepositoryLocator(home: "/Users/example", allowedFolders: [project])
+    #expect(selected.isAllowed(project + "/.git"))
+    #expect(!selected.isAllowed(sibling))
+}
+
+@Test func projectAliasesAndRelativeCommonDirectoriesRespectTheSelectedFolder() throws {
+    let fixture = try GitFixture()
+    let project = fixture.home + "/Documents/target"
+    let alias = fixture.root + "/alias"
+    try fixture.write(".git/HEAD", "ref: refs/heads/main", in: project)
+    try FileManager.default.createSymbolicLink(atPath: alias, withDestinationPath: project)
+
+    let external = fixture.root + "/outside"
+    try fixture.write(".git", "gitdir: metadata", in: external)
+    try fixture.write("metadata/HEAD", "ref: refs/heads/topic", in: external)
+    try fixture.write("metadata/commondir", "../../home/Documents/target/.git", in: external)
+
+    let locked = RepositoryLocator(home: fixture.home)
+    #expect(locked.locate(folders: [alias, external]).notChecked == [project])
+    #expect(locked.locate(folders: [alias, external]).repositories.isEmpty)
+    #expect(!locked.isAllowed(fixture.home + "/documents/target"))
+    let selected = RepositoryLocator(home: fixture.home, allowedFolders: [project])
+    #expect(selected.locate(folders: [alias, external]).repositories.count == 1)
+    #expect(selected.gitPlace(containing: external)?.branch == "topic")
+}
+
 @Test func theShorthandForTemporaryFoldersMatchesTheRealPath() {
     #expect(RepositoryLocator.normalized("/tmp/x") == "/private/tmp/x")
     #expect(RepositoryLocator.normalized("/var/folders/a") == "/private/var/folders/a")
     #expect(RepositoryLocator.normalized("/Users/me/app/") == "/Users/me/app")
     #expect(RepositoryLocator.normalized("/") == "/")
+}
+
+@Test func photoAndHomePathsAreExcludedEvenWhenSuppliedByGitOrAnAlias() throws {
+    let fixture = try GitFixture()
+    let library = fixture.home + "/Pictures/Photos Library.photoslibrary"
+    let external = fixture.root + "/Moved.PhOtOsLiBrArY"
+    let alias = fixture.root + "/photos-alias"
+    try fixture.write(".git/HEAD", "ref: refs/heads/main", in: library)
+    try fixture.write(".git/HEAD", "ref: refs/heads/main", in: external)
+    try fixture.write(".git/HEAD", "ref: refs/heads/main", in: fixture.home)
+    try FileManager.default.createSymbolicLink(atPath: alias, withDestinationPath: external)
+
+    let locator = RepositoryLocator(home: fixture.home, allowedFolders: [fixture.home, library, external])
+    let paths = [fixture.home, fixture.root, library, external, alias]
+    let result = locator.locate(folders: paths)
+    #expect(result.repositories.isEmpty)
+    #expect(result.notChecked.isEmpty)
+    #expect(paths.allSatisfy { locator.gitPlace(containing: $0) == nil })
+    #expect(locator.gitPlace(containing: fixture.home + "/Pictures") == nil)
+    #expect(locator.excludesPhotos(at: "/System/Volumes/Data" + library))
+
+    let worktree = fixture.root + "/Second.PhotosLibrary"
+    try fixture.git(["worktree", "add", "--quiet", "-b", "private", worktree])
+    let afterAddingWorktree = locator.locate(folders: [fixture.repository])
+    #expect(afterAddingWorktree.repositories.isEmpty)
+    #expect(afterAddingWorktree.notChecked.isEmpty)
 }
 
 // MARK: Status rules
@@ -290,20 +402,30 @@ private func facts(_ change: (inout WorkFacts) -> Void = { _ in }) -> WorkFacts 
 
 @Test func nestedWorktreesAreNotCountedInsideTheFolderThatHoldsThem() async throws {
     let fixture = try GitFixture()
+    let locator = RepositoryLocator(home: fixture.home)
     let outer = fixture.root + "/sized"
     try fixture.write("data/big.bin", String(repeating: "x", count: 2_000_000), in: outer)
     try fixture.write("node_modules/dep.js", String(repeating: "y", count: 1_000_000), in: outer)
     try fixture.write(".env", "SECRET=1\n", in: outer)
     let inner = outer + "/data"
-    let nestedBytes = try #require(await FolderSizer.bytes(of: inner))
+    let nestedBytes = try #require(await FolderSizer.bytes(of: inner, locator: locator))
 
     let size = try #require(await FolderSizer.measure(
-        folder: outer, ignored: ["node_modules", ".env"], nestedSizes: [inner: nestedBytes], now: Date()
+        folder: outer, ignored: ["node_modules", ".env"], nestedSizes: [inner: nestedBytes], now: Date(), locator: locator
     ))
     #expect(size.totalBytes < 1_500_000)
     #expect(size.cacheBytes >= 1_000_000)
     #expect(size.cacheBytesByName["node_modules"] == size.cacheBytes)
     #expect(size.otherIgnored == [".env"])
+}
+
+@Test func diskSpaceReadsTheVolumeForAnExistingPath() throws {
+    let fixture = try GitFixture()
+    let path = URL(fileURLWithPath: fixture.home)
+    let capacity = try #require(DiskSpace.read(for: path))
+    #expect(capacity.totalBytes > 0)
+    #expect((0...capacity.totalBytes).contains(capacity.availableBytes))
+    #expect(DiskSpace.read(for: path.appendingPathComponent("missing")) == nil)
 }
 
 // MARK: Commands

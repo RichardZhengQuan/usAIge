@@ -81,6 +81,7 @@ actor BranchesScanner {
         var processes: @Sendable () -> [WorkProcess]
         var now: @Sendable () -> Date
         var storageProcesses: (@Sendable () -> [WorkProcess])? = nil
+        var selectedFolders: @Sendable () -> [String] = { [] }
 
         static func live(addedFolders: @escaping @Sendable () -> [String]) -> Environment {
             let fileManager = FileManager.default
@@ -102,7 +103,8 @@ actor BranchesScanner {
                         let name = executable.map { ($0 as NSString).lastPathComponent } ?? ""
                         return folder != "/" || StorageArtifactKind.processMayUseStorage(name, executable: executable)
                     }
-                }
+                },
+                selectedFolders: { WorkspaceFolderAccess.shared.authorizedPaths }
             )
         }
     }
@@ -131,7 +133,8 @@ actor BranchesScanner {
     }
 
     private var locator: RepositoryLocator {
-        RepositoryLocator(home: environment.home.path, allowedFolders: environment.addedFolders())
+        RepositoryLocator(home: environment.home.path,
+                          allowedFolders: environment.selectedFolders())
     }
 
     // MARK: Scanning
@@ -325,10 +328,10 @@ actor BranchesScanner {
                 nested[path] = known.totalBytes
             } else if let git = environment.git,
                       let ignored = await RepositoryReader.ignoredFiles(git: git, folder: path) {
-                let review = item.facts.isMainCopy ? nil : WorktreeIgnoredReview.read(worktree: path, ignored: ignored)
+                let review = item.facts.isMainCopy ? nil : WorktreeIgnoredReview.read(worktree: path, ignored: ignored, locator: locator)
                 rows[item.id]?.ignoredFiles = ignored
                 rows[item.id]?.ignoredReview = review
-                if var size = await FolderSizer.measure(folder: path, ignored: ignored, nestedSizes: nested, now: now) {
+                if var size = await FolderSizer.measure(folder: path, ignored: ignored, nestedSizes: nested, now: now, locator: locator) {
                     size.ignoredReview = review
                     cache.sizes[path] = size
                     nested[path] = size.totalBytes
@@ -466,12 +469,12 @@ actor BranchesScanner {
 
     func scanStorage(addedFolders: [String]) async -> StorageCleanupInventory {
         let folders = environment.addedFolders() + addedFolders
-        let scanner = storageScanner(allowedFolders: folders)
+        let scanner = storageScanner()
         return await scanner.scan(sessionFolders: scanner.sessions.map(\.folder), addedFolders: folders)
     }
 
-    func removeStorageArtifact(_ candidate: StorageCleanupCandidate, addedFolders: [String]) async -> String? {
-        let scanner = storageScanner(allowedFolders: environment.addedFolders() + addedFolders)
+    func removeStorageArtifact(_ candidate: StorageCleanupCandidate) async -> String? {
+        let scanner = storageScanner()
         let failure = await scanner.remove(candidate)
         // A partially removed folder also invalidates prior measurements.
         for path in Array(cache.sizes.keys) where RepositoryLocator.contains(path, candidate.id) {
@@ -482,13 +485,13 @@ actor BranchesScanner {
         return failure
     }
 
-    private func storageScanner(allowedFolders: [String]) -> StorageArtifactScanner {
+    private func storageScanner() -> StorageArtifactScanner {
         loadPersistedState()
         let sessions = SessionLogIndexer(home: environment.home, cursorDatabase: environment.cursorDatabase)
             .update(from: cache.sessions)
         return StorageArtifactScanner(
             home: CleanupFileInspection.normalized(environment.home.path),
-            locator: RepositoryLocator(home: environment.home.path, allowedFolders: allowedFolders),
+            locator: locator,
             git: environment.git, processes: environment.storageProcesses ?? environment.processes,
             sessions: Array(sessions.values), now: environment.now()
         )
@@ -619,7 +622,7 @@ actor BranchesScanner {
 
         if hadFolder, let path = fresh.worktreePath {
             guard let ignored = await RepositoryReader.ignoredFiles(git: git, folder: path),
-                  let review = WorktreeIgnoredReview.read(worktree: path, ignored: ignored) else {
+                  let review = WorktreeIgnoredReview.read(worktree: path, ignored: ignored, locator: locator) else {
                 cache.sizes[path] = nil
                 return "usAIge couldn't re-check all ignored contents."
             }
@@ -650,6 +653,14 @@ actor BranchesScanner {
     /// Brings a deleted row back. Returns what went wrong, if anything.
     func undo(_ record: DeletionRecord) async -> String? {
         guard let git = environment.git else { return "Git isn't available." }
+        let locator = locator
+        guard case .allowed = locator.access(to: record.repositoryDirectory),
+              record.worktreePath.map({ path in
+                  if case .allowed = locator.access(to: path) { return true }
+                  return false
+              }) ?? true else {
+            return AppLanguage.text("Scan this project before restoring this work.")
+        }
         let failure = await WorkDeleter.undo(git: git, record: record)
         if failure == nil {
             deletions.removeAll { $0.id == record.id }

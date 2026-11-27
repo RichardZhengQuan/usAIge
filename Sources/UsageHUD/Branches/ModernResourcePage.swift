@@ -191,15 +191,16 @@ struct ModernResourcePage: View {
                 : nil,
             configuration: storage
         )
+        ProjectScanSection(store: store)
         ModernSection(title: "Categories") {
             ModernNavigationRow(
                 symbol: "folder.fill", color: ModernPalette.worktrees, title: "Worktrees",
-                subtitle: "Folders AI tools work in, without their build cache",
+                subtitle: "Scanned worktrees, excluding build caches",
                 value: amount("wt", in: storage), action: { presentation.open(.worktrees) }
             )
             ModernNavigationRow(
                 symbol: "hammer.fill", color: ModernPalette.buildCache, title: "Build cache",
-                subtitle: "Inside worktree folders. A build makes it again.",
+                subtitle: "Build caches inside scanned worktrees",
                 value: amount("cache", in: storage), isExpanded: expanded.contains("cat|cache"),
                 action: { toggle("cat|cache") }
             )
@@ -213,7 +214,7 @@ struct ModernResourcePage: View {
             if expanded.contains("cat|tool") { toolRows() }
             ModernNavigationRow(
                 symbol: "macwindow", color: ModernPalette.system, title: "macOS and apps",
-                subtitle: "The system, apps and your own files. usAIge doesn't clear these.",
+                subtitle: "The system, apps, and other storage outside this scan",
                 value: amount("other", in: storage)
             )
         }
