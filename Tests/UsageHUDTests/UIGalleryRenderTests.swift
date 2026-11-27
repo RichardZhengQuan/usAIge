@@ -649,11 +649,22 @@ struct UIGalleryRenderTests {
 
     @Test func rendersChineseLanguageSettings() throws {
         guard #available(macOS 14.0, *) else { return }
+        let iconURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/UsageHUD/Resources/AppIcon.icns")
+        let app = NSApplication.shared
+        let originalIcon = app.applicationIconImage
+        app.applicationIconImage = try #require(NSImage(contentsOf: iconURL))
+        defer { app.applicationIconImage = originalIcon }
+
         let domain = "usaige.render.language.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defer { defaults.removePersistentDomain(forName: domain) }
         defaults.set(AppLanguage.simplifiedChinese.rawValue, forKey: AppLanguage.defaultsKey)
         let settings = HUDSettings(defaults: defaults)
+        settings.showsDockIcon = false
         let status = LocalToolStatusRegistry(detectInstallations: { [] })
         let usage = UsageStore(provider: FixedUsageProvider(.success(.authenticated([]))), monitorsNetworkChanges: false)
         let preferences = HUDSettingsRootView(
