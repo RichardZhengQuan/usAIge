@@ -100,8 +100,7 @@ struct LocalToolGuidance: Identifiable, Sendable {
     let source: String
     let signInHint: String
     let expiredHint: String
-    /// Set for tools whose sign-in is broader than their usage, such as the
-    /// GitHub CLI's token: usAIge reads nothing until the user turns them on.
+    /// Explains what turning on this reader permits and why it defaults to off.
     var optInHint: String? = nil
 
     /// Tools AI Tools always lists: the original four, and tools that need
@@ -168,7 +167,8 @@ struct LocalToolGuidance: Identifiable, Sendable {
             id: .antigravity,
             source: "Antigravity running on this Mac",
             signInHint: "Open Antigravity, or run `agy`, and sign in. usAIge reads its limits while it runs.",
-            expiredHint: "Sign in to Antigravity again."
+            expiredHint: "Sign in to Antigravity again.",
+            optInHint: "Off. Google supports only ACP for other apps. This reads Antigravity's private local server and could flag your Google account."
         ),
         LocalToolGuidance(
             id: .copilot,
@@ -199,7 +199,8 @@ struct LocalToolGuidance: Identifiable, Sendable {
             id: .ohMyPi,
             source: "Oh My Pi on this Mac",
             signInHint: "Install Oh My Pi and sign in to your accounts in `omp`.",
-            expiredHint: "Run `omp login` in Terminal to sign in again."
+            expiredHint: "Run `omp login` in Terminal to sign in again.",
+            optInHint: "Off. Turn on to run `omp usage`. For Google accounts, omp checks Google's internal API, which could flag them, so usAIge hides those."
         ),
         LocalToolGuidance(
             id: .commandCode,

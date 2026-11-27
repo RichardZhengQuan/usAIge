@@ -101,7 +101,10 @@ private let subscriptionsJSON = #"{"subscriptions":[{"tier":"SUBSCRIPTION_TIER_S
     #expect(snapshots[0].planType == "Super Grok Pro")
     #expect(snapshots[0].resetAt == Date(timeIntervalSince1970: 1_782_864_000))
     #expect(snapshots[0].typeTag == "30D")
-    #expect(await http.header("X-XAI-Token-Auth", ofRequestTo: GrokUsageProvider.creditsConfigURL) == "xai-grok-cli")
+    for url in [GrokUsageProvider.creditsConfigURL, GrokUsageProvider.subscriptionsURL] {
+        #expect(await http.header("User-Agent", ofRequestTo: url) == UsAIgeUserAgent.value)
+        #expect(await http.header("X-XAI-Token-Auth", ofRequestTo: url) == nil)
+    }
     #expect(await http.header("Authorization", ofRequestTo: GrokUsageProvider.subscriptionsURL) == "Bearer grok-token")
     #expect(await http.requests.count == 2)
     #expect(await registry.status(for: .grok) == .connected)

@@ -17,12 +17,12 @@ Surveyed from ClaudeBar at commit `e999eb9` (2026-11-20).
 | --- | --- | --- |
 | JetBrains AI | The quota file the IDE saves | Nothing |
 | Windsurf (Devin Desktop) | The plan the app saves in `state.vscdb`, read-only | Nothing |
-| Antigravity | Its local language server on `127.0.0.1`, while it runs | Nothing |
+| Antigravity | Its private local language server on `127.0.0.1`, while it runs | Turning it on in **AI Tools** |
 | GitHub Copilot | `gh auth token` and GitHub's Copilot endpoint | Turning it on in **AI Tools** |
 | Kiro | `kiro-cli acp` | Nothing |
 | Amp | `amp usage` | Nothing |
 | Muse Code | `muse usage --json` | Nothing |
-| Oh My Pi | `omp usage --json` | Nothing |
+| Oh My Pi | `omp usage --json` | Turning it on in **AI Tools** |
 | Command Code | The key `cmd login` saved, and its usage API | Nothing |
 | Cline | The login `cline auth` saved, and its usage API | Nothing |
 | OpenCode Go | The OpenCode Zen key in `auth.json`, and its usage API | Nothing |
@@ -31,7 +31,11 @@ JetBrains AI and Windsurf came first because their apps already save their
 quota in a file, so there is nothing to sign in to and nothing to request. The
 others follow ClaudeBar's local sources, with these choices:
 
-- **Antigravity** uses only the running app's local server. ClaudeBar's
+- **Google account limits.** Google told T3 Code that the Agent Client Protocol
+  (ACP) is the only supported interface for external Antigravity clients and
+  that using internal APIs can flag an account. This is why Antigravity and
+  Oh My Pi are off by default. [T3 Code's removal of Antigravity limits](https://github.com/pingdotgg/t3code/pull/43026)
+- **Antigravity** uses only the running app's private local server. ClaudeBar's
   fallback reads a Google token from the Keychain while the app is closed, and
   runs `agy` to renew it; usAIge does neither. The server's self-signed
   certificate is accepted only for `127.0.0.1`.
@@ -45,10 +49,11 @@ others follow ClaudeBar's local sources, with these choices:
 - **Command Code, Cline, OpenCode Go** read only the file their own CLI login
   wrote. Environment-variable keys, pasted keys and extra accounts are not
   supported.
-- **Oh My Pi** reports Claude, Codex and other accounts it is signed in to. They
-  appear under Oh My Pi, named by provider and order, never by email. They can
-  repeat the Claude or Codex rings when the same account is signed in both
-  ways.
+- **Oh My Pi** checks Google's internal quota API for its Google accounts when
+  `omp usage` runs. usAIge hides the Antigravity and Gemini CLI rows from that
+  report. An installation with only Google accounts shows no limits. Other
+  accounts appear under Oh My Pi by provider and order, and can repeat the
+  Claude or Codex rings when the same account is signed in both ways.
 
 ## Not built in
 

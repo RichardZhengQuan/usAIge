@@ -75,10 +75,12 @@ import Testing
 
 @Test func optInToolsReadNothingUntilTurnedOn() throws {
     let defaults = try #require(UserDefaults(suiteName: "usaige.optin.\(UUID().uuidString)"))
-    #expect(LocalToolOptIn.optInToolIDs == [.copilot])
-    #expect(!LocalToolOptIn.isEnabled(.copilot, defaults: defaults))
-    LocalToolOptIn.setEnabled(true, for: .copilot, defaults: defaults)
-    #expect(LocalToolOptIn.isEnabled(.copilot, defaults: defaults))
+    #expect(LocalToolOptIn.optInToolIDs == [.copilot, .antigravity, .ohMyPi])
+    for id in LocalToolOptIn.optInToolIDs {
+        #expect(!LocalToolOptIn.isEnabled(id, defaults: defaults))
+        LocalToolOptIn.setEnabled(true, for: id, defaults: defaults)
+        #expect(LocalToolOptIn.isEnabled(id, defaults: defaults))
+    }
     #expect(LocalToolOptIn.key(for: .copilot) == "usageHUD.optIn.copilot.v1")
 
     let copilot = try #require(LocalToolGuidance.supported.first { $0.id == .copilot })
@@ -103,6 +105,6 @@ import Testing
     let listed = LocalToolGuidance.listed(order: order) { statuses[$0] ?? .notInstalled }.map(\.id)
 
     // The user's order first, then the rest in catalog order.
-    #expect(listed == [.kiro, .claude, .chatGPT, .cursor, .grok, .jetBrainsAI, .copilot, .openCodeGo])
-    #expect(LocalToolGuidance.alwaysListed == [.chatGPT, .claude, .cursor, .grok, .copilot])
+    #expect(listed == [.kiro, .claude, .chatGPT, .cursor, .grok, .jetBrainsAI, .antigravity, .copilot, .ohMyPi, .openCodeGo])
+    #expect(LocalToolGuidance.alwaysListed == [.chatGPT, .claude, .cursor, .grok, .antigravity, .copilot, .ohMyPi])
 }

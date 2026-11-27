@@ -5,6 +5,8 @@ import Testing
 // Opt-in smoke tests against local usage sources on this Mac. They print the
 // normalized limits and never print tokens. Run with:
 //   USAIGE_LIVE_LOCAL_TOOLS=1 swift test --filter LiveLocalTools
+// This run includes the Antigravity and Oh My Pi readers even when their
+// AI Tools switches are off. See the Google account warning in the README.
 // Claude is included only with USAIGE_LIVE_CLAUDE=1; its default collector
 // reads existing desktop usage files without credentials or network requests.
 
@@ -66,11 +68,11 @@ struct LiveLocalToolsSmokeTests {
     @Test func moreLocalToolsLive() async throws {
         let registry = await LocalToolStatusRegistry()
         let providers: [(AIToolID, any CodexUsageProviding)] = [
-            (.antigravity, AntigravityUsageProvider(statusRegistry: registry)),
+            (.antigravity, AntigravityUsageProvider(isOptedIn: { true }, statusRegistry: registry)),
             (.kiro, KiroUsageProvider(statusRegistry: registry)),
             (.amp, AmpUsageProvider(statusRegistry: registry)),
             (.muse, MuseUsageProvider(statusRegistry: registry)),
-            (.ohMyPi, OhMyPiUsageProvider(statusRegistry: registry)),
+            (.ohMyPi, OhMyPiUsageProvider(isOptedIn: { true }, statusRegistry: registry)),
             (.commandCode, CommandCodeUsageProvider(statusRegistry: registry)),
             (.cline, ClineUsageProvider(statusRegistry: registry)),
             (.openCodeGo, OpenCodeGoUsageProvider(statusRegistry: registry)),

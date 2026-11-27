@@ -286,6 +286,7 @@ actor AntigravityUsageProvider: CodexUsageProviding {
     private let locator: any AntigravityServerLocating
     private let http: any UsageHTTPClient
     private let homeDirectory: URL
+    private let isOptedIn: @Sendable () -> Bool
     private let statusRegistry: LocalToolStatusRegistry?
     private let now: @Sendable () -> Date
 
@@ -293,19 +294,24 @@ actor AntigravityUsageProvider: CodexUsageProviding {
         locator: any AntigravityServerLocating = AntigravityProcessLocator(),
         http: any UsageHTTPClient = AntigravityLoopbackHTTPClient(),
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        isOptedIn: @escaping @Sendable () -> Bool = { LocalToolOptIn.isEnabled(.antigravity) },
         statusRegistry: LocalToolStatusRegistry? = nil,
         now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.locator = locator
         self.http = http
         self.homeDirectory = homeDirectory
+        self.isOptedIn = isOptedIn
         self.statusRegistry = statusRegistry
         self.now = now
     }
 
     func refresh() async throws -> AccountUsageResult {
         do {
-            switch try await locator.locate() {
+            guard isOptedIn() else { return await reportOptInRequired() }
+            let location = try await locator.locate()
+            guard isOptedIn() else { return await reportOptInRequired() }
+            switch location {
             case .notRunning:
                 await report(looksInstalled() ? .signedOut : .notInstalled)
                 return .signedOut
@@ -314,6 +320,7 @@ actor AntigravityUsageProvider: CodexUsageProviding {
                 return .signedOut
             case let .running(token, httpsPorts, extensionPort):
                 let buckets = try await read(httpsPorts: httpsPorts, extensionPort: extensionPort, token: token)
+                guard isOptedIn() else { return await reportOptInRequired() }
                 let updatedAt = now()
                 let snapshots = buckets.map { bucket in
                     var snapshot = QuotaSnapshot.make(from: bucket, updatedAt: updatedAt)
@@ -324,6 +331,7 @@ actor AntigravityUsageProvider: CodexUsageProviding {
                 return .authenticated(snapshots)
             }
         } catch {
+            guard isOptedIn() else { return await reportOptInRequired() }
             let failure: any Error = error is CancellationError || Task.isCancelled
                 ? CancellationError()
                 : (error as? LocalToolUsageError ?? .invalidResponse)
@@ -387,6 +395,8 @@ actor AntigravityUsageProvider: CodexUsageProviding {
     }
 
     private func send(_ method: String, scheme: String, port: UInt16, token: String) async throws -> (Int, Data) {
+        // Consent can change before a fallback request on another port or method.
+        guard isOptedIn() else { throw CancellationError() }
         let service = "exa.language_server_pb.LanguageServerService"
         guard let url = URL(string: "\(scheme)://\(AntigravityLoopbackHTTPClient.host):\(port)/\(service)/\(method)")
         else { throw LocalToolUsageError.invalidResponse }
@@ -404,6 +414,11 @@ actor AntigravityUsageProvider: CodexUsageProviding {
         case 429: throw LocalToolUsageError.rateLimited
         default: return response
         }
+    }
+
+    private func reportOptInRequired() async -> AccountUsageResult {
+        await report(.optInRequired)
+        return .signedOut
     }
 
     private func report(_ status: LocalToolStatus) async {

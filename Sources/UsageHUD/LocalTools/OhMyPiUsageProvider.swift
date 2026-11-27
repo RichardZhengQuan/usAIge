@@ -53,6 +53,8 @@ private enum OhMyPiUsageParser {
         }
     }
 
+    private static let hiddenProviders: Set<String> = ["google-antigravity", "google-gemini-cli"]
+
     private static let providerNames = [
         "alibaba-token-plan": "Qwen Cloud",
         "anthropic": "Claude",
@@ -63,8 +65,6 @@ private enum OhMyPiUsageParser {
         "devin": "Devin",
         "factory-droid": "Factory Droid",
         "github-copilot": "Copilot",
-        "google-antigravity": "Antigravity",
-        "google-gemini-cli": "Gemini",
         "kimi-code": "Kimi",
         "minimax-code": "MiniMax",
         "minimax-code-cn": "MiniMax CN",
@@ -83,13 +83,16 @@ private enum OhMyPiUsageParser {
         guard let payload = payload(from: data), let reports = payload["reports"]?.arrayValue else {
             throw LocalToolUsageError.invalidResponse
         }
-        let hasAccountsWithoutUsage = try hasAccounts(in: payload["accountsWithoutUsage"])
-        let hasSignedOutAccounts = try hasAccounts(in: payload["disabledCredentials"])
+        let accountsWithoutUsage = try accountProviders(in: payload["accountsWithoutUsage"])
+        let disabledAccounts = try accountProviders(in: payload["disabledCredentials"])
         var accountsPerProvider: [String: Int] = [:]
         var result: [RateLimitBucket] = []
         for report in reports {
-            guard let provider = text(report["provider"])?.lowercased(),
-                  let limits = report["limits"]?.arrayValue,
+            guard let provider = text(report["provider"])?.lowercased() else {
+                throw LocalToolUsageError.invalidResponse
+            }
+            if hiddenProviders.contains(provider) { continue }
+            guard let limits = report["limits"]?.arrayValue,
                   limits.allSatisfy({ $0.objectValue != nil }) else {
                 throw LocalToolUsageError.invalidResponse
             }
@@ -106,8 +109,8 @@ private enum OhMyPiUsageParser {
             result += buckets(from: windows, id: id, name: name, plan: plan)
         }
         if !result.isEmpty { return .limits(result) }
-        if hasSignedOutAccounts { return .reconnect }
-        return reports.isEmpty && !hasAccountsWithoutUsage ? .signedOut : .limits([])
+        if disabledAccounts.contains(where: { !hiddenProviders.contains($0) }) { return .reconnect }
+        return reports.isEmpty && accountsWithoutUsage.isEmpty && disabledAccounts.isEmpty ? .signedOut : .limits([])
     }
 
     private static func payload(from data: Data) -> JSONValue? {
@@ -121,12 +124,13 @@ private enum OhMyPiUsageParser {
         return JSONValue.parse(Data(lines[start...end].joined(separator: "\n").utf8))
     }
 
-    private static func hasAccounts(in value: JSONValue?) throws -> Bool {
-        guard let value, value != .null else { return false }
-        guard let accounts = value.arrayValue, accounts.allSatisfy({ text($0["provider"]) != nil }) else {
-            throw LocalToolUsageError.invalidResponse
+    private static func accountProviders(in value: JSONValue?) throws -> [String] {
+        guard let value, value != .null else { return [] }
+        guard let accounts = value.arrayValue else { throw LocalToolUsageError.invalidResponse }
+        return try accounts.map { account in
+            guard let provider = text(account["provider"]) else { throw LocalToolUsageError.invalidResponse }
+            return provider.lowercased()
         }
-        return !accounts.isEmpty
     }
 
     private static func windows(from limits: [JSONValue], provider: String) -> [Window] {
@@ -244,15 +248,18 @@ private enum OhMyPiUsageParser {
 
 actor OhMyPiUsageProvider: CodexUsageProviding {
     private let runner: any LocalCommandRunning
+    private let isOptedIn: @Sendable () -> Bool
     private let statusRegistry: LocalToolStatusRegistry?
     private let now: @Sendable () -> Date
 
     init(
         runner: any LocalCommandRunning = LocalCommandRunner(),
+        isOptedIn: @escaping @Sendable () -> Bool = { LocalToolOptIn.isEnabled(.ohMyPi) },
         statusRegistry: LocalToolStatusRegistry? = nil,
         now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.runner = runner
+        self.isOptedIn = isOptedIn
         self.statusRegistry = statusRegistry
         self.now = now
     }
@@ -263,6 +270,10 @@ actor OhMyPiUsageProvider: CodexUsageProviding {
             await statusRegistry?.report(status, for: .ohMyPi)
             return result
         } catch {
+            guard isOptedIn() else {
+                await statusRegistry?.report(.optInRequired, for: .ohMyPi)
+                return .signedOut
+            }
             let failure = error as? LocalToolUsageError ?? .invalidResponse
             let status: LocalToolStatus = failure == .invalidResponse
                 ? .failed("Run `omp usage` in Terminal to check the usage report.")
@@ -274,9 +285,10 @@ actor OhMyPiUsageProvider: CodexUsageProviding {
     }
 
     private func read() async throws -> (AccountUsageResult, LocalToolStatus) {
-        guard let output = try await runner.run("omp", arguments: ["usage", "--json"], timeout: 30) else {
-            return (.signedOut, .notInstalled)
-        }
+        guard isOptedIn() else { return (.signedOut, .optInRequired) }
+        let output = try await runner.run("omp", arguments: ["usage", "--json"], timeout: 30)
+        guard isOptedIn() else { return (.signedOut, .optInRequired) }
+        guard let output else { return (.signedOut, .notInstalled) }
         guard output.exitCode == 0 else { throw LocalToolUsageError.invalidResponse }
 
         switch try OhMyPiUsageParser.parse(output.standardOutput) {

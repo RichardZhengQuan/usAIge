@@ -39,10 +39,20 @@ private let ohMyPiAccounts = """
     }
     """
 
+@Test func ohMyPiDoesNotRunTheCommandBeforeOptIn() async throws {
+    let runner = ScriptedLocalCommandRunner(stdout: ["omp": ohMyPiAccounts])
+    let registry = await LocalToolStatusRegistry()
+    let provider = OhMyPiUsageProvider(runner: runner, isOptedIn: { false }, statusRegistry: registry)
+
+    #expect(try await provider.refresh() == .signedOut)
+    #expect(await registry.status(for: .ohMyPi) == .optInRequired)
+    #expect(await runner.calls.isEmpty)
+}
+
 @Test func ohMyPiPairsWindowsByAccountAndKeepsAccountDetailsPrivate() async throws {
     let registry = await LocalToolStatusRegistry()
     let runner = ScriptedLocalCommandRunner(stdout: ["omp": "Synced accounts\n\(ohMyPiAccounts)\nDone."])
-    let provider = OhMyPiUsageProvider(runner: runner, statusRegistry: registry, now: { ohMyPiTestNow })
+    let provider = OhMyPiUsageProvider(runner: runner, isOptedIn: { true }, statusRegistry: registry, now: { ohMyPiTestNow })
 
     let snapshots = try await provider.refresh().snapshots
 
@@ -83,7 +93,7 @@ private let ohMyPiAccounts = """
           ]}
         ]}
         """
-    let provider = OhMyPiUsageProvider(runner: ScriptedLocalCommandRunner(stdout: ["omp": json]))
+    let provider = OhMyPiUsageProvider(runner: ScriptedLocalCommandRunner(stdout: ["omp": json]), isOptedIn: { true })
 
     let snapshots = try await provider.refresh().snapshots
 
@@ -105,7 +115,7 @@ private let ohMyPiAccounts = """
         return ScriptedLocalCommandRunner.Reply.output(.init(exitCode: 0, standardOutput: Data(report.utf8)))
     }
     let runner = ScriptedLocalCommandRunner(["omp": replies])
-    let provider = OhMyPiUsageProvider(runner: runner, now: { ohMyPiTestNow })
+    let provider = OhMyPiUsageProvider(runner: runner, isOptedIn: { true }, now: { ohMyPiTestNow })
 
     let first = try await provider.refresh().snapshots
     #expect(first.map(\.id) == ["ohMyPi_openai_codex_1", "ohMyPi_openai_codex_1_pool_2"])
@@ -114,7 +124,7 @@ private let ohMyPiAccounts = """
 
 @Test func ohMyPiShowsASharedPoolOnlyOnceAcrossModels() async throws {
     let json = """
-        {"reports":[{"provider":"google-antigravity","limits":[
+        {"reports":[{"provider":"example-provider","limits":[
           {"label":"Gemini","scope":{"windowId":"5h"},"amount":{"usedFraction":0.125}},
           {"label":"Gemini","scope":{"windowId":"weekly"},"amount":{"usedFraction":0.25}},
           {"label":"Claude","scope":{"windowId":"weekly","sharedGroup":"3p-weekly:weekly"},"amount":{"usedFraction":0.5}},
@@ -123,11 +133,11 @@ private let ohMyPiAccounts = """
           {"label":"GPT","scope":{"windowId":"5h","sharedGroup":"3p-5h:5h"},"amount":{"usedFraction":0.375}}
         ]}]}
         """
-    let provider = OhMyPiUsageProvider(runner: ScriptedLocalCommandRunner(stdout: ["omp": json]))
+    let provider = OhMyPiUsageProvider(runner: ScriptedLocalCommandRunner(stdout: ["omp": json]), isOptedIn: { true })
 
     let snapshots = try await provider.refresh().snapshots
 
-    #expect(snapshots.map(\.id) == ["ohMyPi_google_antigravity_1", "ohMyPi_google_antigravity_1_pool_2"])
+    #expect(snapshots.map(\.id) == ["ohMyPi_other_1", "ohMyPi_other_1_pool_2"])
     #expect(snapshots.map(\.usedPercent) == [12.5, 37.5])
     #expect(snapshots.compactMap { $0.secondaryWindow?.usedPercent } == [25, 50])
     #expect(snapshots.allSatisfy { $0.windowDurationMinutes == nil && $0.secondaryWindow?.windowDurationMinutes == nil })
@@ -141,7 +151,7 @@ private let ohMyPiAccounts = """
           {"scope":{"windowId":"limit_7d"},"amount":{"usedFraction":0.375,"unit":"percent"}}
         ]}]}
         """
-    let provider = OhMyPiUsageProvider(runner: ScriptedLocalCommandRunner(stdout: ["omp": json]))
+    let provider = OhMyPiUsageProvider(runner: ScriptedLocalCommandRunner(stdout: ["omp": json]), isOptedIn: { true })
 
     let snapshots = try await provider.refresh().snapshots
 
@@ -164,7 +174,7 @@ private let ohMyPiAccounts = """
           {"amount":{"unit":"credits","remaining":94}}
         ]}]}
         """
-    let provider = OhMyPiUsageProvider(runner: ScriptedLocalCommandRunner(stdout: ["omp": json]))
+    let provider = OhMyPiUsageProvider(runner: ScriptedLocalCommandRunner(stdout: ["omp": json]), isOptedIn: { true })
 
     let snapshots = try await provider.refresh().snapshots
 
@@ -173,20 +183,23 @@ private let ohMyPiAccounts = """
     #expect(snapshots.allSatisfy { $0.secondaryWindow == nil && $0.windowDurationMinutes == nil })
 }
 
-@Test func ohMyPiKeepsAnAccountOrdinalWhenAnEarlierReportHasNoQuota() async throws {
+@Test func ohMyPiSkipsGoogleReportsAndKeepsOtherAccountOrdinals() async throws {
     let json = """
         {"reports":[
           {"provider":"anthropic","limits":[]},
+          {"provider":"google-antigravity","limits":[{"amount":{"usedFraction":0.75}}]},
           {"provider":"anthropic","limits":[{"amount":{"usedFraction":0.5}}]},
-          {"provider":"private-account-tag","limits":[{"label":"private@example.test","amount":{"usedFraction":0.25}}]}
+          {"provider":"private-account-tag","limits":[{"label":"private@example.test","amount":{"usedFraction":0.25}}]},
+          {"provider":"google-gemini-cli","limits":[{"amount":{"usedFraction":0.125}}]},
+          {"provider":"another-private-tag","limits":[{"amount":{"usedFraction":0.375}}]}
         ]}
         """
-    let provider = OhMyPiUsageProvider(runner: ScriptedLocalCommandRunner(stdout: ["omp": json]))
+    let provider = OhMyPiUsageProvider(runner: ScriptedLocalCommandRunner(stdout: ["omp": json]), isOptedIn: { true })
 
     let snapshots = try await provider.refresh().snapshots
 
-    #expect(snapshots.map(\.id) == ["ohMyPi_anthropic_2", "ohMyPi_other_1"])
-    #expect(snapshots.map(\.displayName) == ["Claude 2", "Other provider"])
+    #expect(snapshots.map(\.id) == ["ohMyPi_anthropic_2", "ohMyPi_other_1", "ohMyPi_other_2"])
+    #expect(snapshots.map(\.displayName) == ["Claude 2", "Other provider", "Other provider 2"])
 }
 
 @Test func ohMyPiDistinguishesAMissingCLIFromAnEmptyAccountList() async throws {
@@ -195,7 +208,7 @@ private let ohMyPiAccounts = """
         .notInstalled,
         .output(.init(exitCode: 0, standardOutput: Data(#"{"reports":[]}"#.utf8))),
     ]])
-    let provider = OhMyPiUsageProvider(runner: runner, statusRegistry: registry)
+    let provider = OhMyPiUsageProvider(runner: runner, isOptedIn: { true }, statusRegistry: registry)
 
     #expect(try await provider.refresh() == .signedOut)
     #expect(await registry.status(for: .ohMyPi) == .notInstalled)
@@ -208,6 +221,7 @@ private let ohMyPiAccounts = """
     let registry = await LocalToolStatusRegistry()
     let provider = OhMyPiUsageProvider(
         runner: ScriptedLocalCommandRunner(stdout: ["omp": json]),
+        isOptedIn: { true },
         statusRegistry: registry
     )
 
@@ -217,12 +231,15 @@ private let ohMyPiAccounts = """
 
 @Test(arguments: [
     #"{"reports":[],"accountsWithoutUsage":[{"provider":"kimi-code"}]}"#,
+    #"{"reports":[{"provider":"google-antigravity","limits":[{"amount":{"usedFraction":0.5}}]},{"provider":"google-gemini-cli","limits":[{"amount":{"usedFraction":0.25}}]}]}"#,
+    #"{"reports":[],"disabledCredentials":[{"provider":"google-gemini-cli"}]}"#,
     #"{"reports":[{"provider":"openai-codex","limits":[],"resetCredits":{"availableCount":2},"notes":["private warning"]}],"dailyUsage":{"usedFraction":0.9}}"#,
 ])
 func ohMyPiReportsConnectedAccountsWithoutQuota(_ json: String) async throws {
     let registry = await LocalToolStatusRegistry()
     let provider = OhMyPiUsageProvider(
         runner: ScriptedLocalCommandRunner(stdout: ["omp": json]),
+        isOptedIn: { true },
         statusRegistry: registry
     )
 
@@ -235,6 +252,7 @@ func ohMyPiRejectsMalformedReportsWithoutLeakingOutput(_ output: String) async {
     let registry = await LocalToolStatusRegistry()
     let provider = OhMyPiUsageProvider(
         runner: ScriptedLocalCommandRunner(stdout: ["omp": output]),
+        isOptedIn: { true },
         statusRegistry: registry
     )
 
@@ -251,7 +269,7 @@ func ohMyPiRejectsMalformedReportsWithoutLeakingOutput(_ output: String) async {
     ]])
     let provider = CompositeUsageProvider(
         local: ScriptedUsageProvider(result: .signedOut),
-        throttled: [OhMyPiUsageProvider(runner: runner, statusRegistry: registry, now: { ohMyPiTestNow })],
+        throttled: [OhMyPiUsageProvider(runner: runner, isOptedIn: { true }, statusRegistry: registry, now: { ohMyPiTestNow })],
         remote: ScriptedUsageProvider(result: .signedOut)
     )
 

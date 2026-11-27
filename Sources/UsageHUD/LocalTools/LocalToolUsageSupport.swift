@@ -48,7 +48,7 @@ enum LocalToolStatus: Equatable, Sendable {
     case waitingForClaudeUsage
     case notInstalled
     case signedOut
-    /// The tool's sign-in is only read after the user turns it on in AI Tools.
+    /// The user must turn on this reader in AI Tools.
     case optInRequired
     case credentialExpired
     /// The Claude plan sign-in expired and Claude Code bills an API key
@@ -75,12 +75,12 @@ enum LocalToolStatus: Equatable, Sendable {
     }
 }
 
-/// Tools whose sign-in grants more than reading usage (the GitHub CLI's
-/// token covers the user's repositories) are read only after the user turns
-/// them on in AI Tools. The choice lives in its own defaults key so a provider
-/// actor can check it without reaching into the main-actor settings model.
+/// A reader requires opt-in when its sign-in grants more than usage access
+/// (the GitHub CLI token also covers repositories), or when reading limits
+/// depends on an interface the vendor does not support for other apps.
+/// Each provider can check its own defaults key without accessing the UI.
 enum LocalToolOptIn {
-    static let optInToolIDs: Set<AIToolID> = [.copilot]
+    static let optInToolIDs: Set<AIToolID> = [.copilot, .antigravity, .ohMyPi]
 
     static func key(for id: AIToolID) -> String {
         "usageHUD.optIn.\(id.rawValue).v1"
