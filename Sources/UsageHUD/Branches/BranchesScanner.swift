@@ -81,6 +81,8 @@ actor BranchesScanner {
         var processes: @Sendable () -> [WorkProcess]
         var now: @Sendable () -> Date
         var storageProcesses: (@Sendable () -> [WorkProcess])? = nil
+        var simctl: SimulatorCleaner.Runner = { _, _ in .couldNotStart }
+        var hasCoreSimulator: @Sendable () -> Bool = { true }
 
         static func live(addedFolders: @escaping @Sendable () -> [String]) -> Environment {
             let fileManager = FileManager.default
@@ -102,7 +104,8 @@ actor BranchesScanner {
                         let name = executable.map { ($0 as NSString).lastPathComponent } ?? ""
                         return folder != "/" || StorageArtifactKind.processMayUseStorage(name, executable: executable)
                     }
-                }
+                },
+                simctl: SimulatorCleaner.runLive, hasCoreSimulator: { SimulatorCleaner.isInstalled }
             )
         }
     }
@@ -456,7 +459,7 @@ actor BranchesScanner {
            environment.now().timeIntervalSince(measuredAt) < Self.sizeFreshness {
             return cache.toolStorage
         }
-        let entries = await ToolStorageScanner.scan(home: environment.home)
+        let entries = await ToolStorageScanner.scan(home: environment.home, simctl: environment.simctl)
         guard !Task.isCancelled else { return entries }
         cache.toolStorage = entries
         cache.toolStorageMeasuredAt = environment.now()
@@ -467,7 +470,23 @@ actor BranchesScanner {
     func scanStorage(addedFolders: [String]) async -> StorageCleanupInventory {
         let folders = environment.addedFolders() + addedFolders
         let scanner = storageScanner(allowedFolders: folders)
-        return await scanner.scan(sessionFolders: scanner.sessions.map(\.folder), addedFolders: folders)
+        async let simulators: [SimulatorCleanupRow]? = environment.hasCoreSimulator()
+            ? SimulatorCleaner(simctl: environment.simctl).scan(now: environment.now()) : []
+        var inventory = await scanner.scan(sessionFolders: scanner.sessions.map(\.folder), addedFolders: folders)
+        if let rows = await simulators { inventory.simulators = rows } else { inventory.simulatorScanFailed = true }
+        return inventory
+    }
+
+    func performSimulatorCleanup(_ candidate: SimulatorCleanupCandidate) async -> String? {
+        let result = await SimulatorCleaner(simctl: environment.simctl).perform(candidate)
+        invalidateToolStorage()
+        return result
+    }
+
+    private func invalidateToolStorage() {
+        loadPersistedState()
+        cache.toolStorageMeasuredAt = nil
+        persistCache()
     }
 
     func removeStorageArtifact(_ candidate: StorageCleanupCandidate, addedFolders: [String]) async -> String? {
@@ -477,8 +496,7 @@ actor BranchesScanner {
         for path in Array(cache.sizes.keys) where RepositoryLocator.contains(path, candidate.id) {
             cache.sizes[path] = nil
         }
-        cache.toolStorageMeasuredAt = nil
-        persistCache()
+        invalidateToolStorage()
         return failure
     }
 

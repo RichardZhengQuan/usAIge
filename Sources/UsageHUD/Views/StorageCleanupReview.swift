@@ -2,22 +2,66 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+extension StorageCleanupSelection {
+    func confirmationMessage(locale: Locale) -> String {
+        var parts: [String] = []
+        if !folders.isEmpty {
+            parts.append(folders.count == 1
+                         ? AppLanguage.text("Delete 1 generated folder. Tools may need to download or rebuild files.", locale: locale)
+                         : AppLanguage.format("Delete %lld generated folders. Tools may need to download or rebuild files.", locale: locale, folders.count))
+        }
+        var unavailable = 0, erased = 0
+        for simulator in simulators {
+            switch simulator.action {
+            case .deleteRuntime:
+                let size = simulator.bytes.map(BoardText.bytes) ?? AppLanguage.text("Unknown size", locale: locale)
+                parts.append(AppLanguage.format("Delete %@. To use it again, download %@ in Xcode.", locale: locale, simulator.name, size))
+            case .deleteUnavailableDevice: unavailable += 1
+            case .eraseDevice: erased += 1
+            }
+        }
+        if unavailable > 0 {
+            parts.append(unavailable == 1
+                         ? AppLanguage.text("Delete 1 unavailable simulator and all its data.", locale: locale)
+                         : AppLanguage.format("Delete %lld unavailable simulators and all their data.", locale: locale, unavailable))
+        }
+        if erased > 0 {
+            parts.append(erased == 1
+                         ? AppLanguage.text("Erase the apps and data on 1 simulator. Its name is kept.", locale: locale)
+                         : AppLanguage.format("Erase the apps and data on %lld simulators. Their names are kept.", locale: locale, erased))
+        }
+        parts.append(AppLanguage.text("Each item is checked again. None of the deleted or erased contents can be restored.", locale: locale))
+        return parts.joined(separator: "\n\n")
+    }
+}
+
 @available(macOS 14.0, *)
 struct StorageCleanupReview: View {
     @ObservedObject var store: BranchesStore
-    let confirm: ([StorageCleanupCandidate]) -> Bool
+    let confirm: (StorageCleanupSelection) -> Bool
     let cancel: () -> Void
 
     @State private var selected: Set<String> = []
-    @State private var page: Page = .generated
+    @State private var page: Page
     @State private var choosingFolder = false
     @State private var confirming = false
-    @State private var review: [StorageCleanupCandidate] = []
+    @State private var review = StorageCleanupSelection()
     @State private var notice: String?
+    @Environment(\.locale) private var locale
 
-    private enum Page: String, CaseIterable {
+    enum Page: String, CaseIterable, Identifiable {
         case generated = "Generated Files"
+        case xcode = "Xcode & Simulators"
         case largest = "Largest Folders"
+        var id: Self { self }
+    }
+
+    init(store: BranchesStore, initialPage: Page = .generated,
+         confirm: @escaping (StorageCleanupSelection) -> Bool, cancel: @escaping () -> Void) {
+        self.store = store
+        _page = State(initialValue: initialPage)
+        self.confirm = confirm
+        self.cancel = cancel
     }
 
     private struct MeasuredFolder: Identifiable {
@@ -30,8 +74,9 @@ struct StorageCleanupReview: View {
         store.isScanningCleanup ? nil : store.cleanupInventory
     }
 
-    private var chosen: [StorageCleanupCandidate] {
-        (inventory?.rows ?? []).compactMap(\.candidate).filter { selected.contains($0.id) }
+    private var chosen: StorageCleanupSelection {
+        StorageCleanupSelection(folders: (inventory?.rows ?? []).compactMap(\.candidate).filter { selected.contains($0.id) },
+                                simulators: (inventory?.simulators ?? []).compactMap(\.candidate).filter { selected.contains($0.id) })
     }
 
     var body: some View {
@@ -40,11 +85,18 @@ struct StorageCleanupReview: View {
             Divider()
             if let inventory {
                 switch page {
-                case .generated: generatedFiles(inventory)
+                case .generated: cleanupItems(inventory.generatedRows.map(StorageReviewItem.init))
+                case .xcode:
+                    if inventory.simulatorScanFailed {
+                        Text("Could not verify the simulator inventory.", bundle: AppLanguage.resourceBundle)
+                            .font(.callout).foregroundStyle(.secondary).padding(.horizontal, 20).padding(.top, 8)
+                    }
+                    if inventory.simulatorScanFailed && inventory.xcodeRows.isEmpty { Spacer() }
+                    else { cleanupItems(inventory.xcodeRows) }
                 case .largest: largestFolders(inventory)
                 }
             } else {
-                ProgressView("Scanning for generated files…")
+                ProgressView(AppLanguage.text(page == .xcode ? "Checking Xcode and simulators…" : "Scanning for generated files…", locale: locale))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             Divider()
@@ -63,39 +115,40 @@ struct StorageCleanupReview: View {
                 notice = error.localizedDescription
             }
         }
-        .alert(review.count == 1 ? "Permanently delete this folder?" : "Permanently delete \(review.count) folders?",
-               isPresented: $confirming) {
-            Button("Cancel", role: .cancel) { review = [] }
+        .alert(AppLanguage.text("Permanently clean the selected items?", locale: locale), isPresented: $confirming) {
+            Button("Cancel", role: .cancel) { review = StorageCleanupSelection() }
                 .keyboardShortcut(.defaultAction)
-            Button("Delete Permanently", role: .destructive) {
+            Button(AppLanguage.text("Clean Permanently", locale: locale), role: .destructive) {
                 if !confirm(review) {
-                    notice = "Could not start cleanup. Check for overlapping folders or another cleanup in progress."
+                    notice = AppLanguage.text("Could not start cleanup. Check for overlapping folders or another cleanup in progress.", locale: locale)
                 }
-                review = []
+                review = StorageCleanupSelection()
             }
         } message: {
-            Text("usAIge checks each folder again before deleting it. Tools may need to download or rebuild files.")
+            Text(verbatim: review.confirmationMessage(locale: locale))
         }
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Storage Cleanup")
+            Text("Storage Cleanup", bundle: AppLanguage.resourceBundle)
                 .font(.title2.weight(.semibold))
                 .accessibilityAddTraits(.isHeader)
             HStack {
                 Picker("Storage view", selection: $page) {
-                    ForEach(Page.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    ForEach(Page.allCases) { Text(verbatim: AppLanguage.text($0.rawValue, locale: locale)).tag($0) }
                 }
                 .labelsHidden()
                 .pickerStyle(.segmented)
                 .fixedSize()
                 Spacer(minLength: 12)
-                Button("Add Folder…") { choosingFolder = true }
-                Button("Rescan", systemImage: "arrow.clockwise", action: rescan)
+                if page != .xcode {
+                    Button(AppLanguage.text("Add Folder…", locale: locale)) { choosingFolder = true }
+                }
+                Button(AppLanguage.text("Rescan", locale: locale), systemImage: "arrow.clockwise", action: rescan)
                     .disabled(inventory == nil)
             }
-            if let inventory {
+            if let inventory, page != .xcode {
                 Text(scopeText(inventory))
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -126,19 +179,26 @@ struct StorageCleanupReview: View {
     }
 
     @ViewBuilder
-    private func generatedFiles(_ inventory: StorageCleanupInventory) -> some View {
-        if inventory.rows.isEmpty {
-            ContentUnavailableView("No Generated Folders Found", systemImage: "magnifyingglass",
-                                   description: Text("Add a project folder to check it and its Git worktrees."))
+    private func cleanupItems(_ rows: [StorageReviewItem]) -> some View {
+        if rows.isEmpty {
+            if page == .xcode {
+                ContentUnavailableView {
+                    Label(AppLanguage.text("No verified Xcode or simulator items.", locale: locale), systemImage: "magnifyingglass")
+                }
+            } else {
+                ContentUnavailableView("No Generated Folders Found", systemImage: "magnifyingglass",
+                                       description: Text("Add a project folder to check it and its Git worktrees."))
+            }
         } else {
-            List(inventory.rows) { row in
+            List(rows) { row in
                 HStack(alignment: .center, spacing: 10) {
-                    if row.candidate != nil {
-                        Toggle(row.location.title, isOn: selection(for: row.id))
+                    if row.isSelectable {
+                        Toggle(row.title, isOn: selection(for: row.id))
                             .labelsHidden()
                             .toggleStyle(.checkbox)
                             .frame(width: 16)
-                            .accessibilityLabel("Select \(row.location.title), \(row.location.path)")
+                            .accessibilityLabel("\(row.title), \(row.detail)")
+                            .accessibilityHint(row.note)
                     } else {
                         Image(systemName: "lock")
                             .font(.caption)
@@ -147,21 +207,21 @@ struct StorageCleanupReview: View {
                             .accessibilityHidden(true)
                     }
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(row.location.title).font(.headline)
-                        Text(row.location.path)
+                        Text(row.title).font(.headline)
+                        Text(row.detail)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
-                            .help(row.location.path)
-                        Text(row.reason ?? row.location.kind.consequence)
+                            .help(row.detail)
+                        Text(page == .xcode ? row.note : row.explanation)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 8)
                     size(row.bytes)
-                    reveal(row.location.path)
+                    if let path = row.finderPath { reveal(path) }
                 }
                 .padding(.vertical, 4)
             }
@@ -220,32 +280,35 @@ struct StorageCleanupReview: View {
                 Text(notice).font(.caption).foregroundStyle(.secondary)
             }
             HStack {
-                if page == .largest {
+                let selection = chosen
+                if selection.count > 0 || page != .largest {
+                    let amount = (selection.hasUnknownSize ? "≥" : "") +
+                        selection.bytes.formatted(.byteCount(style: .file, spellsOutZero: false).locale(locale))
+                    Text(verbatim: AppLanguage.format("%lld selected · %@ on disk", locale: locale, selection.count, amount))
+                        .font(.callout.monospacedDigit())
+                } else {
                     Text("Measured size on disk")
                         .font(.callout).foregroundStyle(.secondary)
-                } else if !chosen.isEmpty {
-                    let bytes = chosen.reduce(Int64(0)) { $0 + $1.bytes }
-                    Text("\(chosen.count) selected · \(BoardText.bytes(bytes)) on disk")
-                        .font(.callout.monospacedDigit())
                 }
                 Spacer(minLength: 8)
                 Button("Cancel", role: .cancel, action: cancel)
                     .keyboardShortcut(.cancelAction)
-                if page == .generated {
-                    Button("Review Deletion…") {
-                        review = chosen
+                if page != .largest || selection.count > 0 {
+                    Button(AppLanguage.text("Review Cleanup…", locale: locale)) {
+                        review = selection
                         confirming = true
                     }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(chosen.isEmpty || store.isDeleting)
+                    .disabled(selection.count == 0 || store.isDeleting)
                 }
             }
         }
     }
 
     private func size(_ bytes: Int64?) -> some View {
-        Text(bytes.map(BoardText.bytes) ?? "Unknown size")
+        Text(bytes.map { $0.formatted(.byteCount(style: .file, spellsOutZero: false).locale(locale)) }
+             ?? AppLanguage.text("Unknown size", locale: locale))
             .font(.callout.monospacedDigit())
             .foregroundStyle(.secondary)
             .fixedSize()
@@ -258,8 +321,8 @@ struct StorageCleanupReview: View {
             Image(systemName: "magnifyingglass")
         }
         .buttonStyle(.borderless)
-        .help("Show in Finder")
-        .accessibilityLabel("Show \(path) in Finder")
+        .help(AppLanguage.text("Show in Finder", locale: locale))
+        .accessibilityLabel(AppLanguage.format("Show %@ in Finder", locale: locale, path))
     }
 
     private func selection(for path: String) -> Binding<Bool> {

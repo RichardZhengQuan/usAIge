@@ -314,16 +314,18 @@ final class BranchesStore: ObservableObject {
     }
 
     @discardableResult
-    func startStorageCleanup(_ items: [StorageCleanupCandidate]) -> Bool {
-        let paths = Set(items.map(\.id))
-        guard paths.count == items.count,
+    func startStorageCleanup(_ selection: StorageCleanupSelection) -> Bool {
+        let paths = Set(selection.folders.map(\.id))
+        let names = selection.folders.map { $0.location.title } + selection.simulators.map(\.title)
+        guard paths.count == selection.folders.count,
+              Set(selection.simulators.map(\.action.identifier)).count == selection.simulators.count,
               !paths.contains(where: { folder in
                   paths.contains { $0 != folder && RepositoryLocator.contains(folder, $0) }
               }),
-              beginCleanup(.clearingFiles, names: items.map { $0.location.title }) else { return false }
+              beginCleanup(.clearingFiles, names: names) else { return false }
         let folders = addedFolders
         deleteTask = Task { [weak self] in
-            await self?.performStorageCleanup(items, addedFolders: folders)
+            await self?.performStorageCleanup(selection, addedFolders: folders)
         }
         return true
     }
@@ -402,39 +404,84 @@ final class BranchesStore: ObservableObject {
         readDiskSpace()
     }
 
-    private func performStorageCleanup(_ items: [StorageCleanupCandidate], addedFolders: [String]) async {
+    private func performStorageCleanup(_ selection: StorageCleanupSelection, addedFolders: [String]) async {
         defer { finishCleanup() }
         await scanBeforeCleanup?.value
         scanBeforeCleanup = nil
         let diskURL = diskURL
         let before = await Task.detached(priority: .utility) { DiskSpace.read(for: diskURL) }.value
         let scanner = scanner
-        var removed = 0
+        var counts = StorageCleanupCounts()
         var processed = 0
         var problems: [String] = []
-        for item in items {
+        for item in selection.folders {
             if Task.isCancelled { break }
             cleanupProgress?.currentName = item.id
             let failure = await Task.detached(priority: .utility) {
                 await scanner.removeStorageArtifact(item, addedFolders: addedFolders)
             }.value
-            if let failure { problems.append("\(item.id)\n\(failure)") } else { removed += 1 }
+            if let failure { problems.append("\(item.id)\n\(AppLanguage.text(failure))") } else { counts.folders += 1 }
+            processed += 1
+            cleanupProgress?.completed = processed
+        }
+        // Erase device data before deleting a runtime that would make its devices unavailable.
+        let simulators = selection.simulators.sorted { !$0.action.isRuntime && $1.action.isRuntime }
+        for item in simulators {
+            if Task.isCancelled { break }
+            cleanupProgress?.currentName = item.title
+            let failure = await Task.detached(priority: .utility) { await scanner.performSimulatorCleanup(item) }.value
+            if let failure {
+                problems.append("\(item.title)\n\(failure)")
+            } else {
+                switch item.action {
+                case .deleteUnavailableDevice: counts.devices += 1
+                case .deleteRuntime: counts.runtimes += 1
+                case .eraseDevice: counts.erased += 1
+                }
+            }
             processed += 1
             cleanupProgress?.completed = processed
         }
         let after = await Task.detached(priority: .utility) { DiskSpace.read(for: diskURL) }.value
         updateObservedDiskSpace(after)
         measuredToolsThisOpen = false
-        var details = [removed == 1 ? "Deleted 1 folder." : "Deleted \(removed) folders."]
+        var details = counts.summary
         if let before, let after {
-            details.append("Available space was \(BoardText.bytes(before.availableBytes)) and is now \(BoardText.bytes(after.availableBytes)).")
+            details.append(AppLanguage.format("Available space was %@ and is now %@.", BoardText.bytes(before.availableBytes), BoardText.bytes(after.availableBytes)))
         }
-        if processed < items.count {
-            details.append("Stopped with \(items.count - processed) items left.")
+        if processed < selection.count {
+            details.append(AppLanguage.format("Stopped with %lld items left.", selection.count - processed))
         }
         details.append(contentsOf: problems)
         resultMessage = ResultMessage(text: details.joined(separator: "\n\n"), isProblem: !problems.isEmpty,
-                                      undoable: [], deletedCount: removed)
+                                      undoable: [], deletedCount: processed - problems.count)
+    }
+
+    private struct StorageCleanupCounts {
+        var folders = 0
+        var devices = 0
+        var runtimes = 0
+        var erased = 0
+
+        var summary: [String] {
+            func quantity(_ count: Int, _ one: String, _ many: String) -> String? {
+                guard count > 0 else { return nil }
+                return count == 1 ? AppLanguage.text(one) : AppLanguage.format(many, count)
+            }
+            let deleted = [
+                quantity(folders, "1 folder", "%lld folders"),
+                quantity(devices, "1 unavailable simulator", "%lld unavailable simulators"),
+                quantity(runtimes, "1 simulator runtime", "%lld simulator runtimes")
+            ].compactMap { $0 }
+            var sentences: [String] = []
+            if !deleted.isEmpty {
+                let list = ListFormatter()
+                list.locale = AppLanguage.current.locale
+                sentences.append(AppLanguage.format("Deleted %@.", list.string(from: deleted) ?? deleted.joined(separator: ", ")))
+            }
+            if let sentence = quantity(erased, "Erased 1 simulator.", "Erased %lld simulators.") { sentences.append(sentence) }
+            return sentences
+        }
     }
 
     /// Updates sent while a delete runs, even after its task was stopped:

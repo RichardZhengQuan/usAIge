@@ -4,9 +4,10 @@ import SwiftUI
 struct CleanPage: View {
     @ObservedObject var store: BranchesStore
     @ObservedObject var presentation: BranchesPaperweightPresentation
-    @State private var showsGeneratedFiles = false
+    @State private var storageReview: StorageCleanupReview.Page?
     @State private var worktreeReview: ClearReviewRequest?
     @State private var allGenerated = false
+    @State private var allXcode = false
     @State private var allWorktrees = false
     @Environment(\.locale) private var locale
 
@@ -33,17 +34,17 @@ struct CleanPage: View {
                 ModernSection(title: "Generated Files", tint: ModernPalette.buildCache) {
                     Button {
                         beginReview()
-                        showsGeneratedFiles = true
+                        storageReview = .generated
                     } label: {
                         Text("Review Files…", bundle: AppLanguage.resourceBundle)
                     }
                     .disabled(store.isDeleting)
                 } content: {
                     if let inventory = store.cleanupInventory {
-                        if inventory.rows.isEmpty {
+                        let rows = inventory.generatedRows.sorted { $0.candidate != nil && $1.candidate == nil }
+                        if rows.isEmpty {
                             ModernNoteRow(text: "No generated folders found.", symbol: "checkmark")
                         } else {
-                            let rows = inventory.rows.sorted { $0.candidate != nil && $1.candidate == nil }
                             candidateRows(rows, expanded: $allGenerated) { row in
                                 detailRow(title: row.location.title, path: row.id, bytes: row.bytes,
                                           note: row.reason, symbol: row.candidate == nil ? "lock.fill" : "hammer.fill")
@@ -51,6 +52,32 @@ struct CleanPage: View {
                         }
                     } else {
                         ModernNoteRow(text: "Scanning for generated files…", symbol: "hourglass")
+                    }
+                }
+                ModernSection(title: "Xcode & Simulators", tint: ModernPalette.buildCache) {
+                    Button {
+                        beginReview()
+                        storageReview = .xcode
+                    } label: {
+                        Text("Review…", bundle: AppLanguage.resourceBundle)
+                    }
+                    .disabled(store.isDeleting)
+                } content: {
+                    if let inventory = store.cleanupInventory {
+                        let rows = inventory.xcodeRows
+                        if inventory.simulatorScanFailed {
+                            ModernNoteRow(text: "Could not verify the simulator inventory.", symbol: "exclamationmark.circle")
+                        }
+                        if rows.isEmpty && !inventory.simulatorScanFailed {
+                            ModernNoteRow(text: "No verified Xcode or simulator items.", symbol: "checkmark")
+                        } else {
+                            candidateRows(rows, expanded: $allXcode) { row in
+                                detailRow(title: row.title, path: row.detail, bytes: row.bytes, note: row.note,
+                                          symbol: row.isSelectable ? "square.stack.3d.up" : "lock.fill")
+                            }
+                        }
+                    } else {
+                        ModernNoteRow(text: "Checking Xcode and simulators…", symbol: "hourglass")
                     }
                 }
                 ModernSection(title: "Finished Worktrees", tint: ModernPalette.worktrees) {
@@ -90,12 +117,12 @@ struct CleanPage: View {
         .onAppear {
             if store.cleanupInventory == nil { store.loadCleanupInventory() }
         }
-        .sheet(isPresented: $showsGeneratedFiles, onDismiss: reviewDismissed) {
-            StorageCleanupReview(store: store) { chosen in
-                guard store.startStorageCleanup(chosen) else { return false }
-                showsGeneratedFiles = false
+        .sheet(item: $storageReview, onDismiss: reviewDismissed) { page in
+            StorageCleanupReview(store: store, initialPage: page) { selection in
+                guard store.startStorageCleanup(selection) else { return false }
+                storageReview = nil
                 return true
-            } cancel: { showsGeneratedFiles = false }
+            } cancel: { storageReview = nil }
         }
         .sheet(item: $worktreeReview, onDismiss: reviewDismissed) { request in
             ClearReviewSheet(request: request, disk: store.diskSpace) { chosen in

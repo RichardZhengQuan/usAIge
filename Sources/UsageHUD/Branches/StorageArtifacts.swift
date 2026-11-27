@@ -2,12 +2,13 @@ import Darwin
 import Foundation
 
 enum StorageArtifactKind: String, CaseIterable, Sendable {
-    case nodeModules, nextCache, xcodeBuild, xcodeIndex, npmCache, claudeCodeCache
+    case nodeModules, nextCache, xcodeProjectFolder, xcodeBuild, xcodeIndex, deviceSupport, npmCache, claudeCodeCache
 
     var relativePath: String {
         switch self {
         case .nodeModules: "node_modules"
         case .nextCache: ".next/cache"
+        case .xcodeProjectFolder, .deviceSupport: ""
         case .xcodeBuild: "Build/Intermediates.noindex"
         case .xcodeIndex: "Index.noindex"
         case .npmCache: ".npm/_cacache"
@@ -19,6 +20,8 @@ enum StorageArtifactKind: String, CaseIterable, Sendable {
         switch self {
         case .nodeModules: "npm dependencies"
         case .nextCache: "Next.js cache"
+        case .xcodeProjectFolder: "Orphaned Xcode build folder"
+        case .deviceSupport: "Device support symbols"
         case .xcodeBuild: "Xcode build intermediates"
         case .xcodeIndex: "Xcode index"
         case .npmCache: "npm download cache"
@@ -30,6 +33,8 @@ enum StorageArtifactKind: String, CaseIterable, Sendable {
         switch self {
         case .nodeModules: "Run npm ci to reinstall the packages. Local edits inside this folder are lost."
         case .nextCache: "Next.js rebuilds its cache on the next build."
+        case .xcodeProjectFolder: "The project it was built from no longer exists."
+        case .deviceSupport: "Xcode copies these symbols again from the device the next time you debug on it."
         case .xcodeBuild: "Xcode rebuilds these files on the next build."
         case .xcodeIndex: "Xcode recreates the index when it opens the project."
         case .npmCache: "npm downloads packages again when it needs them."
@@ -38,9 +43,14 @@ enum StorageArtifactKind: String, CaseIterable, Sendable {
     }
 
     static let projectKinds: [Self] = [.nodeModules, .nextCache]
-    static let xcodeKinds: [Self] = [.xcodeBuild, .xcodeIndex]
+    static let xcodeKinds: [Self] = [.xcodeProjectFolder, .xcodeBuild, .xcodeIndex, .deviceSupport]
     static let homeKinds: [Self] = [.npmCache, .claudeCodeCache]
     static let derivedDataPath = "Library/Developer/Xcode/DerivedData"
+    static let deviceSupportPaths = ["iOS", "watchOS", "tvOS", "visionOS", "macOS"].map {
+        "Library/Developer/Xcode/\($0) DeviceSupport"
+    }
+
+    func path(in owner: String) -> String { relativePath.isEmpty ? owner : owner + "/" + relativePath }
 
     static func isVerifiedProjectOutput(_ path: String, within worktree: String) -> Bool {
         for kind in projectKinds where path.hasSuffix("/" + kind.relativePath) {
@@ -50,8 +60,8 @@ enum StorageArtifactKind: String, CaseIterable, Sendable {
         return false
     }
 
-    func matches(owner: String) -> Bool {
-        let path = owner + "/" + relativePath
+    func matches(owner: String, locator: RepositoryLocator? = nil) -> Bool {
+        let path = path(in: owner)
         guard CleanupFileInspection.directory(owner) != nil, CleanupFileInspection.directory(path) != nil else { return false }
         switch self {
         case .nodeModules:
@@ -61,19 +71,50 @@ enum StorageArtifactKind: String, CaseIterable, Sendable {
             return ["dependencies", "devDependencies", "optionalDependencies"].contains { key in
                 (manifest[key] as? [String: String])?["next"] != nil
             }
-        case .xcodeBuild, .xcodeIndex:
+        case .xcodeBuild, .xcodeIndex, .xcodeProjectFolder:
             let infoPath = owner + "/info.plist"
             guard let info = CleanupFileInspection.regularFile(infoPath), info.st_size <= 262_144,
                   let data = FileManager.default.contents(atPath: infoPath),
                   let plist = (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: Any],
                   let workspace = plist["WorkspacePath"] as? String else { return false }
-            return workspace.hasPrefix("/")
+            guard workspace.hasPrefix("/"), !workspace.utf8.contains(0) else { return false }
+            if self != .xcodeProjectFolder { return true }
+            let normalized = CleanupFileInspection.normalized(workspace)
+            guard !RepositoryLocator.contains("/volumes", normalized.lowercased()),
+                  locator?.isAllowed(normalized) != false else { return false }
+            guard Self.isMissing(workspace) else { return false }
+            // An intermediate link can point to an unplugged disk. Verify the
+            // first existing ancestor before treating a failed lookup as an orphan.
+            var parent = (workspace as NSString).deletingLastPathComponent
+            while !parent.isEmpty && Self.isMissing(parent) { parent = (parent as NSString).deletingLastPathComponent }
+            guard let resolved = realpath(parent, nil) else { return false }
+            defer { free(resolved) }
+            return !RepositoryLocator.contains("/volumes", String(cString: resolved).lowercased())
+        case .deviceSupport:
+            return Self.isDeviceSupportVersion(owner) && Self.deviceSupportRefusal(owner) == nil
         case .npmCache:
             return Self.hasLayout(path, permitted: ["content-v2", "index-v5", "tmp"], marker: "content-v2")
         case .claudeCodeCache:
             return Self.hasLayout(path, permitted: ["js", "wasm"], marker: "js")
                 || Self.hasLayout(path, permitted: ["js", "wasm"], marker: "wasm")
         }
+    }
+
+    // A denied lookup or a dangling link is not evidence of a missing item.
+    private static func isMissing(_ path: String) -> Bool {
+        var info = stat()
+        return lstat(path, &info) != 0 && errno == ENOENT
+    }
+
+    static func isDeviceSupportVersion(_ path: String) -> Bool {
+        let name = (path as NSString).lastPathComponent
+        return name.range(of: #"^.+ [0-9]+(?:\.[0-9]+)* \([A-Za-z0-9]+\)$"#, options: .regularExpression) != nil
+    }
+
+    static func deviceSupportRefusal(_ path: String) -> String? {
+        if !isMissing(path + "/.copying_lock") { return "Xcode has a copy lock on this folder." }
+        if !isMissing(path + "/.processing_lock") { return "Xcode has a processing lock on this folder." }
+        return CleanupFileInspection.directory(path + "/Symbols") == nil ? "The Symbols folder is missing or inaccessible." : nil
     }
 
     private static func json(_ path: String) -> [String: Any]? {
@@ -125,9 +166,8 @@ enum StorageArtifactKind: String, CaseIterable, Sendable {
         "node", "npm", "npx", "next", "next-server", "bun", "deno", "pnpm", "yarn", "vite"
     ]
 
-    private static let xcodeProcesses: Set<String> = [
-        "xcode", "xcodebuild", "xcbuild", "xcbuildservice", "swift", "swift-frontend", "sourcekitservice"
-    ]
+    private static let xcodeBuildProcesses: Set<String> = ["xcode", "xcodebuild", "xcbuild", "xcbuildservice"]
+    private static let xcodeProcesses = xcodeBuildProcesses.union(["swift", "swift-frontend", "sourcekitservice"])
 
     func isBusy(_ processes: [WorkProcess], workspace: String, path: String) -> Bool {
         processes.contains { process in
@@ -140,6 +180,8 @@ enum StorageArtifactKind: String, CaseIterable, Sendable {
                 return RepositoryLocator.contains(workspace, folder) && Self.projectProcesses.contains(name)
             case .xcodeBuild, .xcodeIndex:
                 return Self.xcodeProcesses.contains(name) || executable.contains("/xcode.app/")
+            case .xcodeProjectFolder, .deviceSupport:
+                return Self.xcodeBuildProcesses.contains(name)
             case .npmCache:
                 return Self.projectProcesses.contains(name)
             case .claudeCodeCache:
@@ -156,17 +198,18 @@ struct StorageArtifactLocation: Equatable, Sendable {
     let workspace: String
     var gitWorktree: String? = nil
 
-    var path: String { owner + "/" + kind.relativePath }
+    var path: String { kind.path(in: owner) }
 
     var title: String {
-        if StorageArtifactKind.homeKinds.contains(kind) { return kind.title }
+        let title = AppLanguage.text(kind.title)
+        if StorageArtifactKind.homeKinds.contains(kind) { return title }
         if isProject, workspace != owner, RepositoryLocator.contains(workspace, owner) {
             let workspaceName = URL(fileURLWithPath: workspace).lastPathComponent
             let projectPath = owner.dropFirst(workspace.count + 1)
-            return "\(kind.title) · \(workspaceName)/\(projectPath)"
+            return "\(title) · \(workspaceName)/\(projectPath)"
         }
         let folderName = URL(fileURLWithPath: owner).lastPathComponent
-        return "\(kind.title) · \(folderName)"
+        return "\(title) · \(folderName)"
     }
 
     var isProject: Bool { StorageArtifactKind.projectKinds.contains(kind) }
@@ -185,18 +228,83 @@ struct StorageCleanupRow: Identifiable, Equatable, Sendable {
     let bytes: Int64?
     let reason: String?
     let candidate: StorageCleanupCandidate?
+    var isSuggested = true
 
     var id: String { location.path }
 }
 
 struct StorageCleanupInventory: Equatable, Sendable {
     var rows: [StorageCleanupRow] = []
+    var simulators: [SimulatorCleanupRow] = []
+    var simulatorScanFailed = false
     var foldersChecked = 0
     var skippedFolders: [String] = []
     var reachedScanLimit = false
+
+    var generatedRows: [StorageCleanupRow] { rows.filter { !StorageArtifactKind.xcodeKinds.contains($0.location.kind) } }
+    var xcodeRows: [StorageReviewItem] {
+        let files = rows.filter { StorageArtifactKind.xcodeKinds.contains($0.location.kind) }.map(StorageReviewItem.init)
+        return (files + simulators.map(StorageReviewItem.init)).sorted {
+            if $0.isSuggested != $1.isSuggested { return $0.isSuggested }
+            if $0.isSelectable != $1.isSelectable { return $0.isSelectable }
+            if $0.bytes != $1.bytes { return ($0.bytes ?? -1) > ($1.bytes ?? -1) }
+            return $0.id < $1.id
+        }
+    }
 }
 
-/// Measured disk space represented by the two lists on Clean. A generated
+/// The page and its review sheet show the same identities and explanations.
+struct StorageReviewItem: Identifiable {
+    let id: String
+    let title: String
+    let detail: String
+    let bytes: Int64?
+    let finderPath: String?
+    let isSelectable: Bool
+    let isSuggested: Bool
+    let explanation: String
+    var note: String {
+        isSuggested ? AppLanguage.text("Suggested") + " · " + explanation : explanation
+    }
+
+    init(_ row: StorageCleanupRow) {
+        id = row.id
+        title = row.location.title
+        detail = row.id
+        bytes = row.bytes
+        finderPath = row.id
+        isSelectable = row.candidate != nil
+        isSuggested = isSelectable && row.isSuggested
+        let consequence = AppLanguage.text(row.reason ?? row.location.kind.consequence)
+        if row.location.kind == .deviceSupport && isSelectable {
+            let age = row.isSuggested ? "Last modified at least 30 days ago." : "Modified in the last 30 days."
+            explanation = AppLanguage.text(age) + " " + consequence
+        } else {
+            explanation = consequence
+        }
+    }
+
+    init(_ row: SimulatorCleanupRow) {
+        id = row.id
+        title = row.title
+        detail = row.detail
+        bytes = row.bytes
+        finderPath = row.dataPath
+        isSelectable = row.candidate != nil
+        isSuggested = row.isSuggested
+        explanation = AppLanguage.text(row.reason ?? row.target.action.consequence)
+    }
+}
+
+struct StorageCleanupSelection: Equatable, Sendable {
+    var folders: [StorageCleanupCandidate] = []
+    var simulators: [SimulatorCleanupCandidate] = []
+    var count: Int { folders.count + simulators.count }
+    var bytes: Int64 { folders.map(\.bytes).reduce(0, +) + simulators.compactMap(\.bytes).reduce(0, +) }
+    var hasUnknownSize: Bool { simulators.contains { $0.bytes == nil } }
+}
+
+/// Measured space suggested on Clean. A generated
 /// folder can also be part of a finished worktree's measured footprint.
 struct CleanableSpace: Equatable {
     let bytes: Int64
@@ -204,10 +312,11 @@ struct CleanableSpace: Equatable {
 
     init(inventory: StorageCleanupInventory?, worktrees: [WorkItem], checkedWorktrees: Bool) {
         var folders = [String: Int64]()
-        for candidate in inventory?.rows.compactMap(\.candidate) ?? [] {
+        for candidate in inventory?.rows.filter(\.isSuggested).compactMap(\.candidate) ?? [] {
             folders[CleanupFileInspection.normalized(candidate.id)] = candidate.bytes
         }
         var partial = inventory == nil || inventory?.reachedScanLimit == true || !checkedWorktrees
+            || inventory?.simulatorScanFailed == true || inventory?.simulators.contains { $0.isSuggested && $0.bytes == nil } == true
         for item in worktrees where item.facts.folderExists && BranchesBoard.lane(for: item) == .safeToClear {
             guard let path = item.worktreePath else { continue }
             if let bytes = item.size?.totalBytes {
@@ -216,7 +325,8 @@ struct CleanableSpace: Equatable {
                 partial = true
             }
         }
-        self.bytes = folders.reduce(into: Int64(0)) { total, folder in
+        let simulatorBytes = inventory?.simulators.filter(\.isSuggested).compactMap(\.bytes).reduce(0, +) ?? 0
+        self.bytes = folders.reduce(into: simulatorBytes) { total, folder in
             var ancestor = (folder.key as NSString).deletingLastPathComponent
             while !ancestor.isEmpty && ancestor != "/" {
                 if folders[ancestor] != nil { return }
@@ -290,10 +400,15 @@ struct StorageArtifactScanner: Sendable {
             if budget <= 0 { result.reachedScanLimit = true; break }
         }
         for owner in derivedDataFolders() {
-            for kind in StorageArtifactKind.xcodeKinds {
+            let orphan = StorageArtifactKind.xcodeProjectFolder.matches(owner: owner, locator: locator)
+            for kind: StorageArtifactKind in orphan ? [.xcodeProjectFolder] : [.xcodeBuild, .xcodeIndex] {
                 let location = StorageArtifactLocation(kind: kind, owner: owner, workspace: home)
                 if let row = await inspect(location, processes: activity, seen: &seenItems) { result.rows.append(row) }
             }
+        }
+        for owner in deviceSupportFolders() {
+            let location = StorageArtifactLocation(kind: .deviceSupport, owner: owner, workspace: home)
+            if let row = await inspect(location, processes: activity, seen: &seenItems) { result.rows.append(row) }
         }
         for kind in StorageArtifactKind.homeKinds {
             let location = StorageArtifactLocation(kind: kind, owner: home, workspace: home)
@@ -311,6 +426,10 @@ struct StorageArtifactScanner: Sendable {
             return "The folder or its contents changed. Scan again to review it."
         }
         if isBusy(location, processes: processes()) { return "The folder is in use. Close the tool and scan again." }
+        // The workspace or a symbol-copy lock can reappear during the fingerprint read.
+        if location.kind.relativePath.isEmpty, !location.kind.matches(owner: location.owner, locator: locator) {
+            return "The Xcode folder changed. Scan again to review it."
+        }
         guard CleanupFileInspection.directory(location.path) == current.identity else {
             return "The folder moved. Scan again to review it."
         }
@@ -327,7 +446,7 @@ struct StorageArtifactScanner: Sendable {
         guard !Task.isCancelled, let info = CleanupFileInspection.metadata(location.path),
               seen.insert(CleanupFileIdentity(info)).inserted else { return nil }
         let refusal = await refusal(for: location)
-        let inspection = CleanupFileInspection.directory(location.path) == nil ? nil
+        let inspection = (location.kind == .deviceSupport && refusal != nil) || CleanupFileInspection.directory(location.path) == nil ? nil
             : CleanupFileInspection.read(location.path)
         let reason: String?
         if let refusal { reason = refusal }
@@ -335,12 +454,16 @@ struct StorageArtifactScanner: Sendable {
         else if let protected = inspection?.protectedPath {
             reason = "Contains a protected file or link (\(URL(fileURLWithPath: protected).lastPathComponent))."
         } else if isBusy(location, processes: processes) {
-            reason = "In use by a running tool or a recent session."
+            reason = StorageArtifactKind.xcodeKinds.contains(location.kind)
+                ? "In use by Xcode or a build tool." : "In use by a running tool or a recent session."
         } else {
             reason = nil
         }
         let candidate = reason == nil ? inspection.map { StorageCleanupCandidate(location: location, inspection: $0) } : nil
-        return StorageCleanupRow(location: location, bytes: inspection?.allocatedBytes, reason: reason, candidate: candidate)
+        let modified = Date(timeIntervalSince1970: TimeInterval(info.st_mtimespec.tv_sec)
+                            + Double(info.st_mtimespec.tv_nsec) / 1_000_000_000)
+        return StorageCleanupRow(location: location, bytes: inspection?.allocatedBytes, reason: reason, candidate: candidate,
+                                 isSuggested: candidate != nil && (location.kind != .deviceSupport || SimulatorCleaner.isOld(modified, now: now)))
     }
 
     private func refusal(for location: StorageArtifactLocation) async -> String? {
@@ -349,7 +472,9 @@ struct StorageArtifactScanner: Sendable {
               let identity = CleanupFileInspection.directory(location.path), identity.device == homeID.device else {
             return "This folder is protected, inaccessible, or on another volume."
         }
-        guard location.kind.matches(owner: location.owner) else {
+        guard location.kind.matches(owner: location.owner, locator: locator) else {
+            if location.kind == .deviceSupport, let reason = StorageArtifactKind.deviceSupportRefusal(location.owner) { return reason }
+            if location.kind == .xcodeProjectFolder { return "The original workspace could not be verified as missing." }
             return "The owning tool or generated contents could not be verified."
         }
         if location.isProject {
@@ -370,8 +495,9 @@ struct StorageArtifactScanner: Sendable {
                 guard ignored.succeeded else { return "The project does not mark this folder as ignored." }
             }
         } else if StorageArtifactKind.xcodeKinds.contains(location.kind) {
-            let derive = home + "/" + StorageArtifactKind.derivedDataPath
-            guard (location.owner as NSString).deletingLastPathComponent == derive else {
+            let parent = (location.owner as NSString).deletingLastPathComponent
+            let allowed = location.kind == .deviceSupport ? StorageArtifactKind.deviceSupportPaths : [StorageArtifactKind.derivedDataPath]
+            guard allowed.contains(where: { home + "/" + $0 == parent }) else {
                 return "The Xcode build folder moved."
             }
         } else if location.owner != home {
@@ -413,7 +539,15 @@ struct StorageArtifactScanner: Sendable {
     }
 
     private func derivedDataFolders() -> [String] {
-        let path = home + "/" + StorageArtifactKind.derivedDataPath
+        children(of: home + "/" + StorageArtifactKind.derivedDataPath)
+    }
+
+    private func deviceSupportFolders() -> [String] {
+        StorageArtifactKind.deviceSupportPaths.flatMap { children(of: home + "/" + $0) }
+            .filter { StorageArtifactKind.isDeviceSupportVersion($0) && CleanupFileInspection.directory($0) != nil }
+    }
+
+    private func children(of path: String) -> [String] {
         guard CleanupFileInspection.directory(path) != nil,
               let children = try? FileManager.default.contentsOfDirectory(atPath: path) else { return [] }
         return children.sorted().map { path + "/" + $0 }
