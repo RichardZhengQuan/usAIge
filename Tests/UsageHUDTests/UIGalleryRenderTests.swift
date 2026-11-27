@@ -657,7 +657,7 @@ struct UIGalleryRenderTests {
         let status = LocalToolStatusRegistry(detectInstallations: { [] })
         let usage = UsageStore(provider: FixedUsageProvider(.success(.authenticated([]))), monitorsNetworkChanges: false)
         let preferences = HUDSettingsRootView(
-            settings: settings, store: usage, launchAtLogin: inertLaunchAtLogin(), updateController: UpdateController(),
+            settings: settings, store: usage, launchAtLogin: inertLaunchAtLogin(), updateController: UpdateController(manifestURLs: []),
             relaySync: RelaySyncController(defaults: defaults), localToolStatus: status,
             navigation: SettingsNavigation(), layout: .page)
         let navigation = BranchesPaperweightPresentation()
@@ -713,7 +713,7 @@ struct UIGalleryRenderTests {
                                 settings: settings,
                                 snapshots: snapshots,
                                 launchAtLogin: inertLaunchAtLogin(),
-                                updateController: UpdateController(),
+                                updateController: UpdateController(manifestURLs: []),
                                 relaySync: RelaySyncController(defaults: defaults),
                                 localToolStatus: registry,
                                 navigation: navigation,
@@ -1158,11 +1158,24 @@ struct UIGalleryRenderTests {
             return StorageCleanupRow(location: location, bytes: bytes, reason: nil,
                                      candidate: StorageCleanupCandidate(location: location, inspection: inspection))
         }
+        let examples = ["watchOS 26.5", "iOS 26.5", "usAIge Preview Duo"]
+        let simulators = (SimulatorFixture.rows() ?? []).filter { examples.contains($0.target.name) }
         return StorageCleanupInventory(rows: [
-            row(.xcodeBuild, owner: "/Users/me/Library/Developer/Xcode/DerivedData/usAIge", bytes: 6_400_000_000),
+            row(.xcodeProjectFolder, owner: "/Users/me/Library/Developer/Xcode/DerivedData/OneMind-example", bytes: 16_000_000),
             row(.npmCache, owner: "/Users/me", bytes: 3_100_000_000),
             row(.nodeModules, owner: "/Users/me/Developer/worktrees/finished-one", bytes: 300_000_000)
-        ], foldersChecked: 3)
+        ], simulators: simulators, foldersChecked: 3)
+    }
+
+    @Test func rendersSimulatorCleanup() throws {
+        guard #available(macOS 14.0, *) else { return }
+        let store = BranchesStore(initialSnapshot: sampleBranchesSnapshot(now: Date()), initialCleanupInventory: sampleCleanupInventory)
+        for appearance in GalleryAppearance.allCases {
+            try render(CleanPage(store: store, presentation: BranchesPaperweightPresentation()),
+                       size: CGSize(width: 850, height: 940), appearance: appearance, name: "clean-simulators-\(appearance.rawValue)")
+            try render(StorageCleanupReview(store: store, initialPage: .xcode, confirm: { _ in false }, cancel: {}),
+                       size: CGSize(width: 720, height: 540), appearance: appearance, name: "review-simulators-\(appearance.rawValue)")
+        }
     }
 
     private var sampleToolStorage: [ToolStorageEntry] {

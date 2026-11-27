@@ -407,8 +407,8 @@ struct BranchesRootView: View {
             } cancel: { clearReview = nil }
         }
         .sheet(isPresented: $showsStorageReview, onDismiss: storageReviewDismissed) {
-            StorageCleanupReview(store: store) { chosen in
-                guard store.startStorageCleanup(chosen) else { return false }
+            StorageCleanupReview(store: store) { selection in
+                guard store.startStorageCleanup(selection) else { return false }
                 storageCleanupStarted = true
                 showsStorageReview = false
                 return true

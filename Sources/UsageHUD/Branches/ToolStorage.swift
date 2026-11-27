@@ -67,7 +67,7 @@ enum ToolStorageScanner {
         .init(name: "Playwright browsers", relativePath: "Library/Caches/ms-playwright", kind: .rebuildable),
     ]
 
-    static func scan(home: URL) async -> [ToolStorageEntry] {
+    static func scan(home: URL, simctl: SimulatorCleaner.Runner = SimulatorCleaner.runLive) async -> [ToolStorageEntry] {
         var entries: [ToolStorageEntry] = []
         for item in catalog {
             if Task.isCancelled { return entries }
@@ -76,26 +76,13 @@ enum ToolStorageScanner {
                   let bytes = await FolderSizer.bytes(of: url.path) else { continue }
             entries.append(ToolStorageEntry(name: item.name, path: url.path, bytes: bytes, kind: item.kind))
         }
-        entries.append(contentsOf: await simulatorRuntimes())
+        let runtimes = await simctl(["runtime", "list", "-j"], 30)
+        if runtimes.succeeded { entries.append(contentsOf: simulatorRuntimes(fromListJSON: runtimes.stdout)) }
         return displayOrder(entries)
     }
 
     static func displayOrder(_ entries: [ToolStorageEntry]) -> [ToolStorageEntry] {
         entries.filter { $0.bytes >= minimumShownBytes }.sorted { $0.bytes > $1.bytes }
-    }
-
-    private static func simulatorRuntimes() async -> [ToolStorageEntry] {
-        // Only ask once they exist: `xcrun` offers to install tools otherwise.
-        guard FileManager.default.fileExists(atPath: "/Library/Developer/CoreSimulator") else { return [] }
-        let output = await CommandRunner.run(
-            ShellCommand(
-                executable: URL(fileURLWithPath: "/usr/bin/xcrun"),
-                arguments: ["simctl", "runtime", "list", "-j"]
-            ),
-            timeout: 30
-        )
-        guard output.succeeded else { return [] }
-        return simulatorRuntimes(fromListJSON: output.stdout)
     }
 
     static func simulatorRuntimes(fromListJSON data: Data) -> [ToolStorageEntry] {
@@ -109,10 +96,13 @@ enum ToolStorageScanner {
     }
 
     /// `com.apple.CoreSimulator.SimRuntime.iOS-26-5` reads as `iOS 26.5`.
-    private static func runtimeName(_ identifier: String) -> String {
+    static func runtimeName(_ identifier: String) -> String {
         let last = identifier.split(separator: ".").last.map(String.init) ?? identifier
         let parts = last.split(separator: "-").map(String.init)
         guard let platform = parts.first, parts.count > 1 else { return last }
-        return platform + " " + parts.dropFirst().joined(separator: ".")
+        let version = parts.dropFirst().prefix { $0.allSatisfy(\.isNumber) }
+        let model = parts.dropFirst(1 + version.count)
+        let name = platform + " " + version.joined(separator: ".")
+        return model.isEmpty ? name : "\(name) (\(model.joined(separator: ",")))"
     }
 }

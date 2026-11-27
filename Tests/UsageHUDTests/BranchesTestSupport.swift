@@ -98,7 +98,8 @@ final class GitFixture: @unchecked Sendable {
         WorkProcess(id: 4242, name: name, folder: folder, memoryBytes: 1024, startedAt: nil, ports: ports)
     }
 
-    func scanner(now: @escaping @Sendable () -> Date = Date.init) -> BranchesScanner {
+    func scanner(now: @escaping @Sendable () -> Date = Date.init,
+                 simctl: @escaping SimulatorCleaner.Runner = { _, _ in .couldNotStart }) -> BranchesScanner {
         let repository = repository
         return BranchesScanner(environment: BranchesScanner.Environment(
             home: URL(fileURLWithPath: home),
@@ -108,7 +109,7 @@ final class GitFixture: @unchecked Sendable {
             cursorDatabase: URL(fileURLWithPath: root + "/no-cursor.vscdb"),
             addedFolders: { [repository] },
             processes: { [weak self] in self?.lock.withLock { self?.runningProcesses } ?? [] },
-            now: now
+            now: now, simctl: simctl
         ))
     }
 

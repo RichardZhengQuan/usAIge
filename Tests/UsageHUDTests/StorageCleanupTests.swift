@@ -21,8 +21,8 @@ struct StorageCleanupTests {
         #expect(inventory.foldersChecked == 2)
         #expect(store.cleanableSpace.bytes == items.reduce(0) { $0 + $1.bytes })
         #expect(store.loadCleanupInventory() == nil)
-        #expect(!store.startStorageCleanup([try #require(items.first), try #require(items.first)]))
-        #expect(store.startStorageCleanup(items))
+        #expect(!store.startStorageCleanup(StorageCleanupSelection(folders: [try #require(items.first), try #require(items.first)])))
+        #expect(store.startStorageCleanup(StorageCleanupSelection(folders: items)))
         #expect(store.cleanupProgress?.operation == .clearingFiles)
         store.windowClosed()
 
@@ -94,7 +94,7 @@ struct StorageCleanupTests {
         let derived = StorageArtifactKind.derivedDataPath + "/Sample-abc"
         try fixture.write(derived + "/info.plist", """
             <?xml version="1.0" encoding="UTF-8"?>
-            <plist version="1.0"><dict><key>WorkspacePath</key><string>/tmp/Sample.xcodeproj</string></dict></plist>
+            <plist version="1.0"><dict><key>WorkspacePath</key><string>\(fixture.repository)</string></dict></plist>
             """, in: fixture.home)
         try fixture.write(derived + "/Build/Intermediates.noindex/build.o", "intermediate", in: fixture.home)
         try fixture.write("Library/Developer/Xcode/Archives/Release.xcarchive/Keep", "archive", in: fixture.home)
@@ -109,6 +109,73 @@ struct StorageCleanupTests {
         #expect(await scanner.remove(npm) == nil)
         #expect(!FileManager.default.fileExists(atPath: npm.id))
         #expect(FileManager.default.fileExists(atPath: fixture.home + "/Library/Developer/Xcode/Archives/Release.xcarchive/Keep"))
+    }
+
+    @Test func orphanRequiresAVerifiablyMissingLocalWorkspaceAndHasNoChildRows() async throws {
+        let fixture = try GitFixture()
+        let missing = fixture.home + "/Projects/Missing.xcodeproj"
+        let live = fixture.home + "/Projects/Live.xcodeproj"
+        try fixture.write("project.pbxproj", "project", in: live)
+        let link = fixture.home + "/Offline"
+        try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: "/Volumes/Offline-\(UUID())")
+        let examples = ["Orphan": missing, "Removable": missing, "Live": live, "External": "/Volumes/Offline/Project.xcworkspace",
+                        "LinkedDisk": link + "/Project.xcworkspace",
+                        "Relative": "Project.xcworkspace"]
+        for (name, path) in examples {
+            let owner = fixture.home + "/" + StorageArtifactKind.derivedDataPath + "/" + name
+            try fixture.write("info.plist", "<plist version=\"1.0\"><dict><key>WorkspacePath</key><string>\(path)</string></dict></plist>", in: owner)
+            try fixture.write("Build/Intermediates.noindex/intermediate", "build data", in: owner)
+            try fixture.write("Index.noindex/entry", "index data", in: owner)
+        }
+        let scanner = fixture.scanner()
+        let inventory = await scanner.scanStorage(addedFolders: [])
+        func selectable(_ name: String) -> [StorageCleanupRow] {
+            inventory.rows.filter { $0.location.owner.hasSuffix("/" + name) && $0.candidate != nil }
+        }
+        let orphan = try #require(selectable("Orphan").first)
+        #expect(orphan.isSuggested && orphan.location.kind == .xcodeProjectFolder)
+        #expect(orphan.id == orphan.location.owner)
+        #expect(inventory.rows.filter { $0.location.owner == orphan.id }.count == 1)
+        #expect(Set(selectable("Live").map(\.location.kind)) == [.xcodeBuild, .xcodeIndex])
+        #expect(Set(selectable("External").map(\.location.kind)) == [.xcodeBuild, .xcodeIndex])
+        #expect(Set(selectable("LinkedDisk").map(\.location.kind)) == [.xcodeBuild, .xcodeIndex])
+        #expect(selectable("Relative").isEmpty)
+        let removable = try #require(selectable("Removable").first?.candidate)
+        #expect(await scanner.removeStorageArtifact(removable, addedFolders: []) == nil)
+        #expect(!FileManager.default.fileExists(atPath: removable.id))
+        let reviewed = try #require(orphan.candidate)
+        fixture.setRunningProcesses([fixture.process(named: "Xcode", in: "/")])
+        #expect(await scanner.removeStorageArtifact(reviewed, addedFolders: []) != nil)
+        fixture.setRunningProcesses([])
+        try fixture.write("project.pbxproj", "back", in: missing)
+        #expect(await scanner.removeStorageArtifact(reviewed, addedFolders: []) != nil)
+        #expect(FileManager.default.fileExists(atPath: orphan.id + "/Index.noindex/entry"))
+    }
+
+    @Test func deviceSupportRequiresSymbolsAndNoLocksAndUsesFolderAgeOnlyForSuggestions() async throws {
+        let fixture = try GitFixture()
+        let base = fixture.home + "/Library/Developer/Xcode/watchOS DeviceSupport/"
+        let now = Date()
+        let old = base + "Watch7,5 26.5 (23T570)", recent = base + "Watch7,8 27.2 (24S118)"
+        let copying = base + "Watch7,6 26.5 (23T570)", processing = base + "Watch7,7 26.5 (23T570)"
+        for path in [old, recent, copying, processing] { try fixture.write("Symbols/example", "symbols", in: path) }
+        try fixture.write(".copying_lock", "", in: copying)
+        try fixture.write(".processing_lock", "", in: processing)
+        try fixture.write("unrelated", "no symbols", in: base + "Watch3,1 10.0 (21A1)")
+        try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(-31 * 86400)], ofItemAtPath: old)
+        let scanner = fixture.scanner(now: { now })
+        let inventory = await scanner.scanStorage(addedFolders: [])
+        let eligible = inventory.rows.filter { $0.candidate != nil }
+        #expect(Set(eligible.map(\.id)) == [old, recent])
+        #expect(eligible.filter(\.isSuggested).map(\.id) == [old])
+        #expect(inventory.rows.first { $0.id == copying }?.reason == "Xcode has a copy lock on this folder.")
+        let candidate = try #require(eligible.first(where: \.isSuggested)?.candidate)
+        #expect(CleanableSpace(inventory: inventory, worktrees: [], checkedWorktrees: true).bytes == candidate.bytes)
+        try fixture.write(".processing_lock", "", in: old)
+        #expect(await scanner.removeStorageArtifact(candidate, addedFolders: []) != nil)
+        #expect(FileManager.default.fileExists(atPath: old + "/Symbols/example"))
+        let chosenRecent = try #require(eligible.first { $0.id == recent }?.candidate)
+        #expect(await scanner.removeStorageArtifact(chosenRecent, addedFolders: []) == nil)
     }
 
     @Test func incompleteFolderSizesAreUnknown() async throws {
