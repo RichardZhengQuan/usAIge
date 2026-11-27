@@ -55,7 +55,7 @@ import Testing
     #expect(!guidance.presentation(for: .apiKeyHelperSignInExpired).text.contains("`claude`"))
     #expect(LocalToolGuidance.supported.map(\.id) == [.chatGPT, .claude, .cursor, .grok, .jetBrainsAI, .windsurf]
         + [.antigravity, .copilot, .kiro, .amp, .muse, .ohMyPi, .commandCode, .cline, .openCodeGo])
-    #expect(LocalToolGuidance.supported.filter { $0.optInHint != nil }.map(\.id) == [.copilot])
+    #expect(LocalToolGuidance.supported.filter { $0.optInHint != nil }.map(\.id) == [.antigravity, .copilot, .ohMyPi])
 }
 
 @Test func claudeGuidanceExplainsAutomaticRecoveryWithoutSetupActions() {

@@ -29,18 +29,57 @@ private let antigravityTestSummary = """
 
 private struct AntigravityTestLocator: AntigravityServerLocating {
     let location: AntigravityServerLocation
+    var onLocate: @Sendable () -> Void = {}
 
     init(httpsPorts: [UInt16] = [42_135], extensionPort: UInt16? = nil) {
         location = .running(csrfToken: antigravityTestToken, httpsPorts: httpsPorts, extensionPort: extensionPort)
     }
 
-    func locate() async throws -> AntigravityServerLocation { location }
+    func locate() async throws -> AntigravityServerLocation {
+        onLocate()
+        return location
+    }
 }
 
 private func antigravityTestURL(
     _ scheme: String = "https", port: UInt16 = 42_135, method: String = "RetrieveUserQuotaSummary"
 ) -> String {
     "\(scheme)://127.0.0.1:\(port)/exa.language_server_pb.LanguageServerService/\(method)"
+}
+
+@Test func antigravityDoesNotLocateOrRequestBeforeOptIn() async throws {
+    var locator = AntigravityTestLocator()
+    locator.onLocate = { Issue.record("Antigravity discovery ran while the reader was off") }
+    let http = ScriptedUsageHTTPClient(responses: [:])
+    let registry = await LocalToolStatusRegistry()
+    let provider = AntigravityUsageProvider(locator: locator, http: http, isOptedIn: { false }, statusRegistry: registry)
+
+    #expect(try await provider.refresh() == .signedOut)
+    #expect(await registry.status(for: .antigravity) == .optInRequired)
+    #expect(await http.requests.isEmpty)
+}
+
+@Test func antigravityDoesNotRequestWhenTurnedOffDuringDiscovery() async throws {
+    let suite = "usaige.antigravity.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    LocalToolOptIn.setEnabled(true, for: .antigravity, defaults: defaults)
+    var locator = AntigravityTestLocator()
+    locator.onLocate = {
+        LocalToolOptIn.setEnabled(false, for: .antigravity, defaults: UserDefaults(suiteName: suite)!)
+    }
+    let http = ScriptedUsageHTTPClient(responses: [:])
+    let registry = await LocalToolStatusRegistry()
+    let provider = AntigravityUsageProvider(
+        locator: locator, http: http,
+        isOptedIn: { LocalToolOptIn.isEnabled(.antigravity, defaults: UserDefaults(suiteName: suite)!) },
+        statusRegistry: registry
+    )
+
+    #expect(try await provider.refresh() == .signedOut)
+    #expect(!LocalToolOptIn.isEnabled(.antigravity, defaults: defaults))
+    #expect(await registry.status(for: .antigravity) == .optInRequired)
+    #expect(await http.requests.isEmpty)
 }
 
 @Test func antigravityReadsPoolsAsPairedWindowsAndSendsTheExpectedRequest() async throws {
@@ -50,6 +89,7 @@ private func antigravityTestURL(
     let provider = AntigravityUsageProvider(
         locator: AntigravityTestLocator(extensionPort: 58_445),
         http: http,
+        isOptedIn: { true },
         statusRegistry: registry,
         now: { antigravityTestNow }
     )
@@ -109,7 +149,7 @@ private func antigravityTestURL(
 
 @Test func antigravityTreatsAnEmptySummaryAsAReading() async throws {
     let http = ScriptedUsageHTTPClient(responses: [antigravityTestURL(): .init(json: #"{"groups":[]}"#)])
-    let provider = AntigravityUsageProvider(locator: AntigravityTestLocator(), http: http)
+    let provider = AntigravityUsageProvider(locator: AntigravityTestLocator(), http: http, isOptedIn: { true })
 
     #expect(try await provider.refresh() == .authenticated([]))
     #expect(await http.requests.count == 1)
@@ -136,7 +176,7 @@ private func antigravityTestURL(
         summary: .init(status: 404),
         status: .init(json: json),
     ])
-    let provider = AntigravityUsageProvider(locator: AntigravityTestLocator(), http: http)
+    let provider = AntigravityUsageProvider(locator: AntigravityTestLocator(), http: http, isOptedIn: { true })
 
     let snapshots = try await provider.refresh().snapshots
 
@@ -196,7 +236,8 @@ func antigravityDiscoversTheFirstTokenBearingProcessByPID(command: String) async
         extensionURL: .init(json: antigravityTestSummary),
     ])
     let provider = AntigravityUsageProvider(
-        locator: AntigravityTestLocator(httpsPorts: [42_135, 41_999], extensionPort: 58_445), http: http
+        locator: AntigravityTestLocator(httpsPorts: [42_135, 41_999], extensionPort: 58_445), http: http,
+        isOptedIn: { true }
     )
 
     #expect(try await provider.refresh().snapshots.count == 3)
@@ -211,7 +252,8 @@ func antigravityDistinguishesMissingAndInstalledWhenNothingRuns(installPath: Str
     let http = ScriptedUsageHTTPClient(responses: [:])
     let registry = await LocalToolStatusRegistry()
     let provider = AntigravityUsageProvider(
-        locator: AntigravityProcessLocator(commands: commands), http: http, homeDirectory: home, statusRegistry: registry
+        locator: AntigravityProcessLocator(commands: commands), http: http, homeDirectory: home,
+        isOptedIn: { true }, statusRegistry: registry
     )
 
     #expect(try await provider.refresh() == .signedOut)
@@ -229,7 +271,7 @@ func antigravityDistinguishesMissingAndInstalledWhenNothingRuns(installPath: Str
     let http = ScriptedUsageHTTPClient(responses: [:])
     let registry = await LocalToolStatusRegistry()
     let provider = AntigravityUsageProvider(
-        locator: AntigravityProcessLocator(commands: commands), http: http, statusRegistry: registry
+        locator: AntigravityProcessLocator(commands: commands), http: http, isOptedIn: { true }, statusRegistry: registry
     )
 
     #expect(try await provider.refresh() == .signedOut)
@@ -245,6 +287,7 @@ func antigravityMapsAuthenticationAndRateLimitFailures(httpStatus: Int) async {
     let provider = AntigravityUsageProvider(
         locator: AntigravityTestLocator(httpsPorts: [42_135, 41_999], extensionPort: 58_445),
         http: http,
+        isOptedIn: { true },
         statusRegistry: registry
     )
     let error: LocalToolUsageError = httpStatus == 401 ? .credentialExpired : .rateLimited
@@ -260,7 +303,7 @@ func antigravityMapsAuthenticationAndRateLimitFailures(httpStatus: Int) async {
         antigravityTestURL(): [.init(json: antigravityTestSummary), .init(json: "{broken")],
     ])
     let registry = await LocalToolStatusRegistry()
-    let provider = AntigravityUsageProvider(locator: AntigravityTestLocator(), http: http, statusRegistry: registry)
+    let provider = AntigravityUsageProvider(locator: AntigravityTestLocator(), http: http, isOptedIn: { true }, statusRegistry: registry)
     let composite = CompositeUsageProvider(
         local: ScriptedUsageProvider(result: .signedOut),
         throttled: [provider],
@@ -277,7 +320,8 @@ func antigravityMapsAuthenticationAndRateLimitFailures(httpStatus: Int) async {
 @Test func antigravityReportsTimeoutWhenNoPortAnswers() async {
     let registry = await LocalToolStatusRegistry()
     let provider = AntigravityUsageProvider(
-        locator: AntigravityTestLocator(), http: AntigravityTimedOutHTTPClient(), statusRegistry: registry
+        locator: AntigravityTestLocator(), http: AntigravityTimedOutHTTPClient(),
+        isOptedIn: { true }, statusRegistry: registry
     )
 
     await #expect(throws: LocalToolUsageError.timedOut) { try await provider.refresh() }

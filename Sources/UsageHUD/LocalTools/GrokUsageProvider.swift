@@ -291,9 +291,8 @@ actor GrokUsageProvider: CodexUsageProviding {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("xai-grok-cli", forHTTPHeaderField: "X-XAI-Token-Auth")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("Grok Build", forHTTPHeaderField: "User-Agent")
+        request.setValue(UsAIgeUserAgent.value, forHTTPHeaderField: "User-Agent")
         return request
     }
 
@@ -301,10 +300,9 @@ actor GrokUsageProvider: CodexUsageProviding {
         var request = URLRequest(url: creditsConfigURL)
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("xai-grok-cli", forHTTPHeaderField: "X-XAI-Token-Auth")
         request.setValue("application/grpc-web+proto", forHTTPHeaderField: "Accept")
         request.setValue("application/grpc-web+proto", forHTTPHeaderField: "Content-Type")
-        request.setValue("Grok Build", forHTTPHeaderField: "User-Agent")
+        request.setValue(UsAIgeUserAgent.value, forHTTPHeaderField: "User-Agent")
         // An empty request message in a grpc-web frame: flag 0, zero length.
         request.httpBody = Data([0, 0, 0, 0, 0])
         return request

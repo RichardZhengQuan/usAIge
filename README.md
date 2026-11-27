@@ -126,6 +126,12 @@ The panel stays above ordinary windows, starts at the bottom-right, and remember
 
 While idle, the panel surface is fully transparent and every visible control is shown at half its configured opacity. Hovering anywhere over the rail restores the surface and full configured opacity.
 
+### Unreleased macOS release notes
+
+After updating, Antigravity and Oh My Pi switch off, including for existing users.
+Their limits disappear from the rail until you turn each reader on in **AI Tools**.
+Oh My Pi's Google accounts stay hidden when its reader is on.
+
 ## macOS requirements
 
 - macOS 11 or later on an Apple-silicon Mac.
@@ -136,9 +142,10 @@ While idle, the panel surface is fully transparent and every visible control is 
 - For Grok Build limits: the Grok Build CLI signed in with `grok login`.
 - For JetBrains AI credits: a JetBrains IDE (or Android Studio) signed in to JetBrains AI that has used AI Assistant at least once.
 - For Windsurf limits: Devin Desktop (Windsurf's new name) or Windsurf, signed in and opened at least once.
-- For Antigravity limits: the Antigravity app or `agy`, signed in and running.
+- To see Antigravity limits, turn on Antigravity in **AI Tools** and keep the signed-in app or `agy` running.
 - For GitHub Copilot limits: the GitHub CLI signed in with `gh auth login`, and Copilot turned on in **AI Tools**.
-- For Kiro, Amp, Muse Code, or Oh My Pi limits: that tool's CLI (`kiro-cli`, `amp`, `muse`, `omp`) installed and signed in.
+- To see Kiro, Amp, or Muse Code limits, install the corresponding CLI (`kiro-cli`, `amp`, or `muse`) and sign in.
+- To see Oh My Pi limits, sign in with `omp` and turn on Oh My Pi in **AI Tools**.
 - For Command Code, Cline, or OpenCode Go limits: that tool's CLI login (`cmd login`, `cline auth`, or `opencode auth login` with OpenCode Zen).
 - For remote limits: a compatible adapter that can claim a one-time usAIge pairing code and upload normalized limits.
 
@@ -349,26 +356,31 @@ tools ClaudeBar reads and why they aren't built in.
 
 | Tool | What usAIge reads | Buckets |
 | --- | --- | --- |
-| Antigravity | The running app's or `agy`'s local language server on `127.0.0.1`, found with `pgrep` and `lsof`, using the per-launch token from its own arguments | **Gemini** and **Claude & others** (5-hour inner ring, weekly outer ring), **Gemini Argon** weekly, or per-model quotas on older builds |
+| Antigravity | Off until turned on in **AI Tools**. Its private local language server is outside Google's supported ACP interface. | **Gemini** and **Claude & others** (5-hour inner ring, weekly outer ring), **Gemini Argon** weekly, or per-model quotas on older builds |
 | GitHub Copilot | Off until turned on. `gh auth token`, sent only to GitHub's `copilot_internal/user` endpoint | **AI credits** for the month, plus any other limited Copilot quota, with GitHub's reset date |
 | Kiro | `kiro-cli acp`'s `_kiro/account/getUsage` | **Plan credits** with the billing-cycle reset, and each bonus-credit grant |
 | Amp | `amp usage --no-color` | Each capped credit line (**Free**, …). They refill gradually, so they have no reset time |
 | Muse Code | `muse usage --json` | **Muse Code** session (inner ring; Muse doesn't state its length) and weekly (outer ring), with Muse's tier |
-| Oh My Pi | `omp usage --json` | One limit per upstream account (**Claude**, **Codex**, …), never named by email |
+| Oh My Pi | Off until turned on in **AI Tools**. Then usAIge runs `omp usage --json`, which can query Google's internal API for Google accounts. | Limits for non-Google accounts (**Claude**, **Codex**, …), named by provider and order |
 | Command Code | The API key `cmd login` saved in `~/.commandcode/auth.json`, sent only to `api.commandcode.ai` | **Plan limits** (5-hour, weekly) and **Credits** when the plan states an allowance |
 | Cline | The login `cline auth` saved in `~/.cline/data/settings/providers.json`, sent only to `api.cline.bot` | **Plan limits** (5-hour, weekly) and **Monthly** |
 | OpenCode Go | The OpenCode Zen key in opencode's `auth.json`, sent only to `opencode.ai` | **Plan limits** (5-hour, weekly) and **Monthly** |
 
-Antigravity's local server uses a self-signed certificate, so usAIge accepts
-that certificate only for a connection to `127.0.0.1`, follows no redirects,
-and uses no proxy for it. GitHub Copilot is off by default because the GitHub
-CLI's sign-in also covers your repositories; turning it on in **AI Tools**
-lets usAIge ask `gh` for it on each refresh. CLIs are found in `PATH` and in the
+Antigravity, Oh My Pi, and GitHub Copilot are off by default. Google supports
+only the Agent Client Protocol (ACP) for external Antigravity clients and told
+T3 Code that using its internal APIs can flag an account. Antigravity's reader
+connects to the running app on `127.0.0.1`, where it accepts the local server's
+self-signed certificate and disables redirects and proxies. The Oh My Pi reader
+hides Google limits after `omp` runs, so enabling it still allows `omp` to make
+its Google requests. Turning on Copilot lets usAIge ask `gh` for a sign-in that
+also covers your repositories. [T3 Code's account of Google's guidance](https://github.com/pingdotgg/t3code/pull/43026)
+
+CLIs are found in `PATH` and in the
 usual install folders (`~/.local/bin`, `~/.bun/bin`, `/opt/homebrew/bin`,
 `/usr/local/bin`), since an app opened from the Finder doesn't see your shell's
 `PATH`. Tools that start a process are polled every three to five minutes.
-**AI Tools** lists these tools only once they're found on this Mac, so the list
-stays short.
+**AI Tools** always lists the three opt-in readers so you can turn them on.
+Most other readers appear when their tools are found on this Mac.
 
 Claude reports several weekly buckets. The rail shows **All models** by
 default and keeps the others available under **AI Tools**, mirroring
@@ -599,7 +611,10 @@ codesign --verify --deep --strict 'dist/usAIge.app'
 
 The automated suite covers quota normalization, JSON-RPC framing, account/rate-limit parsing, Claude Code, Cursor, Grok Build, JetBrains AI, Windsurf, Antigravity, Copilot, Kiro, Amp, Muse Code, Oh My Pi, Command Code, Cline, and OpenCode Go decoding and throttling, one-time remote pairing payloads, state recovery, countdowns, notification thresholds and routing, settings persistence, panel geometry, and severity thresholds.
 
-Opt-in smoke tests exercise local usage sources on this Mac and print only normalized limits:
+The live smoke suite exercises this Mac's local usage sources and prints only
+normalized limits. Running it opts into Antigravity's private local reader and
+`omp usage` for the test, even when their **AI Tools** switches are off. If
+those tools have Google accounts, the same account-flagging risk applies.
 
 ```bash
 USAIGE_LIVE_LOCAL_TOOLS=1 swift test --filter LiveLocalTools
